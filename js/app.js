@@ -79,8 +79,8 @@ function renderHeader() {
     <div class="app-logo">
       <div class="app-logo-icon">${Icons.shirt(20)}</div>
       <div class="app-logo-text">
-        <h1><span class="accent">Gestionale</span> Ordini</h1>
-        <p>${active.length} attivi · ${archived.length} archiviati</p>
+        <h1>T&amp;C <span class="accent">FACTORY</span></h1>
+        <p>Creative Lab · ${active.length} attivi · ${archived.length} archiviati</p>
       </div>
     </div>
     <div class="app-header-actions">

@@ -25,15 +25,27 @@ html.dark .glass-card { background: color-mix(in srgb, var(--bg-card) 85%, trans
 
 .app-shell {
   min-height: 100vh;
-  background: var(--bg-primary);
+  background-color: var(--bg-primary);
+  background-image:
+    radial-gradient(at 10% 5%, color-mix(in srgb, var(--brand-gold-light) 22%, transparent) 0px, transparent 50%),
+    radial-gradient(at 90% 8%, color-mix(in srgb, var(--brand-copper) 16%, transparent) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, color-mix(in srgb, var(--brand-gold) 14%, transparent) 0px, transparent 55%);
+  background-attachment: fixed;
+}
+
+html.dark .app-shell {
+  background-image:
+    radial-gradient(at 10% 5%, color-mix(in srgb, var(--brand-gold) 16%, transparent) 0px, transparent 50%),
+    radial-gradient(at 90% 8%, color-mix(in srgb, var(--brand-copper) 14%, transparent) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, color-mix(in srgb, var(--brand-gold-dark) 18%, transparent) 0px, transparent 55%);
 }
 
 .app-header {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
-  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg-card) 75%, transparent);
+  backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
 }
 
@@ -57,7 +69,8 @@ html.dark .glass-card { background: color-mix(in srgb, var(--bg-card) 85%, trans
   width: 42px;
   height: 42px;
   border-radius: var(--radius-md);
-  background: var(--brand-gold);
+  background: var(--brand-gradient);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--brand-gold) 45%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -73,7 +86,12 @@ html.dark .glass-card { background: color-mix(in srgb, var(--bg-card) 85%, trans
   line-height: 1.2;
 }
 
-.app-logo-text h1 .accent { color: var(--brand-gold); }
+.app-logo-text h1 .accent {
+  background-image: var(--brand-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
 
 .app-logo-text p {
   font-size: 0.75rem;
@@ -96,8 +114,9 @@ html.dark .glass-card { background: color-mix(in srgb, var(--bg-card) 85%, trans
 }
 
 .glass-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-card) 82%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
 }
@@ -120,11 +139,11 @@ html.dark .glass-card { background: color-mix(in srgb, var(--bg-card) 85%, trans
 
 .stat-card-glow {
   position: absolute;
-  top: -16px; right: -16px;
-  width: 80px; height: 80px;
+  top: -20px; right: -20px;
+  width: 110px; height: 110px;
   border-radius: 50%;
-  opacity: 0.18;
-  filter: blur(20px);
+  opacity: 0.28;
+  filter: blur(26px);
 }
 
 .stat-card-label {
@@ -214,7 +233,7 @@ html.dark .glass-card { background: color-mix(in srgb, var(--bg-card) 85%, trans
 .cal-day.today .cal-day-num { color: var(--brand-gold); }
 
 .cal-day-count {
-  background: var(--brand-gold);
+  background: var(--brand-gradient);
   color: #fff;
   font-size: 0.6rem;
   font-weight: 700;
@@ -333,7 +352,7 @@ html.dark .glass-card { background: color-mix(in srgb, var(--bg-card) 85%, trans
 
 .order-row-progress { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .progress-track { flex: 1; height: 6px; border-radius: 4px; background: var(--bg-secondary); overflow: hidden; }
-.progress-fill { height: 100%; background: linear-gradient(90deg, var(--brand-gold-light), var(--brand-gold)); transition: width 0.3s ease; }
+.progress-fill { height: 100%; background: var(--brand-gradient); transition: width 0.3s ease; }
 .progress-label { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); font-family: var(--font-mono); }
 
 .empty-list { padding: 56px var(--space-lg); text-align: center; color: var(--text-muted); font-size: 0.88rem; }
@@ -499,7 +518,7 @@ html.dark .glass-card { background: color-mix(in srgb, var(--bg-card) 85%, trans
   bottom: 24px; right: 24px;
   width: 56px; height: 56px;
   border-radius: 50%;
-  background: var(--brand-gold);
+  background: var(--brand-gradient);
   color: #fff;
   border: none;
   box-shadow: var(--shadow-lg);

@@ -7,8 +7,10 @@
   --brand-gold: #C4922A;
   --brand-gold-light: #D4A84B;
   --brand-gold-dark: #9E741E;
+  --brand-copper: #B5651D;
   --brand-black: #1a1a1a;
   --brand-white: #FAFAF8;
+  --brand-gradient: linear-gradient(135deg, var(--brand-gold-light), var(--brand-gold) 55%, var(--brand-copper));
 
   /* UI Colors */
   --bg-primary: #F5F3EF;
@@ -204,11 +206,11 @@ input, select, textarea {
 }
 
 .btn-primary {
-  background: var(--brand-gold);
+  background: var(--brand-gradient);
   color: #fff;
 }
 .btn-primary:hover {
-  background: var(--brand-gold-dark);
+  filter: brightness(1.06);
   box-shadow: var(--shadow-gold);
   transform: translateY(-1px);
 }
