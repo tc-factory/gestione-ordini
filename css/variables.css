@@ -3,28 +3,28 @@
    ============================================ */
 
 :root {
-  /* Brand Colors */
-  --brand-gold: #C4922A;
-  --brand-gold-light: #D4A84B;
-  --brand-gold-dark: #9E741E;
-  --brand-copper: #B5651D;
-  --brand-black: #1a1a1a;
-  --brand-white: #FAFAF8;
-  --brand-gradient: linear-gradient(135deg, var(--brand-gold-light), var(--brand-gold) 55%, var(--brand-copper));
+  /* Brand Colors — fintech moderna: indigo + violetto + menta */
+  --brand-gold: #6366F1;
+  --brand-gold-light: #818CF8;
+  --brand-gold-dark: #4F46E5;
+  --brand-copper: #2DD4BF;
+  --brand-black: #14142B;
+  --brand-white: #FAFAFB;
+  --brand-gradient: linear-gradient(135deg, #8B5CF6, var(--brand-gold) 55%, var(--brand-copper));
 
   /* UI Colors */
-  --bg-primary: #F5F3EF;
-  --bg-secondary: #EDEAE3;
+  --bg-primary: #F6F7FB;
+  --bg-secondary: #ECEEF6;
   --bg-card: #FFFFFF;
-  --bg-sidebar: #1C1C1C;
+  --bg-sidebar: #14142B;
 
-  --text-primary: #1C1C1C;
-  --text-secondary: #6B6560;
-  --text-muted: #9E9890;
-  --text-on-dark: #FAFAF8;
+  --text-primary: #16162B;
+  --text-secondary: #5C5F75;
+  --text-muted: #92949F;
+  --text-on-dark: #FAFAFB;
 
-  --border: #DDD9D0;
-  --border-light: #EAE7E0;
+  --border: #E1E3EE;
+  --border-light: #ECEEF6;
 
   /* Priority Colors */
   --priority-low: #4CAF82;
@@ -45,9 +45,9 @@
   --status-spedito: #4CAF82;
 
   /* Typography */
-  --font-display: 'Oswald', sans-serif;
+  --font-display: 'Inter', sans-serif;
   --font-body: 'Inter', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-mono: 'Inter', sans-serif;
 
   /* Spacing */
   --space-xs: 4px;

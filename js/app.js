@@ -75,14 +75,12 @@ function renderHeader() {
 
   document.getElementById('header-root').innerHTML = `
     <div class="app-logo">
-      <div class="app-logo-icon">${Icons.shirt(20)}</div>
+      <div class="app-logo-icon">${Icons.package(20)}</div>
       <div class="app-logo-text">
-        <h1>T&amp;C <span class="accent">FACTORY</span></h1>
-        <p>Creative Lab</p>
+        <h1>T&amp;C <span class="accent">Gestione ordini</span></h1>
       </div>
     </div>
     <div class="app-header-actions">
-      <span id="connection-badge" class="btn-icon" style="font-size:0.7rem;font-weight:600;padding:4px 8px;border-radius:10px;background:var(--bg-secondary);cursor:help;" title="Stato connessione">⏳</span>
       <button class="btn-icon" onclick="Theme.toggle()" title="Cambia tema">${isDark ? Icons.sun() : Icons.moon()}</button>
       <button class="btn-icon" onclick="openSettings()" title="Impostazioni">${Icons.settings()}</button>
       <button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>
@@ -237,7 +235,10 @@ function renderOrderList() {
     switch (AppState.sortKey) {
       case 'nome': return a.nome.localeCompare(b.nome);
       case 'data': return a.dataOrdine.localeCompare(b.dataOrdine);
-      case 'priorita': return TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
+      case 'priorita': {
+        const diff = TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
+        return diff !== 0 ? diff : a.dataOrdine.localeCompare(b.dataOrdine);
+      }
       case 'dataCompletato': {
         const da = TCFactory.stageProgress(a).lastDate;
         const db = TCFactory.stageProgress(b).lastDate;
@@ -578,11 +579,11 @@ function renderOrderDetail() {
         <div>
           <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:6px;">Allegati</div>
           <div style="display:flex;flex-direction:column;gap:6px;">
-            ${order.files.map(f => `
-              <div class="file-row">
+            ${order.files.map((f, i) => `
+              <div class="file-row" style="cursor:pointer;" onclick="previewOrderFile(${i})">
                 ${Icons.fileText(15)}
                 <span class="truncate" style="font-size:0.78rem;">${escapeHtml(f.name)}</span>
-                <a href="${f.url}" target="_blank" download="${escapeHtml(f.name)}" style="color:var(--brand-gold-dark);display:flex;">${Icons.download(15)}</a>
+                <span style="color:var(--brand-gold-dark);display:flex;">${Icons.eye(15)}</span>
               </div>
             `).join('')}
           </div>
@@ -678,6 +679,45 @@ function editFromDetail(id) {
   const order = TCFactory.getOrderById(id);
   closeModal('order-detail-modal');
   openOrderForm(order);
+}
+
+function previewOrderFile(index) {
+  const order = AppState.selectedOrder;
+  if (!order || !order.files[index]) return;
+  previewFile(order.files[index]);
+}
+
+function previewFile(file) {
+  const modal = document.getElementById('file-preview-modal');
+  const isImage = file.type && file.type.startsWith('image/');
+  const isPdf = file.type === 'application/pdf';
+
+  let body;
+  if (isImage) {
+    body = `<img src="${file.url}" alt="${escapeHtml(file.name)}" style="max-width:100%;max-height:72vh;display:block;margin:0 auto;border-radius:var(--radius-md);">`;
+  } else if (isPdf) {
+    body = `<iframe src="${file.url}" style="width:100%;height:72vh;border:none;border-radius:var(--radius-md);"></iframe>`;
+  } else {
+    body = `<div style="text-align:center;padding:48px 0;color:var(--text-muted);font-size:0.85rem;">Anteprima non disponibile per questo tipo di file.<br>Usa "Scarica" per aprirlo.</div>`;
+  }
+
+  modal.innerHTML = `
+    <div class="modal" style="max-width:720px;">
+      <div class="modal-header">
+        <h2 class="truncate" style="max-width:80%;">${escapeHtml(file.name)}</h2>
+        <button class="btn-icon" onclick="closeModal('file-preview-modal')">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="padding:var(--space-md);">
+        ${body}
+      </div>
+      <div class="modal-footer">
+        <a href="${file.url}" download="${escapeHtml(file.name)}" class="btn btn-secondary">${Icons.download(14)} Scarica</a>
+        <button class="btn btn-primary" onclick="closeModal('file-preview-modal')">Chiudi</button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('file-preview-modal'); };
 }
 
 // ─────────────────────────────────────────────
@@ -890,6 +930,7 @@ function escapeHtml(str) {
 
 const Icons = {
   shirt: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg>`,
+  package: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.73Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`,
   plus: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
   x: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
   check: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="20 6 9 17 4 12"/></svg>`,
@@ -904,6 +945,7 @@ const Icons = {
   paperclip: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>`,
   fileText: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
   download: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  eye: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>`,
   trash: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`,
   pencil: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>`,
   chevronLeft: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="15 18 9 12 15 6"/></svg>`,

@@ -7,14 +7,14 @@
    ───────────────────────────────────────────── */
 
 html.dark {
-  --bg-primary: #16140F;
-  --bg-secondary: #211E18;
-  --bg-card: #251F17;
-  --text-primary: #F5F1E8;
-  --text-secondary: #B8B0A0;
-  --text-muted: #8A8275;
-  --border: #382F22;
-  --border-light: #2C261C;
+  --bg-primary: #0F0F1E;
+  --bg-secondary: #181830;
+  --bg-card: #1C1C36;
+  --text-primary: #F2F2FA;
+  --text-secondary: #A6A8C0;
+  --text-muted: #7A7C95;
+  --border: #2C2D4C;
+  --border-light: #232440;
 }
 
 html.dark .glass-card { background: color-mix(in srgb, var(--bg-card) 85%, transparent); }
