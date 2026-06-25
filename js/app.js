@@ -71,8 +71,6 @@ function renderApp() {
 }
 
 function renderHeader() {
-  const active = TCFactory.getActiveOrders();
-  const archived = TCFactory.getArchivedOrders();
   const isDark = Theme.get() === 'dark';
 
   document.getElementById('header-root').innerHTML = `
@@ -80,7 +78,7 @@ function renderHeader() {
       <div class="app-logo-icon">${Icons.shirt(20)}</div>
       <div class="app-logo-text">
         <h1>T&amp;C <span class="accent">FACTORY</span></h1>
-        <p>Creative Lab · ${active.length} attivi · ${archived.length} archiviati</p>
+        <p>Creative Lab</p>
       </div>
     </div>
     <div class="app-header-actions">

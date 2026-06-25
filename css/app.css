@@ -323,16 +323,22 @@ html.dark .app-shell {
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-md) var(--space-lg);
+  border: none;
   border-bottom: 1px solid var(--border-light);
   cursor: pointer;
   transition: background 0.15s ease;
   text-align: left;
   width: 100%;
   background: none;
+  outline: none;
 }
 
 .order-row-item:last-child { border-bottom: none; }
 .order-row-item:hover { background: var(--bg-secondary); }
+.order-row-item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--brand-gold);
+}
 
 .order-row-bar { width: 4px; height: 38px; border-radius: 4px; flex-shrink: 0; }
 .order-row-body { flex: 1; min-width: 0; }
@@ -552,3 +558,17 @@ html.dark .app-shell {
 }
 .day-order-row:hover { background: var(--bg-secondary); }
 .day-order-bar { width: 4px; height: 30px; border-radius: 3px; flex-shrink: 0; }
+
+/* ─────────────────────────────────────────────
+   Reset contorno di focus predefinito del browser
+   su tutti i bottoni cliccabili dell'app, sostituito
+   con un anello dorato coerente (solo da tastiera)
+   ───────────────────────────────────────────── */
+
+.view-tab, .chip-btn, .day-order-row, .order-row-item {
+  outline: none;
+}
+.view-tab:focus-visible, .chip-btn:focus-visible, .day-order-row:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-gold);
+}
