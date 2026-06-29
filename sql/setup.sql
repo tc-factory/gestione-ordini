@@ -74,6 +74,8 @@ create table orders (
   id           text primary key,
   nome         text not null,
   data_ordine  date not null,
+  deadline     date,
+  notes        text not null default '',
   priority_id  text not null references priorities(id) on delete set null,
   tags         text[] not null default '{}',
   files        jsonb not null default '[]',

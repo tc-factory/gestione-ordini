@@ -111,6 +111,8 @@ const TCFactory = {
       id: row.id,
       nome: row.nome,
       dataOrdine: row.data_ordine,
+      deadline: row.deadline || null,
+      notes: row.notes || '',
       priorityId: row.priority_id,
       tags: row.tags || [],
       files: row.files || [],
@@ -126,6 +128,8 @@ const TCFactory = {
       id: order.id,
       nome: order.nome,
       data_ordine: order.dataOrdine,
+      deadline: order.deadline || null,
+      notes: order.notes || '',
       priority_id: order.priorityId,
       tags: order.tags || [],
       files: order.files || [],
@@ -179,6 +183,8 @@ const TCFactory = {
       id: this.generateId(),
       nome: data.nome,
       dataOrdine: data.dataOrdine,
+      deadline: data.deadline || null,
+      notes: data.notes || '',
       priorityId: data.priorityId,
       tags: data.tags || [],
       files: data.files || [],
@@ -314,6 +320,12 @@ const TCFactory = {
   },
 
   isCompleted(order) { return this.stageProgress(order).allDone; },
+
+  isDeadlinePast(order) {
+    if (!order.deadline) return false;
+    const today = new Date().toISOString().slice(0, 10);
+    return order.deadline < today;
+  },
 
   formatDate(dateStr, opts) {
     if (!dateStr) return '—';

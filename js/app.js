@@ -10,7 +10,8 @@
 const AppState = {
   view: 'active',           // 'active' | 'archived'
   searchQuery: '',
-  sortKey: 'data',           // 'nome' | 'data' | 'priorita' | 'dataCompletato'
+  sortKey: 'data',           // 'nome' | 'data' | 'priorita' | 'completo'
+  layout: localStorage.getItem('tcf_layout') || 'stacked',  // 'stacked' | 'side'
   calCursor: new Date(),
   selectedOrder: null,       // ordine apparso nel detail dialog
   dayOpen: null,             // { date, orders }
@@ -19,6 +20,18 @@ const AppState = {
   formFiles: [],             // allegati temporanei nel form aperto
   formTags: [],              // tag selezionati temporanei nel form aperto
 };
+
+function toggleLayout() {
+  AppState.layout = AppState.layout === 'stacked' ? 'side' : 'stacked';
+  localStorage.setItem('tcf_layout', AppState.layout);
+  applyLayout();
+  renderCalendar();
+}
+
+function applyLayout() {
+  const el = document.getElementById('main-split');
+  if (el) el.classList.toggle('side-by-side', AppState.layout === 'side');
+}
 
 // ─────────────────────────────────────────────
 // TEMA CHIARO/SCURO
@@ -68,6 +81,7 @@ function renderApp() {
   renderStats();
   renderCalendar();
   renderOrderList();
+  applyLayout();
 }
 
 function renderHeader() {
@@ -156,6 +170,10 @@ function renderCalendar() {
       <div class="cal-header">
         <span class="cal-title">${months[m]} ${y}</span>
         <div class="cal-nav">
+          <button id="layout-toggle-btn" class="btn-icon" onclick="toggleLayout()"
+            title="${AppState.layout === 'side' ? 'Rimetti la lista sotto al calendario' : 'Sposta la lista a destra del calendario'}">
+            ${AppState.layout === 'side' ? Icons.layoutStack() : Icons.layoutSide()}
+          </button>
           <button class="btn btn-ghost btn-sm" onclick="calGoToday()">Oggi</button>
           <button class="btn-icon" onclick="calNav(-1)">${Icons.chevronLeft()}</button>
           <button class="btn-icon" onclick="calNav(1)">${Icons.chevronRight()}</button>
@@ -231,22 +249,16 @@ function renderOrderList() {
     );
   }
 
+  const cmpDate = (a, b) => a.dataOrdine.localeCompare(b.dataOrdine);
+  const cmpPriorita = (a, b) => TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
+  const cmpCompleto = (a, b) => (TCFactory.isCompleted(a) ? 0 : 1) - (TCFactory.isCompleted(b) ? 0 : 1);
+
   const sorted = [...filtered].sort((a, b) => {
     switch (AppState.sortKey) {
       case 'nome': return a.nome.localeCompare(b.nome);
-      case 'data': return a.dataOrdine.localeCompare(b.dataOrdine);
-      case 'priorita': {
-        const diff = TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
-        return diff !== 0 ? diff : a.dataOrdine.localeCompare(b.dataOrdine);
-      }
-      case 'dataCompletato': {
-        const da = TCFactory.stageProgress(a).lastDate;
-        const db = TCFactory.stageProgress(b).lastDate;
-        if (!da && !db) return 0;
-        if (!da) return 1;
-        if (!db) return -1;
-        return db.localeCompare(da);
-      }
+      case 'data': return cmpDate(a, b) || cmpPriorita(a, b) || cmpCompleto(a, b);
+      case 'priorita': return cmpPriorita(a, b) || cmpDate(a, b) || cmpCompleto(a, b);
+      case 'completo': return cmpCompleto(a, b) || cmpPriorita(a, b) || cmpDate(a, b);
       default: return 0;
     }
   });
@@ -270,10 +282,10 @@ function renderOrderList() {
             <input type="text" placeholder="Cerca per nome o tag…" value="${escapeHtml(AppState.searchQuery)}" oninput="setSearchQuery(this.value)">
           </div>
           <select class="form-select" style="width:auto;" onchange="setSortKey(this.value)">
-            <option value="data" ${AppState.sortKey==='data'?'selected':''}>Data ordine</option>
+            <option value="data" ${AppState.sortKey==='data'?'selected':''}>Data</option>
             <option value="nome" ${AppState.sortKey==='nome'?'selected':''}>Nome</option>
             <option value="priorita" ${AppState.sortKey==='priorita'?'selected':''}>Priorità</option>
-            <option value="dataCompletato" ${AppState.sortKey==='dataCompletato'?'selected':''}>Data completato</option>
+            <option value="completo" ${AppState.sortKey==='completo'?'selected':''}>Completo</option>
           </select>
         </div>
       </div>
@@ -370,15 +382,20 @@ function openOrderForm(order = null, defaultDate = null) {
             <input id="of-data" type="date" class="form-input" value="${order?.dataOrdine || defaultDate || today}">
           </div>
           <div class="form-group">
-            <label class="form-label">Priorità</label>
-            <div class="chip-picker" id="of-priority-picker">
-              ${priorities.map(p => {
-                const active = (order ? order.priorityId : priorities[0]?.id) === p.id;
-                return `<button type="button" class="chip chip-btn" data-prio="${p.id}"
-                  style="background:${active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`};color:${active ? '#fff' : p.color};"
-                  onclick="selectFormPriority('${p.id}')">${escapeHtml(p.label)}</button>`;
-              }).join('')}
-            </div>
+            <label class="form-label">Deadline</label>
+            <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Priorità</label>
+          <div class="chip-picker" id="of-priority-picker">
+            ${priorities.map(p => {
+              const active = (order ? order.priorityId : priorities[0]?.id) === p.id;
+              return `<button type="button" class="chip chip-btn" data-prio="${p.id}"
+                style="background:${active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`};color:${active ? '#fff' : p.color};"
+                onclick="selectFormPriority('${p.id}')">${escapeHtml(p.label)}</button>`;
+            }).join('')}
           </div>
         </div>
 
@@ -401,6 +418,11 @@ function openOrderForm(order = null, defaultDate = null) {
             <p>Max 2MB per file</p>
           </div>
           <div id="of-files-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Note</label>
+          <textarea id="of-notes" class="form-textarea" placeholder="Note interne, comunicazioni ai colleghi…">${escapeHtml(order?.notes || '')}</textarea>
         </div>
       </div>
       <div class="modal-footer">
@@ -504,12 +526,14 @@ function removeFormFile(i) {
 async function submitOrderForm() {
   const nome = document.getElementById('of-nome').value.trim();
   const dataOrdine = document.getElementById('of-data').value;
+  const deadline = document.getElementById('of-deadline').value || null;
+  const notes = document.getElementById('of-notes').value;
   const priorityId = document.getElementById('of-priority-picker').dataset.selected;
 
   if (!nome) { showToast('Inserisci un nome', 'error'); return; }
   if (!dataOrdine) { showToast('Inserisci una data', 'error'); return; }
 
-  const payload = { nome, dataOrdine, priorityId, tags: AppState.formTags, files: AppState.formFiles };
+  const payload = { nome, dataOrdine, deadline, notes, priorityId, tags: AppState.formTags, files: AppState.formFiles };
 
   try {
     if (AppState.formEditOrder) {
@@ -562,6 +586,11 @@ function renderOrderDetail() {
           <span style="color:var(--text-muted);">Data ordine</span>
           <span style="font-weight:600;">${TCFactory.formatDate(order.dataOrdine, { day:'numeric', month:'long', year:'numeric' })}</span>
         </div>
+        ${order.deadline ? `
+        <div style="display:flex;justify-content:space-between;font-size:0.85rem;">
+          <span style="color:var(--text-muted);">Deadline</span>
+          <span style="font-weight:600;color:${TCFactory.isDeadlinePast(order) && !allDone ? 'var(--priority-urgent)' : 'var(--text-primary)'};">${TCFactory.formatDate(order.deadline, { day:'numeric', month:'long', year:'numeric' })}</span>
+        </div>` : ''}
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;">
           <span style="color:var(--text-muted);">Priorità</span>
           ${renderPriorityChip(priority)}
@@ -587,6 +616,12 @@ function renderOrderDetail() {
               </div>
             `).join('')}
           </div>
+        </div>` : ''}
+
+        ${order.notes ? `
+        <div>
+          <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:4px;">Note</div>
+          <div style="font-size:0.85rem;color:var(--text-primary);white-space:pre-wrap;background:var(--bg-secondary);border-radius:var(--radius-md);padding:10px 12px;">${escapeHtml(order.notes)}</div>
         </div>` : ''}
 
         <div class="progress-box">
@@ -949,6 +984,8 @@ const Icons = {
   trash: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`,
   pencil: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>`,
   chevronLeft: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="15 18 9 12 15 6"/></svg>`,
+  layoutSide: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="3" width="9" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></svg>`,
+  layoutStack: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="3" width="18" height="9" rx="1.5"/><rect x="3" y="14" width="18" height="7" rx="1.5"/></svg>`,
   chevronRight: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="9 18 15 12 9 6"/></svg>`,
   arrowUp: (s=13) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>`,
   arrowDown: (s=13) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>`,

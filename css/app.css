@@ -50,7 +50,7 @@ html.dark .app-shell {
 }
 
 .app-header-inner {
-  max-width: 1100px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: var(--space-md) var(--space-lg);
   display: flex;
@@ -105,12 +105,30 @@ html.dark .app-shell {
 }
 
 .app-main {
-  max-width: 1100px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: var(--space-lg);
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
+}
+
+.main-split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.main-split.side-by-side {
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.main-split.side-by-side #calendar-root { flex: 1.35; min-width: 0; }
+.main-split.side-by-side #orderlist-root { flex: 1; min-width: 0; }
+
+@media (max-width: 900px) {
+  .main-split.side-by-side { flex-direction: column; }
 }
 
 .glass-card {
@@ -331,6 +349,8 @@ html.dark .app-shell {
   width: 100%;
   background: none;
   outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-body);
 }
 
 .order-row-item:last-child { border-bottom: none; }
@@ -555,6 +575,8 @@ html.dark .app-shell {
   background: var(--bg-card);
   width: 100%;
   text-align: left;
+  color: var(--text-primary);
+  font-family: var(--font-body);
 }
 .day-order-row:hover { background: var(--bg-secondary); }
 .day-order-bar { width: 4px; height: 30px; border-radius: 3px; flex-shrink: 0; }
