@@ -206,31 +206,37 @@ function renderDTFPlanner() {
           <div id="plan-day-list"
                ondragover="planDayListDragOver(event)"
                ondrop="planDayListDrop(event,'${dateStr}')"
-               style="min-height:52px;border:2px dashed var(--border);border-radius:var(--radius-md);padding:6px;display:flex;flex-direction:column;gap:6px;">
+               style="min-height:72px;border:2px dashed var(--border);border-radius:var(--radius-md);padding:8px;display:flex;flex-direction:row;flex-wrap:nowrap;gap:8px;overflow-x:auto;">
             ${scheduledItems.length === 0
-              ? `<div style="text-align:center;color:var(--text-muted);font-size:0.78rem;padding:10px 0;pointer-events:none;">Trascina qui gli ordini da pianificare</div>`
+              ? `<div style="display:flex;align-items:center;justify-content:center;width:100%;color:var(--text-muted);font-size:0.78rem;pointer-events:none;">Trascina qui gli ordini da pianificare</div>`
               : scheduledItems.map((item, idx) => {
-                  const barWidth = Math.round((item.meters / Math.max(usedMeters, 0.01)) * 100);
+                  // Larghezza proporzionale ai metri (minimo 120px, massimo 280px)
+                  const minW = 120, maxW = 280;
+                  const w = Math.round(minW + (item.meters / Math.max(usedMeters, 0.01)) * (maxW - minW));
+                  const deadlineStr = item.deadline
+                    ? TCFactory.formatDate(item.deadline, { day:'2-digit', month:'2-digit' })
+                    : null;
                   return `
                   <div class="plan-day-item" draggable="true" data-id="${item.id}" data-idx="${idx}"
                     ondragstart="planItemDragStart(event,'${item.id}','scheduled')"
                     ondragend="planItemDragEnd(event)"
                     ondragover="planItemDragOver(event)"
                     ondragleave="planItemDragLeave(event)"
-                    ondrop="planItemDrop(event,'${item.id}','${dateStr}')">
-                    <div style="display:flex;align-items:center;gap:8px;">
-                      <span style="color:var(--text-muted);cursor:grab;font-size:1rem;line-height:1;padding:0 2px;">⠿</span>
-                      <div style="width:4px;height:32px;border-radius:3px;background:${item.color};flex-shrink:0;"></div>
-                      <div style="flex:1;min-width:0;">
-                        <div style="font-weight:600;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(item.label)}</div>
-                        <div style="font-size:0.7rem;color:var(--text-muted);">${item.meters}m${item.isStandalone ? ' · conto terzi' : ''}</div>
-                      </div>
-                      <div style="width:${barWidth}px;min-width:24px;max-width:80px;height:6px;background:${item.color};opacity:0.5;border-radius:3px;flex-shrink:0;"></div>
+                    ondrop="planItemDrop(event,'${item.id}','${dateStr}')"
+                    style="min-width:${w}px;flex-shrink:0;">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;">
+                      <span style="color:var(--text-muted);cursor:grab;font-size:1rem;line-height:1;">⠿</span>
                       <button onclick="event.stopPropagation();planSendToWaiting('${item.id}')"
-                        class="btn btn-secondary btn-sm" style="flex-shrink:0;font-size:0.7rem;white-space:nowrap;" title="Sposta in attesa">
-                        → Attesa
+                        style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:0;display:flex;font-size:0.7rem;line-height:1;" title="Sposta in attesa">
+                        ×
                       </button>
                     </div>
+                    <div style="width:100%;height:4px;background:${item.color};border-radius:3px;margin-bottom:6px;opacity:0.85;"></div>
+                    <div style="font-weight:700;font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary);">
+                      ${escapeHtml(item.label)}${deadlineStr ? ` <span style="font-weight:400;color:var(--text-muted);">(${deadlineStr})</span>` : ''}
+                    </div>
+                    <div style="font-size:0.7rem;color:${item.color};font-weight:600;margin-top:2px;">${item.meters}m</div>
+                    ${item.isStandalone ? `<div style="font-size:0.65rem;color:var(--text-muted);margin-top:1px;">conto terzi</div>` : ''}
                   </div>`;
                 }).join('')}
           </div>
@@ -302,10 +308,11 @@ function planItemDragOver(event) {
   if (_planDragFrom !== 'scheduled' && _planDragFrom !== 'waiting') return;
   event.preventDefault();
   event.stopPropagation();
-  const el  = event.currentTarget;
-  const mid = el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2;
+  const el   = event.currentTarget;
+  const rect = el.getBoundingClientRect();
+  const mid  = rect.left + rect.width / 2;
   document.querySelectorAll('.plan-drop-before,.plan-drop-after').forEach(e => e.classList.remove('plan-drop-before','plan-drop-after'));
-  el.classList.add(event.clientY < mid ? 'plan-drop-before' : 'plan-drop-after');
+  el.classList.add(event.clientX < mid ? 'plan-drop-before' : 'plan-drop-after');
 }
 function planItemDragLeave(event) {
   event.currentTarget.classList.remove('plan-drop-before','plan-drop-after');
@@ -316,8 +323,8 @@ function planItemDrop(event, targetId, dateStr) {
   const id = _planDragId;
   if (!id || id === targetId) { planItemDragEnd(event); return; }
 
-  const mid     = event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2;
-  const before  = event.clientY < mid;
+  const mid     = event.currentTarget.getBoundingClientRect().left + event.currentTarget.getBoundingClientRect().width / 2;
+  const before  = event.clientX < mid;
   const current = TCFactory.getDaySchedule(dateStr);
   const filtered = current.filter(s => s !== id);
   const targetIdx = filtered.indexOf(targetId);

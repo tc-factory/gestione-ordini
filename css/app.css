@@ -613,7 +613,7 @@ html.dark .app-shell {
 .collapsible-header:hover { background: var(--bg-secondary); }
 
 /* ─────────────────────────────────────────────
-   Planner DTF — item riordinabili
+   Planner DTF — item riordinabili (layout orizzontale)
    ───────────────────────────────────────────── */
 
 .plan-day-item {
@@ -624,16 +624,18 @@ html.dark .app-shell {
   cursor: default;
   transition: box-shadow 0.15s;
   user-select: none;
+  flex-shrink: 0;
 }
 
 .plan-day-item:hover {
   box-shadow: var(--shadow-md);
 }
 
+/* Indicatori drop orizzontale */
 .plan-day-item.plan-drop-before {
-  border-top: 3px solid var(--brand-gold);
+  border-left: 3px solid var(--brand-gold);
 }
 
 .plan-day-item.plan-drop-after {
-  border-bottom: 3px solid var(--brand-gold);
+  border-right: 3px solid var(--brand-gold);
 }

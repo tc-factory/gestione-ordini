@@ -449,6 +449,7 @@ const TCFactory = {
     const orders = this.getOrdersWithDTF().map(o => ({
       id: o.id,
       label: o.nome,
+      deadline: o.deadline || null,
       dtfItems: o.dtfItems,
       isStandalone: false,
       color: this.getPriority(o.priorityId)?.color || '#6366f1',
@@ -456,6 +457,7 @@ const TCFactory = {
     const standalone = this.getStandalone().map(s => ({
       id: s.id,
       label: s.label,
+      deadline: null,
       dtfItems: s.dtfItems,
       isStandalone: true,
       color: '#94a3b8',
