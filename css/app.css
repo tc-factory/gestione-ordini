@@ -611,3 +611,29 @@ html.dark .app-shell {
 }
 
 .collapsible-header:hover { background: var(--bg-secondary); }
+
+/* ─────────────────────────────────────────────
+   Planner DTF — item riordinabili
+   ───────────────────────────────────────────── */
+
+.plan-day-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  cursor: default;
+  transition: box-shadow 0.15s;
+  user-select: none;
+}
+
+.plan-day-item:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.plan-day-item.plan-drop-before {
+  border-top: 3px solid var(--brand-gold);
+}
+
+.plan-day-item.plan-drop-after {
+  border-bottom: 3px solid var(--brand-gold);
+}

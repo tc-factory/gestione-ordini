@@ -378,8 +378,9 @@ const TCFactory = {
   // PLANNER DTF  (localStorage — operativo, non sincronizzato)
   // ─────────────────────────────────────────────
 
-  PLAN_KEY:     'tcf_dtf_plan',
-  CAPACITY_KEY: 'tcf_dtf_capacity',
+  PLAN_KEY:       'tcf_dtf_plan',
+  CAPACITY_KEY:   'tcf_dtf_capacity',
+  STANDALONE_KEY: 'tcf_dtf_standalone',
 
   getPlannerCapacity() {
     return parseFloat(localStorage.getItem(this.CAPACITY_KEY) || '60');
@@ -388,31 +389,80 @@ const TCFactory = {
     localStorage.setItem(this.CAPACITY_KEY, String(Math.max(1, parseFloat(v) || 60)));
   },
 
+  // ── Schedule ──────────────────────────────────
   getSchedule() {
     try { return JSON.parse(localStorage.getItem(this.PLAN_KEY) || '{}'); } catch { return {}; }
   },
   getDaySchedule(dateStr) {
     return (this.getSchedule()[dateStr] || []);
   },
+  setDaySchedule(dateStr, orderedIds) {
+    const s = this.getSchedule();
+    s[dateStr] = orderedIds;
+    localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
+  },
   scheduleOrder(orderId, dateStr) {
     const s = this.getSchedule();
-    Object.keys(s).forEach(d => { s[d] = s[d].filter(id => id !== orderId); });
+    // Rimuovi da qualsiasi giorno in cui è già presente
+    Object.keys(s).forEach(d => { s[d] = (s[d] || []).filter(id => id !== orderId); });
     if (!s[dateStr]) s[dateStr] = [];
-    s[dateStr].push(orderId);
+    if (!s[dateStr].includes(orderId)) s[dateStr].push(orderId);
     localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
   },
   unscheduleOrder(orderId) {
     const s = this.getSchedule();
-    Object.keys(s).forEach(d => { s[d] = s[d].filter(id => id !== orderId); });
+    Object.keys(s).forEach(d => { s[d] = (s[d] || []).filter(id => id !== orderId); });
     localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
   },
-  getOrderPlanDate(orderId) {
-    const s = this.getSchedule();
-    for (const [date, ids] of Object.entries(s)) {
-      if (ids.includes(orderId)) return date;
-    }
-    return null;
+  isScheduledAnywhere(id) {
+    return Object.values(this.getSchedule()).some(ids => (ids || []).includes(id));
   },
+
+  // ── Voci standalone (conto terzi, senza ordine reale) ──
+  getStandalone() {
+    try { return JSON.parse(localStorage.getItem(this.STANDALONE_KEY) || '[]'); } catch { return []; }
+  },
+  addStandalone(label, dtfItems) {
+    const items = this.getStandalone();
+    const id = 'STD-' + Date.now();
+    items.push({ id, label: label.trim(), dtfItems: dtfItems || [] });
+    localStorage.setItem(this.STANDALONE_KEY, JSON.stringify(items));
+    return id;
+  },
+  updateStandalone(id, label, dtfItems) {
+    const items = this.getStandalone().map(s =>
+      s.id === id ? { ...s, label: label.trim(), dtfItems: dtfItems || [] } : s
+    );
+    localStorage.setItem(this.STANDALONE_KEY, JSON.stringify(items));
+  },
+  removeStandalone(id) {
+    const items = this.getStandalone().filter(s => s.id !== id);
+    localStorage.setItem(this.STANDALONE_KEY, JSON.stringify(items));
+    this.unscheduleOrder(id);
+  },
+  getStandaloneById(id) {
+    return this.getStandalone().find(s => s.id === id) || null;
+  },
+
+  // ── Tutte le sorgenti DTF (ordini reali + standalone) ──
+  getAllDTFSources() {
+    const orders = this.getOrdersWithDTF().map(o => ({
+      id: o.id,
+      label: o.nome,
+      dtfItems: o.dtfItems,
+      isStandalone: false,
+      color: this.getPriority(o.priorityId)?.color || '#6366f1',
+    }));
+    const standalone = this.getStandalone().map(s => ({
+      id: s.id,
+      label: s.label,
+      dtfItems: s.dtfItems,
+      isStandalone: true,
+      color: '#94a3b8',
+    }));
+    return [...orders, ...standalone];
+  },
+
   getOrdersWithDTF() {
     return this.getOrders().filter(o => o.dtfItems && o.dtfItems.length > 0 && !o.archived);
   },
@@ -422,6 +472,7 @@ const TCFactory = {
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('it-IT', opts || { day: '2-digit', month: 'short', year: 'numeric' });
   },
+
 
   getDefaultDate() {
     return new Date().toISOString().slice(0, 10);
