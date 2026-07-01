@@ -176,10 +176,13 @@ function renderDTFPlanner() {
           <button class="btn-icon" onclick="planNav(-1)" title="Giorno precedente">${Icons.chevronLeft()}</button>
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="font-weight:700;font-size:1rem;text-transform:capitalize;">${dayLabel}</span>
-            <label style="cursor:pointer;" title="Vai a data specifica">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button type="button" class="btn-icon" title="Vai a data specifica" onclick="document.getElementById('plan-day-input').showPicker()">
               ${Icons.calendarDays(16)}
-              <input type="date" value="${dateStr}" onchange="planGoDate(this.value)" style="position:absolute;opacity:0;width:1px;height:1px;">
-            </label>
+            </button>
+            <input type="date" id="plan-day-input" value="${dateStr}" onchange="planGoDate(this.value)"
+              style="position:absolute;visibility:hidden;width:0;height:0;pointer-events:none;">
+          </div>
           </div>
           <button class="btn-icon" onclick="planNav(1)" title="Giorno successivo">${Icons.chevronRight()}</button>
           <button class="btn btn-ghost btn-sm" onclick="planGoToday()">Oggi</button>
@@ -528,26 +531,44 @@ function renderDTFRows() {
   const container = document.getElementById('dtf-rows-container');
   if (!container) return;
 
-  container.innerHTML = AppState.formDtfItems.map((item, i) => {
-    const calc = TCFactory.calcDTFItem(item);
-    const hasResult = calc.meters > 0;
-    return `
+  // Render solo la struttura (inputs con ID stabili) — non richiamare su ogni keystroke
+  container.innerHTML = AppState.formDtfItems.map((item, i) => `
+    <div data-dtf-row="${i}" style="display:flex;flex-direction:column;gap:4px;">
       <div style="display:grid;grid-template-columns:2fr 70px 70px 60px auto;gap:6px;align-items:center;">
         <input class="form-input" placeholder="Nome (opz.)" value="${escapeHtml(item.label || '')}"
-          oninput="updateDTFItem(${i},'label',this.value)">
+          oninput="storeDTFField(${i},'label',this.value)">
         <input class="form-input" type="number" placeholder="L cm" min="0.1" step="0.1" value="${item.width_cm || ''}"
-          oninput="updateDTFItem(${i},'width_cm',this.value)">
+          oninput="storeDTFField(${i},'width_cm',this.value); updateDTFCalc()">
         <input class="form-input" type="number" placeholder="H cm" min="0.1" step="0.1" value="${item.height_cm || ''}"
-          oninput="updateDTFItem(${i},'height_cm',this.value)">
+          oninput="storeDTFField(${i},'height_cm',this.value); updateDTFCalc()">
         <input class="form-input" type="number" placeholder="Qty" min="1" value="${item.qty || ''}"
-          oninput="updateDTFItem(${i},'qty',this.value)">
+          oninput="storeDTFField(${i},'qty',this.value); updateDTFCalc()">
         <button type="button" class="btn-icon" onclick="removeDTFRow(${i})" style="color:var(--priority-urgent);">${Icons.x(13)}</button>
       </div>
-      ${hasResult ? `<div style="font-size:0.75rem;color:var(--brand-gold);font-weight:600;padding-left:2px;">→ ${calc.meters}m · ${calc.hours}h ${calc.minutes}min</div>` : ''}
-    `;
-  }).join('');
+      <div id="dtf-result-${i}" style="font-size:0.75rem;color:var(--brand-gold);font-weight:600;padding-left:2px;min-height:18px;"></div>
+    </div>
+  `).join('');
 
+  updateDTFCalc();
+}
+
+// Aggiorna solo i display dei risultati senza toccare gli input
+function updateDTFCalc() {
+  AppState.formDtfItems.forEach((item, i) => {
+    const resultEl = document.getElementById(`dtf-result-${i}`);
+    if (!resultEl) return;
+    const calc = TCFactory.calcDTFItem(item);
+    resultEl.textContent = calc.meters > 0
+      ? `→ ${calc.meters}m · ${calc.hours}h ${calc.minutes}min`
+      : '';
+  });
   renderDTFTotal();
+}
+
+// Salva solo il valore nell'AppState senza re-render
+function storeDTFField(i, field, value) {
+  if (!AppState.formDtfItems[i]) return;
+  AppState.formDtfItems[i][field] = field === 'label' ? value : (parseFloat(value) || '');
 }
 
 function renderDTFTotal() {
@@ -576,12 +597,6 @@ function addDTFRow() {
 
 function removeDTFRow(i) {
   AppState.formDtfItems.splice(i, 1);
-  renderDTFRows();
-}
-
-function updateDTFItem(i, field, value) {
-  if (!AppState.formDtfItems[i]) return;
-  AppState.formDtfItems[i][field] = field === 'label' ? value : (parseFloat(value) || value);
   renderDTFRows();
 }
 

@@ -194,7 +194,13 @@ const TCFactory = {
       stages: this.emptyStages(),
       archived: false,
     };
-    const { data: row, error } = await supabaseClient.from('orders').insert(this._toDb(order)).select().single();
+    let { data: row, error } = await supabaseClient.from('orders').insert(this._toDb(order)).select().single();
+    if (error && error.message && error.message.includes('dtf_items')) {
+      // Colonna dtf_items non ancora creata — salva senza di essa
+      const payload = this._toDb(order);
+      delete payload.dtf_items;
+      ({ data: row, error } = await supabaseClient.from('orders').insert(payload).select().single());
+    }
     if (error) throw error;
     return this._fromDb(row);
   },
@@ -203,7 +209,13 @@ const TCFactory = {
     const current = this.getOrderById(id);
     if (!current) throw new Error('Ordine non trovato');
     const merged = { ...current, ...patch };
-    const { data: row, error } = await supabaseClient.from('orders').update(this._toDb(merged)).eq('id', id).select().single();
+    let { data: row, error } = await supabaseClient.from('orders').update(this._toDb(merged)).eq('id', id).select().single();
+    if (error && error.message && error.message.includes('dtf_items')) {
+      // Colonna dtf_items non ancora creata — aggiorna senza di essa
+      const payload = this._toDb(merged);
+      delete payload.dtf_items;
+      ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
+    }
     if (error) throw error;
     return this._fromDb(row);
   },
