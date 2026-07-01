@@ -8,30 +8,26 @@
 // ─────────────────────────────────────────────
 
 const AppState = {
-  view: 'active',           // 'active' | 'archived'
+  view: 'active',
   searchQuery: '',
-  sortKey: 'data',           // 'nome' | 'data' | 'priorita' | 'completo'
-  layout: localStorage.getItem('tcf_layout') || 'stacked',  // 'stacked' | 'side'
+  sortKey: 'data',
+  layout: 'stacked',  // kept for future, not used with calendar removed
   calCursor: new Date(),
-  selectedOrder: null,       // ordine apparso nel detail dialog
-  dayOpen: null,             // { date, orders }
-  formEditOrder: null,       // ordine in modifica nel form (null = nuovo)
+  selectedOrder: null,
+  dayOpen: null,
+  formEditOrder: null,
   formDefaultDate: null,
-  formFiles: [],             // allegati temporanei nel form aperto
-  formTags: [],              // tag selezionati temporanei nel form aperto
+  formFiles: [],
+  formTags: [],
+  formDtfItems: [],   // [{label, width_cm, height_cm, qty}]
+  formDtfOpen: false, // collapsible state in form
+  planDay: new Date(),
+  planOpen: true,     // planner collapsible
+  settingsPrioOpen: true,  // settings sections
+  settingsTagOpen: true,
 };
 
-function toggleLayout() {
-  AppState.layout = AppState.layout === 'stacked' ? 'side' : 'stacked';
-  localStorage.setItem('tcf_layout', AppState.layout);
-  applyLayout();
-  renderCalendar();
-}
 
-function applyLayout() {
-  const el = document.getElementById('main-split');
-  if (el) el.classList.toggle('side-by-side', AppState.layout === 'side');
-}
 
 // ─────────────────────────────────────────────
 // TEMA CHIARO/SCURO
@@ -79,9 +75,8 @@ function showToast(message, type = 'success') {
 function renderApp() {
   renderHeader();
   renderStats();
-  renderCalendar();
+  renderDTFPlanner();
   renderOrderList();
-  applyLayout();
 }
 
 function renderHeader() {
@@ -127,105 +122,164 @@ function renderStats() {
 }
 
 // ─────────────────────────────────────────────
-// CALENDARIO (vista mensile)
+// PLANNER DTF
 // ─────────────────────────────────────────────
 
-function renderCalendar() {
-  const cursor = AppState.calCursor;
-  const y = cursor.getFullYear();
-  const m = cursor.getMonth();
-  const months = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+function renderDTFPlanner() {
+  const root = document.getElementById('dtf-planner-root');
+  if (!root) return;
 
-  const orders = TCFactory.getActiveOrders();
-  const byDay = {};
-  orders.forEach(o => {
-    (byDay[o.dataOrdine] = byDay[o.dataOrdine] || []).push(o);
-  });
+  const isOpen     = AppState.planOpen;
+  const day        = AppState.planDay;
+  const dateStr    = day.toISOString().slice(0, 10);
+  const capacity   = TCFactory.getPlannerCapacity();
+  const scheduled  = TCFactory.getDaySchedule(dateStr);
 
-  const firstDay = new Date(y, m, 1);
-  let startDow = firstDay.getDay(); if (startDow === 0) startDow = 7;
-  const startOffset = startDow - 1;
-  const lastDate = new Date(y, m + 1, 0).getDate();
-  const prevLastDate = new Date(y, m, 0).getDate();
+  // Calcola metri schedulati per il giorno
+  let usedMeters = 0;
+  const scheduledOrders = scheduled.map(id => {
+    const o = TCFactory.getOrderById(id);
+    if (!o) return null;
+    const tot = TCFactory.calcDTFTotal(o.dtfItems || []);
+    usedMeters += tot.meters;
+    return { order: o, meters: tot.meters };
+  }).filter(Boolean);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const cells = [];
+  const pct = Math.min(100, (usedMeters / capacity) * 100);
+  const fillColor = pct < 50 ? '#22c55e' : pct < 75 ? '#f59e0b' : pct < 90 ? '#f97316' : '#ef4444';
 
-  for (let i = startOffset - 1; i >= 0; i--) {
-    cells.push({ day: prevLastDate - i, inMonth: false, dateStr: null });
-  }
-  for (let d = 1; d <= lastDate; d++) {
-    const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    cells.push({ day: d, inMonth: true, dateStr });
-  }
-  const remaining = (7 - (cells.length % 7)) % 7;
-  for (let d = 1; d <= remaining; d++) {
-    cells.push({ day: d, inMonth: false, dateStr: null });
-  }
+  const dayLabel = day.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-  const weekdays = ['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
+  // Ordini con DTF non ancora schedulati oggi
+  const ordersWithDTF = TCFactory.getOrdersWithDTF();
+  const unscheduled = ordersWithDTF.filter(o => !scheduled.includes(o.id));
 
-  document.getElementById('calendar-root').innerHTML = `
-    <div class="glass-card cal-card">
-      <div class="cal-header">
-        <span class="cal-title">${months[m]} ${y}</span>
-        <div class="cal-nav">
-          <button id="layout-toggle-btn" class="btn-icon" onclick="toggleLayout()"
-            title="${AppState.layout === 'side' ? 'Rimetti la lista sotto al calendario' : 'Sposta la lista a destra del calendario'}">
-            ${AppState.layout === 'side' ? Icons.layoutStack() : Icons.layoutSide()}
-          </button>
-          <button class="btn btn-ghost btn-sm" onclick="calGoToday()">Oggi</button>
-          <button class="btn-icon" onclick="calNav(-1)">${Icons.chevronLeft()}</button>
-          <button class="btn-icon" onclick="calNav(1)">${Icons.chevronRight()}</button>
+  root.innerHTML = `
+    <div class="glass-card">
+      <div class="collapsible-header" onclick="togglePlanOpen()" style="cursor:pointer;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${Icons.printer(16)}
+          <span style="font-weight:700;font-size:0.95rem;">Planner DTF</span>
+          ${usedMeters > 0 ? `<span class="chip" style="background:${fillColor}22;color:${fillColor};">${usedMeters.toFixed(1)}m / ${capacity}m</span>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:0.78rem;color:var(--text-muted);">${isOpen ? 'Comprimi' : 'Espandi'}</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="transform:rotate(${isOpen ? 180 : 0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
       </div>
-      <div class="cal-weekdays">${weekdays.map(w => `<div>${w}</div>`).join('')}</div>
-      <div class="cal-grid">
-        ${cells.map(c => {
-          if (!c.inMonth) return `<div class="cal-day other-month"><div class="cal-day-top"><span class="cal-day-num">${c.day}</span></div></div>`;
-          const dayOrders = byDay[c.dateStr] || [];
-          const isToday = c.dateStr === todayStr;
-          const visible = dayOrders.slice(0, 2);
-          const overflow = dayOrders.length - visible.length;
-          return `
-            <div class="cal-day ${isToday ? 'today' : ''}" onclick="handleDayClick('${c.dateStr}')">
-              <div class="cal-day-top">
-                <span class="cal-day-num">${c.day}</span>
-                ${dayOrders.length > 0 ? `<span class="cal-day-count">${dayOrders.length}</span>` : ''}
-              </div>
-              <div class="cal-day-orders">
-                ${visible.map(o => {
+
+      ${isOpen ? `
+      <div style="padding:0 var(--space-lg) var(--space-lg);">
+
+        <!-- Navigazione giorno -->
+        <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:var(--space-md);flex-wrap:wrap;">
+          <button class="btn-icon" onclick="planNav(-1)" title="Giorno precedente">${Icons.chevronLeft()}</button>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-weight:700;font-size:1rem;text-transform:capitalize;">${dayLabel}</span>
+            <label style="cursor:pointer;" title="Vai a data specifica">
+              ${Icons.calendarDays(16)}
+              <input type="date" value="${dateStr}" onchange="planGoDate(this.value)" style="position:absolute;opacity:0;width:1px;height:1px;">
+            </label>
+          </div>
+          <button class="btn-icon" onclick="planNav(1)" title="Giorno successivo">${Icons.chevronRight()}</button>
+          <button class="btn btn-ghost btn-sm" onclick="planGoToday()">Oggi</button>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+            <span style="font-size:0.78rem;color:var(--text-muted);">Capacità giornaliera:</span>
+            <input type="number" value="${capacity}" min="1" max="999" style="width:60px;" class="form-input" oninput="setPlanCapacity(this.value)">
+            <span style="font-size:0.78rem;color:var(--text-muted);">m</span>
+          </div>
+        </div>
+
+        <!-- Barra di riempimento -->
+        <div style="margin-bottom:var(--space-md);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="font-size:0.78rem;font-weight:600;color:var(--text-muted);">Riempimento giorno</span>
+            <span style="font-size:0.82rem;font-weight:700;color:${fillColor};">${usedMeters.toFixed(1)} m su ${capacity} m (${Math.round(pct)}%)</span>
+          </div>
+          <div style="height:32px;background:var(--bg-secondary);border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border);position:relative;"
+               ondragover="event.preventDefault();" ondrop="dropOnDay(event, '${dateStr}')">
+            <!-- Segmenti colorati per ogni ordine schedulato -->
+            ${(() => {
+              let offset = 0;
+              return scheduledOrders.map(({ order, meters }) => {
+                const w = Math.min(100, (meters / capacity) * 100);
+                const left = Math.min(100, (offset / capacity) * 100);
+                offset += meters;
+                const p = TCFactory.getPriority(order.priorityId);
+                const c = p?.color || '#6366f1';
+                return `<div style="position:absolute;left:${left}%;width:${w}%;height:100%;background:${c};opacity:0.85;display:flex;align-items:center;justify-content:center;overflow:hidden;" title="${escapeHtml(order.nome)} — ${meters}m">
+                  <span style="font-size:0.65rem;font-weight:700;color:#fff;white-space:nowrap;padding:0 4px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(order.nome)}</span>
+                </div>`;
+              }).join('');
+            })()}
+            ${pct === 0 ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.72rem;color:var(--text-muted);">Trascina un ordine qui per pianificarlo</div>` : ''}
+          </div>
+        </div>
+
+        <!-- Ordini schedulati oggi (lista con pulsante rimuovi) -->
+        ${scheduledOrders.length > 0 ? `
+        <div style="margin-bottom:var(--space-md);">
+          <div style="font-size:0.78rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Schedulati</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${scheduledOrders.map(({ order, meters }) => {
+              const p = TCFactory.getPriority(order.priorityId);
+              const c = p?.color || '#6366f1';
+              return `<div class="chip" style="background:${c}22;color:${c};gap:6px;">
+                <span>${escapeHtml(order.nome)}</span>
+                <span style="opacity:0.75;font-size:0.68rem;">${meters}m</span>
+                <button onclick="event.stopPropagation();unscheduleOrderFromPlan('${order.id}')" style="background:none;border:none;cursor:pointer;color:${c};padding:0;display:flex;line-height:1;" title="Rimuovi dal giorno">${Icons.x(11)}</button>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- In attesa -->
+        <div>
+          <div style="font-size:0.78rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">In attesa</div>
+          ${unscheduled.length === 0
+            ? `<div style="font-size:0.82rem;color:var(--text-muted);padding:12px 0;">Nessun ordine con dati DTF da pianificare.</div>`
+            : `<div style="display:flex;flex-wrap:wrap;gap:6px;">
+                ${unscheduled.map(o => {
+                  const tot = TCFactory.calcDTFTotal(o.dtfItems || []);
                   const p = TCFactory.getPriority(o.priorityId);
-                  const color = p?.color || '#64748b';
-                  return `<div class="cal-order-chip" style="background:color-mix(in srgb, ${color} 18%, transparent);color:${color};" onclick="event.stopPropagation(); openOrderDetail('${o.id}')">${escapeHtml(o.nome)}</div>`;
+                  const c = p?.color || '#6366f1';
+                  const scheduledOn = TCFactory.getOrderPlanDate(o.id);
+                  return `<div class="chip" draggable="true"
+                    ondragstart="dragPlanOrder(event,'${o.id}')"
+                    style="background:${c}22;color:${c};cursor:grab;gap:6px;"
+                    title="Trascina per schedulare · ${escapeHtml(o.nome)} · ${tot.meters}m">
+                    <span>${escapeHtml(o.nome)}</span>
+                    <span style="opacity:0.75;font-size:0.68rem;">${tot.meters}m</span>
+                    ${scheduledOn ? `<span style="font-size:0.65rem;opacity:0.6;">(${TCFactory.formatDate(scheduledOn, {day:'2-digit',month:'2-digit'})})</span>` : ''}
+                  </div>`;
                 }).join('')}
-                ${overflow > 0 ? `<div class="cal-day-overflow">+${overflow} altri</div>` : ''}
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
+              </div>`}
+        </div>
+
+      </div>` : ''}
     </div>
   `;
 }
 
-function calNav(delta) {
-  AppState.calCursor.setMonth(AppState.calCursor.getMonth() + delta);
-  renderCalendar();
-}
-function calGoToday() {
-  AppState.calCursor = new Date();
-  renderCalendar();
-}
+function togglePlanOpen() { AppState.planOpen = !AppState.planOpen; renderDTFPlanner(); }
+function planNav(delta) { AppState.planDay = new Date(AppState.planDay.getTime() + delta * 86400000); renderDTFPlanner(); }
+function planGoToday() { AppState.planDay = new Date(); renderDTFPlanner(); }
+function planGoDate(dateStr) { AppState.planDay = new Date(dateStr + 'T00:00:00'); renderDTFPlanner(); }
+function setPlanCapacity(v) { TCFactory.setPlannerCapacity(v); renderDTFPlanner(); }
 
-function handleDayClick(dateStr) {
-  const dayOrders = TCFactory.getActiveOrders().filter(o => o.dataOrdine === dateStr);
-  if (dayOrders.length === 0) {
-    openOrderForm(null, dateStr);
-  } else {
-    AppState.dayOpen = { date: dateStr, orders: dayOrders };
-    renderDayDialog();
-  }
+function dragPlanOrder(event, orderId) {
+  event.dataTransfer.setData('text/plain', orderId);
+}
+function dropOnDay(event, dateStr) {
+  event.preventDefault();
+  const orderId = event.dataTransfer.getData('text/plain');
+  if (!orderId) return;
+  TCFactory.scheduleOrder(orderId, dateStr);
+  renderDTFPlanner();
+}
+function unscheduleOrderFromPlan(orderId) {
+  TCFactory.unscheduleOrder(orderId);
+  renderDTFPlanner();
 }
 
 // ─────────────────────────────────────────────
@@ -235,6 +289,7 @@ function handleDayClick(dateStr) {
 function setView(v) { AppState.view = v; renderOrderList(); }
 function setSortKey(v) { AppState.sortKey = v; renderOrderList(); }
 function setSearchQuery(v) { AppState.searchQuery = v; renderOrderList(); }
+
 
 function renderOrderList() {
   const active = TCFactory.getActiveOrders();
@@ -357,6 +412,7 @@ function openOrderForm(order = null, defaultDate = null) {
   AppState.formDefaultDate = defaultDate;
   AppState.formFiles = order ? [...(order.files || [])] : [];
   AppState.formTags = order ? [...order.tags] : [];
+  AppState.formDtfItems = order ? (order.dtfItems || []).map(i => ({...i})) : [];
 
   const priorities = TCFactory.getPriorities();
   const tags = TCFactory.getTags();
@@ -420,6 +476,21 @@ function openOrderForm(order = null, defaultDate = null) {
           <div id="of-files-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
         </div>
 
+        <!-- SEZIONE DTF COLLASSABILE -->
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          <button type="button" onclick="toggleFormDTF()"
+            style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border:none;cursor:pointer;color:var(--text-primary);font-family:var(--font-body);font-weight:600;font-size:0.88rem;">
+            <div style="display:flex;align-items:center;gap:8px;">${Icons.printer(14)} DTF</div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" id="dtf-chevron" style="transform:rotate(${AppState.formDtfOpen ? 180 : 0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="dtf-form-body" style="display:${AppState.formDtfOpen ? 'block' : 'none'};padding:12px 14px;">
+            <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:10px;">Roll: 57cm · Velocità: 8m/h</div>
+            <div id="dtf-rows-container" style="display:flex;flex-direction:column;gap:8px;"></div>
+            <div id="dtf-total-box" style="margin-top:10px;"></div>
+            <button type="button" onclick="addDTFRow()" class="btn btn-secondary btn-sm" style="margin-top:10px;">${Icons.plus(13)} Aggiungi calcolo</button>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Note</label>
           <textarea id="of-notes" class="form-textarea" placeholder="Note interne, comunicazioni ai colleghi…">${escapeHtml(order?.notes || '')}</textarea>
@@ -439,8 +510,79 @@ function openOrderForm(order = null, defaultDate = null) {
   }
 
   renderFormFilesList();
+  if (AppState.formDtfOpen && AppState.formDtfItems.length > 0) renderDTFRows();
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('order-form-modal'); };
+}
+
+function toggleFormDTF() {
+  AppState.formDtfOpen = !AppState.formDtfOpen;
+  const body = document.getElementById('dtf-form-body');
+  const chev = document.getElementById('dtf-chevron');
+  if (body) body.style.display = AppState.formDtfOpen ? 'block' : 'none';
+  if (chev) chev.style.transform = `rotate(${AppState.formDtfOpen ? 180 : 0}deg)`;
+  if (AppState.formDtfOpen) renderDTFRows();
+}
+
+function renderDTFRows() {
+  const container = document.getElementById('dtf-rows-container');
+  if (!container) return;
+
+  container.innerHTML = AppState.formDtfItems.map((item, i) => {
+    const calc = TCFactory.calcDTFItem(item);
+    const hasResult = calc.meters > 0;
+    return `
+      <div style="display:grid;grid-template-columns:2fr 70px 70px 60px auto;gap:6px;align-items:center;">
+        <input class="form-input" placeholder="Nome (opz.)" value="${escapeHtml(item.label || '')}"
+          oninput="updateDTFItem(${i},'label',this.value)">
+        <input class="form-input" type="number" placeholder="L cm" min="0.1" step="0.1" value="${item.width_cm || ''}"
+          oninput="updateDTFItem(${i},'width_cm',this.value)">
+        <input class="form-input" type="number" placeholder="H cm" min="0.1" step="0.1" value="${item.height_cm || ''}"
+          oninput="updateDTFItem(${i},'height_cm',this.value)">
+        <input class="form-input" type="number" placeholder="Qty" min="1" value="${item.qty || ''}"
+          oninput="updateDTFItem(${i},'qty',this.value)">
+        <button type="button" class="btn-icon" onclick="removeDTFRow(${i})" style="color:var(--priority-urgent);">${Icons.x(13)}</button>
+      </div>
+      ${hasResult ? `<div style="font-size:0.75rem;color:var(--brand-gold);font-weight:600;padding-left:2px;">→ ${calc.meters}m · ${calc.hours}h ${calc.minutes}min</div>` : ''}
+    `;
+  }).join('');
+
+  renderDTFTotal();
+}
+
+function renderDTFTotal() {
+  const box = document.getElementById('dtf-total-box');
+  if (!box) return;
+  const tot = TCFactory.calcDTFTotal(AppState.formDtfItems);
+  if (tot.meters <= 0) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <div style="background:var(--bg-secondary);border-radius:var(--radius-md);padding:10px 14px;display:flex;gap:24px;align-items:center;border:1px solid var(--border);">
+      <div>
+        <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;">Totale metro lineare</div>
+        <div style="font-size:1.4rem;font-weight:800;color:var(--brand-gold);">${tot.meters} m</div>
+      </div>
+      <div>
+        <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;">Tempo stampa</div>
+        <div style="font-size:1.4rem;font-weight:800;color:var(--brand-gold);">${tot.hours}h ${tot.minutes}min</div>
+      </div>
+    </div>
+  `;
+}
+
+function addDTFRow() {
+  AppState.formDtfItems.push({ label: '', width_cm: '', height_cm: '', qty: 1 });
+  renderDTFRows();
+}
+
+function removeDTFRow(i) {
+  AppState.formDtfItems.splice(i, 1);
+  renderDTFRows();
+}
+
+function updateDTFItem(i, field, value) {
+  if (!AppState.formDtfItems[i]) return;
+  AppState.formDtfItems[i][field] = field === 'label' ? value : (parseFloat(value) || value);
+  renderDTFRows();
 }
 
 function renderTagPickerChip(t) {
@@ -533,7 +675,7 @@ async function submitOrderForm() {
   if (!nome) { showToast('Inserisci un nome', 'error'); return; }
   if (!dataOrdine) { showToast('Inserisci una data', 'error'); return; }
 
-  const payload = { nome, dataOrdine, deadline, notes, priorityId, tags: AppState.formTags, files: AppState.formFiles };
+  const payload = { nome, dataOrdine, deadline, notes, priorityId, tags: AppState.formTags, files: AppState.formFiles, dtfItems: AppState.formDtfItems };
 
   try {
     if (AppState.formEditOrder) {
@@ -835,6 +977,15 @@ function renderSettingsDialog() {
   const priorities = TCFactory.getPriorities();
   const tags = TCFactory.getTags();
   const modal = document.getElementById('settings-modal');
+  const prioOpen = AppState.settingsPrioOpen;
+  const tagOpen  = AppState.settingsTagOpen;
+
+  const sectionBtn = (label, icon, isOpen, fn) => `
+    <button type="button" onclick="${fn}()"
+      style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border:none;cursor:pointer;color:var(--text-primary);font-family:var(--font-body);font-weight:700;font-size:0.88rem;border-radius:${isOpen ? `var(--radius-md) var(--radius-md) 0 0` : 'var(--radius-md)'};margin-bottom:${isOpen ? 0 : 6}px;">
+      <div style="display:flex;align-items:center;gap:8px;">${icon} ${label}</div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${isOpen ? 180 : 0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>`;
 
   modal.innerHTML = `
     <div class="modal">
@@ -842,51 +993,57 @@ function renderSettingsDialog() {
         <h2>Impostazioni</h2>
         <button class="btn-icon" onclick="closeModal('settings-modal')">${Icons.x()}</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body" style="gap:8px;">
 
-        <div class="settings-section-block">
-          <div class="settings-section-head">${Icons.flag(15)} Priorità</div>
-          <div class="settings-section-hint">L'ordine in alto determina la priorità più alta.</div>
-          ${priorities.map((p, idx) => `
-            <div class="config-row">
-              <div class="reorder-arrows">
-                <button ${idx === 0 ? 'disabled' : ''} onclick="reorderPrio('${p.id}','up')">${Icons.arrowUp()}</button>
-                <button ${idx === priorities.length - 1 ? 'disabled' : ''} onclick="reorderPrio('${p.id}','down')">${Icons.arrowDown()}</button>
+        <!-- PRIORITÀ -->
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('Priorità', Icons.flag(14), prioOpen, 'toggleSettingsPrio')}
+          ${prioOpen ? `<div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
+            <div class="settings-section-hint">L'ordine in alto determina la priorità più alta.</div>
+            ${priorities.map((p, idx) => `
+              <div class="config-row">
+                <div class="reorder-arrows">
+                  <button ${idx === 0 ? 'disabled' : ''} onclick="reorderPrio('${p.id}','up')">${Icons.arrowUp()}</button>
+                  <button ${idx === priorities.length - 1 ? 'disabled' : ''} onclick="reorderPrio('${p.id}','down')">${Icons.arrowDown()}</button>
+                </div>
+                <div class="color-dot-picker" style="background:${p.color};">
+                  <input type="color" value="${p.color}" onchange="updatePrioColor('${p.id}', this.value)">
+                </div>
+                <input class="form-input" value="${escapeHtml(p.label)}" maxlength="40" onchange="updatePrioLabel('${p.id}', this.value)">
+                <button class="btn-icon" style="color:var(--priority-urgent);" ${priorities.length <= 1 ? 'disabled' : ''} onclick="deletePrioConfirm('${p.id}')">${Icons.trash(15)}</button>
               </div>
-              <div class="color-dot-picker" style="background:${p.color};">
-                <input type="color" value="${p.color}" onchange="updatePrioColor('${p.id}', this.value)">
+            `).join('')}
+            <div class="config-add-row">
+              <div class="color-dot-picker" style="background:${_newPrioColor};">
+                <input type="color" value="${_newPrioColor}" onchange="_newPrioColor=this.value">
               </div>
-              <input class="form-input" value="${escapeHtml(p.label)}" maxlength="40" onchange="updatePrioLabel('${p.id}', this.value)">
-              <button class="btn-icon" style="color:var(--priority-urgent);" ${priorities.length <= 1 ? 'disabled' : ''} onclick="deletePrioConfirm('${p.id}')">${Icons.trash(15)}</button>
+              <input id="new-prio-input" class="form-input" placeholder="Nuova priorità" maxlength="40" onkeydown="if(event.key==='Enter'){addNewPriority();}">
+              <button class="btn btn-secondary btn-icon" onclick="addNewPriority()">${Icons.plus()}</button>
             </div>
-          `).join('')}
-          <div class="config-add-row">
-            <div class="color-dot-picker" style="background:${_newPrioColor};">
-              <input type="color" value="${_newPrioColor}" onchange="_newPrioColor=this.value">
-            </div>
-            <input id="new-prio-input" class="form-input" placeholder="Nuova priorità" maxlength="40" onkeydown="if(event.key==='Enter'){addNewPriority();}">
-            <button class="btn btn-secondary btn-icon" onclick="addNewPriority()">${Icons.plus()}</button>
-          </div>
+          </div>` : ''}
         </div>
 
-        <div class="settings-section-block">
-          <div class="settings-section-head">${Icons.tag(15)} Tag</div>
-          ${tags.map(t => `
-            <div class="config-row">
-              <div class="color-dot-picker" style="background:${t.color};">
-                <input type="color" value="${t.color}" onchange="updateTagColorSetting('${escapeHtml(t.name)}', this.value)">
+        <!-- TAG -->
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('Tag', Icons.tag(14), tagOpen, 'toggleSettingsTag')}
+          ${tagOpen ? `<div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
+            ${tags.map(t => `
+              <div class="config-row">
+                <div class="color-dot-picker" style="background:${t.color};">
+                  <input type="color" value="${t.color}" onchange="updateTagColorSetting('${escapeHtml(t.name)}', this.value)">
+                </div>
+                <span style="flex:1;font-size:0.88rem;">${escapeHtml(t.name)}</span>
+                <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteTagConfirm('${escapeHtml(t.name)}')">${Icons.trash(15)}</button>
               </div>
-              <span style="flex:1;font-size:0.88rem;">${escapeHtml(t.name)}</span>
-              <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteTagConfirm('${escapeHtml(t.name)}')">${Icons.trash(15)}</button>
+            `).join('')}
+            <div class="config-add-row">
+              <div class="color-dot-picker" style="background:${_newTagColor};">
+                <input type="color" value="${_newTagColor}" onchange="_newTagColor=this.value">
+              </div>
+              <input id="new-tag-input" class="form-input" placeholder="Nuovo tag" maxlength="40" onkeydown="if(event.key==='Enter'){addNewTagSetting();}">
+              <button class="btn btn-secondary btn-icon" onclick="addNewTagSetting()">${Icons.plus()}</button>
             </div>
-          `).join('')}
-          <div class="config-add-row">
-            <div class="color-dot-picker" style="background:${_newTagColor};">
-              <input type="color" value="${_newTagColor}" onchange="_newTagColor=this.value">
-            </div>
-            <input id="new-tag-input" class="form-input" placeholder="Nuovo tag" maxlength="40" onkeydown="if(event.key==='Enter'){addNewTagSetting();}">
-            <button class="btn btn-secondary btn-icon" onclick="addNewTagSetting()">${Icons.plus()}</button>
-          </div>
+          </div>` : ''}
         </div>
 
       </div>
@@ -894,6 +1051,10 @@ function renderSettingsDialog() {
   `;
   modal.onclick = (e) => { if (e.target === modal) closeModal('settings-modal'); };
 }
+
+function toggleSettingsPrio() { AppState.settingsPrioOpen = !AppState.settingsPrioOpen; renderSettingsDialog(); }
+function toggleSettingsTag()  { AppState.settingsTagOpen  = !AppState.settingsTagOpen;  renderSettingsDialog(); }
+
 
 async function reorderPrio(id, dir) {
   try { await TCFactory.reorderPriority(id, dir); renderSettingsDialog(); renderApp(); }
@@ -991,6 +1152,8 @@ const Icons = {
   arrowDown: (s=13) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>`,
   flag: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`,
   tag: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>`,
+  printer: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>`,
+  calendarDays: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>`,
 };
 
 window.AppState = AppState;

@@ -133,5 +133,14 @@ create policy "Public update allegati" on storage.objects for update to anon, au
 create policy "Public delete allegati" on storage.objects for delete to anon, authenticated using (bucket_id = 'allegati');
 
 -- ════════════════════════════════════════════════════════
+-- MIGRAZIONI NON DISTRUTTIVE
+-- (da eseguire se aggiorni da una versione precedente)
+-- ════════════════════════════════════════════════════════
+
+alter table orders add column if not exists deadline    date;
+alter table orders add column if not exists notes       text not null default '';
+alter table orders add column if not exists dtf_items   jsonb not null default '[]';
+
+-- ════════════════════════════════════════════════════════
 -- FINE SCRIPT
 -- ════════════════════════════════════════════════════════

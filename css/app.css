@@ -594,3 +594,20 @@ html.dark .app-shell {
   outline: none;
   box-shadow: 0 0 0 2px var(--brand-gold);
 }
+
+/* ─────────────────────────────────────────────
+   Collapsible header generico
+   ───────────────────────────────────────────── */
+
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border);
+  font-weight: 700;
+  font-size: 0.95rem;
+  user-select: none;
+}
+
+.collapsible-header:hover { background: var(--bg-secondary); }

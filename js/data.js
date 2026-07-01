@@ -116,6 +116,7 @@ const TCFactory = {
       priorityId: row.priority_id,
       tags: row.tags || [],
       files: row.files || [],
+      dtfItems: row.dtf_items || [],
       stages: row.stages || { merceCompleta: { done: false }, dtfPronti: { done: false }, ordineStampato: { done: false } },
       archived: row.archived,
       created_at: row.created_at,
@@ -133,6 +134,7 @@ const TCFactory = {
       priority_id: order.priorityId,
       tags: order.tags || [],
       files: order.files || [],
+      dtf_items: order.dtfItems || [],
       stages: order.stages,
       archived: !!order.archived,
     };
@@ -188,6 +190,7 @@ const TCFactory = {
       priorityId: data.priorityId,
       tags: data.tags || [],
       files: data.files || [],
+      dtfItems: data.dtfItems || [],
       stages: this.emptyStages(),
       archived: false,
     };
@@ -325,6 +328,81 @@ const TCFactory = {
     if (!order.deadline) return false;
     const today = new Date().toISOString().slice(0, 10);
     return order.deadline < today;
+  },
+
+  // ─────────────────────────────────────────────
+  // DTF CALCULATIONS
+  // ─────────────────────────────────────────────
+
+  DTF_ROLL_WIDTH: 57,   // cm
+  DTF_SPEED: 8,         // m/ora
+
+  calcDTFItem(item) {
+    const w   = parseFloat(item.width_cm)  || 0;
+    const h   = parseFloat(item.height_cm) || 0;
+    const qty = parseInt(item.qty)         || 1;
+    if (w <= 0 || h <= 0) return { meters: 0, hours: 0, minutes: 0 };
+    const filesPerRow  = Math.max(1, Math.floor(this.DTF_ROLL_WIDTH / w));
+    const rows         = Math.ceil(qty / filesPerRow);
+    const meters       = parseFloat(((rows * h) / 100).toFixed(2));
+    const totalHours   = meters / this.DTF_SPEED;
+    const hours        = Math.floor(totalHours);
+    const minutes      = Math.round((totalHours - hours) * 60);
+    return { meters, hours, minutes };
+  },
+
+  calcDTFTotal(dtfItems) {
+    const totalMeters = dtfItems.reduce((s, i) => s + this.calcDTFItem(i).meters, 0);
+    const rounded     = parseFloat(totalMeters.toFixed(2));
+    const totalH      = rounded / this.DTF_SPEED;
+    return {
+      meters:  rounded,
+      hours:   Math.floor(totalH),
+      minutes: Math.round((totalH - Math.floor(totalH)) * 60),
+    };
+  },
+
+  // ─────────────────────────────────────────────
+  // PLANNER DTF  (localStorage — operativo, non sincronizzato)
+  // ─────────────────────────────────────────────
+
+  PLAN_KEY:     'tcf_dtf_plan',
+  CAPACITY_KEY: 'tcf_dtf_capacity',
+
+  getPlannerCapacity() {
+    return parseFloat(localStorage.getItem(this.CAPACITY_KEY) || '60');
+  },
+  setPlannerCapacity(v) {
+    localStorage.setItem(this.CAPACITY_KEY, String(Math.max(1, parseFloat(v) || 60)));
+  },
+
+  getSchedule() {
+    try { return JSON.parse(localStorage.getItem(this.PLAN_KEY) || '{}'); } catch { return {}; }
+  },
+  getDaySchedule(dateStr) {
+    return (this.getSchedule()[dateStr] || []);
+  },
+  scheduleOrder(orderId, dateStr) {
+    const s = this.getSchedule();
+    Object.keys(s).forEach(d => { s[d] = s[d].filter(id => id !== orderId); });
+    if (!s[dateStr]) s[dateStr] = [];
+    s[dateStr].push(orderId);
+    localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
+  },
+  unscheduleOrder(orderId) {
+    const s = this.getSchedule();
+    Object.keys(s).forEach(d => { s[d] = s[d].filter(id => id !== orderId); });
+    localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
+  },
+  getOrderPlanDate(orderId) {
+    const s = this.getSchedule();
+    for (const [date, ids] of Object.entries(s)) {
+      if (ids.includes(orderId)) return date;
+    }
+    return null;
+  },
+  getOrdersWithDTF() {
+    return this.getOrders().filter(o => o.dtfItems && o.dtfItems.length > 0 && !o.archived);
   },
 
   formatDate(dateStr, opts) {
