@@ -136,22 +136,27 @@ function renderDTFPlanner() {
   const dateStr  = day.toISOString().slice(0, 10);
   const capacity = TCFactory.getPlannerCapacity();
 
-  // Ordini schedulati in questo giorno (array ordinato)
-  const scheduledIds = TCFactory.getDaySchedule(dateStr);
+  // Ordini schedulati in questo giorno (array ordinato {id, meters})
+  const scheduledEntries = TCFactory.getDayScheduleEntries(dateStr);
 
-  // Risolvi ogni ID in una sorgente DTF (ordine reale o standalone)
+  // Risolvi ogni entry in sorgente + metri effettivi
   const allSources = TCFactory.getAllDTFSources();
   const sourceMap  = Object.fromEntries(allSources.map(s => [s.id, s]));
 
-  const scheduledItems = scheduledIds
-    .map(id => sourceMap[id] ? { ...sourceMap[id], meters: TCFactory.calcDTFTotal(sourceMap[id].dtfItems || []).meters } : null)
-    .filter(Boolean);
+  const scheduledItems = scheduledEntries.map(entry => {
+    const source = sourceMap[entry.id];
+    if (!source) return null;
+    const fullMeters = TCFactory.calcDTFTotal(source.dtfItems || []).meters;
+    const meters     = (entry.meters != null) ? entry.meters : fullMeters;
+    const isPartial  = entry.meters != null && entry.meters < fullMeters;
+    return { ...source, meters, isPartial };
+  }).filter(Boolean);
 
   const usedMeters = scheduledItems.reduce((s, i) => s + i.meters, 0);
   const pct = Math.min(110, (usedMeters / capacity) * 100);
   const fillColor = pct < 50 ? '#22c55e' : pct < 75 ? '#f59e0b' : pct < 90 ? '#f97316' : '#ef4444';
 
-  // In attesa = globale: tutte le sorgenti NOT schedulati in NESSUN giorno
+  // In attesa = globale: tutte le sorgenti NON schedulate in nessun giorno
   const waiting = allSources.filter(s => !TCFactory.isScheduledAnywhere(s.id));
 
   const dayLabel = day.toLocaleDateString('it-IT', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
@@ -183,6 +188,9 @@ function renderDTFPlanner() {
           </div>
           <button class="btn-icon" onclick="planNav(1)">${Icons.chevronRight()}</button>
           <button class="btn btn-ghost btn-sm" onclick="planGoToday()">Oggi</button>
+          <button class="btn btn-primary btn-sm" onclick="runAutoSchedule()" title="Pianifica automaticamente in base a deadline e priorità">
+            ${Icons.magic(13)} Auto-pianifica
+          </button>
           <div style="display:flex;align-items:center;gap:4px;">
             <input type="number" value="${capacity}" min="1" max="999" style="width:54px;" class="form-input" oninput="setPlanCapacity(this.value)">
             <span style="font-size:0.78rem;color:var(--text-muted);">m/giorno</span>
@@ -235,7 +243,9 @@ function renderDTFPlanner() {
                     <div style="font-weight:700;font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary);">
                       ${escapeHtml(item.label)}${deadlineStr ? ` <span style="font-weight:400;color:var(--text-muted);">(${deadlineStr})</span>` : ''}
                     </div>
-                    <div style="font-size:0.7rem;color:${item.color};font-weight:600;margin-top:2px;">${item.meters}m</div>
+                    <div style="font-size:0.7rem;color:${item.color};font-weight:600;margin-top:2px;">
+                      ${item.meters}m${item.isPartial ? ' <span style="opacity:0.6;">(split)</span>' : ''}
+                    </div>
                     ${item.isStandalone ? `<div style="font-size:0.65rem;color:var(--text-muted);margin-top:1px;">conto terzi</div>` : ''}
                   </div>`;
                 }).join('')}
@@ -282,6 +292,12 @@ function planGoToday() { AppState.planDay = new Date(); renderDTFPlanner(); }
 function planGoDate(dateStr) { AppState.planDay = new Date(dateStr + 'T00:00:00'); renderDTFPlanner(); }
 function setPlanCapacity(v) { TCFactory.setPlannerCapacity(v); renderDTFPlanner(); }
 function planSendToWaiting(id) { TCFactory.unscheduleOrder(id); renderDTFPlanner(); }
+
+function runAutoSchedule() {
+  TCFactory.autoSchedule();
+  renderDTFPlanner();
+  showToast('Ordini pianificati automaticamente');
+}
 function removeStandaloneConfirm(id) {
   const s = TCFactory.getStandaloneById(id);
   if (!s) return;
@@ -323,14 +339,18 @@ function planItemDrop(event, targetId, dateStr) {
   const id = _planDragId;
   if (!id || id === targetId) { planItemDragEnd(event); return; }
 
-  const mid     = event.currentTarget.getBoundingClientRect().left + event.currentTarget.getBoundingClientRect().width / 2;
-  const before  = event.clientX < mid;
-  const current = TCFactory.getDaySchedule(dateStr);
-  const filtered = current.filter(s => s !== id);
-  const targetIdx = filtered.indexOf(targetId);
+  const rect   = event.currentTarget.getBoundingClientRect();
+  const before = event.clientX < rect.left + rect.width / 2;
+
+  const current  = TCFactory.getDayScheduleEntries(dateStr);
+  const filtered = current.filter(e => e.id !== id);
+  const targetIdx = filtered.findIndex(e => e.id === targetId);
   const insertAt  = before ? targetIdx : targetIdx + 1;
-  filtered.splice(insertAt, 0, id);
-  TCFactory.setDaySchedule(dateStr, filtered);
+
+  // Recupera l'entry originale (per preservare i meters se era split)
+  const dragEntry = current.find(e => e.id === id) || { id, meters: null };
+  filtered.splice(insertAt, 0, dragEntry);
+  TCFactory.setDayScheduleEntries(dateStr, filtered);
 
   _planDragId = null; _planDragFrom = null;
   renderDTFPlanner();
@@ -360,6 +380,9 @@ function openStandaloneDialog() {
 }
 
 function renderStandaloneModal(modal) {
+  const priorities = TCFactory.getPriorities();
+  const defaultPId = TCFactory.getDefaultPriorityId() || priorities[0]?.id;
+
   modal.innerHTML = `
     <div class="modal">
       <div class="modal-header">
@@ -370,6 +393,17 @@ function renderStandaloneModal(modal) {
         <div class="form-group">
           <label class="form-label">Nome / Cliente</label>
           <input id="std-label" class="form-input" placeholder="es. Polo bianche Rossi">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Priorità</label>
+          <div class="chip-picker" id="std-priority-picker" data-selected="${defaultPId}">
+            ${priorities.map(p => {
+              const active = defaultPId === p.id;
+              return `<button type="button" class="chip chip-btn" data-prio="${p.id}"
+                style="background:${active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`};color:${active ? '#fff' : p.color};"
+                onclick="selectStdPriority('${p.id}')">${escapeHtml(p.label)}</button>`;
+            }).join('')}
+          </div>
         </div>
         <div class="form-label" style="margin-bottom:8px;">Calcoli DTF</div>
         <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:10px;">Roll: 57cm · Velocità: 8m/h</div>
@@ -384,6 +418,19 @@ function renderStandaloneModal(modal) {
     </div>
   `;
   renderStdDtfRows();
+}
+
+function selectStdPriority(id) {
+  const picker = document.getElementById('std-priority-picker');
+  if (!picker) return;
+  picker.dataset.selected = id;
+  const priorities = TCFactory.getPriorities();
+  picker.innerHTML = priorities.map(p => {
+    const active = id === p.id;
+    return `<button type="button" class="chip chip-btn" data-prio="${p.id}"
+      style="background:${active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`};color:${active ? '#fff' : p.color};"
+      onclick="selectStdPriority('${p.id}')">${escapeHtml(p.label)}</button>`;
+  }).join('');
 }
 
 function renderStdDtfRows() {
@@ -422,10 +469,11 @@ function updateStdCalc() {
 function addStdDtfRow() { _stdDtfItems.push({label:'',width_cm:'',height_cm:'',qty:1}); renderStdDtfRows(); }
 function removeStdRow(i) { _stdDtfItems.splice(i,1); renderStdDtfRows(); }
 function saveStandalone() {
-  const label = document.getElementById('std-label')?.value?.trim();
+  const label      = document.getElementById('std-label')?.value?.trim();
+  const priorityId = document.getElementById('std-priority-picker')?.dataset?.selected || null;
   if (!label) { showToast('Inserisci un nome', 'error'); return; }
   if (_stdDtfItems.length === 0) { showToast('Aggiungi almeno un calcolo DTF', 'error'); return; }
-  TCFactory.addStandalone(label, _stdDtfItems);
+  TCFactory.addStandalone(label, _stdDtfItems, priorityId);
   document.getElementById('standalone-modal').classList.remove('active');
   renderDTFPlanner();
   showToast(`"${label}" aggiunto in attesa`);
@@ -597,7 +645,8 @@ function openOrderForm(order = null, defaultDate = null) {
           <label class="form-label">Priorità</label>
           <div class="chip-picker" id="of-priority-picker">
             ${priorities.map(p => {
-              const active = (order ? order.priorityId : priorities[0]?.id) === p.id;
+              const defaultPId = order ? order.priorityId : (TCFactory.getDefaultPriorityId() || priorities[0]?.id);
+              const active = defaultPId === p.id;
               return `<button type="button" class="chip chip-btn" data-prio="${p.id}"
                 style="background:${active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`};color:${active ? '#fff' : p.color};"
                 onclick="selectFormPriority('${p.id}')">${escapeHtml(p.label)}</button>`;
@@ -654,7 +703,7 @@ function openOrderForm(order = null, defaultDate = null) {
   `;
 
   if (!isEdit) {
-    document.getElementById('of-priority-picker').dataset.selected = priorities[0]?.id || '';
+    document.getElementById('of-priority-picker').dataset.selected = TCFactory.getDefaultPriorityId() || priorities[0]?.id || '';
   } else {
     document.getElementById('of-priority-picker').dataset.selected = order.priorityId;
   }
@@ -1315,6 +1364,7 @@ const Icons = {
   flag: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`,
   tag: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>`,
   printer: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>`,
+  magic: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>`,
   calendarDays: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>`,
 };
 

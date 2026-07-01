@@ -376,6 +376,10 @@ const TCFactory = {
 
   // ─────────────────────────────────────────────
   // PLANNER DTF  (localStorage — operativo, non sincronizzato)
+  //
+  // Formato schedule: { 'YYYY-MM-DD': [{id, meters},...] }
+  // meters=null  → usa i metri totali dell'ordine
+  // meters=N     → quota parziale (split automatico)
   // ─────────────────────────────────────────────
 
   PLAN_KEY:       'tcf_dtf_plan',
@@ -393,45 +397,149 @@ const TCFactory = {
   getSchedule() {
     try { return JSON.parse(localStorage.getItem(this.PLAN_KEY) || '{}'); } catch { return {}; }
   },
-  getDaySchedule(dateStr) {
-    return (this.getSchedule()[dateStr] || []);
+
+  // Restituisce [{id, meters}] normalizzato (gestisce anche il vecchio formato stringhe)
+  getDayScheduleEntries(dateStr) {
+    const raw = (this.getSchedule()[dateStr] || []);
+    return raw.map(e => typeof e === 'string' ? { id: e, meters: null } : e);
   },
-  setDaySchedule(dateStr, orderedIds) {
+
+  setDayScheduleEntries(dateStr, entries) {
     const s = this.getSchedule();
-    s[dateStr] = orderedIds;
+    s[dateStr] = entries;
     localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
   },
+
   scheduleOrder(orderId, dateStr) {
     const s = this.getSchedule();
-    // Rimuovi da qualsiasi giorno in cui è già presente
-    Object.keys(s).forEach(d => { s[d] = (s[d] || []).filter(id => id !== orderId); });
+    // Rimuovi da qualsiasi giorno (anche split)
+    Object.keys(s).forEach(d => {
+      s[d] = (s[d] || []).filter(e => (typeof e === 'string' ? e : e.id) !== orderId);
+    });
     if (!s[dateStr]) s[dateStr] = [];
-    if (!s[dateStr].includes(orderId)) s[dateStr].push(orderId);
+    s[dateStr].push({ id: orderId, meters: null }); // meters=null = ordine intero
     localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
   },
+
   unscheduleOrder(orderId) {
     const s = this.getSchedule();
-    Object.keys(s).forEach(d => { s[d] = (s[d] || []).filter(id => id !== orderId); });
+    Object.keys(s).forEach(d => {
+      s[d] = (s[d] || []).filter(e => (typeof e === 'string' ? e : e.id) !== orderId);
+    });
     localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
   },
+
   isScheduledAnywhere(id) {
-    return Object.values(this.getSchedule()).some(ids => (ids || []).includes(id));
+    return Object.values(this.getSchedule()).some(entries =>
+      (entries || []).some(e => (typeof e === 'string' ? e : e.id) === id)
+    );
+  },
+
+  // Risolve i metri effettivi di una entry (null = totale)
+  _entryMeters(entry, sourceMap) {
+    const id = typeof entry === 'string' ? entry : entry.id;
+    const allocated = typeof entry === 'object' && entry.meters != null ? entry.meters : null;
+    if (allocated !== null) return allocated;
+    const src = sourceMap ? sourceMap[id] : this.getAllDTFSources().find(s => s.id === id);
+    return src ? this.calcDTFTotal(src.dtfItems || []).meters : 0;
+  },
+
+  _nextDay(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  },
+
+  // ── Auto-scheduling ───────────────────────────
+  // Pianifica automaticamente le sorgenti non ancora schedulate:
+  // - ordina per deadline → priorità → merce completa
+  // - riempie i giorni dal giorno corrente
+  // - se un ordine scavalla la capacità giornaliera, lo divide tra i due giorni
+  // - non sposta mai elementi già schedulati manualmente
+  autoSchedule() {
+    const capacity   = this.getPlannerCapacity();
+    const allSources = this.getAllDTFSources();
+    const sourceMap  = Object.fromEntries(allSources.map(s => [s.id, s]));
+    const schedule   = this.getSchedule();
+    const today      = new Date().toISOString().slice(0, 10);
+
+    // Calcola utilizzo giornaliero esistente
+    const dayUsage = {};
+    Object.entries(schedule).forEach(([date, entries]) => {
+      dayUsage[date] = (entries || []).reduce((sum, e) => sum + this._entryMeters(e, sourceMap), 0);
+    });
+
+    // Sorgenti non ancora schedulate e con metri > 0
+    const unscheduled = allSources.filter(s => {
+      const m = this.calcDTFTotal(s.dtfItems || []).meters;
+      return m > 0 && !this.isScheduledAnywhere(s.id);
+    });
+
+    // Ordinamento: deadline ASC → priorityRank ASC → merceCompleta (done=0, not=1)
+    unscheduled.sort((a, b) => {
+      const da = a.deadline || '9999-12-31';
+      const db = b.deadline || '9999-12-31';
+      if (da !== db) return da.localeCompare(db);
+      const pa = a.priorityRank ?? 999;
+      const pb = b.priorityRank ?? 999;
+      if (pa !== pb) return pa - pb;
+      return (a.merceCompleta ? 0 : 1) - (b.merceCompleta ? 0 : 1);
+    });
+
+    // Piazza ogni sorgente, con split automatico se necessario
+    unscheduled.forEach(source => {
+      let remaining    = this.calcDTFTotal(source.dtfItems || []).meters;
+      const totalM     = remaining;
+      if (remaining <= 0) return;
+
+      let day = today;
+      let iterations = 0;
+
+      while (remaining > 0 && iterations < 365) {
+        iterations++;
+        const used      = dayUsage[day] || 0;
+        const available = Math.max(0, capacity - used);
+
+        if (available <= 0) { day = this._nextDay(day); continue; }
+
+        const toPlace   = parseFloat(Math.min(remaining, available).toFixed(2));
+        const isPartial = toPlace < totalM || remaining < totalM; // split in corso
+
+        if (!schedule[day]) schedule[day] = [];
+        schedule[day].push({ id: source.id, meters: isPartial ? toPlace : null });
+
+        dayUsage[day] = (dayUsage[day] || 0) + toPlace;
+        remaining     = parseFloat((remaining - toPlace).toFixed(2));
+
+        if (remaining > 0) day = this._nextDay(day);
+      }
+    });
+
+    localStorage.setItem(this.PLAN_KEY, JSON.stringify(schedule));
+  },
+
+  // ── Priorità default ─────────────────────────
+  getDefaultPriorityId() {
+    const normal = this._priorities.find(p =>
+      p.id === 'normale' || p.label.toLowerCase() === 'normale' || p.label.toLowerCase() === 'normal'
+    );
+    return normal?.id || this._priorities[this._priorities.length - 1]?.id || null;
   },
 
   // ── Voci standalone (conto terzi, senza ordine reale) ──
   getStandalone() {
     try { return JSON.parse(localStorage.getItem(this.STANDALONE_KEY) || '[]'); } catch { return []; }
   },
-  addStandalone(label, dtfItems) {
+  addStandalone(label, dtfItems, priorityId) {
     const items = this.getStandalone();
-    const id = 'STD-' + Date.now();
-    items.push({ id, label: label.trim(), dtfItems: dtfItems || [] });
+    const id    = 'STD-' + Date.now();
+    items.push({ id, label: label.trim(), dtfItems: dtfItems || [], priorityId: priorityId || null });
     localStorage.setItem(this.STANDALONE_KEY, JSON.stringify(items));
     return id;
   },
-  updateStandalone(id, label, dtfItems) {
+  updateStandalone(id, label, dtfItems, priorityId) {
     const items = this.getStandalone().map(s =>
-      s.id === id ? { ...s, label: label.trim(), dtfItems: dtfItems || [] } : s
+      s.id === id ? { ...s, label: label.trim(), dtfItems: dtfItems || [], priorityId: priorityId || null } : s
     );
     localStorage.setItem(this.STANDALONE_KEY, JSON.stringify(items));
   },
@@ -445,6 +553,7 @@ const TCFactory = {
   },
 
   // ── Tutte le sorgenti DTF (ordini reali + standalone) ──
+  // Includiamo priorityRank e merceCompleta per l'ordinamento auto-schedule
   getAllDTFSources() {
     const orders = this.getOrdersWithDTF().map(o => ({
       id: o.id,
@@ -453,15 +562,24 @@ const TCFactory = {
       dtfItems: o.dtfItems,
       isStandalone: false,
       color: this.getPriority(o.priorityId)?.color || '#6366f1',
+      priorityRank: this.getPriorityRank(o.priorityId),
+      priorityId: o.priorityId,
+      merceCompleta: o.stages?.merceCompleta?.done || false,
     }));
-    const standalone = this.getStandalone().map(s => ({
-      id: s.id,
-      label: s.label,
-      deadline: null,
-      dtfItems: s.dtfItems,
-      isStandalone: true,
-      color: '#94a3b8',
-    }));
+    const standalone = this.getStandalone().map(s => {
+      const pri = s.priorityId ? this.getPriority(s.priorityId) : null;
+      return {
+        id: s.id,
+        label: s.label,
+        deadline: null,
+        dtfItems: s.dtfItems,
+        isStandalone: true,
+        color: pri?.color || '#94a3b8',
+        priorityRank: s.priorityId ? this.getPriorityRank(s.priorityId) : 999,
+        priorityId: s.priorityId || null,
+        merceCompleta: false,
+      };
+    });
     return [...orders, ...standalone];
   },
 
@@ -474,7 +592,6 @@ const TCFactory = {
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('it-IT', opts || { day: '2-digit', month: 'short', year: 'numeric' });
   },
-
 
   getDefaultDate() {
     return new Date().toISOString().slice(0, 10);
