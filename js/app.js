@@ -8,9 +8,9 @@
 // ─────────────────────────────────────────────
 
 const AppState = {
-  view: 'active',
+  view: 'active',       // 'active' | 'partial' | 'archived'
   searchQuery: '',
-  sortKey: 'data',
+  sortKey: 'data',      // 'data' | 'priorita' | 'avanzamento'
   selectedOrder: null,
   dayOpen: null,
   formEditOrder: null,
@@ -19,15 +19,9 @@ const AppState = {
   formTags: [],
   formDtfItems: [],
   formDtfOpen: false,
-  planDay: new Date(),
-  planOpen: false,        // collassato di default
   settingsPrioOpen: false,
   settingsTagOpen: false,
 };
-
-// Stato drag & drop planner (module-level, non in AppState)
-let _planDragId   = null;
-let _planDragFrom = null; // 'scheduled' | 'waiting'
 
 
 
@@ -77,7 +71,6 @@ function showToast(message, type = 'success') {
 function renderApp() {
   renderHeader();
   renderStats();
-  renderDTFPlanner();
   renderOrderList();
 }
 
@@ -100,383 +93,27 @@ function renderHeader() {
 }
 
 function renderStats() {
-  const active = TCFactory.getActiveOrders();
-  const completed = active.filter(o => TCFactory.isCompleted(o)).length;
-  const inProgress = active.length - completed;
+  const active  = TCFactory.getActiveOrders().length;
+  const partial = TCFactory.getPartialOrders().length;
+  const arch    = TCFactory.getArchivedOrders().length;
 
   document.getElementById('stats-root').innerHTML = `
     <div class="glass-card stat-card">
       <div class="stat-card-glow" style="background:var(--brand-gold);"></div>
       <div class="stat-card-label">Attivi</div>
-      <div class="stat-card-value">${active.length}</div>
+      <div class="stat-card-value">${active}</div>
     </div>
     <div class="glass-card stat-card">
-      <div class="stat-card-glow" style="background:#3b82f6;"></div>
-      <div class="stat-card-label">In corso</div>
-      <div class="stat-card-value" style="color:#3b82f6;">${inProgress}</div>
+      <div class="stat-card-glow" style="background:#f97316;"></div>
+      <div class="stat-card-label">Spedito parz.</div>
+      <div class="stat-card-value" style="color:#f97316;">${partial}</div>
     </div>
     <div class="glass-card stat-card">
-      <div class="stat-card-glow" style="background:var(--priority-low);"></div>
-      <div class="stat-card-label">Completati</div>
-      <div class="stat-card-value" style="color:var(--priority-low);">${completed}</div>
+      <div class="stat-card-glow" style="background:#22c55e;"></div>
+      <div class="stat-card-label">Archiviati</div>
+      <div class="stat-card-value" style="color:#22c55e;">${arch}</div>
     </div>
   `;
-}
-
-// ─────────────────────────────────────────────
-// PLANNER DTF
-// ─────────────────────────────────────────────
-
-function renderDTFPlanner() {
-  const root = document.getElementById('dtf-planner-root');
-  if (!root) return;
-
-  const isOpen   = AppState.planOpen;
-  const day      = AppState.planDay;
-  const dateStr  = day.toISOString().slice(0, 10);
-  const capacity = TCFactory.getPlannerCapacity();
-
-  // Ordini schedulati in questo giorno (array ordinato {id, meters})
-  const scheduledEntries = TCFactory.getDayScheduleEntries(dateStr);
-
-  // Risolvi ogni entry in sorgente + metri effettivi
-  const allSources = TCFactory.getAllDTFSources();
-  const sourceMap  = Object.fromEntries(allSources.map(s => [s.id, s]));
-
-  const scheduledItems = scheduledEntries.map(entry => {
-    const source = sourceMap[entry.id];
-    if (!source) return null;
-    const fullMeters = TCFactory.calcDTFTotal(source.dtfItems || []).meters;
-    const meters     = (entry.meters != null) ? entry.meters : fullMeters;
-    const isPartial  = entry.meters != null && entry.meters < fullMeters;
-    return { ...source, meters, isPartial };
-  }).filter(Boolean);
-
-  const usedMeters = scheduledItems.reduce((s, i) => s + i.meters, 0);
-  const pct = Math.min(110, (usedMeters / capacity) * 100);
-  const fillColor = pct < 50 ? '#22c55e' : pct < 75 ? '#f59e0b' : pct < 90 ? '#f97316' : '#ef4444';
-
-  // In attesa = globale: tutte le sorgenti NON schedulate in nessun giorno
-  const waiting = allSources.filter(s => !TCFactory.isScheduledAnywhere(s.id));
-
-  const dayLabel = day.toLocaleDateString('it-IT', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
-
-  root.innerHTML = `
-    <div class="glass-card">
-      <div class="collapsible-header" onclick="togglePlanOpen()" style="cursor:pointer;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          ${Icons.printer(16)}
-          <span style="font-weight:700;font-size:0.95rem;">Planner DTF</span>
-          ${usedMeters > 0 ? `<span class="chip" style="background:${fillColor}22;color:${fillColor};">${usedMeters.toFixed(1)}m / ${capacity}m</span>` : ''}
-        </div>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="transform:rotate(${isOpen ? 180 : 0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-
-      ${isOpen ? `
-      <div style="padding:var(--space-md) var(--space-lg) var(--space-lg);">
-
-        <!-- Navigazione giorno -->
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:var(--space-md);flex-wrap:wrap;">
-          <button class="btn-icon" onclick="planNav(-1)">${Icons.chevronLeft()}</button>
-          <div style="display:flex;align-items:center;gap:6px;flex:1;justify-content:center;">
-            <span style="font-weight:700;font-size:0.95rem;text-transform:capitalize;">${dayLabel}</span>
-            <button type="button" class="btn-icon" title="Scegli data" onclick="document.getElementById('plan-day-input').showPicker()">
-              ${Icons.calendarDays(15)}
-            </button>
-            <input type="date" id="plan-day-input" value="${dateStr}" onchange="planGoDate(this.value)"
-              style="position:absolute;visibility:hidden;width:0;height:0;pointer-events:none;">
-          </div>
-          <button class="btn-icon" onclick="planNav(1)">${Icons.chevronRight()}</button>
-          <button class="btn btn-ghost btn-sm" onclick="planGoToday()">Oggi</button>
-          <button class="btn btn-primary btn-sm" onclick="runAutoSchedule()" title="Pianifica automaticamente in base a deadline e priorità">
-            ${Icons.magic(13)} Auto-pianifica
-          </button>
-          <div style="display:flex;align-items:center;gap:4px;">
-            <input type="number" value="${capacity}" min="1" max="999" style="width:54px;" class="form-input" oninput="setPlanCapacity(this.value)">
-            <span style="font-size:0.78rem;color:var(--text-muted);">m/giorno</span>
-          </div>
-        </div>
-
-        <!-- Barra visuale riempimento -->
-        <div style="height:10px;background:var(--bg-secondary);border-radius:6px;overflow:hidden;border:1px solid var(--border);margin-bottom:var(--space-md);">
-          <div style="height:100%;width:${Math.min(100,pct)}%;background:${fillColor};transition:width 0.3s,background 0.3s;border-radius:6px;"></div>
-        </div>
-        <div style="text-align:center;font-size:0.78rem;font-weight:700;color:${fillColor};margin-top:-10px;margin-bottom:var(--space-md);">
-          ${usedMeters.toFixed(1)} m / ${capacity} m (${Math.round(pct)}%)
-        </div>
-
-        <!-- Giornata: lista schedulati riordinabile -->
-        <div style="margin-bottom:var(--space-lg);">
-          <div style="font-size:0.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">
-            Giornata
-          </div>
-
-          <div id="plan-day-list"
-               ondragover="planDayListDragOver(event)"
-               ondrop="planDayListDrop(event,'${dateStr}')"
-               style="min-height:72px;border:2px dashed var(--border);border-radius:var(--radius-md);padding:8px;display:flex;flex-direction:row;flex-wrap:nowrap;gap:8px;overflow-x:auto;">
-            ${scheduledItems.length === 0
-              ? `<div style="display:flex;align-items:center;justify-content:center;width:100%;color:var(--text-muted);font-size:0.78rem;pointer-events:none;">Trascina qui gli ordini da pianificare</div>`
-              : scheduledItems.map((item, idx) => {
-                  // Larghezza proporzionale ai metri (minimo 120px, massimo 280px)
-                  const minW = 120, maxW = 280;
-                  const w = Math.round(minW + (item.meters / Math.max(usedMeters, 0.01)) * (maxW - minW));
-                  const deadlineStr = item.deadline
-                    ? TCFactory.formatDate(item.deadline, { day:'2-digit', month:'2-digit' })
-                    : null;
-                  return `
-                  <div class="plan-day-item" draggable="true" data-id="${item.id}" data-idx="${idx}"
-                    ondragstart="planItemDragStart(event,'${item.id}','scheduled')"
-                    ondragend="planItemDragEnd(event)"
-                    ondragover="planItemDragOver(event)"
-                    ondragleave="planItemDragLeave(event)"
-                    ondrop="planItemDrop(event,'${item.id}','${dateStr}')"
-                    style="min-width:${w}px;flex-shrink:0;">
-                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;">
-                      <span style="color:var(--text-muted);cursor:grab;font-size:1rem;line-height:1;">⠿</span>
-                      <button onclick="event.stopPropagation();planSendToWaiting('${item.id}')"
-                        style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:0;display:flex;font-size:0.7rem;line-height:1;" title="Sposta in attesa">
-                        ×
-                      </button>
-                    </div>
-                    <div style="width:100%;height:4px;background:${item.color};border-radius:3px;margin-bottom:6px;opacity:0.85;"></div>
-                    <div style="font-weight:700;font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary);">
-                      ${escapeHtml(item.label)}${deadlineStr ? ` <span style="font-weight:400;color:var(--text-muted);">(${deadlineStr})</span>` : ''}
-                    </div>
-                    <div style="font-size:0.7rem;color:${item.color};font-weight:600;margin-top:2px;">
-                      ${item.meters}m${item.isPartial ? ' <span style="opacity:0.6;">(split)</span>' : ''}
-                    </div>
-                    ${item.isStandalone ? `<div style="font-size:0.65rem;color:var(--text-muted);margin-top:1px;">conto terzi</div>` : ''}
-                  </div>`;
-                }).join('')}
-          </div>
-        </div>
-
-        <!-- In attesa (globale) -->
-        <div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-            <div style="font-size:0.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">In attesa</div>
-            <button class="btn btn-secondary btn-sm" onclick="openStandaloneDialog()" title="Aggiungi lavorazione conto terzi">
-              ${Icons.plus(12)} Conto terzi
-            </button>
-          </div>
-          ${waiting.length === 0
-            ? `<div style="font-size:0.82rem;color:var(--text-muted);padding:12px 0;">Nessuna lavorazione in attesa.</div>`
-            : `<div style="display:flex;flex-wrap:wrap;gap:6px;">
-                ${waiting.map(s => {
-                  const tot = TCFactory.calcDTFTotal(s.dtfItems || []);
-                  return `<div class="chip" draggable="true"
-                    ondragstart="planItemDragStart(event,'${s.id}','waiting')"
-                    ondragend="planItemDragEnd(event)"
-                    style="background:${s.color}18;color:${s.color};cursor:grab;gap:6px;border:1px solid ${s.color}44;"
-                    title="Trascina nel calendario per pianificare">
-                    ${s.isStandalone ? `<span style="font-size:0.65rem;opacity:0.7;">CT</span>` : ''}
-                    <span style="font-weight:600;">${escapeHtml(s.label)}</span>
-                    <span style="opacity:0.7;font-size:0.68rem;">${tot.meters}m</span>
-                    ${s.isStandalone ? `<button onclick="event.stopPropagation();removeStandaloneConfirm('${s.id}')" style="background:none;border:none;cursor:pointer;color:${s.color};padding:0;display:flex;">${Icons.x(11)}</button>` : ''}
-                  </div>`;
-                }).join('')}
-              </div>`}
-        </div>
-
-      </div>` : ''}
-    </div>
-  `;
-}
-
-// ── Planner controls ─────────────────────────
-
-function togglePlanOpen() { AppState.planOpen = !AppState.planOpen; renderDTFPlanner(); }
-function planNav(delta) { AppState.planDay = new Date(AppState.planDay.getTime() + delta * 86400000); renderDTFPlanner(); }
-function planGoToday() { AppState.planDay = new Date(); renderDTFPlanner(); }
-function planGoDate(dateStr) { AppState.planDay = new Date(dateStr + 'T00:00:00'); renderDTFPlanner(); }
-function setPlanCapacity(v) { TCFactory.setPlannerCapacity(v); renderDTFPlanner(); }
-function planSendToWaiting(id) { TCFactory.unscheduleOrder(id); renderDTFPlanner(); }
-
-function runAutoSchedule() {
-  TCFactory.autoSchedule();
-  renderDTFPlanner();
-  showToast('Ordini pianificati automaticamente');
-}
-function removeStandaloneConfirm(id) {
-  const s = TCFactory.getStandaloneById(id);
-  if (!s) return;
-  if (!confirm(`Eliminare la voce conto terzi "${s.label}"?`)) return;
-  TCFactory.removeStandalone(id);
-  renderDTFPlanner();
-}
-
-// ── Drag & Drop planner ──────────────────────
-
-function planItemDragStart(event, id, from) {
-  _planDragId   = id;
-  _planDragFrom = from;
-  event.dataTransfer.setData('text/plain', id);
-  setTimeout(() => { if (event.currentTarget) event.currentTarget.style.opacity = '0.4'; }, 0);
-}
-function planItemDragEnd(event) {
-  if (event.currentTarget) event.currentTarget.style.opacity = '';
-  document.querySelectorAll('.plan-drop-before,.plan-drop-after').forEach(el => {
-    el.classList.remove('plan-drop-before','plan-drop-after');
-  });
-}
-function planItemDragOver(event) {
-  if (_planDragFrom !== 'scheduled' && _planDragFrom !== 'waiting') return;
-  event.preventDefault();
-  event.stopPropagation();
-  const el   = event.currentTarget;
-  const rect = el.getBoundingClientRect();
-  const mid  = rect.left + rect.width / 2;
-  document.querySelectorAll('.plan-drop-before,.plan-drop-after').forEach(e => e.classList.remove('plan-drop-before','plan-drop-after'));
-  el.classList.add(event.clientX < mid ? 'plan-drop-before' : 'plan-drop-after');
-}
-function planItemDragLeave(event) {
-  event.currentTarget.classList.remove('plan-drop-before','plan-drop-after');
-}
-function planItemDrop(event, targetId, dateStr) {
-  event.preventDefault();
-  event.stopPropagation();
-  const id = _planDragId;
-  if (!id || id === targetId) { planItemDragEnd(event); return; }
-
-  const rect   = event.currentTarget.getBoundingClientRect();
-  const before = event.clientX < rect.left + rect.width / 2;
-
-  const current  = TCFactory.getDayScheduleEntries(dateStr);
-  const filtered = current.filter(e => e.id !== id);
-  const targetIdx = filtered.findIndex(e => e.id === targetId);
-  const insertAt  = before ? targetIdx : targetIdx + 1;
-
-  // Recupera l'entry originale (per preservare i meters se era split)
-  const dragEntry = current.find(e => e.id === id) || { id, meters: null };
-  filtered.splice(insertAt, 0, dragEntry);
-  TCFactory.setDayScheduleEntries(dateStr, filtered);
-
-  _planDragId = null; _planDragFrom = null;
-  renderDTFPlanner();
-}
-// Drop sul contenitore vuoto/fine lista
-function planDayListDragOver(event) { event.preventDefault(); }
-function planDayListDrop(event, dateStr) {
-  if (event.target.classList.contains('plan-day-item')) return; // gestito da planItemDrop
-  const id = _planDragId;
-  if (!id) return;
-  event.preventDefault();
-  TCFactory.scheduleOrder(id, dateStr);
-  _planDragId = null; _planDragFrom = null;
-  renderDTFPlanner();
-}
-
-// ── Standalone (conto terzi) ─────────────────
-
-let _stdDtfItems = [];
-
-function openStandaloneDialog() {
-  _stdDtfItems = [];
-  const modal = document.getElementById('standalone-modal');
-  renderStandaloneModal(modal);
-  modal.classList.add('active');
-  modal.onclick = e => { if (e.target === modal) modal.classList.remove('active'); };
-}
-
-function renderStandaloneModal(modal) {
-  const priorities = TCFactory.getPriorities();
-  const defaultPId = TCFactory.getDefaultPriorityId() || priorities[0]?.id;
-
-  modal.innerHTML = `
-    <div class="modal">
-      <div class="modal-header">
-        <h2>Nuova voce DTF — Conto terzi</h2>
-        <button class="btn-icon" onclick="document.getElementById('standalone-modal').classList.remove('active')">${Icons.x()}</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Nome / Cliente</label>
-          <input id="std-label" class="form-input" placeholder="es. Polo bianche Rossi">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Priorità</label>
-          <div class="chip-picker" id="std-priority-picker" data-selected="${defaultPId}">
-            ${priorities.map(p => {
-              const active = defaultPId === p.id;
-              return `<button type="button" class="chip chip-btn" data-prio="${p.id}"
-                style="background:${active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`};color:${active ? '#fff' : p.color};"
-                onclick="selectStdPriority('${p.id}')">${escapeHtml(p.label)}</button>`;
-            }).join('')}
-          </div>
-        </div>
-        <div class="form-label" style="margin-bottom:8px;">Calcoli DTF</div>
-        <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:10px;">Roll: 57cm · Velocità: 8m/h</div>
-        <div id="std-dtf-rows" style="display:flex;flex-direction:column;gap:8px;"></div>
-        <div id="std-dtf-total" style="margin-top:10px;"></div>
-        <button type="button" onclick="addStdDtfRow()" class="btn btn-secondary btn-sm" style="margin-top:10px;">${Icons.plus(13)} Aggiungi calcolo</button>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="document.getElementById('standalone-modal').classList.remove('active')">Annulla</button>
-        <button class="btn btn-primary" onclick="saveStandalone()">Salva</button>
-      </div>
-    </div>
-  `;
-  renderStdDtfRows();
-}
-
-function selectStdPriority(id) {
-  const picker = document.getElementById('std-priority-picker');
-  if (!picker) return;
-  picker.dataset.selected = id;
-  const priorities = TCFactory.getPriorities();
-  picker.innerHTML = priorities.map(p => {
-    const active = id === p.id;
-    return `<button type="button" class="chip chip-btn" data-prio="${p.id}"
-      style="background:${active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`};color:${active ? '#fff' : p.color};"
-      onclick="selectStdPriority('${p.id}')">${escapeHtml(p.label)}</button>`;
-  }).join('');
-}
-
-function renderStdDtfRows() {
-  const c = document.getElementById('std-dtf-rows'); if (!c) return;
-  c.innerHTML = _stdDtfItems.map((item, i) => `
-    <div style="display:grid;grid-template-columns:2fr 70px 70px 60px auto;gap:6px;align-items:center;">
-      <input class="form-input" placeholder="Nome (opz.)" value="${escapeHtml(item.label||'')}" oninput="storeStdField(${i},'label',this.value)">
-      <input class="form-input" type="number" placeholder="L cm" min="0.1" step="0.1" value="${item.width_cm||''}" oninput="storeStdField(${i},'width_cm',this.value);updateStdCalc()">
-      <input class="form-input" type="number" placeholder="H cm" min="0.1" step="0.1" value="${item.height_cm||''}" oninput="storeStdField(${i},'height_cm',this.value);updateStdCalc()">
-      <input class="form-input" type="number" placeholder="Qty" min="1" value="${item.qty||1}" oninput="storeStdField(${i},'qty',this.value);updateStdCalc()">
-      <button type="button" class="btn-icon" onclick="removeStdRow(${i})" style="color:var(--priority-urgent);">${Icons.x(13)}</button>
-    </div>
-    <div id="std-result-${i}" style="font-size:0.75rem;color:var(--brand-gold);font-weight:600;padding-left:2px;min-height:16px;"></div>
-  `).join('');
-  updateStdCalc();
-}
-
-function storeStdField(i, field, value) {
-  if (!_stdDtfItems[i]) return;
-  _stdDtfItems[i][field] = field === 'label' ? value : (parseFloat(value) || '');
-}
-function updateStdCalc() {
-  _stdDtfItems.forEach((item, i) => {
-    const el = document.getElementById(`std-result-${i}`); if (!el) return;
-    const c = TCFactory.calcDTFItem(item);
-    el.textContent = c.meters > 0 ? `→ ${c.meters}m · ${c.hours}h ${c.minutes}min` : '';
-  });
-  const tot = TCFactory.calcDTFTotal(_stdDtfItems);
-  const box = document.getElementById('std-dtf-total'); if (!box) return;
-  box.innerHTML = tot.meters > 0 ? `
-    <div style="background:var(--bg-secondary);border-radius:var(--radius-md);padding:10px 14px;display:flex;gap:24px;align-items:center;border:1px solid var(--border);">
-      <div><div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;">Totale</div>
-        <div style="font-size:1.3rem;font-weight:800;color:var(--brand-gold);">${tot.meters}m · ${tot.hours}h ${tot.minutes}min</div></div>
-    </div>` : '';
-}
-function addStdDtfRow() { _stdDtfItems.push({label:'',width_cm:'',height_cm:'',qty:1}); renderStdDtfRows(); }
-function removeStdRow(i) { _stdDtfItems.splice(i,1); renderStdDtfRows(); }
-function saveStandalone() {
-  const label      = document.getElementById('std-label')?.value?.trim();
-  const priorityId = document.getElementById('std-priority-picker')?.dataset?.selected || null;
-  if (!label) { showToast('Inserisci un nome', 'error'); return; }
-  if (_stdDtfItems.length === 0) { showToast('Aggiungi almeno un calcolo DTF', 'error'); return; }
-  TCFactory.addStandalone(label, _stdDtfItems, priorityId);
-  document.getElementById('standalone-modal').classList.remove('active');
-  renderDTFPlanner();
-  showToast(`"${label}" aggiunto in attesa`);
 }
 
 // ─────────────────────────────────────────────
@@ -490,31 +127,43 @@ function setSearchQuery(v) { AppState.searchQuery = v; renderOrderList(); }
 
 
 function renderOrderList() {
-  const active = TCFactory.getActiveOrders();
-  const archived = TCFactory.getArchivedOrders();
-  const source = AppState.view === 'active' ? active : archived;
+  const nActive   = TCFactory.getActiveOrders().length;
+  const nPartial  = TCFactory.getPartialOrders().length;
+  const nArchived = TCFactory.getArchivedOrders().length;
+
+  // Sorgente in base al tab attivo
+  const source =
+    AppState.view === 'active'   ? TCFactory.getActiveOrders()  :
+    AppState.view === 'partial'  ? TCFactory.getPartialOrders() :
+                                   TCFactory.getArchivedOrders();
 
   const q = AppState.searchQuery.trim().toLowerCase();
-  let filtered = source;
-  if (q) {
-    filtered = source.filter(o =>
-      o.nome.toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q))
-    );
-  }
+  const filtered = q
+    ? source.filter(o => o.nome.toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q)))
+    : source;
 
-  const cmpDate = (a, b) => a.dataOrdine.localeCompare(b.dataOrdine);
-  const cmpPriorita = (a, b) => TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
-  const cmpCompleto = (a, b) => (TCFactory.isCompleted(a) ? 0 : 1) - (TCFactory.isCompleted(b) ? 0 : 1);
+  // Comparatori
+  const cmpDate        = (a, b) => a.dataOrdine.localeCompare(b.dataOrdine);
+  const cmpPriorita    = (a, b) => TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
+  const cmpAvanzamento = (a, b) => TCFactory.stageProgress(a).lavDone - TCFactory.stageProgress(b).lavDone;
+
+  // Correggi sortKey se era un valore vecchio non più valido
+  if (!['data','priorita','avanzamento'].includes(AppState.sortKey)) AppState.sortKey = 'data';
 
   const sorted = [...filtered].sort((a, b) => {
     switch (AppState.sortKey) {
-      case 'nome': return a.nome.localeCompare(b.nome);
-      case 'data': return cmpDate(a, b) || cmpPriorita(a, b) || cmpCompleto(a, b);
-      case 'priorita': return cmpPriorita(a, b) || cmpDate(a, b) || cmpCompleto(a, b);
-      case 'completo': return cmpCompleto(a, b) || cmpPriorita(a, b) || cmpDate(a, b);
+      case 'data':        return cmpDate(a,b)        || cmpAvanzamento(a,b) || cmpPriorita(a,b);
+      case 'priorita':    return cmpPriorita(a,b)    || cmpAvanzamento(a,b) || cmpDate(a,b);
+      case 'avanzamento': return cmpAvanzamento(a,b) || cmpPriorita(a,b)   || cmpDate(a,b);
       default: return 0;
     }
   });
+
+  const emptyMsg =
+    q ? 'Nessun risultato.' :
+    AppState.view === 'archived' ? 'Nessun ordine archiviato.' :
+    AppState.view === 'partial'  ? 'Nessun ordine spedito parzialmente.' :
+    'Nessun ordine attivo.';
 
   document.getElementById('orderlist-root').innerHTML = `
     <div class="glass-card">
@@ -525,8 +174,9 @@ function renderOrderList() {
             <p>${filtered.length} di ${source.length}</p>
           </div>
           <div class="view-tabs">
-            <button class="view-tab ${AppState.view === 'active' ? 'active' : ''}" onclick="setView('active')">Attivi · ${active.length}</button>
-            <button class="view-tab ${AppState.view === 'archived' ? 'active' : ''}" onclick="setView('archived')">${Icons.archive(12)} Archivio · ${archived.length}</button>
+            <button class="view-tab ${AppState.view==='active'?'active':''}"  onclick="setView('active')">Attivi · ${nActive}</button>
+            <button class="view-tab ${AppState.view==='partial'?'active':''}" onclick="setView('partial')">${Icons.truck(12)} Sped. parz. · ${nPartial}</button>
+            <button class="view-tab ${AppState.view==='archived'?'active':''}" onclick="setView('archived')">${Icons.archive(12)} Archivio · ${nArchived}</button>
           </div>
         </div>
         <div class="list-controls">
@@ -535,16 +185,15 @@ function renderOrderList() {
             <input type="text" placeholder="Cerca per nome o tag…" value="${escapeHtml(AppState.searchQuery)}" oninput="setSearchQuery(this.value)">
           </div>
           <select class="form-select" style="width:auto;" onchange="setSortKey(this.value)">
-            <option value="data" ${AppState.sortKey==='data'?'selected':''}>Data</option>
-            <option value="nome" ${AppState.sortKey==='nome'?'selected':''}>Nome</option>
-            <option value="priorita" ${AppState.sortKey==='priorita'?'selected':''}>Priorità</option>
-            <option value="completo" ${AppState.sortKey==='completo'?'selected':''}>Completo</option>
+            <option value="data"        ${AppState.sortKey==='data'?'selected':''}>Data</option>
+            <option value="priorita"    ${AppState.sortKey==='priorita'?'selected':''}>Priorità</option>
+            <option value="avanzamento" ${AppState.sortKey==='avanzamento'?'selected':''}>Avanzamento</option>
           </select>
         </div>
       </div>
       <div class="order-rows">
         ${sorted.length === 0
-          ? `<div class="empty-list">${q ? 'Nessun risultato.' : (AppState.view === 'archived' ? 'Nessun ordine archiviato.' : 'Nessun ordine. Premi "Nuovo ordine" per aggiungerne uno.')}</div>`
+          ? `<div class="empty-list">${emptyMsg}</div>`
           : sorted.map(o => renderOrderRow(o)).join('')}
       </div>
     </div>
@@ -552,10 +201,31 @@ function renderOrderList() {
 }
 
 function renderOrderRow(o) {
-  const p = TCFactory.getPriority(o.priorityId);
+  const p     = TCFactory.getPriority(o.priorityId);
   const color = p?.color || '#64748b';
-  const { done, total, allDone, lastDate } = TCFactory.stageProgress(o);
-  const pct = (done / total) * 100;
+  const prog  = TCFactory.stageProgress(o);
+
+  // Deadline badge — sempre visibile se presente, rosso se scaduta/vicina
+  let deadlineBadge = '';
+  if (o.deadline) {
+    const today = new Date().toISOString().slice(0, 10);
+    const diff  = Math.ceil((new Date(o.deadline + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+    const dc    = diff < 0 ? '#ef4444' : diff <= 3 ? '#ef4444' : diff <= 7 ? '#f97316' : '#6366f1';
+    const lbl   = diff < 0 ? `scad. ${Math.abs(diff)}gg fa` : diff === 0 ? 'oggi' : `${diff}gg`;
+    deadlineBadge = `<span class="deadline-badge" style="background:${dc}18;color:${dc};border-color:${dc}44;">${lbl}</span>`;
+  }
+
+  // Pill lavorazione (inline)
+  const lavPills = LAVORAZIONE_DEFS.map(s => {
+    const done = o.stages?.[s.id]?.done;
+    return `<button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>`;
+  }).join('');
+
+  // Pill evasione
+  const evaPills = EVASIONE_DEFS.map(s => {
+    const done = o.stages?.[s.id]?.done;
+    return `<button class="stage-pill evasione ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>`;
+  }).join('');
 
   return `
     <button class="order-row-item" onclick="openOrderDetail('${o.id}')">
@@ -563,24 +233,49 @@ function renderOrderRow(o) {
       <div class="order-row-body">
         <div class="order-row-title">
           <span class="truncate">${escapeHtml(o.nome)}</span>
-          ${allDone ? Icons.checkCircle('var(--priority-low)') : ''}
+          ${deadlineBadge}
           ${o.files?.length > 0 ? `<span style="display:inline-flex;align-items:center;gap:2px;font-size:0.72rem;color:var(--text-muted);">${Icons.paperclip(12)} ${o.files.length}</span>` : ''}
+          ${renderPriorityChip(p)}
         </div>
-        <div class="order-row-meta">
+        <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;align-items:center;">
+          ${lavPills}
+          <span style="color:var(--border);margin:0 2px;">│</span>
+          ${evaPills}
+        </div>
+        <div class="order-row-meta" style="margin-top:4px;">
           <span>${TCFactory.formatDate(o.dataOrdine)}</span>
-          ${allDone && lastDate ? `<span style="color:var(--priority-low);">Completato ${TCFactory.formatDate(lastDate)}</span>` : ''}
-          ${o.tags.slice(0, 3).map(t => renderTagChip(t)).join('')}
-          ${o.tags.length > 3 ? `<span>+${o.tags.length - 3}</span>` : ''}
-        </div>
-        <div class="order-row-progress">
-          <div class="progress-track"><div class="progress-fill" style="width:${pct}%;"></div></div>
-          <span class="progress-label">${done}/${total}</span>
+          ${o.tags.slice(0, 2).map(t => renderTagChip(t)).join('')}
         </div>
       </div>
-      ${renderPriorityChip(p)}
     </button>
   `;
 }
+
+// toggleStage inline dalla lista (senza aprire il dettaglio)
+async function toggleStageInline(orderId, stageId, done) {
+  try {
+    let updated = await TCFactory.setStage(orderId, stageId, done);
+    // "Spedito" → archivia automaticamente
+    if (stageId === 'spedito') {
+      updated = await TCFactory.setArchived(orderId, done);
+      // se si de-spunta spedito, de-spunta anche speditoP
+      if (!done && updated.stages?.speditoParzialmente?.done) {
+        updated = await TCFactory.setStage(orderId, 'speditoParzialmente', false);
+      }
+    }
+    // se si de-spunta speditoParzialmente e spedito era done → de-spunta anche spedito
+    if (stageId === 'speditoParzialmente' && !done) {
+      const cur = TCFactory.getOrderById(orderId);
+      if (cur?.stages?.spedito?.done) {
+        await TCFactory.setStage(orderId, 'spedito', false);
+        await TCFactory.setArchived(orderId, false);
+      }
+    }
+    renderApp();
+  } catch(e) { showToast('Errore aggiornamento fase', 'error'); }
+}
+
+
 
 // ─────────────────────────────────────────────
 // CHIP / BADGE
@@ -922,8 +617,27 @@ function renderOrderDetail() {
   if (!order) { modal.classList.remove('active'); return; }
 
   const priority = TCFactory.getPriority(order.priorityId);
-  const { done, total, allDone } = TCFactory.stageProgress(order);
-  const pct = (done / total) * 100;
+  const prog = TCFactory.stageProgress(order);
+  const { lavDone, lavTotal, allLavDone, isSpeditoP, isSpedito } = prog;
+
+  const renderStageSection = (defs, title) => `
+    <div class="progress-box">
+      <div style="font-weight:700;font-size:0.85rem;margin-bottom:8px;">${title}</div>
+      <div class="stage-list">
+        ${defs.map(s => {
+          const state = order.stages?.[s.id] || {};
+          return `
+            <label class="stage-item">
+              <input type="checkbox" class="stage-checkbox" ${state.done ? 'checked' : ''}
+                onchange="toggleStageDetail('${order.id}','${s.id}',this.checked)">
+              <span class="stage-label ${state.done ? 'done' : ''}">
+                <span>${s.label}</span>
+                ${state.done && state.date ? `<span class="stage-date">${TCFactory.formatDate(state.date)}</span>` : ''}
+              </span>
+            </label>`;
+        }).join('')}
+      </div>
+    </div>`;
 
   modal.innerHTML = `
     <div class="modal">
@@ -977,33 +691,8 @@ function renderOrderDetail() {
           <div style="font-size:0.85rem;color:var(--text-primary);white-space:pre-wrap;background:var(--bg-secondary);border-radius:var(--radius-md);padding:10px 12px;">${escapeHtml(order.notes)}</div>
         </div>` : ''}
 
-        <div class="progress-box">
-          <div style="display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:0.88rem;">
-            <span>Avanzamento</span>
-            <span style="font-size:0.75rem;color:var(--text-muted);font-weight:600;">${done}/${total}</span>
-          </div>
-          <div class="progress-track" style="margin-top:8px;"><div class="progress-fill" style="width:${pct}%;"></div></div>
-          <div class="stage-list">
-            ${STAGE_DEFS.map(s => {
-              const state = order.stages[s.id];
-              return `
-                <label class="stage-item">
-                  <input type="checkbox" class="stage-checkbox" ${state?.done ? 'checked' : ''} onchange="toggleStage('${order.id}','${s.id}', this.checked)">
-                  <span class="stage-label ${state?.done ? 'done' : ''}">
-                    <span>${s.label}</span>
-                    ${state?.done && state.date ? `<span class="stage-date">${TCFactory.formatDate(state.date)}</span>` : ''}
-                  </span>
-                </label>
-              `;
-            }).join('')}
-          </div>
-        </div>
-
-        ${allDone && !order.archived ? `
-        <div class="completed-banner">
-          <div class="completed-banner-text">${Icons.checkCircle('var(--priority-low)', 18)} Ordine completato</div>
-          <button class="btn btn-primary btn-sm" onclick="archiveOrder('${order.id}')">${Icons.archive(14)} Archivia</button>
-        </div>` : ''}
+        ${renderStageSection(LAVORAZIONE_DEFS, 'Lavorazione')}
+        ${renderStageSection(EVASIONE_DEFS, 'Evasione')}
 
         ${order.archived ? `
         <button class="btn btn-secondary" style="width:100%;justify-content:center;" onclick="restoreOrder('${order.id}')">${Icons.archiveRestore(14)} Ripristina dall'archivio</button>
@@ -1021,10 +710,24 @@ function renderOrderDetail() {
   modal.onclick = (e) => { if (e.target === modal) closeModal('order-detail-modal'); };
 }
 
-async function toggleStage(orderId, stageId, done) {
+async function toggleStageDetail(orderId, stageId, done) {
   try {
-    const updated = await TCFactory.setStage(orderId, stageId, done);
-    AppState.selectedOrder = updated;
+    let updated = await TCFactory.setStage(orderId, stageId, done);
+    // "Spedito" → archivia automaticamente
+    if (stageId === 'spedito') {
+      updated = await TCFactory.setArchived(orderId, done);
+      if (!done && updated.stages?.speditoParzialmente?.done) {
+        updated = await TCFactory.setStage(orderId, 'speditoParzialmente', false);
+      }
+    }
+    if (stageId === 'speditoParzialmente' && !done) {
+      const cur = TCFactory.getOrderById(orderId);
+      if (cur?.stages?.spedito?.done) {
+        await TCFactory.setStage(orderId, 'spedito', false);
+        await TCFactory.setArchived(orderId, false);
+      }
+    }
+    AppState.selectedOrder = TCFactory.getOrderById(orderId);
     renderOrderDetail();
     renderApp();
   } catch (e) {
@@ -1348,6 +1051,7 @@ const Icons = {
   moon: (s=17) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
   search: () => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
   archive: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>`,
+  truck: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>`,
   archiveRestore: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><path d="M10 12h4"/></svg>`,
   paperclip: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>`,
   fileText: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,

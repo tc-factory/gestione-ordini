@@ -1,14 +1,23 @@
 /**
  * T&C Factory — Data Store v5.0
  * Ordini + Priorità + Tag, tutti sincronizzati in tempo reale su Supabase.
- * Allegati su Supabase Storage (bucket "allegati").
  */
 
-const STAGE_DEFS = [
-  { id: 'merceCompleta',   label: 'Merce completa' },
-  { id: 'dtfPronti',       label: 'DTF pronti' },
-  { id: 'ordineStampato',  label: 'Ordine stampato' },
+// LAVORAZIONE (avanzamento produzione)
+const LAVORAZIONE_DEFS = [
+  { id: 'merceCompleta',  label: 'Merce completa', shortLabel: 'Merce' },
+  { id: 'dtfPronti',      label: 'DTF pronti',      shortLabel: 'DTF' },
+  { id: 'ordineStampato', label: 'Stampato',         shortLabel: 'Stampato' },
 ];
+
+// EVASIONE (spedizione)
+const EVASIONE_DEFS = [
+  { id: 'speditoParzialmente', label: 'Spedito parzialmente', shortLabel: 'Sped. parz.' },
+  { id: 'spedito',             label: 'Spedito',              shortLabel: 'Spedito' },
+];
+
+// Compatibilità con vecchio codice
+const STAGE_DEFS = [...LAVORAZIONE_DEFS, ...EVASIONE_DEFS];
 
 const TCFactory = {
 
@@ -163,8 +172,13 @@ const TCFactory = {
 
   getOrders() { return this._orders || []; },
   getOrderById(id) { return this._orders.find(o => o.id === id) || null; },
-  getActiveOrders()   { return this.getOrders().filter(o => !o.archived); },
-  getArchivedOrders() { return this.getOrders().filter(o => o.archived); },
+
+  // Attivi: non archiviati e non spediti parzialmente
+  getActiveOrders()  { return this.getOrders().filter(o => !o.archived && !o.stages?.speditoParzialmente?.done); },
+  // Spedito parzialmente: stage speditoParzialmente done ma non archiviati
+  getPartialOrders() { return this.getOrders().filter(o => !o.archived && o.stages?.speditoParzialmente?.done); },
+  // Archivio: archiviati (include spedito totale)
+  getArchivedOrders(){ return this.getOrders().filter(o => o.archived); },
 
   generateId() {
     const nums = this._orders.map(o => parseInt((o.id || '').replace('ORD-', '')) || 0);
@@ -174,9 +188,11 @@ const TCFactory = {
 
   emptyStages() {
     return {
-      merceCompleta:  { done: false },
-      dtfPronti:      { done: false },
-      ordineStampato: { done: false },
+      merceCompleta:       { done: false },
+      dtfPronti:           { done: false },
+      ordineStampato:      { done: false },
+      speditoParzialmente: { done: false },
+      spedito:             { done: false },
     };
   },
 
@@ -323,18 +339,27 @@ const TCFactory = {
   // ─────────────────────────────────────────────
 
   stageProgress(order) {
-    const total = STAGE_DEFS.length;
-    const done = STAGE_DEFS.filter(s => order.stages[s.id]?.done).length;
-    const allDone = done === total;
-    let lastDate = null;
-    for (const s of STAGE_DEFS) {
-      const d = order.stages[s.id]?.date;
-      if (d && (!lastDate || d > lastDate)) lastDate = d;
-    }
-    return { done, total, allDone, lastDate };
+    const stages = order.stages || {};
+    const lavDone  = LAVORAZIONE_DEFS.filter(s => stages[s.id]?.done).length;
+    const lavTotal = LAVORAZIONE_DEFS.length;
+    const evaDone  = EVASIONE_DEFS.filter(s => stages[s.id]?.done).length;
+    const evaTotal = EVASIONE_DEFS.length;
+    return {
+      lavDone,
+      lavTotal,
+      evaDone,
+      evaTotal,
+      allLavDone:   lavDone === lavTotal,
+      isSpeditoP:   !!stages.speditoParzialmente?.done,
+      isSpedito:    !!stages.spedito?.done,
+      // compat
+      done: lavDone,
+      total: lavTotal,
+      allDone: lavDone === lavTotal,
+    };
   },
 
-  isCompleted(order) { return this.stageProgress(order).allDone; },
+  isCompleted(order) { return this.stageProgress(order).allLavDone; },
 
   isDeadlinePast(order) {
     if (!order.deadline) return false;

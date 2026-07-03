@@ -639,3 +639,48 @@ html.dark .app-shell {
 .plan-day-item.plan-drop-after {
   border-right: 3px solid var(--brand-gold);
 }
+
+/* ─────────────────────────────────────────────
+   Stage pills inline nella lista ordini
+   ───────────────────────────────────────────── */
+
+.stage-pill {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--font-body);
+  transition: all 0.15s ease;
+  line-height: 1.6;
+}
+
+.stage-pill:hover { border-color: var(--text-muted); color: var(--text-primary); }
+
+.stage-pill.done {
+  background: #22c55e1a;
+  border-color: #22c55e88;
+  color: #22c55e;
+}
+
+.stage-pill.evasione.done {
+  background: color-mix(in srgb, var(--brand-gold) 14%, transparent);
+  border-color: color-mix(in srgb, var(--brand-gold) 50%, transparent);
+  color: var(--brand-gold);
+}
+
+/* Deadline badge nell'header della riga */
+
+.deadline-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
