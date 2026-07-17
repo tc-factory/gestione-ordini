@@ -435,9 +435,9 @@ function openOrderForm(order = null, defaultDate = null) {
         <div class="form-group">
           <label class="form-label">Allegati</label>
           <div class="dropzone">
-            <input type="file" id="of-file-input" multiple style="display:none;" onchange="handleFormFiles(event)">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-file-input').click()">${Icons.paperclip(14)} Carica file</button>
-            <p>Max 2MB per file</p>
+            <input type="file" id="of-file-input" multiple accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx" style="display:none;" onchange="handleFormFiles(event)">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-file-input').click()">${Icons.paperclip(14)} Carica file o foto</button>
+            <p>Immagini compresse automaticamente sotto 2MB</p>
           </div>
           <div id="of-files-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
         </div>
@@ -606,17 +606,90 @@ async function addFormTag() {
   }
 }
 
+// ─────────────────────────────────────────────
+// COMPRESSIONE IMMAGINI (client-side, Canvas API)
+// ─────────────────────────────────────────────
+
+async function compressImageIfNeeded(file) {
+  // Solo immagini — PDF e altri file passano invariati
+  if (!file.type.startsWith('image/')) return file;
+  // Già sotto il limite → nessuna compressione necessaria
+  if (file.size <= TCFactory.MAX_FILE_BYTES) return file;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+
+      // Dimensione di partenza — scala a max 1920px sul lato più lungo
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+      const MAX_DIM = 1920;
+      if (w > MAX_DIM || h > MAX_DIM) {
+        const s = MAX_DIM / Math.max(w, h);
+        w = Math.round(w * s);
+        h = Math.round(h * s);
+      }
+
+      // Prova con qualità decrescente; se ancora troppo grande, riduce le dimensioni
+      const attempt = (width, height, quality) => {
+        const canvas = document.createElement('canvas');
+        canvas.width  = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+          if (!blob) { resolve(file); return; }
+
+          if (blob.size <= TCFactory.MAX_FILE_BYTES) {
+            // Successo — restituisce un File col nome originale
+            resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+          } else if (quality > 0.25) {
+            attempt(width, height, quality - 0.15);           // abbassa qualità
+          } else if (width > 900) {
+            attempt(Math.round(width * 0.7), Math.round(height * 0.7), 0.75); // riduce dimensioni
+          } else {
+            resolve(file); // non si riesce a comprimere abbastanza
+          }
+        }, 'image/jpeg', quality);
+      };
+
+      attempt(w, h, 0.85);
+    };
+
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 async function handleFormFiles(event) {
   const list = event.target.files;
   if (!list) return;
+
   for (const f of Array.from(list)) {
-    if (f.size > TCFactory.MAX_FILE_BYTES) {
-      showToast(`${f.name} supera 2MB`, 'error');
-      continue;
-    }
     try {
-      const uploaded = await TCFactory.uploadFile(f);
-      AppState.formFiles.push(uploaded);
+      let file = f;
+
+      // Se è un'immagine sopra il limite → comprimi automaticamente
+      if (f.type.startsWith('image/') && f.size > TCFactory.MAX_FILE_BYTES) {
+        showToast(`Comprimo ${f.name}…`);
+        file = await compressImageIfNeeded(f);
+        if (file !== f) {
+          showToast(`📷 ${f.name} → ${(file.size / 1024).toFixed(0)} KB`);
+        }
+      }
+
+      if (file.size > TCFactory.MAX_FILE_BYTES) {
+        showToast(`${f.name} supera 2MB anche dopo la compressione`, 'error');
+        continue;
+      }
+
+      const uploaded = await TCFactory.uploadFile(file);
+      // Mantieni il nome originale dell'utente (non il nome post-compressione)
+      AppState.formFiles.push({ ...uploaded, name: f.name });
+
     } catch (e) {
       showToast(`Errore caricando ${f.name}`, 'error');
     }
