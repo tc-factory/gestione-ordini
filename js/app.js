@@ -228,7 +228,7 @@ function renderOrderRow(o) {
   }).join('');
 
   return `
-    <button class="order-row-item" onclick="openOrderDetail('${o.id}')">
+    <div class="order-row-item" role="button" tabindex="0" onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-bar" style="background:${color};"></div>
       <div class="order-row-body">
         <div class="order-row-title">
@@ -237,7 +237,7 @@ function renderOrderRow(o) {
           ${o.files?.length > 0 ? `<span style="display:inline-flex;align-items:center;gap:2px;font-size:0.72rem;color:var(--text-muted);">${Icons.paperclip(12)} ${o.files.length}</span>` : ''}
           ${renderPriorityChip(p)}
         </div>
-        <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;align-items:center;">
+        <div style="display:flex;flex-direction:row;gap:4px;margin-top:8px;flex-wrap:wrap;align-items:center;width:100%;">
           ${lavPills}
           <span style="color:var(--border);margin:0 2px;">│</span>
           ${evaPills}
@@ -247,7 +247,7 @@ function renderOrderRow(o) {
           ${o.tags.slice(0, 2).map(t => renderTagChip(t)).join('')}
         </div>
       </div>
-    </button>
+    </div>
   `;
 }
 
