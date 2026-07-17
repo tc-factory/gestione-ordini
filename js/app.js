@@ -227,6 +227,17 @@ function renderOrderList() {
         </div>
       </div>
       ${tagFilterRow}
+      <div class="order-rows-header">
+        <span></span>
+        <span>Nome</span>
+        <span>Data</span>
+        <span>Tipologia</span>
+        <span>Lavorazione</span>
+        <span>Spedizione</span>
+        <span>Scadenza</span>
+        <span>Urgenza</span>
+        <span>All.</span>
+      </div>
       <div class="order-rows">
         ${sorted.length === 0
           ? `<div class="empty-list">${emptyMsg}</div>`
@@ -241,19 +252,19 @@ function renderOrderRow(o) {
   const color = p?.color || '#64748b';
 
   // Deadline badge
-  let deadlineBadge = '';
+  let deadlineBadge = '—';
+  let deadlineColor = 'var(--text-muted)';
   if (o.deadline) {
     const today = new Date().toISOString().slice(0, 10);
     const diff  = Math.ceil((new Date(o.deadline + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
-    const dc    = diff < 0 ? '#ef4444' : diff <= 3 ? '#ef4444' : diff <= 7 ? '#f97316' : '#6366f1';
-    const lbl   = diff < 0 ? `scad. ${Math.abs(diff)}gg fa` : diff === 0 ? 'oggi' : `${diff}gg`;
-    deadlineBadge = `<span class="deadline-badge" style="background:${dc}18;color:${dc};border-color:${dc}44;">${lbl}</span>`;
+    deadlineColor = diff < 0 ? '#ef4444' : diff <= 3 ? '#ef4444' : diff <= 7 ? '#f97316' : '#6366f1';
+    deadlineBadge = diff < 0
+      ? `scad. ${Math.abs(diff)}gg`
+      : diff === 0 ? 'oggi'
+      : `${diff}gg`;
   }
 
-  // Separatore verticale
-  const sep = `<span class="row-sep"></span>`;
-
-  // Pills lavorazione
+  // Lavorazione pills
   const lavPills = LAVORAZIONE_DEFS.map(s => {
     const done = o.stages?.[s.id]?.done;
     return `<button class="stage-pill ${done?'done':''}"
@@ -261,7 +272,7 @@ function renderOrderRow(o) {
       title="${s.label}">${s.shortLabel}</button>`;
   }).join('');
 
-  // Pills evasione
+  // Evasione pills
   const evaPills = EVASIONE_DEFS.map(s => {
     const done = o.stages?.[s.id]?.done;
     return `<button class="stage-pill evasione ${done?'done':''}"
@@ -269,37 +280,49 @@ function renderOrderRow(o) {
       title="${s.label}">${s.shortLabel}</button>`;
   }).join('');
 
-  // Tag chips cliccabili per filtro
-  const tagPills = o.tags.map(t => {
+  // Tag cliccabili per filtro
+  const tagPills = o.tags.slice(0, 3).map(t => {
     const c = TCFactory.getTagColor(t);
     const active = AppState.filterTags.includes(t);
     return `<button class="chip chip-btn" onclick="event.stopPropagation();toggleTagFilter('${escapeHtml(t)}')"
-      style="background:${active ? c : `color-mix(in srgb, ${c} 14%, transparent)`};color:${active ? '#fff' : c};padding:2px 7px;cursor:pointer;">
+      style="background:${active ? c : `color-mix(in srgb, ${c} 14%, transparent)`};color:${active ? '#fff' : c};padding:2px 6px;cursor:pointer;font-size:0.68rem;">
       <span class="chip-dot" style="background:${active ? '#fff' : c};"></span>${escapeHtml(t)}
     </button>`;
   }).join('');
+
+  // Allegati — icone cliccabili direttamente
+  const filesBtns = (o.files || []).slice(0, 2).map((f, i) => {
+    const isImg = f.type?.startsWith('image/');
+    const isPdf = f.type === 'application/pdf';
+    const icon  = isImg ? '🖼' : isPdf ? '📄' : '📎';
+    return `<button class="file-quick-btn" onclick="event.stopPropagation();quickPreviewFile('${o.id}',${i})" title="${escapeHtml(f.name)}">${icon}</button>`;
+  }).join('');
+  const filesExtra = (o.files || []).length > 2
+    ? `<span style="font-size:0.65rem;color:var(--text-muted);">+${(o.files||[]).length - 2}</span>` : '';
 
   return `
     <div class="order-row-item" role="button" tabindex="0"
       onclick="openOrderDetail('${o.id}')"
       onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-bar" style="background:${color};"></div>
-      <div class="order-row-line">
-        <span class="order-row-name">${escapeHtml(o.nome)}</span>
-        ${sep}
-        <span class="order-row-date">${TCFactory.formatDate(o.dataOrdine)}</span>
-        ${o.tags.length > 0 ? `${sep}<div style="display:flex;gap:3px;flex-shrink:0;">${tagPills}</div>` : ''}
-        ${sep}
-        <div style="display:flex;gap:3px;flex-shrink:0;">${lavPills}</div>
-        ${sep}
-        <div style="display:flex;gap:3px;flex-shrink:0;">${evaPills}</div>
-        ${deadlineBadge ? `${sep}${deadlineBadge}` : ''}
-        ${sep}
-        ${renderPriorityChip(p)}
-        ${o.files?.length > 0 ? `${sep}<span style="display:inline-flex;align-items:center;gap:2px;font-size:0.72rem;color:var(--text-muted);flex-shrink:0;">${Icons.paperclip(12)} ${o.files.length}</span>` : ''}
+      <div class="order-row-grid">
+        <div class="orc-name">${escapeHtml(o.nome)}</div>
+        <div class="orc-date">${TCFactory.formatDate(o.dataOrdine, {day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
+        <div class="orc-tags">${tagPills}</div>
+        <div class="orc-lav">${lavPills}</div>
+        <div class="orc-eva">${evaPills}</div>
+        <div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline ? '700' : '400'};">${deadlineBadge}</div>
+        <div class="orc-priority">${renderPriorityChip(p)}</div>
+        <div class="orc-files">${filesBtns}${filesExtra}</div>
       </div>
     </div>
   `;
+}
+
+function quickPreviewFile(orderId, fileIndex) {
+  const order = TCFactory.getOrderById(orderId);
+  if (!order || !order.files[fileIndex]) return;
+  previewFile(order.files[fileIndex]);
 }
 
 // toggleStage inline dalla lista (senza aprire il dettaglio)
@@ -702,7 +725,7 @@ function renderOrderDetail() {
         ${order.deadline ? `
         <div style="display:flex;justify-content:space-between;font-size:0.85rem;">
           <span style="color:var(--text-muted);">Deadline</span>
-          <span style="font-weight:600;color:${TCFactory.isDeadlinePast(order) && !allDone ? 'var(--priority-urgent)' : 'var(--text-primary)'};">${TCFactory.formatDate(order.deadline, { day:'numeric', month:'long', year:'numeric' })}</span>
+          <span style="font-weight:600;color:${TCFactory.isDeadlinePast(order) && !allLavDone ? 'var(--priority-urgent)' : 'var(--text-primary)'};">${TCFactory.formatDate(order.deadline, { day:'numeric', month:'long', year:'numeric' })}</span>
         </div>` : ''}
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;">
           <span style="color:var(--text-muted);">Priorità</span>
@@ -740,9 +763,19 @@ function renderOrderDetail() {
         ${renderStageSection(LAVORAZIONE_DEFS, 'Lavorazione')}
         ${renderStageSection(EVASIONE_DEFS, 'Evasione')}
 
-        ${order.archived ? `
-        <button class="btn btn-secondary" style="width:100%;justify-content:center;" onclick="restoreOrder('${order.id}')">${Icons.archiveRestore(14)} Ripristina dall'archivio</button>
-        ` : ''}
+        <!-- Azioni spostamento stato -->
+        <div style="display:flex;flex-wrap:wrap;gap:6px;padding-top:4px;">
+          ${order.archived ? `
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','active')">${Icons.archiveRestore(13)} → Attivi</button>
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','partial')">${Icons.truck(13)} → Sped. parz.</button>
+          ` : order.stages?.speditoParzialmente?.done ? `
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','active')">${Icons.archiveRestore(13)} → Attivi</button>
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','archived')">${Icons.archive(13)} → Archivio</button>
+          ` : `
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','partial')">${Icons.truck(13)} → Sped. parz.</button>
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','archived')">${Icons.archive(13)} → Archivio</button>
+          `}
+        </div>
       </div>
       <div class="modal-footer" style="justify-content:space-between;">
         <button class="btn btn-danger btn-sm" onclick="deleteOrderConfirm('${order.id}')">${Icons.trash(14)} Elimina</button>
@@ -790,14 +823,32 @@ async function archiveOrder(id) {
   } catch (e) { showToast('Errore', 'error'); }
 }
 
-async function restoreOrder(id) {
+async function moveOrderTo(id, target) {
   try {
+    const o = TCFactory.getOrderById(id);
+    if (!o) return;
+    // Reset evasione stages first
+    await TCFactory.setStage(id, 'speditoParzialmente', false);
+    await TCFactory.setStage(id, 'spedito', false);
     await TCFactory.setArchived(id, false);
-    showToast('Ordine ripristinato');
+    if (target === 'partial') {
+      await TCFactory.setStage(id, 'speditoParzialmente', true);
+    } else if (target === 'archived') {
+      await TCFactory.setStage(id, 'speditoParzialmente', true);
+      await TCFactory.setStage(id, 'spedito', true);
+      await TCFactory.setArchived(id, true);
+    }
+    // target === 'active': già resettato sopra
     AppState.selectedOrder = TCFactory.getOrderById(id);
     renderOrderDetail();
     renderApp();
-  } catch (e) { showToast('Errore', 'error'); }
+    const labels = { active: 'Attivi', partial: 'Spedito parz.', archived: 'Archivio' };
+    showToast(`Ordine spostato in: ${labels[target]}`);
+  } catch(e) { showToast('Errore spostamento ordine', 'error'); }
+}
+
+async function restoreOrder(id) {
+  await moveOrderTo(id, 'active');
 }
 
 async function deleteOrderConfirm(id) {

@@ -50,7 +50,7 @@ html.dark .app-shell {
 }
 
 .app-header-inner {
-  max-width: 1280px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: var(--space-md) var(--space-lg);
   display: flex;
@@ -105,7 +105,7 @@ html.dark .app-shell {
 }
 
 .app-main {
-  max-width: 1280px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: var(--space-lg);
   display: flex;
@@ -727,4 +727,88 @@ html.dark .app-shell {
   background: var(--border);
   margin: 0 8px;
   flex-shrink: 0;
+}
+
+/* ─────────────────────────────────────────────
+   Riga ordine — griglia colonne allineate
+   Tutte le righe usano lo stesso template → allineamento perfetto
+   ───────────────────────────────────────────── */
+
+.order-row-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(140px, 1.8fr)   /* nome — cresce, mai troncato */
+    70px                   /* data */
+    minmax(60px, 1fr)      /* tag */
+    165px                  /* lavorazione (3 pills) */
+    140px                  /* evasione (2 pills) */
+    68px                   /* scadenza */
+    95px                   /* priorità */
+    52px                   /* allegati */
+  ;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  column-gap: 0;
+}
+
+/* Ogni cella ha padding laterale per spazio visivo */
+.order-row-grid > div {
+  padding: 0 8px;
+  border-right: 1px solid var(--border-light);
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+}
+
+.order-row-grid > div:last-child { border-right: none; }
+
+/* Colonne specifiche */
+.orc-name  { font-weight: 600; font-size: 0.88rem; word-break: break-word; }
+.orc-date  { font-size: 0.73rem; color: var(--text-muted); white-space: nowrap; }
+.orc-tags  { gap: 3px; flex-wrap: wrap; }
+.orc-lav   { gap: 3px; flex-wrap: nowrap; }
+.orc-eva   { gap: 3px; flex-wrap: nowrap; }
+.orc-deadline { justify-content: center; }
+.orc-priority { justify-content: center; }
+.orc-files { gap: 4px; justify-content: center; }
+
+/* Pulsante apertura rapida allegato */
+.file-quick-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 1px 4px;
+  line-height: 1;
+  transition: border-color 0.15s;
+}
+.file-quick-btn:hover { border-color: var(--brand-gold); }
+
+/* Header griglia — etichette colonne */
+.order-rows-header {
+  display: grid;
+  grid-template-columns:
+    4px
+    minmax(140px, 1.8fr)
+    70px
+    minmax(60px, 1fr)
+    165px
+    140px
+    68px
+    95px
+    52px
+  ;
+  padding: 4px var(--space-lg);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+.order-rows-header span {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 0 8px;
 }
