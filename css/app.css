@@ -688,3 +688,44 @@ html.dark .app-shell {
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ─────────────────────────────────────────────
+   Riga ordine — layout singola linea
+   ───────────────────────────────────────────── */
+
+.order-row-line {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  flex-wrap: nowrap;
+}
+
+.order-row-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 60px;
+  max-width: 240px;
+}
+
+.order-row-date {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Separatore verticale grigio tra i gruppi */
+.row-sep {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 8px;
+  flex-shrink: 0;
+}

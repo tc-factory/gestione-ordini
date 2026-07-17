@@ -8,9 +8,10 @@
 // ─────────────────────────────────────────────
 
 const AppState = {
-  view: 'active',       // 'active' | 'partial' | 'archived'
+  view: 'active',
   searchQuery: '',
-  sortKey: 'data',      // 'data' | 'priorita' | 'avanzamento'
+  sortKey: 'data',
+  filterTags: [],
   selectedOrder: null,
   dayOpen: null,
   formEditOrder: null,
@@ -126,28 +127,48 @@ function setSortKey(v) { AppState.sortKey = v; renderOrderList(); }
 function setSearchQuery(v) { AppState.searchQuery = v; renderOrderList(); }
 
 
+function toggleTagFilter(tag) {
+  if (AppState.filterTags.includes(tag)) {
+    AppState.filterTags = AppState.filterTags.filter(t => t !== tag);
+  } else {
+    AppState.filterTags.push(tag);
+  }
+  renderOrderList();
+}
+function clearTagFilters() { AppState.filterTags = []; renderOrderList(); }
+
 function renderOrderList() {
   const nActive   = TCFactory.getActiveOrders().length;
   const nPartial  = TCFactory.getPartialOrders().length;
   const nArchived = TCFactory.getArchivedOrders().length;
 
-  // Sorgente in base al tab attivo
   const source =
-    AppState.view === 'active'   ? TCFactory.getActiveOrders()  :
-    AppState.view === 'partial'  ? TCFactory.getPartialOrders() :
-                                   TCFactory.getArchivedOrders();
+    AppState.view === 'active'  ? TCFactory.getActiveOrders()  :
+    AppState.view === 'partial' ? TCFactory.getPartialOrders() :
+                                  TCFactory.getArchivedOrders();
 
+  // Filtro testo
   const q = AppState.searchQuery.trim().toLowerCase();
-  const filtered = q
+  let filtered = q
     ? source.filter(o => o.nome.toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q)))
     : source;
 
-  // Comparatori
-  const cmpDate        = (a, b) => a.dataOrdine.localeCompare(b.dataOrdine);
-  const cmpPriorita    = (a, b) => TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
-  const cmpAvanzamento = (a, b) => TCFactory.stageProgress(a).lavDone - TCFactory.stageProgress(b).lavDone;
+  // Filtro tag
+  if (AppState.filterTags.length > 0) {
+    filtered = filtered.filter(o => AppState.filterTags.every(t => o.tags.includes(t)));
+  }
 
-  // Correggi sortKey se era un valore vecchio non più valido
+  // Comparatori — uso funzione sicura per lavDone
+  const getLavDone = (o) => {
+    try {
+      const stages = o.stages || {};
+      return LAVORAZIONE_DEFS.filter(s => stages[s.id]?.done).length;
+    } catch { return 0; }
+  };
+  const cmpDate        = (a, b) => (a.dataOrdine || '').localeCompare(b.dataOrdine || '');
+  const cmpPriorita    = (a, b) => TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
+  const cmpAvanzamento = (a, b) => getLavDone(a) - getLavDone(b);
+
   if (!['data','priorita','avanzamento'].includes(AppState.sortKey)) AppState.sortKey = 'data';
 
   const sorted = [...filtered].sort((a, b) => {
@@ -159,11 +180,25 @@ function renderOrderList() {
     }
   });
 
+  const allTags = TCFactory.getTags();
+  const tagFilterRow = allTags.length > 0 ? `
+    <div style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <span style="font-size:0.72rem;color:var(--text-muted);font-weight:600;flex-shrink:0;">Tag:</span>
+      ${allTags.map(t => {
+        const active = AppState.filterTags.includes(t.name);
+        return `<button class="chip chip-btn" onclick="toggleTagFilter('${escapeHtml(t.name)}')"
+          style="background:${active ? t.color : `color-mix(in srgb, ${t.color} 12%, transparent)`};color:${active ? '#fff' : t.color};cursor:pointer;">
+          <span class="chip-dot" style="background:${active ? '#fff' : t.color};"></span>${escapeHtml(t.name)}
+        </button>`;
+      }).join('')}
+      ${AppState.filterTags.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="clearTagFilters()" style="font-size:0.72rem;">× rimuovi filtri</button>` : ''}
+    </div>` : '';
+
   const emptyMsg =
-    q ? 'Nessun risultato.' :
+    q || AppState.filterTags.length > 0 ? 'Nessun risultato.' :
     AppState.view === 'archived' ? 'Nessun ordine archiviato.' :
     AppState.view === 'partial'  ? 'Nessun ordine spedito parzialmente.' :
-    'Nessun ordine attivo.';
+    'Nessun ordine attivo. Premi "+ Nuovo ordine" per iniziare.';
 
   document.getElementById('orderlist-root').innerHTML = `
     <div class="glass-card">
@@ -174,8 +209,8 @@ function renderOrderList() {
             <p>${filtered.length} di ${source.length}</p>
           </div>
           <div class="view-tabs">
-            <button class="view-tab ${AppState.view==='active'?'active':''}"  onclick="setView('active')">Attivi · ${nActive}</button>
-            <button class="view-tab ${AppState.view==='partial'?'active':''}" onclick="setView('partial')">${Icons.truck(12)} Sped. parz. · ${nPartial}</button>
+            <button class="view-tab ${AppState.view==='active'?'active':''}"   onclick="setView('active')">Attivi · ${nActive}</button>
+            <button class="view-tab ${AppState.view==='partial'?'active':''}"  onclick="setView('partial')">${Icons.truck(12)} Sped. parz. · ${nPartial}</button>
             <button class="view-tab ${AppState.view==='archived'?'active':''}" onclick="setView('archived')">${Icons.archive(12)} Archivio · ${nArchived}</button>
           </div>
         </div>
@@ -191,6 +226,7 @@ function renderOrderList() {
           </select>
         </div>
       </div>
+      ${tagFilterRow}
       <div class="order-rows">
         ${sorted.length === 0
           ? `<div class="empty-list">${emptyMsg}</div>`
@@ -203,9 +239,8 @@ function renderOrderList() {
 function renderOrderRow(o) {
   const p     = TCFactory.getPriority(o.priorityId);
   const color = p?.color || '#64748b';
-  const prog  = TCFactory.stageProgress(o);
 
-  // Deadline badge — sempre visibile se presente, rosso se scaduta/vicina
+  // Deadline badge
   let deadlineBadge = '';
   if (o.deadline) {
     const today = new Date().toISOString().slice(0, 10);
@@ -215,37 +250,53 @@ function renderOrderRow(o) {
     deadlineBadge = `<span class="deadline-badge" style="background:${dc}18;color:${dc};border-color:${dc}44;">${lbl}</span>`;
   }
 
-  // Pill lavorazione (inline)
+  // Separatore verticale
+  const sep = `<span class="row-sep"></span>`;
+
+  // Pills lavorazione
   const lavPills = LAVORAZIONE_DEFS.map(s => {
     const done = o.stages?.[s.id]?.done;
-    return `<button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>`;
+    return `<button class="stage-pill ${done?'done':''}"
+      onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
+      title="${s.label}">${s.shortLabel}</button>`;
   }).join('');
 
-  // Pill evasione
+  // Pills evasione
   const evaPills = EVASIONE_DEFS.map(s => {
     const done = o.stages?.[s.id]?.done;
-    return `<button class="stage-pill evasione ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>`;
+    return `<button class="stage-pill evasione ${done?'done':''}"
+      onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
+      title="${s.label}">${s.shortLabel}</button>`;
+  }).join('');
+
+  // Tag chips cliccabili per filtro
+  const tagPills = o.tags.map(t => {
+    const c = TCFactory.getTagColor(t);
+    const active = AppState.filterTags.includes(t);
+    return `<button class="chip chip-btn" onclick="event.stopPropagation();toggleTagFilter('${escapeHtml(t)}')"
+      style="background:${active ? c : `color-mix(in srgb, ${c} 14%, transparent)`};color:${active ? '#fff' : c};padding:2px 7px;cursor:pointer;">
+      <span class="chip-dot" style="background:${active ? '#fff' : c};"></span>${escapeHtml(t)}
+    </button>`;
   }).join('');
 
   return `
-    <div class="order-row-item" role="button" tabindex="0" onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
+    <div class="order-row-item" role="button" tabindex="0"
+      onclick="openOrderDetail('${o.id}')"
+      onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-bar" style="background:${color};"></div>
-      <div class="order-row-body">
-        <div class="order-row-title">
-          <span class="truncate">${escapeHtml(o.nome)}</span>
-          ${deadlineBadge}
-          ${o.files?.length > 0 ? `<span style="display:inline-flex;align-items:center;gap:2px;font-size:0.72rem;color:var(--text-muted);">${Icons.paperclip(12)} ${o.files.length}</span>` : ''}
-          ${renderPriorityChip(p)}
-        </div>
-        <div style="display:flex;flex-direction:row;gap:4px;margin-top:8px;flex-wrap:wrap;align-items:center;width:100%;">
-          ${lavPills}
-          <span style="color:var(--border);margin:0 2px;">│</span>
-          ${evaPills}
-        </div>
-        <div class="order-row-meta" style="margin-top:4px;">
-          <span>${TCFactory.formatDate(o.dataOrdine)}</span>
-          ${o.tags.slice(0, 2).map(t => renderTagChip(t)).join('')}
-        </div>
+      <div class="order-row-line">
+        <span class="order-row-name">${escapeHtml(o.nome)}</span>
+        ${sep}
+        <span class="order-row-date">${TCFactory.formatDate(o.dataOrdine)}</span>
+        ${o.tags.length > 0 ? `${sep}<div style="display:flex;gap:3px;flex-shrink:0;">${tagPills}</div>` : ''}
+        ${sep}
+        <div style="display:flex;gap:3px;flex-shrink:0;">${lavPills}</div>
+        ${sep}
+        <div style="display:flex;gap:3px;flex-shrink:0;">${evaPills}</div>
+        ${deadlineBadge ? `${sep}${deadlineBadge}` : ''}
+        ${sep}
+        ${renderPriorityChip(p)}
+        ${o.files?.length > 0 ? `${sep}<span style="display:inline-flex;align-items:center;gap:2px;font-size:0.72rem;color:var(--text-muted);flex-shrink:0;">${Icons.paperclip(12)} ${o.files.length}</span>` : ''}
       </div>
     </div>
   `;
@@ -255,15 +306,12 @@ function renderOrderRow(o) {
 async function toggleStageInline(orderId, stageId, done) {
   try {
     let updated = await TCFactory.setStage(orderId, stageId, done);
-    // "Spedito" → archivia automaticamente
     if (stageId === 'spedito') {
       updated = await TCFactory.setArchived(orderId, done);
-      // se si de-spunta spedito, de-spunta anche speditoP
       if (!done && updated.stages?.speditoParzialmente?.done) {
         updated = await TCFactory.setStage(orderId, 'speditoParzialmente', false);
       }
     }
-    // se si de-spunta speditoParzialmente e spedito era done → de-spunta anche spedito
     if (stageId === 'speditoParzialmente' && !done) {
       const cur = TCFactory.getOrderById(orderId);
       if (cur?.stages?.spedito?.done) {
@@ -274,8 +322,6 @@ async function toggleStageInline(orderId, stageId, done) {
     renderApp();
   } catch(e) { showToast('Errore aggiornamento fase', 'error'); }
 }
-
-
 
 // ─────────────────────────────────────────────
 // CHIP / BADGE
