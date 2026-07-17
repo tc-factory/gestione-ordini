@@ -338,9 +338,9 @@ html.dark .app-shell {
 
 .order-row-item {
   display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
+  align-items: stretch;  /* stretch so bar fills full height */
+  gap: 0;
+  padding: 0 var(--space-lg);
   border: none;
   border-bottom: 1px solid var(--border-light);
   cursor: pointer;
@@ -360,7 +360,7 @@ html.dark .app-shell {
   box-shadow: inset 0 0 0 2px var(--brand-gold);
 }
 
-.order-row-bar { width: 4px; height: 38px; border-radius: 4px; flex-shrink: 0; }
+.order-row-bar { width: 4px; align-self: stretch; flex-shrink: 0; margin-right: 0; }
 .order-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
 
 .order-row-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.92rem; }
@@ -730,48 +730,65 @@ html.dark .app-shell {
 }
 
 /* ─────────────────────────────────────────────
-   Riga ordine — griglia colonne allineate
-   Tutte le righe usano lo stesso template → allineamento perfetto
+   Riga ordine — griglia a colonne allineate
+   Tutte le righe usano lo stesso grid-template-columns
    ───────────────────────────────────────────── */
 
+/* La griglia stessa — identica in header e righe */
 .order-row-grid {
   display: grid;
   grid-template-columns:
-    minmax(140px, 1.8fr)   /* nome — cresce, mai troncato */
-    70px                   /* data */
-    minmax(60px, 1fr)      /* tag */
-    165px                  /* lavorazione (3 pills) */
-    140px                  /* evasione (2 pills) */
-    68px                   /* scadenza */
-    95px                   /* priorità */
-    52px                   /* allegati */
+    minmax(180px, 2.8fr)   /* Nome */
+    92px                    /* Data */
+    minmax(80px, 1.3fr)    /* Tipologia */
+    188px                   /* Lavorazione */
+    150px                   /* Spedizione */
+    82px                    /* Scadenza */
+    108px                   /* Urgenza */
+    62px                    /* Allegati */
   ;
-  align-items: center;
+  align-items: stretch;
   flex: 1;
   min-width: 0;
-  column-gap: 0;
 }
 
-/* Ogni cella ha padding laterale per spazio visivo */
+/* Ogni cella */
 .order-row-grid > div {
-  padding: 0 8px;
+  padding: 10px 14px;
   border-right: 1px solid var(--border-light);
-  min-height: 36px;
   display: flex;
   align-items: center;
+  min-height: 50px;
 }
-
 .order-row-grid > div:last-child { border-right: none; }
 
-/* Colonne specifiche */
-.orc-name  { font-weight: 600; font-size: 0.88rem; word-break: break-word; }
-.orc-date  { font-size: 0.73rem; color: var(--text-muted); white-space: nowrap; }
-.orc-tags  { gap: 3px; flex-wrap: wrap; }
-.orc-lav   { gap: 3px; flex-wrap: nowrap; }
-.orc-eva   { gap: 3px; flex-wrap: nowrap; }
-.orc-deadline { justify-content: center; }
+/* Header riga — etichette colonne */
+.order-row-header-row {
+  cursor: default !important;
+  background: var(--bg-secondary) !important;
+  border-bottom: 2px solid var(--border) !important;
+}
+.order-row-header-row:hover { background: var(--bg-secondary) !important; }
+
+.orc-hdr {
+  font-size: 0.62rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.07em !important;
+  color: var(--text-muted) !important;
+  min-height: 30px !important;
+  padding: 6px 14px !important;
+}
+
+/* Colonne specifiche — allineamento contenuto */
+.orc-name    { font-weight: 600; font-size: 0.88rem; word-break: break-word; line-height: 1.3; }
+.orc-date    { font-size: 0.75rem; color: var(--text-muted); }
+.orc-tags    { gap: 4px; flex-wrap: wrap; }
+.orc-lav     { gap: 4px; flex-wrap: nowrap; }
+.orc-eva     { gap: 4px; flex-wrap: nowrap; }
+.orc-deadline { justify-content: center; text-align: center; }
 .orc-priority { justify-content: center; }
-.orc-files { gap: 4px; justify-content: center; }
+.orc-files   { gap: 5px; justify-content: center; }
 
 /* Pulsante apertura rapida allegato */
 .file-quick-btn {
@@ -779,36 +796,12 @@ html.dark .app-shell {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 0.85rem;
-  padding: 1px 4px;
+  font-size: 0.9rem;
+  padding: 2px 5px;
   line-height: 1;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
-.file-quick-btn:hover { border-color: var(--brand-gold); }
-
-/* Header griglia — etichette colonne */
-.order-rows-header {
-  display: grid;
-  grid-template-columns:
-    4px
-    minmax(140px, 1.8fr)
-    70px
-    minmax(60px, 1fr)
-    165px
-    140px
-    68px
-    95px
-    52px
-  ;
-  padding: 4px var(--space-lg);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
-}
-.order-rows-header span {
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  padding: 0 8px;
+.file-quick-btn:hover {
+  border-color: var(--brand-gold);
+  background: color-mix(in srgb, var(--brand-gold) 8%, transparent);
 }

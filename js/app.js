@@ -128,10 +128,11 @@ function setSearchQuery(v) { AppState.searchQuery = v; renderOrderList(); }
 
 
 function toggleTagFilter(tag) {
+  // Selezione esclusiva: cliccare un tag deseleziona gli altri
   if (AppState.filterTags.includes(tag)) {
-    AppState.filterTags = AppState.filterTags.filter(t => t !== tag);
+    AppState.filterTags = [];
   } else {
-    AppState.filterTags.push(tag);
+    AppState.filterTags = [tag];
   }
   renderOrderList();
 }
@@ -167,7 +168,7 @@ function renderOrderList() {
   };
   const cmpDate        = (a, b) => (a.dataOrdine || '').localeCompare(b.dataOrdine || '');
   const cmpPriorita    = (a, b) => TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
-  const cmpAvanzamento = (a, b) => getLavDone(a) - getLavDone(b);
+  const cmpAvanzamento = (a, b) => getLavDone(b) - getLavDone(a); // più avanzati prima
 
   if (!['data','priorita','avanzamento'].includes(AppState.sortKey)) AppState.sortKey = 'data';
 
@@ -227,18 +228,20 @@ function renderOrderList() {
         </div>
       </div>
       ${tagFilterRow}
-      <div class="order-rows-header">
-        <span></span>
-        <span>Nome</span>
-        <span>Data</span>
-        <span>Tipologia</span>
-        <span>Lavorazione</span>
-        <span>Spedizione</span>
-        <span>Scadenza</span>
-        <span>Urgenza</span>
-        <span>All.</span>
-      </div>
       <div class="order-rows">
+        <div class="order-row-item order-row-header-row" onclick="event.stopPropagation()">
+          <div class="order-row-bar" style="background:transparent;"></div>
+          <div class="order-row-grid">
+            <div class="orc-name orc-hdr">Nome</div>
+            <div class="orc-date orc-hdr">Data</div>
+            <div class="orc-tags orc-hdr">Tipologia</div>
+            <div class="orc-lav orc-hdr">Lavorazione</div>
+            <div class="orc-eva orc-hdr">Spedizione</div>
+            <div class="orc-deadline orc-hdr">Scadenza</div>
+            <div class="orc-priority orc-hdr">Urgenza</div>
+            <div class="orc-files orc-hdr">All.</div>
+          </div>
+        </div>
         ${sorted.length === 0
           ? `<div class="empty-list">${emptyMsg}</div>`
           : sorted.map(o => renderOrderRow(o)).join('')}
