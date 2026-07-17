@@ -555,8 +555,8 @@ html.dark .app-shell {
 }
 
 @media (max-width: 640px) {
-  .fab { display: flex; }
-  .new-order-btn-text { display: none; }
+  .fab { display: none; }
+  .new-order-btn-text { display: inline; }
 }
 
 /* ─────────────────────────────────────────────
@@ -804,4 +804,116 @@ html.dark .app-shell {
 .file-quick-btn:hover {
   border-color: var(--brand-gold);
   background: color-mix(in srgb, var(--brand-gold) 8%, transparent);
+}
+
+/* ═══════════════════════════════════════════════
+   MOBILE — ≤ 768px
+   ═══════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+
+  /* ── Header ── */
+  .app-header-inner { padding: 8px 12px; gap: 8px; }
+  .app-logo-icon    { width: 34px; height: 34px; }
+  .app-logo-text h1 { font-size: 0.88rem; }
+  .app-logo-text p  { display: none; }
+  .app-header-actions { gap: 4px; }
+
+  /* Tasto "Nuovo ordine" — mostra sempre l'icona, nasconde il testo */
+  .new-order-btn-text { display: none; }
+  .btn.btn-primary { padding: 7px 10px; }
+
+  /* ── Layout principale ── */
+  .app-main { padding: 10px; gap: 10px; }
+
+  /* ── Stat cards ── */
+  .stat-grid { gap: 8px; }
+  .stat-card { padding: 10px 12px; }
+  .stat-card-value { font-size: 1.5rem; }
+  .stat-card-label { font-size: 0.65rem; }
+
+  /* ── Header lista ordini ── */
+  .list-card-header   { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px; }
+  .list-title-group   { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .list-controls      { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .search-box input   { width: 100%; min-width: 140px; }
+
+  /* Tab (Attivi · Sped. parz. · Archivio) — scrollabili se non ci stanno */
+  .view-tabs          { overflow-x: auto; flex-shrink: 0; -webkit-overflow-scrolling: touch; }
+  .view-tab           { white-space: nowrap; padding: 4px 10px; font-size: 0.75rem; }
+
+  /* ── Header colonne — nascosto su mobile ── */
+  .order-row-header-row { display: none !important; }
+
+  /* ── Riga ordine — layout a scheda invece di griglia ── */
+  .order-row-item { padding: 0 10px; }
+
+  .order-row-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 10px 4px;
+    gap: 0;
+  }
+
+  /* Reset celle */
+  .order-row-grid > div {
+    border: none;
+    min-height: auto;
+    padding: 2px 6px;
+  }
+
+  /* Nome: occupa tutta la prima riga */
+  .orc-name {
+    width: 100%;
+    flex-basis: 100%;
+    padding: 0 6px 7px;
+    border-bottom: 1px solid var(--border-light);
+    margin-bottom: 4px;
+    font-size: 0.92rem;
+  }
+
+  /* Seconda riga: tutto scorre inline naturalmente */
+  .orc-date     { flex: 0 0 auto; font-size: 0.72rem; }
+  .orc-tags     { flex: 0 0 auto; flex-wrap: wrap; gap: 3px; }
+  .orc-lav      { flex: 0 0 auto; flex-wrap: wrap; gap: 3px; }
+  .orc-eva      { flex: 0 0 auto; flex-wrap: wrap; gap: 3px; }
+  .orc-deadline { flex: 0 0 auto; font-size: 0.75rem; }
+  .orc-priority { flex: 0 0 auto; }
+  .orc-files    { flex: 0 0 auto; }
+
+  /* ── Stage pills — leggermente più grandi su mobile (tap target) ── */
+  .stage-pill { padding: 4px 9px; font-size: 0.7rem; }
+
+  /* ── Modali — full-width, slide dal basso ── */
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92vh;
+    border-radius: 16px 16px 0 0;
+    margin: 0;
+  }
+
+  .modal-header { padding: 16px 16px 12px; }
+  .modal-body   { padding: 12px 16px; gap: 12px; }
+  .modal-footer { padding: 12px 16px; }
+
+  /* ── Form — campi a tutta larghezza ── */
+  .form-row { flex-direction: column; gap: 10px; }
+  .form-input, .form-textarea, .form-select { font-size: 16px; } /* prevent iOS zoom */
+
+  /* ── Filtro tag ── */
+  .order-row-grid .chip { font-size: 0.68rem; }
+}
+
+/* ── Breakpoint ancora più stretto (iPhone SE, etc.) ── */
+@media (max-width: 390px) {
+  .stat-card-value { font-size: 1.3rem; }
+  .orc-name { font-size: 0.85rem; }
+  .stage-pill { padding: 3px 7px; font-size: 0.66rem; }
 }
