@@ -708,9 +708,8 @@ html.dark .app-shell {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex-shrink: 1;
-  min-width: 60px;
-  max-width: 240px;
+  flex: 0 0 210px;
+  width: 210px;
 }
 
 .order-row-date {

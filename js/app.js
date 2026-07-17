@@ -158,12 +158,12 @@ function renderOrderList() {
     filtered = filtered.filter(o => AppState.filterTags.every(t => o.tags.includes(t)));
   }
 
-  // Comparatori — uso funzione sicura per lavDone
+  // Comparatori — getLavDone completamente autonomo, senza riferimenti esterni
   const getLavDone = (o) => {
-    try {
-      const stages = o.stages || {};
-      return LAVORAZIONE_DEFS.filter(s => stages[s.id]?.done).length;
-    } catch { return 0; }
+    const s = o.stages || {};
+    return (s.merceCompleta?.done ? 1 : 0)
+         + (s.dtfPronti?.done     ? 1 : 0)
+         + (s.ordineStampato?.done ? 1 : 0);
   };
   const cmpDate        = (a, b) => (a.dataOrdine || '').localeCompare(b.dataOrdine || '');
   const cmpPriorita    = (a, b) => TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
