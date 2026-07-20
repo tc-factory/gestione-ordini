@@ -218,7 +218,9 @@ const TCFactory = {
       ({ data: row, error } = await supabaseClient.from('orders').insert(payload).select().single());
     }
     if (error) throw error;
-    return this._fromDb(row);
+    const created = this._fromDb(row);
+    this._log('Ordine creato', created.id, created.nome, { priorityId: created.priorityId, deadline: created.deadline });
+    return created;
   },
 
   async updateOrder(id, patch) {
@@ -227,7 +229,6 @@ const TCFactory = {
     const merged = { ...current, ...patch };
     let { data: row, error } = await supabaseClient.from('orders').update(this._toDb(merged)).eq('id', id).select().single();
     if (error && error.message && error.message.includes('dtf_items')) {
-      // Colonna dtf_items non ancora creata — aggiorna senza di essa
       const payload = this._toDb(merged);
       delete payload.dtf_items;
       ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
@@ -240,20 +241,49 @@ const TCFactory = {
     const current = this.getOrderById(id);
     if (!current) return;
     const today = new Date().toISOString().slice(0, 10);
-    const stages = {
-      ...current.stages,
-      [stageId]: done ? { done: true, date: today } : { done: false },
-    };
-    return this.updateOrder(id, { stages });
+    const stages = { ...current.stages, [stageId]: done ? { done: true, date: today } : { done: false } };
+    const updated = await this.updateOrder(id, { stages });
+    const stageLbl = [...LAVORAZIONE_DEFS, ...EVASIONE_DEFS].find(s => s.id === stageId)?.label || stageId;
+    this._log(done ? `✓ ${stageLbl}` : `☐ ${stageLbl}`, id, current.nome, { stage: stageId, done });
+    return updated;
   },
 
   async setArchived(id, archived) {
-    return this.updateOrder(id, { archived });
+    const current = this.getOrderById(id);
+    const updated = await this.updateOrder(id, { archived });
+    this._log(archived ? 'Archiviato' : 'Ripristinato', id, current?.nome || id);
+    return updated;
   },
 
   async deleteOrder(id) {
+    const current = this.getOrderById(id);
     const { error } = await supabaseClient.from('orders').delete().eq('id', id);
     if (error) throw error;
+    this._log('Ordine eliminato', id, current?.nome || id);
+  },
+
+  // ── Registro attività ──────────────────────────
+  async _log(action, orderId, orderName, details = {}) {
+    try {
+      const nick = window.TCAuth?.getNickname() || 'sistema';
+      await supabaseClient.from('activity_log').insert({
+        user_nickname: nick,
+        action,
+        order_id:   orderId   || null,
+        order_name: orderName || null,
+        details,
+      });
+    } catch(e) { /* non bloccare le operazioni se il log fallisce */ }
+  },
+
+  async getActivityLog(limit = 100) {
+    const { data, error } = await supabaseClient
+      .from('activity_log')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data || [];
   },
 
   // ─────────────────────────────────────────────

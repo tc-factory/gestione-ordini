@@ -22,6 +22,8 @@ const AppState = {
   formDtfOpen: false,
   settingsPrioOpen: false,
   settingsTagOpen: false,
+  settingsUsersOpen: false,
+  settingsLogOpen: false,
 };
 
 
@@ -86,8 +88,10 @@ function renderHeader() {
       </div>
     </div>
     <div class="app-header-actions">
+      ${TCAuth.isLoggedIn() ? `<span style="font-size:0.75rem;color:var(--text-muted);padding:0 4px;">👤 ${escapeHtml(TCAuth.getNickname())}</span>` : ''}
       <button class="btn-icon" onclick="Theme.toggle()" title="Cambia tema">${isDark ? Icons.sun() : Icons.moon()}</button>
       <button class="btn-icon" onclick="openSettings()" title="Impostazioni">${Icons.settings()}</button>
+      ${TCAuth.isLoggedIn() ? `<button class="btn-icon" onclick="doLogout()" title="Esci">${Icons.logOut()}</button>` : ''}
       <button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>
     </div>
   `;
@@ -1151,14 +1155,40 @@ function renderSettingsDialog() {
           </div>` : ''}
         </div>
 
+        ${TCAuth.isAdmin() ? `
+        <!-- UTENTI (solo admin) -->
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('Gestione utenti', Icons.users(14), AppState.settingsUsersOpen, 'toggleSettingsUsers')}
+          ${AppState.settingsUsersOpen ? `<div id="users-section-body" style="padding:12px 14px;"></div>` : ''}
+        </div>
+
+        <!-- LOG (solo admin) -->
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('Registro modifiche', Icons.clock(14), AppState.settingsLogOpen, 'toggleSettingsLog')}
+          ${AppState.settingsLogOpen ? `<div id="log-section-body" style="padding:12px 14px;"></div>` : ''}
+        </div>
+        ` : ''}
+
       </div>
     </div>
   `;
   modal.onclick = (e) => { if (e.target === modal) closeModal('settings-modal'); };
+
+  // Popola le sezioni async dopo il render
+  if (AppState.settingsUsersOpen && TCAuth.isAdmin()) {
+    const ub = document.getElementById('users-section-body');
+    if (ub) renderUsersSection(ub);
+  }
+  if (AppState.settingsLogOpen && TCAuth.isAdmin()) {
+    const lb = document.getElementById('log-section-body');
+    if (lb) renderLogSection(lb);
+  }
 }
 
-function toggleSettingsPrio() { AppState.settingsPrioOpen = !AppState.settingsPrioOpen; renderSettingsDialog(); }
-function toggleSettingsTag()  { AppState.settingsTagOpen  = !AppState.settingsTagOpen;  renderSettingsDialog(); }
+function toggleSettingsPrio()  { AppState.settingsPrioOpen  = !AppState.settingsPrioOpen;  renderSettingsDialog(); }
+function toggleSettingsTag()   { AppState.settingsTagOpen   = !AppState.settingsTagOpen;   renderSettingsDialog(); }
+function toggleSettingsUsers() { AppState.settingsUsersOpen = !AppState.settingsUsersOpen; renderSettingsDialog(); }
+function toggleSettingsLog()   { AppState.settingsLogOpen   = !AppState.settingsLogOpen;   renderSettingsDialog(); }
 
 
 async function reorderPrio(id, dir) {
@@ -1259,6 +1289,9 @@ const Icons = {
   flag: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`,
   tag: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>`,
   printer: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>`,
+  logOut: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`,
+  users: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  clock: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
   magic: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>`,
   calendarDays: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>`,
 };
@@ -1267,3 +1300,163 @@ window.AppState = AppState;
 window.Theme = Theme;
 window.showToast = showToast;
 window.renderApp = renderApp;
+
+// ─────────────────────────────────────────────
+// LOGIN SCREEN
+// ─────────────────────────────────────────────
+
+function renderLoginScreen() {
+  const overlay = document.getElementById('login-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div class="login-card glass-card">
+      <div style="display:flex;justify-content:center;margin-bottom:16px;">
+        <div style="width:52px;height:52px;border-radius:14px;background:var(--brand-gradient);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 4px 14px color-mix(in srgb, var(--brand-gold) 40%, transparent);">
+          ${Icons.package(26)}
+        </div>
+      </div>
+      <h2 style="text-align:center;font-size:1.05rem;font-weight:700;margin-bottom:4px;">T&amp;C Gestione ordini</h2>
+      <p style="text-align:center;font-size:0.78rem;color:var(--text-muted);margin-bottom:24px;">Accedi per continuare</p>
+      <div class="form-group">
+        <label class="form-label">Nickname</label>
+        <input id="login-nick" class="form-input" placeholder="es. mario" autocomplete="username"
+          onkeydown="if(event.key==='Enter')document.getElementById('login-pwd').focus()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input id="login-pwd" type="password" class="form-input" placeholder="••••••••" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div id="login-error" style="color:var(--priority-urgent);font-size:0.82rem;min-height:18px;text-align:center;margin-bottom:8px;"></div>
+      <button id="login-btn" class="btn btn-primary" style="width:100%;justify-content:center;" onclick="doLogin()">Accedi</button>
+    </div>
+  `;
+}
+
+async function doLogin() {
+  const nick = document.getElementById('login-nick')?.value?.trim();
+  const pwd  = document.getElementById('login-pwd')?.value;
+  const err  = document.getElementById('login-error');
+  const btn  = document.getElementById('login-btn');
+
+  if (!nick || !pwd) { if (err) err.textContent = 'Inserisci nickname e password'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Accesso in corso…'; }
+  if (err) err.textContent = '';
+
+  try {
+    await TCAuth.login(nick, pwd);
+    document.getElementById('login-overlay').style.display = 'none';
+    renderApp();
+  } catch(e) {
+    if (err) err.textContent = e.message;
+    if (btn) { btn.disabled = false; btn.textContent = 'Accedi'; }
+  }
+}
+
+function doLogout() {
+  if (!confirm('Vuoi uscire?')) return;
+  TCAuth.logout();
+  renderLoginScreen();
+}
+
+// ─────────────────────────────────────────────
+// GESTIONE UTENTI (solo admin, dentro Impostazioni)
+// ─────────────────────────────────────────────
+
+let _usersList = [];
+
+async function renderUsersSection(container) {
+  try { _usersList = await TCAuth.listUsers(); } catch(e) { _usersList = []; }
+  const priorities = TCFactory.getPriorities(); // unused here but keeps scope consistent
+
+  container.innerHTML = `
+    <div class="settings-section-hint">Solo gli admin possono creare e rimuovere account.</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+      ${_usersList.map(u => `
+        <div class="config-row" style="justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:0.88rem;font-weight:600;">${escapeHtml(u.nickname)}</span>
+            ${u.is_admin ? `<span class="chip" style="background:var(--brand-gold)22;color:var(--brand-gold);font-size:0.65rem;">admin</span>` : ''}
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:0.72rem;color:var(--text-muted);">${new Date(u.created_at).toLocaleDateString('it-IT')}</span>
+            ${u.nickname !== TCAuth.getNickname() ? `
+              <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteUserConfirm('${escapeHtml(u.nickname)}')">${Icons.trash(14)}</button>
+            ` : `<span style="font-size:0.7rem;color:var(--text-muted);">(sei tu)</span>`}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;background:var(--bg-secondary);">
+      <div style="font-size:0.78rem;font-weight:700;margin-bottom:8px;">Crea nuovo account</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <input id="new-user-nick" class="form-input" placeholder="Nickname" maxlength="30">
+        <input id="new-user-pwd" type="password" class="form-input" placeholder="Password">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;">
+            <input type="checkbox" id="new-user-admin"> Admin
+          </label>
+          <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="createNewUser()">Crea account</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function createNewUser() {
+  const nick   = document.getElementById('new-user-nick')?.value?.trim();
+  const pwd    = document.getElementById('new-user-pwd')?.value;
+  const isAdm  = document.getElementById('new-user-admin')?.checked || false;
+  if (!nick || !pwd) { showToast('Compila nickname e password', 'error'); return; }
+  if (pwd.length < 4) { showToast('Password troppo corta (min 4 caratteri)', 'error'); return; }
+  try {
+    await TCAuth.createUser(nick, pwd, isAdm);
+    showToast(`Account "${nick}" creato`);
+    const container = document.getElementById('users-section-body');
+    if (container) renderUsersSection(container);
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function deleteUserConfirm(nick) {
+  if (!confirm(`Eliminare l'account "${nick}"?`)) return;
+  try {
+    await TCAuth.deleteUser(nick);
+    showToast(`Account "${nick}" eliminato`);
+    const container = document.getElementById('users-section-body');
+    if (container) renderUsersSection(container);
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+// ─────────────────────────────────────────────
+// REGISTRO MODIFICHE (log viewer)
+// ─────────────────────────────────────────────
+
+async function renderLogSection(container) {
+  container.innerHTML = `<div style="font-size:0.8rem;color:var(--text-muted);padding:8px 0;">Caricamento log…</div>`;
+  try {
+    const entries = await TCFactory.getActivityLog(100);
+    if (entries.length === 0) {
+      container.innerHTML = `<div style="font-size:0.8rem;color:var(--text-muted);">Nessuna attività registrata.</div>`;
+      return;
+    }
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;">
+        ${entries.map(e => {
+          const dt = new Date(e.created_at).toLocaleString('it-IT', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+          return `
+            <div style="display:grid;grid-template-columns:110px 80px 1fr;gap:8px;padding:6px 8px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.75rem;align-items:start;">
+              <span style="color:var(--text-muted);">${dt}</span>
+              <span style="font-weight:700;color:var(--brand-gold);">${escapeHtml(e.user_nickname)}</span>
+              <div>
+                <span style="font-weight:600;">${escapeHtml(e.action)}</span>
+                ${e.order_name ? `<span style="color:var(--text-muted);"> · ${escapeHtml(e.order_name)}</span>` : ''}
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+    `;
+  } catch(e) {
+    container.innerHTML = `<div style="color:var(--priority-urgent);font-size:0.8rem;">Errore caricamento log: ${e.message}</div>`;
+  }
+}

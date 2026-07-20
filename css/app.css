@@ -917,3 +917,23 @@ html.dark .app-shell {
   .orc-name { font-size: 0.85rem; }
   .stage-pill { padding: 3px 7px; font-size: 0.66rem; }
 }
+
+/* ─────────────────────────────────────────────
+   Login card
+   ───────────────────────────────────────────── */
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-card h2 { margin: 0; }
+.login-card p  { margin: 0; }
+
+@media (max-width: 440px) {
+  .login-card { padding: 24px 20px; }
+}
