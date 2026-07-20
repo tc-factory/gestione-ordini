@@ -24,6 +24,7 @@ const AppState = {
   settingsTagOpen: false,
   settingsUsersOpen: false,
   settingsLogOpen: false,
+  settingsPwdOpen: false,
 };
 
 
@@ -1169,6 +1170,22 @@ function renderSettingsDialog() {
         </div>
         ` : ''}
 
+        <!-- PASSWORD (visibile a tutti gli utenti loggati) -->
+        ${TCAuth.isLoggedIn() ? `
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('La mia password', Icons.lock(14), AppState.settingsPwdOpen, 'toggleSettingsPwd')}
+          ${AppState.settingsPwdOpen ? `
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
+            <div class="settings-section-hint">Inserisci la password attuale per confermarne il cambio.</div>
+            <input id="pwd-old"  type="password" class="form-input" placeholder="Password attuale">
+            <input id="pwd-new1" type="password" class="form-input" placeholder="Nuova password (min. 4 caratteri)">
+            <input id="pwd-new2" type="password" class="form-input" placeholder="Ripeti nuova password"
+              onkeydown="if(event.key==='Enter')doChangePassword()">
+            <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="doChangePassword()">Aggiorna password</button>
+          </div>` : ''}
+        </div>
+        ` : ''}
+
       </div>
     </div>
   `;
@@ -1189,6 +1206,22 @@ function toggleSettingsPrio()  { AppState.settingsPrioOpen  = !AppState.settings
 function toggleSettingsTag()   { AppState.settingsTagOpen   = !AppState.settingsTagOpen;   renderSettingsDialog(); }
 function toggleSettingsUsers() { AppState.settingsUsersOpen = !AppState.settingsUsersOpen; renderSettingsDialog(); }
 function toggleSettingsLog()   { AppState.settingsLogOpen   = !AppState.settingsLogOpen;   renderSettingsDialog(); }
+function toggleSettingsPwd()   { AppState.settingsPwdOpen   = !AppState.settingsPwdOpen;   renderSettingsDialog(); }
+
+async function doChangePassword() {
+  const oldPwd = document.getElementById('pwd-old')?.value;
+  const newPwd = document.getElementById('pwd-new1')?.value;
+  const repPwd = document.getElementById('pwd-new2')?.value;
+  if (!oldPwd || !newPwd) { showToast('Compila tutti i campi', 'error'); return; }
+  if (newPwd !== repPwd)  { showToast('Le nuove password non coincidono', 'error'); return; }
+  if (newPwd.length < 4)  { showToast('Minimo 4 caratteri', 'error'); return; }
+  try {
+    await TCAuth.changePassword(oldPwd, newPwd);
+    showToast('Password aggiornata ✓');
+    AppState.settingsPwdOpen = false;
+    renderSettingsDialog();
+  } catch(e) { showToast(e.message, 'error'); }
+}
 
 
 async function reorderPrio(id, dir) {
@@ -1292,6 +1325,7 @@ const Icons = {
   logOut: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`,
   users: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   clock: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+  lock: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
   magic: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>`,
   calendarDays: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>`,
 };
@@ -1382,6 +1416,7 @@ async function renderUsersSection(container) {
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-size:0.72rem;color:var(--text-muted);">${new Date(u.created_at).toLocaleDateString('it-IT')}</span>
             ${u.nickname !== TCAuth.getNickname() ? `
+              <button class="btn btn-secondary btn-sm" style="font-size:0.72rem;" onclick="adminResetPwdPrompt('${escapeHtml(u.nickname)}')" title="Reimposta password">🔑</button>
               <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteUserConfirm('${escapeHtml(u.nickname)}')">${Icons.trash(14)}</button>
             ` : `<span style="font-size:0.7rem;color:var(--text-muted);">(sei tu)</span>`}
           </div>
@@ -1415,6 +1450,16 @@ async function createNewUser() {
     showToast(`Account "${nick}" creato`);
     const container = document.getElementById('users-section-body');
     if (container) renderUsersSection(container);
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function adminResetPwdPrompt(nick) {
+  const newPwd = prompt(`Nuova password per "${nick}" (min. 4 caratteri):`);
+  if (!newPwd) return;
+  if (newPwd.length < 4) { showToast('Minimo 4 caratteri', 'error'); return; }
+  try {
+    await TCAuth.adminResetPassword(nick, newPwd);
+    showToast(`Password di "${nick}" aggiornata ✓`);
   } catch(e) { showToast(e.message, 'error'); }
 }
 

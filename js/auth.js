@@ -72,6 +72,31 @@ const TCAuth = {
     if (error || !data?.success) throw new Error(data?.error || 'Errore eliminazione');
   },
 
+  // Cambio password self-service
+  async changePassword(oldPassword, newPassword) {
+    const { data, error } = await supabaseClient.rpc('tc_change_password', {
+      p_nickname:     this._session.nickname,
+      p_old_password: oldPassword,
+      p_new_password: newPassword,
+    });
+    if (error || !data?.success) throw new Error(data?.error || 'Errore cambio password');
+    // Aggiorna la password in sessione (serve per le operazioni admin)
+    this._session._pwd = newPassword;
+    localStorage.setItem('tcf_session', JSON.stringify(this._session));
+  },
+
+  // Reset password da admin (senza conoscere la vecchia)
+  async adminResetPassword(targetNickname, newPassword) {
+    this._requireAdminPwd();
+    const { data, error } = await supabaseClient.rpc('tc_admin_reset_password', {
+      p_admin_nick:  this._session.nickname,
+      p_admin_pwd:   this._session._pwd,
+      p_target_nick: targetNickname,
+      p_new_pwd:     newPassword,
+    });
+    if (error || !data?.success) throw new Error(data?.error || 'Errore reset password');
+  },
+
   _requireAdminPwd() {
     if (!this._session?.isAdmin) throw new Error('Non autorizzato');
     if (!this._session?._pwd) throw new Error('Sessione scaduta — effettua di nuovo il login');
