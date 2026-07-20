@@ -726,6 +726,24 @@ async function submitOrderForm() {
   if (!nome) { showToast('Inserisci un nome', 'error'); return; }
   if (!dataOrdine) { showToast('Inserisci una data', 'error'); return; }
 
+  // Deadline obbligatoria se priorità urgente
+  const selectedPriority = TCFactory.getPriority(priorityId);
+  if (selectedPriority?.id === 'urgente' && !deadline) {
+    // Evidenzia il campo deadline
+    const dlField = document.getElementById('of-deadline');
+    if (dlField) {
+      dlField.focus();
+      dlField.style.borderColor = 'var(--priority-urgent)';
+      dlField.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--priority-urgent) 25%, transparent)';
+      dlField.addEventListener('input', () => {
+        dlField.style.borderColor = '';
+        dlField.style.boxShadow = '';
+      }, { once: true });
+    }
+    showToast('Gli ordini urgenti richiedono una deadline', 'error');
+    return;
+  }
+
   const payload = { nome, dataOrdine, deadline, notes, priorityId, tags: AppState.formTags, files: AppState.formFiles, dtfItems: AppState.formDtfItems };
 
   try {
