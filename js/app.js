@@ -321,7 +321,15 @@ function renderOrderRow(o) {
         <div class="orc-eva">${evaPills}</div>
         <div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline ? '700' : '400'};">${deadlineBadge}</div>
         <div class="orc-priority">${renderPriorityChip(p)}</div>
-        <div class="orc-files">${filesBtns}${filesExtra}</div>
+        <div class="orc-files">
+          ${filesBtns}${filesExtra}
+          <button class="file-quick-btn"
+            onclick="event.stopPropagation();quickToggleArchive('${o.id}',${o.archived})"
+            title="${o.archived ? 'Ripristina agli attivi' : 'Archivia ordine'}"
+            style="opacity:0.55;transition:opacity 0.15s;" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.55'">
+            ${o.archived ? '↩' : Icons.archive(12)}
+          </button>
+        </div>
       </div>
     </div>
   `;
@@ -331,6 +339,17 @@ function quickPreviewFile(orderId, fileIndex) {
   const order = TCFactory.getOrderById(orderId);
   if (!order || !order.files[fileIndex]) return;
   previewFile(order.files[fileIndex]);
+}
+
+async function quickToggleArchive(orderId, isCurrentlyArchived) {
+  try {
+    if (isCurrentlyArchived) {
+      await moveOrderTo(orderId, 'active');
+    } else {
+      await TCFactory.setArchived(orderId, true);
+      renderApp();
+    }
+  } catch(e) { showToast('Errore', 'error'); }
 }
 
 // toggleStage inline dalla lista (senza aprire il dettaglio)
