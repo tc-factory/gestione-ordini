@@ -245,6 +245,7 @@ function renderOrderList() {
             <div class="orc-deadline orc-hdr">Scadenza</div>
             <div class="orc-priority orc-hdr">Urgenza</div>
             <div class="orc-files orc-hdr">All.</div>
+            <div class="orc-action orc-hdr"></div>
           </div>
         </div>
         ${sorted.length === 0
@@ -321,12 +322,12 @@ function renderOrderRow(o) {
         <div class="orc-eva">${evaPills}</div>
         <div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline ? '700' : '400'};">${deadlineBadge}</div>
         <div class="orc-priority">${renderPriorityChip(p)}</div>
-        <div class="orc-files">
-          ${filesBtns}${filesExtra}
+        <div class="orc-files">${filesBtns}${filesExtra}</div>
+        <div class="orc-action">
           <button class="file-quick-btn"
             onclick="event.stopPropagation();quickToggleArchive('${o.id}',${o.archived})"
             title="${o.archived ? 'Ripristina agli attivi' : 'Archivia ordine'}"
-            style="opacity:0.55;transition:opacity 0.15s;" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.55'">
+            style="opacity:0.45;transition:opacity 0.15s;" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.45'">
             ${o.archived ? '↩' : Icons.archive(12)}
           </button>
         </div>

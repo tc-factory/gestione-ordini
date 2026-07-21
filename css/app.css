@@ -746,6 +746,7 @@ html.dark .app-shell {
     82px                    /* Scadenza */
     108px                   /* Urgenza */
     62px                    /* Allegati */
+    44px                    /* Azione */
   ;
   align-items: stretch;
   flex: 1;
@@ -789,6 +790,7 @@ html.dark .app-shell {
 .orc-deadline { justify-content: center; text-align: center; }
 .orc-priority { justify-content: center; }
 .orc-files   { gap: 5px; justify-content: center; }
+.orc-action  { justify-content: center; }
 
 /* Pulsante apertura rapida allegato */
 .file-quick-btn {
