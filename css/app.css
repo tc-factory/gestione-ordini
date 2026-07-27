@@ -742,11 +742,11 @@ html.dark .app-shell {
     92px                    /* Data */
     minmax(80px, 1.3fr)    /* Tipologia */
     188px                   /* Lavorazione */
-    150px                   /* Spedizione */
+    175px                   /* Spedizione + archivio */
     82px                    /* Scadenza */
     108px                   /* Urgenza */
-    62px                    /* Allegati */
-    44px                    /* Azione */
+    62px                    /* Ordine */
+    90px                    /* Pagamento */
   ;
   align-items: stretch;
   flex: 1;
@@ -790,7 +790,39 @@ html.dark .app-shell {
 .orc-deadline { justify-content: center; text-align: center; }
 .orc-priority { justify-content: center; }
 .orc-files   { gap: 5px; justify-content: center; }
-.orc-action  { justify-content: center; }
+.orc-payment { justify-content: center; flex-direction: column; gap: 3px; }
+
+/* ─────────────────────────────────────────────
+   Modulo d'ordine — tabella nel form
+   ───────────────────────────────────────────── */
+
+.mod-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.mod-table th {
+  background: var(--brand-gradient);
+  color: #fff;
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.mod-table td { padding: 3px 4px; border-bottom: 1px solid var(--border-light); }
+.mod-table tr:nth-child(even) td { background: var(--bg-secondary); }
+.mod-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  padding: 2px 4px;
+  font-family: var(--font-body);
+}
+.mod-input:focus { background: var(--bg-secondary); border-radius: 4px; }
+.mod-num { text-align: right; width: 60px; }
+.mod-sm  { width: 40px; }
+.mod-calc { font-weight: 700; color: var(--brand-gold); font-size: 0.78rem; white-space: nowrap; }
 
 /* Pulsante apertura rapida allegato */
 .file-quick-btn {

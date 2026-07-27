@@ -125,6 +125,10 @@ const TCFactory = {
       priorityId: row.priority_id,
       tags: row.tags || [],
       files: row.files || [],
+      invoiceFiles: row.invoice_files || [],
+      paymentDone: !!row.payment_done,
+      paymentDate: row.payment_date || null,
+      orderModule: row.order_module || { rows: [], acconto: '' },
       dtfItems: row.dtf_items || [],
       stages: row.stages || { merceCompleta: { done: false }, dtfPronti: { done: false }, ordineStampato: { done: false } },
       archived: row.archived,
@@ -143,6 +147,10 @@ const TCFactory = {
       priority_id: order.priorityId,
       tags: order.tags || [],
       files: order.files || [],
+      invoice_files: order.invoiceFiles || [],
+      payment_done: !!order.paymentDone,
+      payment_date: order.paymentDate || null,
+      order_module: order.orderModule || { rows: [], acconto: '' },
       dtf_items: order.dtfItems || [],
       stages: order.stages,
       archived: !!order.archived,
@@ -206,15 +214,20 @@ const TCFactory = {
       priorityId: data.priorityId,
       tags: data.tags || [],
       files: data.files || [],
-      dtfItems: data.dtfItems || [],
+      invoiceFiles: data.invoiceFiles || [],
+      paymentDone: false,
+      paymentDate: null,
+      orderModule: data.orderModule || { rows: [], acconto: '' },
+      dtfItems: [],
       stages: this.emptyStages(),
       archived: false,
     };
     let { data: row, error } = await supabaseClient.from('orders').insert(this._toDb(order)).select().single();
-    if (error && error.message && error.message.includes('dtf_items')) {
-      // Colonna dtf_items non ancora creata — salva senza di essa
+    if (error && error.message) {
       const payload = this._toDb(order);
-      delete payload.dtf_items;
+      ['dtf_items','invoice_files','payment_done','payment_date','order_module'].forEach(col => {
+        if (error.message.includes(col)) delete payload[col];
+      });
       ({ data: row, error } = await supabaseClient.from('orders').insert(payload).select().single());
     }
     if (error) throw error;
@@ -228,9 +241,11 @@ const TCFactory = {
     if (!current) throw new Error('Ordine non trovato');
     const merged = { ...current, ...patch };
     let { data: row, error } = await supabaseClient.from('orders').update(this._toDb(merged)).eq('id', id).select().single();
-    if (error && error.message && error.message.includes('dtf_items')) {
+    if (error && error.message) {
       const payload = this._toDb(merged);
-      delete payload.dtf_items;
+      ['dtf_items','invoice_files','payment_done','payment_date','order_module'].forEach(col => {
+        if (error.message.includes(col)) delete payload[col];
+      });
       ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
     }
     if (error) throw error;

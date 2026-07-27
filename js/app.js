@@ -17,9 +17,10 @@ const AppState = {
   formEditOrder: null,
   formDefaultDate: null,
   formFiles: [],
+  formInvoiceFiles: [],
   formTags: [],
-  formDtfItems: [],
-  formDtfOpen: false,
+  formModuleRows: [],
+  formModuleAcconto: '',
   settingsPrioOpen: false,
   settingsTagOpen: false,
   settingsUsersOpen: false,
@@ -237,15 +238,15 @@ function renderOrderList() {
         <div class="order-row-item order-row-header-row" onclick="event.stopPropagation()">
           <div class="order-row-bar" style="background:transparent;"></div>
           <div class="order-row-grid">
-            <div class="orc-name orc-hdr">Nome</div>
+              <div class="orc-name orc-hdr">Nome</div>
             <div class="orc-date orc-hdr">Data</div>
             <div class="orc-tags orc-hdr">Tipologia</div>
             <div class="orc-lav orc-hdr">Lavorazione</div>
             <div class="orc-eva orc-hdr">Spedizione</div>
             <div class="orc-deadline orc-hdr">Scadenza</div>
             <div class="orc-priority orc-hdr">Urgenza</div>
-            <div class="orc-files orc-hdr">All.</div>
-            <div class="orc-action orc-hdr"></div>
+            <div class="orc-files orc-hdr">Ordine</div>
+            <div class="orc-payment orc-hdr">Pagamento</div>
           </div>
         </div>
         ${sorted.length === 0
@@ -267,21 +268,21 @@ function renderOrderRow(o) {
     const today = new Date().toISOString().slice(0, 10);
     const diff  = Math.ceil((new Date(o.deadline + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
     deadlineColor = diff < 0 ? '#ef4444' : diff <= 3 ? '#ef4444' : diff <= 7 ? '#f97316' : '#6366f1';
-    deadlineBadge = diff < 0
-      ? `scad. ${Math.abs(diff)}gg`
-      : diff === 0 ? 'oggi'
-      : `${diff}gg`;
+    deadlineBadge = diff < 0 ? `scad. ${Math.abs(diff)}gg` : diff === 0 ? 'oggi' : `${diff}gg`;
   }
 
-  // Lavorazione pills
+  // Lavorazione pills + data Stampato automatica
   const lavPills = LAVORAZIONE_DEFS.map(s => {
     const done = o.stages?.[s.id]?.done;
     return `<button class="stage-pill ${done?'done':''}"
       onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
       title="${s.label}">${s.shortLabel}</button>`;
   }).join('');
+  const stampatoStage = o.stages?.ordineStampato;
+  const stampatoDate  = stampatoStage?.done && stampatoStage?.date
+    ? `<div style="font-size:0.62rem;color:#22c55e;margin-top:3px;">📅 ${TCFactory.formatDate(stampatoStage.date,{day:'2-digit',month:'2-digit'})}</div>` : '';
 
-  // Evasione pills
+  // Evasione pills + archivio inline
   const evaPills = EVASIONE_DEFS.map(s => {
     const done = o.stages?.[s.id]?.done;
     return `<button class="stage-pill evasione ${done?'done':''}"
@@ -289,9 +290,9 @@ function renderOrderRow(o) {
       title="${s.label}">${s.shortLabel}</button>`;
   }).join('');
 
-  // Tag cliccabili per filtro
+  // Tag
   const tagPills = o.tags.slice(0, 3).map(t => {
-    const c = TCFactory.getTagColor(t);
+    const c      = TCFactory.getTagColor(t);
     const active = AppState.filterTags.includes(t);
     return `<button class="chip chip-btn" onclick="event.stopPropagation();toggleTagFilter('${escapeHtml(t)}')"
       style="background:${active ? c : `color-mix(in srgb, ${c} 14%, transparent)`};color:${active ? '#fff' : c};padding:2px 6px;cursor:pointer;font-size:0.68rem;">
@@ -299,15 +300,18 @@ function renderOrderRow(o) {
     </button>`;
   }).join('');
 
-  // Allegati — icone cliccabili direttamente
+  // Allegati ordine
   const filesBtns = (o.files || []).slice(0, 2).map((f, i) => {
-    const isImg = f.type?.startsWith('image/');
-    const isPdf = f.type === 'application/pdf';
-    const icon  = isImg ? '🖼' : isPdf ? '📄' : '📎';
+    const icon = f.type?.startsWith('image/') ? '🖼' : f.type === 'application/pdf' ? '📄' : '📎';
     return `<button class="file-quick-btn" onclick="event.stopPropagation();quickPreviewFile('${o.id}',${i})" title="${escapeHtml(f.name)}">${icon}</button>`;
   }).join('');
-  const filesExtra = (o.files || []).length > 2
+  const filesExtra = (o.files||[]).length > 2
     ? `<span style="font-size:0.65rem;color:var(--text-muted);">+${(o.files||[]).length - 2}</span>` : '';
+
+  // Pagamento
+  const payDone    = o.paymentDone || false;
+  const payDate    = o.paymentDate;
+  const invFile    = (o.invoiceFiles || [])[0];
 
   return `
     <div class="order-row-item" role="button" tabindex="0"
@@ -316,20 +320,31 @@ function renderOrderRow(o) {
       <div class="order-row-bar" style="background:${color};"></div>
       <div class="order-row-grid">
         <div class="orc-name">${escapeHtml(o.nome)}</div>
-        <div class="orc-date">${TCFactory.formatDate(o.dataOrdine, {day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
+        <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         <div class="orc-tags">${tagPills}</div>
-        <div class="orc-lav">${lavPills}</div>
-        <div class="orc-eva">${evaPills}</div>
-        <div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline ? '700' : '400'};">${deadlineBadge}</div>
+        <div class="orc-lav" style="flex-direction:column;align-items:flex-start;">
+          <div style="display:flex;gap:3px;">${lavPills}</div>
+          ${stampatoDate}
+        </div>
+        <div class="orc-eva" style="flex-direction:column;align-items:flex-start;gap:4px;">
+          <div style="display:flex;gap:3px;">${evaPills}</div>
+          <button class="file-quick-btn" onclick="event.stopPropagation();quickToggleArchive('${o.id}',${o.archived})"
+            title="${o.archived ? 'Ripristina agli attivi' : 'Archivia ordine'}"
+            style="font-size:0.68rem;opacity:0.5;" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.5'">
+            ${o.archived ? '↩ Ripristina' : Icons.archive(11)+' Archivia'}
+          </button>
+        </div>
+        <div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline?'700':'400'};">${deadlineBadge}</div>
         <div class="orc-priority">${renderPriorityChip(p)}</div>
         <div class="orc-files">${filesBtns}${filesExtra}</div>
-        <div class="orc-action">
-          <button class="file-quick-btn"
-            onclick="event.stopPropagation();quickToggleArchive('${o.id}',${o.archived})"
-            title="${o.archived ? 'Ripristina agli attivi' : 'Archivia ordine'}"
-            style="opacity:0.45;transition:opacity 0.15s;" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.45'">
-            ${o.archived ? '↩' : Icons.archive(12)}
+        <div class="orc-payment" style="flex-direction:column;align-items:center;gap:3px;">
+          ${invFile ? `<button class="file-quick-btn" onclick="event.stopPropagation();quickPreviewInvoice('${o.id}')" title="Apri fattura">🧾</button>` : ''}
+          <button class="stage-pill ${payDone?'done':''}"
+            onclick="event.stopPropagation();togglePayment('${o.id}',${!payDone})"
+            style="font-size:0.62rem;white-space:nowrap;">
+            ${payDone ? '✓ Pagato' : 'Pagamento'}
           </button>
+          ${payDone && payDate ? `<span style="font-size:0.6rem;color:#22c55e;">${TCFactory.formatDate(payDate,{day:'2-digit',month:'2-digit'})}</span>` : ''}
         </div>
       </div>
     </div>
@@ -340,6 +355,75 @@ function quickPreviewFile(orderId, fileIndex) {
   const order = TCFactory.getOrderById(orderId);
   if (!order || !order.files[fileIndex]) return;
   previewFile(order.files[fileIndex]);
+}
+
+function quickPreviewInvoice(orderId) {
+  const order = TCFactory.getOrderById(orderId);
+  if (!order || !(order.invoiceFiles||[])[0]) return;
+  previewFile(order.invoiceFiles[0]);
+}
+
+async function togglePayment(orderId, done) {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    await TCFactory.updateOrder(orderId, { paymentDone: done, paymentDate: done ? today : null });
+    renderApp();
+  } catch(e) { showToast('Errore pagamento', 'error'); }
+}
+
+function downloadOrderModule(orderId) {
+  const order = orderId ? TCFactory.getOrderById(orderId) : null;
+  const nome    = order?.nome || document.getElementById('of-nome')?.value || 'Ordine';
+  const rows    = order?.orderModule?.rows || AppState.formModuleRows || [];
+  const acconto = parseFloat(order?.orderModule?.acconto || AppState.formModuleAcconto || 0);
+  const total   = rows.reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
+  const saldo   = total - acconto;
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Modulo ordine - ${nome}</title>
+<style>
+  body{font-family:Arial,sans-serif;margin:30px;color:#1e293b}
+  h2{color:#1e40af;margin:0 0 4px}
+  .sub{font-size:13px;color:#64748b;margin-bottom:20px}
+  table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}
+  th{background:#1e40af;color:#fff;padding:8px 10px;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  td{padding:7px 10px;border-bottom:1px solid #e2e8f0}
+  tr:nth-child(even) td{background:#f8fafc}
+  .tot-section{margin-top:24px;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .tot-row{display:flex;gap:40px;font-size:14px}
+  .tot-label{color:#64748b}
+  .tot-value{font-weight:700;min-width:90px;text-align:right}
+  .tot-big{font-size:16px;color:#1e40af}
+  @media print{body{margin:15px}}
+</style></head><body>
+<h2>T&amp;C Factory Creative Lab</h2>
+<div class="sub"><strong>Ordine:</strong> ${nome} &nbsp;·&nbsp; <strong>Data:</strong> ${new Date().toLocaleDateString('it-IT')}</div>
+<table>
+  <thead><tr><th>Catalogo</th><th>Codice</th><th>Colore</th><th>QNT</th><th>TG</th><th>Prezzo</th><th>Totale</th><th>Ordinato</th></tr></thead>
+  <tbody>
+    ${rows.length ? rows.map(r => {
+      const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
+      return `<tr>
+        <td>${r.catalogo||''}</td><td>${r.codice||''}</td><td>${r.colore||''}</td>
+        <td>${r.qnt||''}</td><td>${r.tg||''}</td>
+        <td>${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
+        <td>${t>0 ? '€ '+t.toFixed(2) : ''}</td>
+        <td style="text-align:center;font-size:16px">${r.ordinato?'✓':''}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>'}
+  </tbody>
+</table>
+<div class="tot-section">
+  <div class="tot-row"><span class="tot-label">Totale ordine</span><span class="tot-value tot-big">€ ${total.toFixed(2)}</span></div>
+  <div class="tot-row"><span class="tot-label">Acconto</span><span class="tot-value">€ ${acconto.toFixed(2)}</span></div>
+  <div class="tot-row"><span class="tot-label">Saldo</span><span class="tot-value tot-big" style="color:#dc2626">€ ${saldo.toFixed(2)}</span></div>
+</div>
+<script>window.onload=()=>window.print()</script>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (win) { win.document.write(html); win.document.close(); }
+  else showToast('Abilita i popup per scaricare il modulo', 'error');
 }
 
 async function quickToggleArchive(orderId, isCurrentlyArchived) {
@@ -353,7 +437,94 @@ async function quickToggleArchive(orderId, isCurrentlyArchived) {
   } catch(e) { showToast('Errore', 'error'); }
 }
 
-// toggleStage inline dalla lista (senza aprire il dettaglio)
+// ── Modulo d'ordine ──────────────────────────
+
+function renderModuleRows() {
+  const tbody = document.getElementById('mod-rows-body');
+  if (!tbody) return;
+  tbody.innerHTML = AppState.formModuleRows.map((r, i) => {
+    const tot = (parseFloat(r.qnt)||0) * (parseFloat(r.prezzo)||0);
+    return `<tr>
+      <td><input class="mod-input" value="${escapeHtml(r.catalogo||'')}" oninput="storeMod(${i},'catalogo',this.value)"></td>
+      <td><input class="mod-input" value="${escapeHtml(r.codice||'')}" oninput="storeMod(${i},'codice',this.value)"></td>
+      <td><input class="mod-input" value="${escapeHtml(r.colore||'')}" oninput="storeMod(${i},'colore',this.value)"></td>
+      <td><input class="mod-input mod-num" type="number" min="0" value="${r.qnt||''}" oninput="storeMod(${i},'qnt',this.value);calcModRow(${i})"></td>
+      <td><input class="mod-input mod-sm" value="${escapeHtml(r.tg||'')}" oninput="storeMod(${i},'tg',this.value)"></td>
+      <td><input class="mod-input mod-num" type="number" min="0" step="0.01" value="${r.prezzo||''}" oninput="storeMod(${i},'prezzo',this.value);calcModRow(${i})"></td>
+      <td><span id="mod-tot-${i}" class="mod-calc">${tot>0 ? '€ '+tot.toFixed(2) : ''}</span></td>
+      <td style="text-align:center;"><input type="checkbox" ${r.ordinato?'checked':''} onchange="storeMod(${i},'ordinato',this.checked)"></td>
+      <td><button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="removeModRow(${i})">${Icons.x(12)}</button></td>
+    </tr>`;
+  }).join('');
+  updateModuleTotals();
+}
+
+function storeMod(i, field, value) {
+  if (!AppState.formModuleRows[i]) return;
+  AppState.formModuleRows[i][field] = (field === 'catalogo' || field === 'codice' || field === 'colore' || field === 'tg') ? value : (field === 'ordinato' ? value : (parseFloat(value) || ''));
+}
+function calcModRow(i) {
+  const r = AppState.formModuleRows[i] || {};
+  const tot = (parseFloat(r.qnt)||0) * (parseFloat(r.prezzo)||0);
+  const el = document.getElementById(`mod-tot-${i}`);
+  if (el) el.textContent = tot > 0 ? '€ ' + tot.toFixed(2) : '';
+  updateModuleTotals();
+}
+function updateModuleTotals() {
+  const total   = AppState.formModuleRows.reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
+  const acconto = parseFloat(AppState.formModuleAcconto) || 0;
+  const saldo   = total - acconto;
+  const et = document.getElementById('mod-total-val');
+  const es = document.getElementById('mod-saldo-val');
+  if (et) et.textContent = '€ ' + total.toFixed(2);
+  if (es) { es.textContent = '€ ' + saldo.toFixed(2); es.style.color = saldo > 0 ? '#ef4444' : '#22c55e'; }
+}
+function addModRow() {
+  AppState.formModuleRows.push({ catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false });
+  renderModuleRows();
+}
+function removeModRow(i) {
+  AppState.formModuleRows.splice(i, 1);
+  renderModuleRows();
+}
+
+// ── Fattura ───────────────────────────────────
+
+function renderFormInvoiceList() {
+  const c = document.getElementById('of-invoice-list');
+  if (!c) return;
+  c.innerHTML = AppState.formInvoiceFiles.map((f, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:0.8rem;">
+      <span>🧾</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.name)}</span>
+      <span style="color:var(--text-muted);">${(f.size/1024).toFixed(0)} KB</span>
+      <button type="button" class="btn-icon" onclick="removeInvoiceFile(${i})" style="color:var(--priority-urgent);">${Icons.x(13)}</button>
+    </div>`).join('');
+}
+
+async function handleInvoiceFiles(event) {
+  const list = event.target.files;
+  if (!list) return;
+  for (const f of Array.from(list)) {
+    try {
+      let file = f;
+      if (f.type.startsWith('image/') && f.size > TCFactory.MAX_FILE_BYTES) {
+        showToast(`Comprimo ${f.name}…`);
+        file = await compressImageIfNeeded(f);
+      }
+      if (file.size > TCFactory.MAX_FILE_BYTES) { showToast(`${f.name} supera 2MB`, 'error'); continue; }
+      const uploaded = await TCFactory.uploadFile(file);
+      AppState.formInvoiceFiles.push({ ...uploaded, name: f.name });
+    } catch(e) { showToast(`Errore caricando ${f.name}`, 'error'); }
+  }
+  event.target.value = '';
+  renderFormInvoiceList();
+}
+
+function removeInvoiceFile(i) {
+  AppState.formInvoiceFiles.splice(i, 1);
+  renderFormInvoiceList();
+}
 async function toggleStageInline(orderId, stageId, done) {
   try {
     let updated = await TCFactory.setStage(orderId, stageId, done);
@@ -401,8 +572,11 @@ function openOrderForm(order = null, defaultDate = null) {
   AppState.formEditOrder = order;
   AppState.formDefaultDate = defaultDate;
   AppState.formFiles = order ? [...(order.files || [])] : [];
+  AppState.formInvoiceFiles = order ? [...(order.invoiceFiles || [])] : [];
   AppState.formTags = order ? [...order.tags] : [];
-  AppState.formDtfItems = order ? (order.dtfItems || []).map(i => ({...i})) : [];
+  const mod = order?.orderModule || { rows: [], acconto: '' };
+  AppState.formModuleRows   = mod.rows.map(r => ({...r}));
+  AppState.formModuleAcconto = mod.acconto || '';
 
   const priorities = TCFactory.getPriorities();
   const tags = TCFactory.getTags();
@@ -457,29 +631,67 @@ function openOrderForm(order = null, defaultDate = null) {
           </div>
         </div>
 
+        <!-- MODULO D'ORDINE -->
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);">
+            <span style="font-weight:700;font-size:0.88rem;">📋 Modulo d'ordine</span>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="downloadOrderModule(null)">⬇ Scarica / Stampa</button>
+          </div>
+          <div style="padding:12px 14px;overflow-x:auto;">
+            <table class="mod-table" style="width:100%;">
+              <thead>
+                <tr>
+                  <th style="min-width:100px;">CATALOGO</th>
+                  <th style="min-width:80px;">CODICE</th>
+                  <th style="min-width:70px;">COLORE</th>
+                  <th style="width:52px;">QNT</th>
+                  <th style="width:44px;">TG</th>
+                  <th style="width:76px;">PREZZO</th>
+                  <th style="width:76px;">TOTALE</th>
+                  <th style="width:40px;">ORD.</th>
+                  <th style="width:28px;"></th>
+                </tr>
+              </thead>
+              <tbody id="mod-rows-body"></tbody>
+            </table>
+            <button type="button" onclick="addModRow()" class="btn btn-secondary btn-sm" style="margin-top:8px;">${Icons.plus(13)} Aggiungi riga</button>
+            <div style="margin-top:12px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;border-top:1px solid var(--border);padding-top:10px;">
+              <div style="display:flex;align-items:center;gap:12px;font-size:0.82rem;">
+                <span style="color:var(--text-muted);">Totale ordine</span>
+                <strong id="mod-total-val" style="font-size:1.05rem;color:var(--brand-gold);min-width:80px;text-align:right;">€ 0.00</strong>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;font-size:0.82rem;">
+                <span style="color:var(--text-muted);">Acconto</span>
+                <input type="number" id="mod-acconto" class="form-input" style="width:80px;text-align:right;" min="0" step="0.01" value="${escapeHtml(String(AppState.formModuleAcconto||''))}" placeholder="0.00" oninput="AppState.formModuleAcconto=this.value;updateModuleTotals()">
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;font-size:0.82rem;">
+                <span style="color:var(--text-muted);">Saldo</span>
+                <strong id="mod-saldo-val" style="font-size:1.05rem;color:#ef4444;min-width:80px;text-align:right;">€ 0.00</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ALLEGATI ORDINE -->
         <div class="form-group">
-          <label class="form-label">Allegati</label>
+          <label class="form-label">Allegati ordine</label>
           <div class="dropzone">
             <input type="file" id="of-file-input" multiple accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx" style="display:none;" onchange="handleFormFiles(event)">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-file-input').click()">${Icons.paperclip(14)} Carica file o foto</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-file-input').click()">${Icons.paperclip(14)} Carica file / foto</button>
             <p>Immagini compresse automaticamente sotto 2MB</p>
           </div>
           <div id="of-files-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
         </div>
 
-        <!-- SEZIONE DTF COLLASSABILE -->
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          <button type="button" onclick="toggleFormDTF()"
-            style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border:none;cursor:pointer;color:var(--text-primary);font-family:var(--font-body);font-weight:600;font-size:0.88rem;">
-            <div style="display:flex;align-items:center;gap:8px;">${Icons.printer(14)} DTF</div>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" id="dtf-chevron" style="transform:rotate(${AppState.formDtfOpen ? 180 : 0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div id="dtf-form-body" style="display:${AppState.formDtfOpen ? 'block' : 'none'};padding:12px 14px;">
-            <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:10px;">Roll: 57cm · Velocità: 8m/h</div>
-            <div id="dtf-rows-container" style="display:flex;flex-direction:column;gap:8px;"></div>
-            <div id="dtf-total-box" style="margin-top:10px;"></div>
-            <button type="button" onclick="addDTFRow()" class="btn btn-secondary btn-sm" style="margin-top:10px;">${Icons.plus(13)} Aggiungi calcolo</button>
+        <!-- FATTURA -->
+        <div class="form-group">
+          <label class="form-label">Fattura</label>
+          <div class="dropzone">
+            <input type="file" id="of-invoice-input" multiple accept="image/*,application/pdf,.pdf" style="display:none;" onchange="handleInvoiceFiles(event)">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-invoice-input').click()">🧾 Carica fattura</button>
+            <p>PDF o immagine</p>
           </div>
+          <div id="of-invoice-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
         </div>
 
         <div class="form-group">
@@ -501,7 +713,8 @@ function openOrderForm(order = null, defaultDate = null) {
   }
 
   renderFormFilesList();
-  if (AppState.formDtfOpen && AppState.formDtfItems.length > 0) renderDTFRows();
+  renderFormInvoiceList();
+  renderModuleRows();
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('order-form-modal'); };
 }
@@ -769,7 +982,13 @@ async function submitOrderForm() {
     return;
   }
 
-  const payload = { nome, dataOrdine, deadline, notes, priorityId, tags: AppState.formTags, files: AppState.formFiles, dtfItems: AppState.formDtfItems };
+  const payload = {
+    nome, dataOrdine, deadline, notes, priorityId,
+    tags: AppState.formTags,
+    files: AppState.formFiles,
+    invoiceFiles: AppState.formInvoiceFiles,
+    orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto },
+  };
 
   try {
     if (AppState.formEditOrder) {
