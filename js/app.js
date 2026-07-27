@@ -301,13 +301,16 @@ function renderOrderRow(o) {
     </button>`;
   }).join('');
 
-  // Allegati ordine
+  // Allegati ordine + pulsante modulo se presente
   const filesBtns = (o.files || []).slice(0, 2).map((f, i) => {
     const icon = f.type?.startsWith('image/') ? '🖼' : f.type === 'application/pdf' ? '📄' : '📎';
     return `<button class="file-quick-btn" onclick="event.stopPropagation();quickPreviewFile('${o.id}',${i})" title="${escapeHtml(f.name)}">${icon}</button>`;
   }).join('');
   const filesExtra = (o.files||[]).length > 2
     ? `<span style="font-size:0.65rem;color:var(--text-muted);">+${(o.files||[]).length - 2}</span>` : '';
+  const moduleBtn = (o.orderModule?.rows?.length || 0) > 0
+    ? `<button class="file-quick-btn" onclick="event.stopPropagation();downloadOrderModule('${o.id}')" title="Modulo d'ordine">📋</button>`
+    : '';
 
   // Pagamento
   const payDone    = o.paymentDone || false;
@@ -338,7 +341,7 @@ function renderOrderRow(o) {
         </div>
         <div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline?'700':'400'};">${deadlineBadge}</div>
         <div class="orc-priority">${renderPriorityChip(p)}</div>
-        <div class="orc-files">${filesBtns}${filesExtra}</div>
+        <div class="orc-files">${filesBtns}${filesExtra}${moduleBtn}</div>
         <div class="orc-payment" style="flex-direction:column;align-items:center;gap:3px;">
           ${invFile ? `<button class="file-quick-btn" onclick="event.stopPropagation();quickPreviewInvoice('${o.id}')" title="Apri fattura">🧾</button>` : ''}
           <button class="stage-pill ${payDone?'done':''}"
@@ -380,52 +383,99 @@ function downloadOrderModule(orderId) {
   const acconto = parseFloat(order?.orderModule?.acconto || AppState.formModuleAcconto || 0);
   const total   = rows.reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
   const saldo   = total - acconto;
-  const priId   = order?.priorityId || document.getElementById('of-priority-picker')?.dataset?.selected || '';
-  const pri     = TCFactory.getPriority(priId);
-  const isUrgent = pri?.id === 'urgente';
+
+  // Urgenza
+  const priId    = order?.priorityId || document.getElementById('of-priority-picker')?.dataset?.selected || '';
+  const isUrgent = TCFactory.getPriority(priId)?.id === 'urgente';
+
+  // Tag con colori
+  const tags     = order?.tags || AppState.formTags || [];
+  const tagsHtml = tags.map(t => {
+    const c = TCFactory.getTagColor(t);
+    return `<span style="display:inline-block;background:${c}22;color:${c};border:1.5px solid ${c}77;border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700;margin-right:5px;">${t}</span>`;
+  }).join('');
+
+  // Deadline con colore condizionale
+  const dl = order?.deadline || document.getElementById('of-deadline')?.value || '';
+  let dlHtml = '<span style="color:#94a3b8">—</span>';
+  if (dl) {
+    const today = new Date().toISOString().slice(0, 10);
+    const diff  = Math.ceil((new Date(dl+'T00:00:00') - new Date(today+'T00:00:00')) / 86400000);
+    const dc    = diff < 0 ? '#dc2626' : diff <= 3 ? '#dc2626' : diff <= 7 ? '#ea580c' : '#1e40af';
+    const dlLabel = new Date(dl+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const suffix  = diff < 0 ? ` <em style="font-size:11px">(scaduto ${Math.abs(diff)}gg fa)</em>` : diff === 0 ? ` <em style="font-size:11px">(oggi)</em>` : '';
+    dlHtml = `<span style="color:${dc};font-weight:700;">${dlLabel}${suffix}</span>`;
+  }
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Modulo ordine - ${nome}</title>
 <style>
-  body{font-family:Arial,sans-serif;margin:30px;color:#1e293b}
-  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px}
-  h2{color:#1e40af;margin:0 0 4px}
-  .sub{font-size:13px;color:#64748b}
-  .urgente{display:inline-block;background:#fee2e2;color:#dc2626;border:2px solid #dc2626;border-radius:6px;padding:4px 14px;font-weight:800;font-size:14px;letter-spacing:.05em}
-  table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}
-  thead th{background:#1e40af;color:#fff;padding:9px 10px;text-align:left;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.07em;border-right:1px solid #2d55c4}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;margin:30px;color:#1e293b;background:#fff}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:14px;border-bottom:3px solid #1e40af}
+  .brand{font-size:20px;font-weight:800;color:#1e40af}
+  .meta{margin-top:6px;font-size:13px;color:#64748b;line-height:1.8}
+  .meta strong{color:#1e293b}
+  .urgente{background:#fef2f2;color:#dc2626;border:2px solid #dc2626;border-radius:7px;padding:4px 14px;font-weight:800;font-size:13px;letter-spacing:.05em;white-space:nowrap}
+  table{width:100%;border-collapse:collapse;margin-top:20px;font-size:13px}
+  thead th{background:#1e40af;color:#fff;padding:10px 12px;text-align:left;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.08em;border-right:1px solid #2d55c4}
   thead th:last-child{border-right:none}
-  tbody td{padding:7px 10px;border-bottom:1px solid #e2e8f0}
-  tbody tr:nth-child(odd)  td{background:#fff}
-  tbody tr:nth-child(even) td{background:#f0f7ff}
-  .tot-section{margin-top:24px;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
-  .tot-row{display:flex;gap:40px;font-size:14px}
-  .tot-label{color:#64748b}
-  .tot-value{font-weight:700;min-width:90px;text-align:right}
-  .tot-big{font-size:16px;color:#1e40af}
-  @media print{body{margin:15px}}
+  tbody tr:nth-child(odd)  td{background:#ffffff}
+  tbody tr:nth-child(even) td{background:#eff6ff}
+  tbody td{padding:8px 12px;border-bottom:1px solid #dbeafe;font-size:13px}
+  tbody tr:last-child td{border-bottom:2px solid #1e40af}
+  .tot-section{margin-top:22px;display:flex;flex-direction:column;align-items:flex-end;gap:7px}
+  .tot-row{display:flex;gap:48px;font-size:14px;align-items:center}
+  .tot-label{color:#64748b;font-weight:500}
+  .tot-value{font-weight:800;min-width:100px;text-align:right}
+  .tot-big{font-size:17px;color:#1e40af}
+  .tot-saldo{color:#dc2626}
+  .tag-badge{display:inline-block;border-radius:5px;padding:2px 9px;font-size:11px;font-weight:700;margin-right:4px}
+  @media print{body{margin:12px}button{display:none}}
 </style></head><body>
 <div class="header">
-  <div><h2>T&amp;C Factory Creative Lab</h2>
-  <div class="sub"><strong>Ordine:</strong> ${nome} &nbsp;·&nbsp; <strong>Data:</strong> ${new Date().toLocaleDateString('it-IT')}</div></div>
+  <div>
+    <div class="brand">T&amp;C Factory Creative Lab</div>
+    <div class="meta">
+      <div><strong>Ordine:</strong> ${nome}</div>
+      <div><strong>Data:</strong> ${new Date().toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})}</div>
+      ${tags.length ? `<div><strong>Tipologia:</strong> ${tagsHtml}</div>` : ''}
+      ${dl ? `<div><strong>Deadline:</strong> ${dlHtml}</div>` : ''}
+    </div>
+  </div>
   ${isUrgent ? `<div class="urgente">⚠️ URGENTE</div>` : ''}
 </div>
 <table>
-  <thead><tr><th>Catalogo</th><th>Codice</th><th>Colore</th><th>QNT</th><th>TG</th><th>Prezzo</th><th>Totale</th><th>Ordinato</th></tr></thead>
+  <thead><tr>
+    <th>Catalogo</th><th>Codice</th><th>Colore</th>
+    <th style="text-align:center">QNT</th><th style="text-align:center">TG</th>
+    <th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th>
+    <th style="text-align:center">Ord.</th>
+  </tr></thead>
   <tbody>
     ${rows.length ? rows.map(r => {
       const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
-      return `<tr><td>${r.catalogo||''}</td><td>${r.codice||''}</td><td>${r.colore||''}</td><td>${r.qnt||''}</td><td>${r.tg||''}</td><td>${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td><td>${t>0 ? '€ '+t.toFixed(2) : ''}</td><td style="text-align:center;font-size:16px">${r.ordinato?'✓':''}</td></tr>`;
-    }).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>'}
+      return `<tr>
+        <td><strong>${r.catalogo||''}</strong></td>
+        <td>${r.codice||''}</td>
+        <td>${r.colore||''}</td>
+        <td style="text-align:center">${r.qnt||''}</td>
+        <td style="text-align:center">${r.tg||''}</td>
+        <td style="text-align:right">${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
+        <td style="text-align:right;font-weight:700;color:#1e40af">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
+        <td style="text-align:center;font-size:16px;color:#16a34a">${r.ordinato?'✓':''}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px">Nessuna riga</td></tr>'}
   </tbody>
 </table>
 <div class="tot-section">
   <div class="tot-row"><span class="tot-label">Totale ordine</span><span class="tot-value tot-big">€ ${total.toFixed(2)}</span></div>
   <div class="tot-row"><span class="tot-label">Acconto</span><span class="tot-value">€ ${acconto.toFixed(2)}</span></div>
-  <div class="tot-row"><span class="tot-label">Saldo</span><span class="tot-value tot-big" style="color:#dc2626">€ ${saldo.toFixed(2)}</span></div>
+  <div class="tot-row"><span class="tot-label">Saldo</span><span class="tot-value tot-big tot-saldo">€ ${saldo.toFixed(2)}</span></div>
 </div>
 <script>window.onload=()=>window.print()</script>
 </body></html>`;
+
   const win = window.open('', '_blank');
   if (win) { win.document.write(html); win.document.close(); }
   else showToast('Abilita i popup per scaricare il modulo', 'error');
@@ -620,10 +670,12 @@ function renderOrderDetail() {
               </button>`).join('')}
           </div>` : ''}
 
-        ${order.orderModule?.rows?.length > 0 ? `
-          <div>
+        ${(order.orderModule?.rows?.length || 0) > 0 ? `
+          <div class="detail-files">
             <div class="detail-meta-label" style="margin-bottom:8px;">Modulo d'ordine</div>
-            <button class="btn btn-secondary btn-sm" onclick="downloadOrderModule('${order.id}')">⬇ Scarica modulo</button>
+            <button class="file-item" onclick="downloadOrderModule('${order.id}')">
+              📋 <span>Apri / scarica modulo (${order.orderModule.rows.length} righe)</span>
+            </button>
           </div>` : ''}
 
         <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
@@ -709,7 +761,7 @@ function openOrderForm(order = null, defaultDate = null) {
           </div>
           <div class="form-group">
             <label class="form-label">Deadline</label>
-            <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}">
+            <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}" onchange="checkDeadlineUrgency(this.value)">
           </div>
         </div>
 
@@ -830,6 +882,16 @@ function openOrderForm(order = null, defaultDate = null) {
   if (AppState.formModuleOpen) renderModuleRows();
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('order-form-modal'); };
+}
+
+function checkDeadlineUrgency(dateStr) {
+  if (!dateStr) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const diff  = Math.ceil((new Date(dateStr + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+  if (diff >= 0 && diff <= 7) {
+    selectPriorityChip('urgente');
+    showToast('Deadline entro 7 giorni → impostato Urgente');
+  }
 }
 
 function toggleFormModule() {
@@ -995,6 +1057,16 @@ async function submitOrderForm() {
   if (!nome) { showToast('Inserisci un nome', 'error'); return; }
   if (!dataOrdine) { showToast('Inserisci una data', 'error'); return; }
 
+  // Auto-urgente se deadline entro 7 giorni
+  let finalPriorityId = priorityId;
+  if (deadline) {
+    const today = new Date().toISOString().slice(0, 10);
+    const diff  = Math.ceil((new Date(deadline + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+    if (diff >= 0 && diff <= 7 && finalPriorityId !== 'urgente') {
+      finalPriorityId = 'urgente';
+    }
+  }
+
   const selectedPriority = TCFactory.getPriority(priorityId);
   if (selectedPriority?.id === 'urgente' && !deadline) {
     const dlField = document.getElementById('of-deadline');
@@ -1009,7 +1081,7 @@ async function submitOrderForm() {
   }
 
   const payload = {
-    nome, dataOrdine, deadline, notes, priorityId,
+    nome, dataOrdine, deadline, notes, priorityId: finalPriorityId,
     tags: AppState.formTags,
     files: AppState.formFiles,
     invoiceFiles: AppState.formInvoiceFiles,
