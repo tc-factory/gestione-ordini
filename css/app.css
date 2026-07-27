@@ -797,18 +797,22 @@ html.dark .app-shell {
    ───────────────────────────────────────────── */
 
 .mod-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
-.mod-table th {
-  background: var(--brand-gradient);
+.mod-table thead tr th {
+  background: #1e40af;
   color: #fff;
-  padding: 6px 8px;
+  padding: 8px 10px;
   text-align: left;
-  font-size: 0.6rem;
-  font-weight: 700;
+  font-size: 0.65rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
+  border-right: 1px solid #2d55c4;
 }
-.mod-table td { padding: 3px 4px; border-bottom: 1px solid var(--border-light); }
-.mod-table tr:nth-child(even) td { background: var(--bg-secondary); }
+.mod-table thead tr th:last-child { border-right: none; }
+.mod-table td { padding: 5px 6px; border-bottom: 1px solid var(--border-light); }
+.mod-table tbody tr:nth-child(odd)  td { background: var(--bg-card); }
+.mod-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary) 80%, var(--brand-gold) 5%); }
+.mod-table tbody tr:hover td { background: color-mix(in srgb, var(--bg-secondary) 60%, var(--brand-gold) 10%) !important; }
 .mod-input {
   width: 100%;
   background: transparent;

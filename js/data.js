@@ -12,8 +12,8 @@ const LAVORAZIONE_DEFS = [
 
 // EVASIONE (spedizione)
 const EVASIONE_DEFS = [
-  { id: 'speditoParzialmente', label: 'Spedito parzialmente', shortLabel: 'Sped. parz.' },
-  { id: 'spedito',             label: 'Spedito',              shortLabel: 'Spedito' },
+  { id: 'speditoParzialmente', label: 'Spedito parzialmente', shortLabel: 'Parziale' },
+  { id: 'spedito',             label: 'Spedito',              shortLabel: '📦 Spedito' },
 ];
 
 // Compatibilità con vecchio codice
