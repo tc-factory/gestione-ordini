@@ -919,11 +919,12 @@ function selectTagChip(name, toggle = true) {
     }
   }
   document.querySelectorAll('#of-tag-picker .chip-btn').forEach(btn => {
-    const t = TCFactory.getTag(btn.dataset.tag);
+    const t = TCFactory.getTags().find(t => t.name === btn.dataset.tag);
     if (!t) return;
     const active = AppState.formTags.includes(t.name);
     btn.style.background = active ? t.color : `color-mix(in srgb, ${t.color} 12%, transparent)`;
     btn.style.color = active ? '#fff' : t.color;
+    btn.style.borderColor = active ? t.color : 'transparent';
   });
 }
 
