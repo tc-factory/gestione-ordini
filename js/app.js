@@ -432,3 +432,1115 @@ function downloadOrderModule(orderId) {
 }
 
 
+
+// ─────────────────────────────────────────────
+// AZIONI RAPIDE LISTA
+// ─────────────────────────────────────────────
+
+async function togglePayment(orderId, done) {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    await TCFactory.updateOrder(orderId, { paymentDone: done, paymentDate: done ? today : null });
+    renderApp();
+  } catch(e) { showToast('Errore pagamento', 'error'); }
+}
+
+async function quickToggleArchive(orderId, isCurrentlyArchived) {
+  try {
+    if (isCurrentlyArchived) {
+      await moveOrderTo(orderId, 'active');
+    } else {
+      await TCFactory.setArchived(orderId, true);
+      renderApp();
+    }
+  } catch(e) { showToast('Errore', 'error'); }
+}
+
+async function toggleStageInline(orderId, stageId, done) {
+  try {
+    let updated = await TCFactory.setStage(orderId, stageId, done);
+    if (stageId === 'spedito') {
+      updated = await TCFactory.setArchived(orderId, done);
+      if (!done && updated.stages?.speditoParzialmente?.done) {
+        updated = await TCFactory.setStage(orderId, 'speditoParzialmente', false);
+      }
+    }
+    if (stageId === 'speditoParzialmente' && !done) {
+      const cur = TCFactory.getOrderById(orderId);
+      if (cur?.stages?.spedito?.done) {
+        await TCFactory.setStage(orderId, 'spedito', false);
+        await TCFactory.setArchived(orderId, false);
+      }
+    }
+    renderApp();
+  } catch(e) { showToast('Errore aggiornamento fase', 'error'); }
+}
+
+async function toggleStageDetail(orderId, stageId, done) {
+  try {
+    let updated = await TCFactory.setStage(orderId, stageId, done);
+    if (stageId === 'spedito') {
+      updated = await TCFactory.setArchived(orderId, done);
+      if (!done && updated.stages?.speditoParzialmente?.done) {
+        updated = await TCFactory.setStage(orderId, 'speditoParzialmente', false);
+      }
+    }
+    if (stageId === 'speditoParzialmente' && !done) {
+      const cur = TCFactory.getOrderById(orderId);
+      if (cur?.stages?.spedito?.done) {
+        await TCFactory.setStage(orderId, 'spedito', false);
+        await TCFactory.setArchived(orderId, false);
+      }
+    }
+    AppState.selectedOrder = TCFactory.getOrderById(orderId);
+    renderOrderDetail();
+    renderApp();
+  } catch(e) { showToast('Errore aggiornando la fase', 'error'); }
+}
+
+async function moveOrderTo(id, target) {
+  try {
+    await TCFactory.setStage(id, 'speditoParzialmente', false);
+    await TCFactory.setStage(id, 'spedito', false);
+    await TCFactory.setArchived(id, false);
+    if (target === 'partial') {
+      await TCFactory.setStage(id, 'speditoParzialmente', true);
+    } else if (target === 'archived') {
+      await TCFactory.setStage(id, 'speditoParzialmente', true);
+      await TCFactory.setStage(id, 'spedito', true);
+      await TCFactory.setArchived(id, true);
+    }
+    AppState.selectedOrder = TCFactory.getOrderById(id);
+    renderOrderDetail();
+    renderApp();
+    const labels = { active: 'Attivi', partial: 'Spedito parz.', archived: 'Archivio' };
+    showToast(`Ordine spostato in: ${labels[target]}`);
+  } catch(e) { showToast('Errore spostamento ordine', 'error'); }
+}
+
+async function restoreOrder(id) {
+  await moveOrderTo(id, 'active');
+}
+
+// ─────────────────────────────────────────────
+// DETTAGLIO ORDINE
+// ─────────────────────────────────────────────
+
+function openOrderDetail(id) {
+  const order = TCFactory.getOrderById(id);
+  if (!order) { showToast('Ordine non trovato', 'error'); return; }
+  AppState.selectedOrder = order;
+  renderOrderDetail();
+  const modal = document.getElementById('order-detail-modal');
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('order-detail-modal'); };
+}
+
+function renderOrderDetail() {
+  const order = AppState.selectedOrder;
+  if (!order) return;
+  const modal = document.getElementById('order-detail-modal');
+  const p = TCFactory.getPriority(order.priorityId);
+  const prog = TCFactory.stageProgress(order);
+  const { lavDone, lavTotal, allLavDone, isSpeditoP, isSpedito } = prog;
+
+  const renderStageSection = (defs, title) => `
+    <div class="progress-box">
+      <div style="font-weight:700;font-size:0.85rem;margin-bottom:8px;">${title}</div>
+      <div class="stage-list">
+        ${defs.map(s => {
+          const state = order.stages?.[s.id] || {};
+          return `
+            <label class="stage-item">
+              <input type="checkbox" class="stage-checkbox" ${state.done ? 'checked' : ''}
+                onchange="toggleStageDetail('${order.id}','${s.id}',this.checked)">
+              <span class="stage-label ${state.done ? 'done' : ''}">
+                <span>${s.label}</span>
+                ${state.done && state.date ? `<span class="stage-date">${TCFactory.formatDate(state.date)}</span>` : ''}
+              </span>
+            </label>`;
+        }).join('')}
+      </div>
+    </div>`;
+
+  modal.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h2>${escapeHtml(order.nome)}</h2>
+          ${p ? `<div style="margin-top:4px;">${renderPriorityChip(p)}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-secondary btn-sm" onclick="closeModal('order-detail-modal');openOrderForm(AppState.selectedOrder)">${Icons.edit(14)} Modifica</button>
+          <button class="btn-icon" onclick="closeModal('order-detail-modal')">${Icons.x()}</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="detail-meta">
+          <div><span class="detail-meta-label">Data ordine</span><span>${TCFactory.formatDate(order.dataOrdine)}</span></div>
+          ${order.deadline ? `<div><span class="detail-meta-label">Deadline</span>
+            <span style="font-weight:600;color:${TCFactory.isDeadlinePast(order) && !allLavDone ? 'var(--priority-urgent)' : 'var(--text-primary)'};">${TCFactory.formatDate(order.deadline, { day:'numeric', month:'long', year:'numeric' })}</span>
+          </div>` : ''}
+          ${order.tags.length > 0 ? `<div><span class="detail-meta-label">Tag</span><div style="display:flex;gap:4px;flex-wrap:wrap;">${order.tags.map(t => renderTagChip(t)).join('')}</div></div>` : ''}
+        </div>
+
+        ${order.notes ? `<div class="detail-notes">${escapeHtml(order.notes)}</div>` : ''}
+
+        ${renderStageSection(LAVORAZIONE_DEFS, 'Lavorazione')}
+        ${renderStageSection(EVASIONE_DEFS, 'Evasione')}
+
+        <div style="display:flex;flex-wrap:wrap;gap:6px;padding-top:4px;">
+          ${order.archived ? `
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','active')">${Icons.archiveRestore(13)} → Attivi</button>
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','partial')">${Icons.truck(13)} → Sped. parz.</button>
+          ` : order.stages?.speditoParzialmente?.done ? `
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','active')">${Icons.archiveRestore(13)} → Attivi</button>
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','archived')">${Icons.archive(13)} → Archivio</button>
+          ` : `
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','partial')">${Icons.truck(13)} → Sped. parz.</button>
+            <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','archived')">${Icons.archive(13)} → Archivio</button>
+          `}
+        </div>
+
+        ${order.files?.length > 0 ? `
+          <div class="detail-files">
+            <div class="detail-meta-label" style="margin-bottom:8px;">Allegati ordine</div>
+            ${order.files.map((f, i) => `
+              <button class="file-item" onclick="previewFile(${JSON.stringify(f).replace(/"/g, '&quot;')})">
+                ${Icons.paperclip(14)} <span>${escapeHtml(f.name)}</span>
+              </button>`).join('')}
+          </div>` : ''}
+
+        ${order.invoiceFiles?.length > 0 ? `
+          <div class="detail-files">
+            <div class="detail-meta-label" style="margin-bottom:8px;">Fattura</div>
+            ${order.invoiceFiles.map((f) => `
+              <button class="file-item" onclick="previewFile(${JSON.stringify(f).replace(/"/g, '&quot;')})">
+                🧾 <span>${escapeHtml(f.name)}</span>
+              </button>`).join('')}
+          </div>` : ''}
+
+        ${order.orderModule?.rows?.length > 0 ? `
+          <div>
+            <div class="detail-meta-label" style="margin-bottom:8px;">Modulo d'ordine</div>
+            <button class="btn btn-secondary btn-sm" onclick="downloadOrderModule('${order.id}')">⬇ Scarica modulo</button>
+          </div>` : ''}
+
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+          <button class="btn btn-ghost btn-sm" style="color:var(--priority-urgent);" onclick="deleteOrderConfirm('${order.id}')">${Icons.trash(13)} Elimina ordine</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function deleteOrderConfirm(id) {
+  const order = TCFactory.getOrderById(id);
+  if (!order) return;
+  if (!confirm(`Eliminare definitivamente "${order.nome}"? L'operazione non è reversibile.`)) return;
+  try {
+    await TCFactory.deleteOrder(id);
+    closeModal('order-detail-modal');
+    renderApp();
+    showToast('Ordine eliminato');
+  } catch(e) { showToast('Errore eliminazione', 'error'); }
+}
+
+function previewFile(file) {
+  if (!file) return;
+  const modal = document.getElementById('file-preview-modal');
+  const isImg = file.type?.startsWith('image/');
+  const isPdf = file.type === 'application/pdf';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:800px;">
+      <div class="modal-header">
+        <span>${escapeHtml(file.name)}</span>
+        <div style="display:flex;gap:8px;">
+          <a href="${file.url}" target="_blank" class="btn btn-secondary btn-sm">↗ Apri</a>
+          <button class="btn-icon" onclick="closeModal('file-preview-modal')">${Icons.x()}</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        ${isImg ? `<img src="${file.url}" style="width:100%;border-radius:var(--radius-md);">` :
+          isPdf ? `<iframe src="${file.url}" style="width:100%;height:70vh;border:none;border-radius:var(--radius-md);"></iframe>` :
+          `<div style="text-align:center;padding:32px;color:var(--text-muted);">${Icons.paperclip(32)}<p style="margin-top:12px;">Anteprima non disponibile</p><a href="${file.url}" target="_blank" class="btn btn-primary" style="margin-top:16px;">Apri file</a></div>`}
+      </div>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('file-preview-modal'); };
+}
+
+// ─────────────────────────────────────────────
+// FORM ORDINE
+// ─────────────────────────────────────────────
+
+function openOrderForm(order = null, defaultDate = null) {
+  AppState.formEditOrder    = order;
+  AppState.formDefaultDate  = defaultDate;
+  AppState.formFiles        = order ? [...(order.files || [])] : [];
+  AppState.formInvoiceFiles = order ? [...(order.invoiceFiles || [])] : [];
+  AppState.formTags         = order ? [...order.tags] : [];
+  const mod = order?.orderModule || { rows: [], acconto: '' };
+  AppState.formModuleRows    = mod.rows.map(r => ({...r}));
+  AppState.formModuleAcconto = mod.acconto || '';
+
+  const isEdit    = !!order;
+  const priorities = TCFactory.getPriorities();
+  const tags       = TCFactory.getTags();
+  const modal      = document.getElementById('order-form-modal');
+
+  modal.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h2>${isEdit ? 'Modifica ordine' : 'Nuovo ordine'}</h2>
+        <button class="btn-icon" onclick="closeModal('order-form-modal')">${Icons.x()}</button>
+      </div>
+      <div class="modal-body">
+
+        <div class="form-group">
+          <label class="form-label">Nome ordine *</label>
+          <input id="of-nome" class="form-input" placeholder="es. Polo Staff T&C" value="${escapeHtml(order?.nome || '')}">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Data ordine *</label>
+            <input id="of-data" type="date" class="form-input" value="${order?.dataOrdine || TCFactory.getDefaultDate()}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Deadline</label>
+            <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Priorità</label>
+          <div class="chip-picker" id="of-priority-picker" data-selected="">
+            ${priorities.map(p => {
+              const defaultPId = order ? order.priorityId : (TCFactory.getDefaultPriorityId() || priorities[0]?.id);
+              const active = defaultPId === p.id;
+              return `<button type="button" class="chip chip-btn" data-prio="${p.id}"
+                style="background:${active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`};color:${active ? '#fff' : p.color};"
+                onclick="selectPriorityChip('${p.id}')">${escapeHtml(p.label)}</button>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Tag</label>
+          <div class="chip-picker" id="of-tag-picker">
+            ${tags.map(t => renderTagPickerChip(t)).join('')}
+          </div>
+        </div>
+
+        <!-- MODULO D'ORDINE -->
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);cursor:pointer;" onclick="toggleFormModule()">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-weight:700;font-size:0.88rem;">📋 Modulo d'ordine</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation();downloadOrderModule(null)">⬇ Scarica</button>
+              <svg id="module-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${AppState.formModuleOpen?180:0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+          </div>
+          <div id="module-body" style="display:${AppState.formModuleOpen?'block':'none'};padding:12px 14px;overflow-x:auto;">
+            <table class="mod-table" style="width:100%;">
+              <thead>
+                <tr>
+                  <th style="min-width:100px;">CATALOGO</th>
+                  <th style="min-width:80px;">CODICE</th>
+                  <th style="min-width:70px;">COLORE</th>
+                  <th style="width:52px;">QNT</th>
+                  <th style="width:44px;">TG</th>
+                  <th style="width:76px;">PREZZO</th>
+                  <th style="width:76px;">TOTALE</th>
+                  <th style="width:40px;text-align:center;">ORD.</th>
+                  <th style="width:28px;"></th>
+                </tr>
+              </thead>
+              <tbody id="mod-rows-body"></tbody>
+            </table>
+            <button type="button" onclick="addModRow()" class="btn btn-secondary btn-sm" style="margin-top:8px;">${Icons.plus(13)} Aggiungi riga</button>
+            <div style="margin-top:12px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;border-top:1px solid var(--border);padding-top:10px;">
+              <div style="display:flex;align-items:center;gap:12px;font-size:0.82rem;">
+                <span style="color:var(--text-muted);">Totale ordine</span>
+                <strong id="mod-total-val" style="font-size:1.05rem;color:var(--brand-gold);min-width:80px;text-align:right;">€ 0.00</strong>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;font-size:0.82rem;">
+                <span style="color:var(--text-muted);">Acconto</span>
+                <input type="number" id="mod-acconto" class="form-input" style="width:80px;text-align:right;" min="0" step="0.01" value="${escapeHtml(String(AppState.formModuleAcconto||''))}" placeholder="0.00" oninput="AppState.formModuleAcconto=this.value;updateModuleTotals()">
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;font-size:0.82rem;">
+                <span style="color:var(--text-muted);">Saldo</span>
+                <strong id="mod-saldo-val" style="font-size:1.05rem;color:#ef4444;min-width:80px;text-align:right;">€ 0.00</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ALLEGATI ORDINE -->
+        <div class="form-group">
+          <label class="form-label">Allegati ordine</label>
+          <div class="dropzone">
+            <input type="file" id="of-file-input" multiple accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx" style="display:none;" onchange="handleFormFiles(event)">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-file-input').click()">${Icons.paperclip(14)} Carica file / foto</button>
+            <p>Immagini compresse automaticamente sotto 2MB</p>
+          </div>
+          <div id="of-files-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+        </div>
+
+        <!-- FATTURA -->
+        <div class="form-group">
+          <label class="form-label">Fattura</label>
+          <div class="dropzone">
+            <input type="file" id="of-invoice-input" multiple accept="image/*,application/pdf,.pdf" style="display:none;" onchange="handleInvoiceFiles(event)">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-invoice-input').click()">🧾 Carica fattura</button>
+            <p>PDF o immagine</p>
+          </div>
+          <div id="of-invoice-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Note</label>
+          <textarea id="of-notes" class="form-textarea" placeholder="Note interne, comunicazioni ai colleghi…">${escapeHtml(order?.notes || '')}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('order-form-modal')">Annulla</button>
+        <button class="btn btn-primary" onclick="submitOrderForm()">${isEdit ? 'Salva modifiche' : 'Crea ordine'}</button>
+      </div>
+    </div>
+  `;
+
+  if (!isEdit) {
+    document.getElementById('of-priority-picker').dataset.selected = TCFactory.getDefaultPriorityId() || priorities[0]?.id || '';
+  } else {
+    document.getElementById('of-priority-picker').dataset.selected = order.priorityId;
+  }
+
+  // Seleziona tag attivi
+  AppState.formTags.forEach(tagName => {
+    const tag = tags.find(t => t.name === tagName);
+    if (tag) selectTagChip(tagName, false);
+  });
+
+  renderFormFilesList();
+  renderFormInvoiceList();
+  if (AppState.formModuleOpen) renderModuleRows();
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('order-form-modal'); };
+}
+
+function toggleFormModule() {
+  AppState.formModuleOpen = !AppState.formModuleOpen;
+  const body = document.getElementById('module-body');
+  const chev = document.getElementById('module-chevron');
+  if (body) body.style.display = AppState.formModuleOpen ? 'block' : 'none';
+  if (chev) chev.style.transform = `rotate(${AppState.formModuleOpen ? 180 : 0}deg)`;
+  if (AppState.formModuleOpen) renderModuleRows();
+}
+
+function renderTagPickerChip(t) {
+  const active = AppState.formTags.includes(t.name);
+  return `<button type="button" class="chip chip-btn" data-tag="${escapeHtml(t.name)}"
+    style="background:${active ? t.color : `color-mix(in srgb, ${t.color} 12%, transparent)`};color:${active ? '#fff' : t.color};"
+    onclick="selectTagChip('${escapeHtml(t.name)}',true)">${escapeHtml(t.name)}</button>`;
+}
+
+function selectTagChip(name, toggle = true) {
+  if (toggle) {
+    if (AppState.formTags.includes(name)) {
+      AppState.formTags = AppState.formTags.filter(t => t !== name);
+    } else {
+      AppState.formTags.push(name);
+    }
+  }
+  document.querySelectorAll('#of-tag-picker .chip-btn').forEach(btn => {
+    const t = TCFactory.getTag(btn.dataset.tag);
+    if (!t) return;
+    const active = AppState.formTags.includes(t.name);
+    btn.style.background = active ? t.color : `color-mix(in srgb, ${t.color} 12%, transparent)`;
+    btn.style.color = active ? '#fff' : t.color;
+  });
+}
+
+function selectPriorityChip(id) {
+  document.getElementById('of-priority-picker').dataset.selected = id;
+  document.querySelectorAll('#of-priority-picker .chip-btn').forEach(btn => {
+    const p = TCFactory.getPriority(btn.dataset.prio);
+    if (!p) return;
+    const active = btn.dataset.prio === id;
+    btn.style.background = active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`;
+    btn.style.color = active ? '#fff' : p.color;
+  });
+}
+
+function renderFormFilesList() {
+  const container = document.getElementById('of-files-list');
+  if (!container) return;
+  container.innerHTML = AppState.formFiles.map((f, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:0.8rem;">
+      <span>${f.type?.startsWith('image/') ? '🖼' : '📄'}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.name)}</span>
+      <span style="color:var(--text-muted);">${(f.size/1024).toFixed(0)} KB</span>
+      <button type="button" class="btn-icon" onclick="removeFormFile(${i})" style="color:var(--priority-urgent);">${Icons.x(13)}</button>
+    </div>`).join('');
+}
+
+function removeFormFile(i) {
+  AppState.formFiles.splice(i, 1);
+  renderFormFilesList();
+}
+
+// ── Modulo d'ordine ──────────────────────────
+
+function renderModuleRows() {
+  const tbody = document.getElementById('mod-rows-body');
+  if (!tbody) return;
+  tbody.innerHTML = AppState.formModuleRows.map((r, i) => {
+    const tot = (parseFloat(r.qnt)||0) * (parseFloat(r.prezzo)||0);
+    return `<tr>
+      <td><input class="mod-input" value="${escapeHtml(r.catalogo||'')}" oninput="storeMod(${i},'catalogo',this.value)"></td>
+      <td><input class="mod-input" value="${escapeHtml(r.codice||'')}" oninput="storeMod(${i},'codice',this.value)"></td>
+      <td><input class="mod-input" value="${escapeHtml(r.colore||'')}" oninput="storeMod(${i},'colore',this.value)"></td>
+      <td><input class="mod-input mod-num" type="number" min="0" value="${r.qnt||''}" oninput="storeMod(${i},'qnt',this.value);calcModRow(${i})"></td>
+      <td><input class="mod-input mod-sm" value="${escapeHtml(r.tg||'')}" oninput="storeMod(${i},'tg',this.value)"></td>
+      <td><input class="mod-input mod-num" type="number" min="0" step="0.01" value="${r.prezzo||''}" oninput="storeMod(${i},'prezzo',this.value);calcModRow(${i})"></td>
+      <td><span id="mod-tot-${i}" class="mod-calc">${tot>0 ? '€ '+tot.toFixed(2) : ''}</span></td>
+      <td style="text-align:center;"><input type="checkbox" ${r.ordinato?'checked':''} onchange="storeMod(${i},'ordinato',this.checked)"></td>
+      <td><button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="removeModRow(${i})">${Icons.x(12)}</button></td>
+    </tr>`;
+  }).join('');
+  updateModuleTotals();
+}
+
+function storeMod(i, field, value) {
+  if (!AppState.formModuleRows[i]) return;
+  const textFields = ['catalogo','codice','colore','tg'];
+  AppState.formModuleRows[i][field] = textFields.includes(field) ? value : (field === 'ordinato' ? value : (parseFloat(value) || ''));
+}
+function calcModRow(i) {
+  const r = AppState.formModuleRows[i] || {};
+  const tot = (parseFloat(r.qnt)||0) * (parseFloat(r.prezzo)||0);
+  const el = document.getElementById(`mod-tot-${i}`);
+  if (el) el.textContent = tot > 0 ? '€ ' + tot.toFixed(2) : '';
+  updateModuleTotals();
+}
+function updateModuleTotals() {
+  const total   = AppState.formModuleRows.reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
+  const acconto = parseFloat(AppState.formModuleAcconto) || 0;
+  const saldo   = total - acconto;
+  const et = document.getElementById('mod-total-val');
+  const es = document.getElementById('mod-saldo-val');
+  if (et) et.textContent = '€ ' + total.toFixed(2);
+  if (es) { es.textContent = '€ ' + saldo.toFixed(2); es.style.color = saldo > 0 ? '#ef4444' : '#22c55e'; }
+}
+function addModRow() {
+  AppState.formModuleRows.push({ catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false });
+  renderModuleRows();
+}
+function removeModRow(i) {
+  AppState.formModuleRows.splice(i, 1);
+  renderModuleRows();
+}
+
+// ── Fattura ───────────────────────────────────
+
+function renderFormInvoiceList() {
+  const c = document.getElementById('of-invoice-list');
+  if (!c) return;
+  c.innerHTML = AppState.formInvoiceFiles.map((f, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:0.8rem;">
+      <span>🧾</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.name)}</span>
+      <span style="color:var(--text-muted);">${(f.size/1024).toFixed(0)} KB</span>
+      <button type="button" class="btn-icon" onclick="removeInvoiceFile(${i})" style="color:var(--priority-urgent);">${Icons.x(13)}</button>
+    </div>`).join('');
+}
+
+async function handleInvoiceFiles(event) {
+  const list = event.target.files;
+  if (!list) return;
+  for (const f of Array.from(list)) {
+    try {
+      let file = f;
+      if (f.type.startsWith('image/') && f.size > TCFactory.MAX_FILE_BYTES) {
+        showToast(`Comprimo ${f.name}…`);
+        file = await compressImageIfNeeded(f);
+      }
+      if (file.size > TCFactory.MAX_FILE_BYTES) { showToast(`${f.name} supera 2MB`, 'error'); continue; }
+      const uploaded = await TCFactory.uploadFile(file);
+      AppState.formInvoiceFiles.push({ ...uploaded, name: f.name });
+    } catch(e) { showToast(`Errore caricando ${f.name}`, 'error'); }
+  }
+  event.target.value = '';
+  renderFormInvoiceList();
+}
+
+function removeInvoiceFile(i) {
+  AppState.formInvoiceFiles.splice(i, 1);
+  renderFormInvoiceList();
+}
+
+// ── Submit ────────────────────────────────────
+
+async function submitOrderForm() {
+  const nome       = document.getElementById('of-nome')?.value?.trim();
+  const dataOrdine = document.getElementById('of-data')?.value;
+  const deadline   = document.getElementById('of-deadline')?.value || null;
+  const notes      = document.getElementById('of-notes')?.value || '';
+  const priorityId = document.getElementById('of-priority-picker')?.dataset?.selected;
+
+  if (!nome) { showToast('Inserisci un nome', 'error'); return; }
+  if (!dataOrdine) { showToast('Inserisci una data', 'error'); return; }
+
+  const selectedPriority = TCFactory.getPriority(priorityId);
+  if (selectedPriority?.id === 'urgente' && !deadline) {
+    const dlField = document.getElementById('of-deadline');
+    if (dlField) {
+      dlField.focus();
+      dlField.style.borderColor = 'var(--priority-urgent)';
+      dlField.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--priority-urgent) 25%, transparent)';
+      dlField.addEventListener('input', () => { dlField.style.borderColor = ''; dlField.style.boxShadow = ''; }, { once: true });
+    }
+    showToast('Gli ordini urgenti richiedono una deadline', 'error');
+    return;
+  }
+
+  const payload = {
+    nome, dataOrdine, deadline, notes, priorityId,
+    tags: AppState.formTags,
+    files: AppState.formFiles,
+    invoiceFiles: AppState.formInvoiceFiles,
+    orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto },
+  };
+
+  try {
+    const btn = document.querySelector('#order-form-modal .btn-primary');
+    if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio…'; }
+    if (AppState.formEditOrder) {
+      await TCFactory.updateOrder(AppState.formEditOrder.id, payload);
+      showToast('Ordine aggiornato');
+    } else {
+      await TCFactory.addOrder(payload);
+      showToast('Ordine creato');
+    }
+    closeModal('order-form-modal');
+  } catch(e) {
+    showToast('Errore durante il salvataggio', 'error');
+    const btn = document.querySelector('#order-form-modal .btn-primary');
+    if (btn) { btn.disabled = false; btn.textContent = AppState.formEditOrder ? 'Salva modifiche' : 'Crea ordine'; }
+  }
+}
+
+// ─────────────────────────────────────────────
+// FILE COMPRESSIONE + UPLOAD
+// ─────────────────────────────────────────────
+
+async function compressImageIfNeeded(file) {
+  if (!file.type.startsWith('image/')) return file;
+  if (file.size <= TCFactory.MAX_FILE_BYTES) return file;
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.naturalWidth, h = img.naturalHeight;
+      const MAX_DIM = 1920;
+      if (w > MAX_DIM || h > MAX_DIM) { const s = MAX_DIM / Math.max(w, h); w = Math.round(w*s); h = Math.round(h*s); }
+      const attempt = (width, height, quality) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          if (!blob) { resolve(file); return; }
+          if (blob.size <= TCFactory.MAX_FILE_BYTES) {
+            resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+          } else if (quality > 0.25) {
+            attempt(width, height, quality - 0.15);
+          } else if (width > 900) {
+            attempt(Math.round(width * 0.7), Math.round(height * 0.7), 0.75);
+          } else { resolve(file); }
+        }, 'image/jpeg', quality);
+      };
+      attempt(w, h, 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
+async function handleFormFiles(event) {
+  const list = event.target.files;
+  if (!list) return;
+  for (const f of Array.from(list)) {
+    try {
+      let file = f;
+      if (f.type.startsWith('image/') && f.size > TCFactory.MAX_FILE_BYTES) {
+        showToast(`Comprimo ${f.name}…`);
+        file = await compressImageIfNeeded(f);
+        if (file !== f) showToast(`📷 ${f.name} → ${(file.size / 1024).toFixed(0)} KB`);
+      }
+      if (file.size > TCFactory.MAX_FILE_BYTES) { showToast(`${f.name} supera 2MB`, 'error'); continue; }
+      const uploaded = await TCFactory.uploadFile(file);
+      AppState.formFiles.push({ ...uploaded, name: f.name });
+    } catch(e) { showToast(`Errore caricando ${f.name}`, 'error'); }
+  }
+  event.target.value = '';
+  renderFormFilesList();
+}
+
+// ─────────────────────────────────────────────
+// MODAL HELPERS
+// ─────────────────────────────────────────────
+
+function closeModal(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.classList.remove('active');
+}
+
+// ─────────────────────────────────────────────
+// IMPOSTAZIONI
+// ─────────────────────────────────────────────
+
+let _newPrioColor = '#3b82f6';
+let _newTagColor  = '#10b981';
+
+function openSettings() {
+  const modal = document.getElementById('settings-modal');
+  renderSettingsDialog();
+  modal.classList.add('active');
+}
+
+function renderSettingsDialog() {
+  const priorities = TCFactory.getPriorities();
+  const tags       = TCFactory.getTags();
+  const modal      = document.getElementById('settings-modal');
+
+  const sectionBtn = (label, icon, isOpen, fn) => `
+    <button type="button" onclick="${fn}()"
+      style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border:none;cursor:pointer;color:var(--text-primary);font-family:var(--font-body);font-weight:700;font-size:0.88rem;border-radius:${isOpen ? `var(--radius-md) var(--radius-md) 0 0` : 'var(--radius-md)'};margin-bottom:${isOpen ? 0 : 6}px;">
+      <div style="display:flex;align-items:center;gap:8px;">${icon} ${label}</div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${isOpen ? 180 : 0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>`;
+
+  modal.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Impostazioni</h2>
+        <button class="btn-icon" onclick="closeModal('settings-modal')">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:8px;">
+
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('Priorità', Icons.flag(14), AppState.settingsPrioOpen, 'toggleSettingsPrio')}
+          ${AppState.settingsPrioOpen ? `<div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
+            <div class="settings-section-hint">L'ordine in alto determina la priorità più alta.</div>
+            ${priorities.map((p, idx) => `
+              <div class="config-row">
+                <div class="reorder-arrows">
+                  <button ${idx === 0 ? 'disabled' : ''} onclick="reorderPrio('${p.id}','up')">${Icons.arrowUp()}</button>
+                  <button ${idx === priorities.length - 1 ? 'disabled' : ''} onclick="reorderPrio('${p.id}','down')">${Icons.arrowDown()}</button>
+                </div>
+                <div class="color-dot-picker" style="background:${p.color};">
+                  <input type="color" value="${p.color}" onchange="updatePrioColor('${p.id}', this.value)">
+                </div>
+                <input class="form-input" value="${escapeHtml(p.label)}" maxlength="40" onchange="updatePrioLabel('${p.id}', this.value)">
+                <button class="btn-icon" style="color:var(--priority-urgent);" ${priorities.length <= 1 ? 'disabled' : ''} onclick="deletePrioConfirm('${p.id}')">${Icons.trash(15)}</button>
+              </div>
+            `).join('')}
+            <div class="config-add-row">
+              <div class="color-dot-picker" style="background:${_newPrioColor};">
+                <input type="color" value="${_newPrioColor}" onchange="_newPrioColor=this.value">
+              </div>
+              <input id="new-prio-input" class="form-input" placeholder="Nuova priorità" maxlength="40" onkeydown="if(event.key==='Enter'){addNewPriority();}">
+              <button class="btn btn-secondary btn-icon" onclick="addNewPriority()">${Icons.plus()}</button>
+            </div>
+          </div>` : ''}
+        </div>
+
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('Tag', Icons.tag(14), AppState.settingsTagOpen, 'toggleSettingsTag')}
+          ${AppState.settingsTagOpen ? `<div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
+            ${tags.map(t => `
+              <div class="config-row">
+                <div class="color-dot-picker" style="background:${t.color};">
+                  <input type="color" value="${t.color}" onchange="updateTagColorSetting('${escapeHtml(t.name)}', this.value)">
+                </div>
+                <span style="flex:1;font-size:0.88rem;">${escapeHtml(t.name)}</span>
+                <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteTagConfirm('${escapeHtml(t.name)}')">${Icons.trash(15)}</button>
+              </div>
+            `).join('')}
+            <div class="config-add-row">
+              <div class="color-dot-picker" style="background:${_newTagColor};">
+                <input type="color" value="${_newTagColor}" onchange="_newTagColor=this.value">
+              </div>
+              <input id="new-tag-input" class="form-input" placeholder="Nuovo tag" maxlength="40" onkeydown="if(event.key==='Enter'){addNewTagSetting();}">
+              <button class="btn btn-secondary btn-icon" onclick="addNewTagSetting()">${Icons.plus()}</button>
+            </div>
+          </div>` : ''}
+        </div>
+
+        ${TCAuth.isAdmin() ? `
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('Gestione utenti', Icons.users(14), AppState.settingsUsersOpen, 'toggleSettingsUsers')}
+          ${AppState.settingsUsersOpen ? `<div id="users-section-body" style="padding:12px 14px;"></div>` : ''}
+        </div>
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('Registro modifiche', Icons.clock(14), AppState.settingsLogOpen, 'toggleSettingsLog')}
+          ${AppState.settingsLogOpen ? `<div id="log-section-body" style="padding:12px 14px;"></div>` : ''}
+        </div>
+        ` : ''}
+
+        ${TCAuth.isLoggedIn() ? `
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('La mia password', Icons.lock(14), AppState.settingsPwdOpen, 'toggleSettingsPwd')}
+          ${AppState.settingsPwdOpen ? `
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
+            <div class="settings-section-hint">Inserisci la password attuale per confermarne il cambio.</div>
+            <input id="pwd-old"  type="password" class="form-input" placeholder="Password attuale">
+            <input id="pwd-new1" type="password" class="form-input" placeholder="Nuova password (min. 4 caratteri)">
+            <input id="pwd-new2" type="password" class="form-input" placeholder="Ripeti nuova password"
+              onkeydown="if(event.key==='Enter')doChangePassword()">
+            <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="doChangePassword()">Aggiorna password</button>
+          </div>` : ''}
+        </div>
+        ` : ''}
+
+      </div>
+    </div>
+  `;
+  modal.onclick = (e) => { if (e.target === modal) closeModal('settings-modal'); };
+
+  if (AppState.settingsUsersOpen && TCAuth.isAdmin()) {
+    const ub = document.getElementById('users-section-body');
+    if (ub) renderUsersSection(ub);
+  }
+  if (AppState.settingsLogOpen && TCAuth.isAdmin()) {
+    const lb = document.getElementById('log-section-body');
+    if (lb) renderLogSection(lb);
+  }
+}
+
+function toggleSettingsPrio()  { AppState.settingsPrioOpen  = !AppState.settingsPrioOpen;  renderSettingsDialog(); }
+function toggleSettingsTag()   { AppState.settingsTagOpen   = !AppState.settingsTagOpen;   renderSettingsDialog(); }
+function toggleSettingsUsers() { AppState.settingsUsersOpen = !AppState.settingsUsersOpen; renderSettingsDialog(); }
+function toggleSettingsLog()   { AppState.settingsLogOpen   = !AppState.settingsLogOpen;   renderSettingsDialog(); }
+function toggleSettingsPwd()   { AppState.settingsPwdOpen   = !AppState.settingsPwdOpen;   renderSettingsDialog(); }
+
+async function doChangePassword() {
+  const oldPwd = document.getElementById('pwd-old')?.value;
+  const newPwd = document.getElementById('pwd-new1')?.value;
+  const repPwd = document.getElementById('pwd-new2')?.value;
+  if (!oldPwd || !newPwd) { showToast('Compila tutti i campi', 'error'); return; }
+  if (newPwd !== repPwd)  { showToast('Le nuove password non coincidono', 'error'); return; }
+  if (newPwd.length < 4)  { showToast('Minimo 4 caratteri', 'error'); return; }
+  try {
+    await TCAuth.changePassword(oldPwd, newPwd);
+    showToast('Password aggiornata ✓');
+    AppState.settingsPwdOpen = false;
+    renderSettingsDialog();
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+// ─────────────────────────────────────────────
+// PRIORITÀ settings actions
+// ─────────────────────────────────────────────
+
+async function reorderPrio(id, dir) {
+  const prios = [...TCFactory.getPriorities()];
+  const idx   = prios.findIndex(p => p.id === id);
+  if (dir === 'up'   && idx > 0)                { [prios[idx-1], prios[idx]] = [prios[idx], prios[idx-1]]; }
+  if (dir === 'down' && idx < prios.length - 1) { [prios[idx], prios[idx+1]] = [prios[idx+1], prios[idx]]; }
+  prios.forEach((p, i) => p.sort_order = i);
+  try {
+    for (const p of prios) await supabaseClient.from('priorities').update({ sort_order: p.sort_order }).eq('id', p.id);
+    TCFactory._priorities = prios;
+    renderSettingsDialog();
+  } catch(e) { showToast('Errore riordinamento', 'error'); }
+}
+
+async function updatePrioColor(id, color) {
+  try {
+    await supabaseClient.from('priorities').update({ color }).eq('id', id);
+    TCFactory._priorities = TCFactory._priorities.map(p => p.id === id ? { ...p, color } : p);
+    renderSettingsDialog(); renderApp();
+  } catch(e) { showToast('Errore', 'error'); }
+}
+
+async function updatePrioLabel(id, label) {
+  try {
+    await supabaseClient.from('priorities').update({ label }).eq('id', id);
+    TCFactory._priorities = TCFactory._priorities.map(p => p.id === id ? { ...p, label } : p);
+  } catch(e) { showToast('Errore', 'error'); }
+}
+
+async function deletePrioConfirm(id) {
+  if (!confirm('Eliminare questa priorità?')) return;
+  try {
+    await supabaseClient.from('priorities').delete().eq('id', id);
+    TCFactory._priorities = TCFactory._priorities.filter(p => p.id !== id);
+    renderSettingsDialog(); renderApp();
+  } catch(e) { showToast('Errore', 'error'); }
+}
+
+async function addNewPriority() {
+  const input = document.getElementById('new-prio-input');
+  const label = input?.value?.trim();
+  if (!label) return;
+  const id        = label.toLowerCase().replace(/[^a-z0-9]/g, '-');
+  const sort_order = TCFactory.getPriorities().length;
+  try {
+    const { data, error } = await supabaseClient.from('priorities').insert({ id, label, color: _newPrioColor, sort_order }).select().single();
+    if (error) throw error;
+    TCFactory._priorities.push(data);
+    renderSettingsDialog(); renderApp();
+  } catch(e) { showToast('Errore aggiunta priorità', 'error'); }
+}
+
+// ─────────────────────────────────────────────
+// TAG settings actions
+// ─────────────────────────────────────────────
+
+async function updateTagColorSetting(name, color) {
+  try {
+    await supabaseClient.from('tags').update({ color }).eq('name', name);
+    TCFactory._tags = TCFactory._tags.map(t => t.name === name ? { ...t, color } : t);
+    renderSettingsDialog(); renderApp();
+  } catch(e) { showToast('Errore', 'error'); }
+}
+
+async function deleteTagConfirm(name) {
+  if (!confirm(`Eliminare il tag "${name}"?`)) return;
+  try {
+    await supabaseClient.from('tags').delete().eq('name', name);
+    TCFactory._tags = TCFactory._tags.filter(t => t.name !== name);
+    renderSettingsDialog(); renderApp();
+  } catch(e) { showToast('Errore', 'error'); }
+}
+
+async function addNewTagSetting() {
+  const input = document.getElementById('new-tag-input');
+  const name  = input?.value?.trim();
+  if (!name) return;
+  try {
+    const { data, error } = await supabaseClient.from('tags').insert({ name, color: _newTagColor }).select().single();
+    if (error) throw error;
+    TCFactory._tags.push(data);
+    renderSettingsDialog(); renderApp();
+  } catch(e) { showToast('Errore aggiunta tag', 'error'); }
+}
+
+// ─────────────────────────────────────────────
+// GESTIONE UTENTI (settings)
+// ─────────────────────────────────────────────
+
+let _usersList = [];
+
+async function renderUsersSection(container) {
+  try { _usersList = await TCAuth.listUsers(); } catch(e) { _usersList = []; }
+  container.innerHTML = `
+    <div class="settings-section-hint">Solo gli admin possono creare e rimuovere account.</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+      ${_usersList.map(u => `
+        <div class="config-row" style="justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:0.88rem;font-weight:600;">${escapeHtml(u.nickname)}</span>
+            ${u.is_admin ? `<span class="chip" style="background:var(--brand-gold)22;color:var(--brand-gold);font-size:0.65rem;">admin</span>` : ''}
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:0.72rem;color:var(--text-muted);">${new Date(u.created_at).toLocaleDateString('it-IT')}</span>
+            ${u.nickname !== TCAuth.getNickname() ? `
+              <button class="btn btn-secondary btn-sm" style="font-size:0.72rem;" onclick="adminResetPwdPrompt('${escapeHtml(u.nickname)}')" title="Reimposta password">🔑</button>
+              <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteUserConfirm('${escapeHtml(u.nickname)}')">${Icons.trash(14)}</button>
+            ` : `<span style="font-size:0.7rem;color:var(--text-muted);">(sei tu)</span>`}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;background:var(--bg-secondary);">
+      <div style="font-size:0.78rem;font-weight:700;margin-bottom:8px;">Crea nuovo account</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <input id="new-user-nick" class="form-input" placeholder="Nickname" maxlength="30">
+        <input id="new-user-pwd" type="password" class="form-input" placeholder="Password">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;">
+            <input type="checkbox" id="new-user-admin"> Admin
+          </label>
+          <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="createNewUser()">Crea account</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function createNewUser() {
+  const nick  = document.getElementById('new-user-nick')?.value?.trim();
+  const pwd   = document.getElementById('new-user-pwd')?.value;
+  const isAdm = document.getElementById('new-user-admin')?.checked || false;
+  if (!nick || !pwd) { showToast('Compila nickname e password', 'error'); return; }
+  if (pwd.length < 4) { showToast('Password troppo corta (min 4 caratteri)', 'error'); return; }
+  try {
+    await TCAuth.createUser(nick, pwd, isAdm);
+    showToast(`Account "${nick}" creato`);
+    const container = document.getElementById('users-section-body');
+    if (container) renderUsersSection(container);
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function adminResetPwdPrompt(nick) {
+  const newPwd = prompt(`Nuova password per "${nick}" (min. 4 caratteri):`);
+  if (!newPwd) return;
+  if (newPwd.length < 4) { showToast('Minimo 4 caratteri', 'error'); return; }
+  try {
+    await TCAuth.adminResetPassword(nick, newPwd);
+    showToast(`Password di "${nick}" aggiornata ✓`);
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function deleteUserConfirm(nick) {
+  if (!confirm(`Eliminare l'account "${nick}"?`)) return;
+  try {
+    await TCAuth.deleteUser(nick);
+    showToast(`Account "${nick}" eliminato`);
+    const container = document.getElementById('users-section-body');
+    if (container) renderUsersSection(container);
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function renderLogSection(container) {
+  container.innerHTML = `<div style="font-size:0.8rem;color:var(--text-muted);padding:8px 0;">Caricamento log…</div>`;
+  try {
+    const entries = await TCFactory.getActivityLog(100);
+    if (entries.length === 0) { container.innerHTML = `<div style="font-size:0.8rem;color:var(--text-muted);">Nessuna attività registrata.</div>`; return; }
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;">
+        ${entries.map(e => {
+          const dt = new Date(e.created_at).toLocaleString('it-IT', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+          return `<div style="display:grid;grid-template-columns:110px 80px 1fr;gap:8px;padding:6px 8px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.75rem;align-items:start;">
+            <span style="color:var(--text-muted);">${dt}</span>
+            <span style="font-weight:700;color:var(--brand-gold);">${escapeHtml(e.user_nickname)}</span>
+            <div><span style="font-weight:600;">${escapeHtml(e.action)}</span>${e.order_name ? `<span style="color:var(--text-muted);"> · ${escapeHtml(e.order_name)}</span>` : ''}</div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  } catch(e) { container.innerHTML = `<div style="color:var(--priority-urgent);font-size:0.8rem;">Errore: ${e.message}</div>`; }
+}
+
+// ─────────────────────────────────────────────
+// LOGIN
+// ─────────────────────────────────────────────
+
+function renderLoginScreen() {
+  const overlay = document.getElementById('login-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div class="login-card glass-card">
+      <div style="display:flex;justify-content:center;margin-bottom:16px;">
+        <div style="width:52px;height:52px;border-radius:14px;background:var(--brand-gradient);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 4px 14px color-mix(in srgb, var(--brand-gold) 40%, transparent);">
+          ${Icons.package(26)}
+        </div>
+      </div>
+      <h2 style="text-align:center;font-size:1.05rem;font-weight:700;margin-bottom:4px;">T&amp;C Gestione ordini</h2>
+      <p style="text-align:center;font-size:0.78rem;color:var(--text-muted);margin-bottom:24px;">Accedi per continuare</p>
+      <div class="form-group">
+        <label class="form-label">Nickname</label>
+        <input id="login-nick" class="form-input" placeholder="es. mario" autocomplete="username"
+          onkeydown="if(event.key==='Enter')document.getElementById('login-pwd').focus()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input id="login-pwd" type="password" class="form-input" placeholder="••••••••" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div id="login-error" style="color:var(--priority-urgent);font-size:0.82rem;min-height:18px;text-align:center;margin-bottom:8px;"></div>
+      <button id="login-btn" class="btn btn-primary" style="width:100%;justify-content:center;" onclick="doLogin()">Accedi</button>
+    </div>
+  `;
+}
+
+async function doLogin() {
+  const nick = document.getElementById('login-nick')?.value?.trim();
+  const pwd  = document.getElementById('login-pwd')?.value;
+  const err  = document.getElementById('login-error');
+  const btn  = document.getElementById('login-btn');
+  if (!nick || !pwd) { if (err) err.textContent = 'Inserisci nickname e password'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Accesso in corso…'; }
+  if (err) err.textContent = '';
+  try {
+    await TCAuth.login(nick, pwd);
+    document.getElementById('login-overlay').style.display = 'none';
+    renderApp();
+  } catch(e) {
+    if (err) err.textContent = e.message;
+    if (btn) { btn.disabled = false; btn.textContent = 'Accedi'; }
+  }
+}
+
+function doLogout() {
+  if (!confirm('Vuoi uscire?')) return;
+  TCAuth.logout();
+  renderLoginScreen();
+}
+
+// ─────────────────────────────────────────────
+// HELPERS UI
+// ─────────────────────────────────────────────
+
+function renderTagChip(name) {
+  const color = TCFactory.getTagColor(name);
+  return `<span class="chip" style="background:color-mix(in srgb, ${color} 14%, transparent);color:${color};">
+    <span class="chip-dot" style="background:${color};"></span>${escapeHtml(name)}
+  </span>`;
+}
+
+function renderPriorityChip(p) {
+  if (!p) return '';
+  return `<span class="chip" style="background:color-mix(in srgb, ${p.color} 12%, transparent);color:${p.color};">
+    <span class="chip-dot" style="background:${p.color};"></span>${escapeHtml(p.label)}
+  </span>`;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ─────────────────────────────────────────────
+// ICONE SVG
+// ─────────────────────────────────────────────
+
+const Icons = {
+  shirt: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg>`,
+  plus: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  x: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+  search: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+  settings: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
+  moon: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
+  sun: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
+  paperclip: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>`,
+  archive: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>`,
+  archiveRestore: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><path d="M9 13l3-3 3 3"/><line x1="12" y1="10" x2="12" y2="17"/></svg>`,
+  truck: (s=14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>`,
+  trash: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`,
+  edit: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+  flag: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`,
+  tag: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>`,
+  printer: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>`,
+  magic: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>`,
+  logOut: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`,
+  users: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  clock: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+  lock: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+  arrowUp: (s=13) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="18 15 12 9 6 15"/></svg>`,
+  arrowDown: (s=13) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="6 9 12 15 18 9"/></svg>`,
+  chevronLeft: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="15 18 9 12 15 6"/></svg>`,
+  chevronRight: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polyline points="9 18 15 12 9 6"/></svg>`,
+  checkCircle: (color='currentColor', s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+  package: (s=20) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`,
+  calendarDays: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>`,
+};
+
+window.Icons = Icons;
