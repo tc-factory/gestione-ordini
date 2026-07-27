@@ -128,6 +128,7 @@ const TCFactory = {
       invoiceFiles: row.invoice_files || [],
       paymentDone: !!row.payment_done,
       paymentDate: row.payment_date || null,
+      invoiceConfirmed: !!row.invoice_confirmed,
       orderModule: row.order_module || { rows: [], acconto: '' },
       dtfItems: row.dtf_items || [],
       stages: row.stages || { merceCompleta: { done: false }, dtfPronti: { done: false }, ordineStampato: { done: false } },
@@ -150,6 +151,7 @@ const TCFactory = {
       invoice_files: order.invoiceFiles || [],
       payment_done: !!order.paymentDone,
       payment_date: order.paymentDate || null,
+      invoice_confirmed: !!order.invoiceConfirmed,
       order_module: order.orderModule || { rows: [], acconto: '' },
       dtf_items: order.dtfItems || [],
       stages: order.stages,
@@ -217,6 +219,7 @@ const TCFactory = {
       invoiceFiles: data.invoiceFiles || [],
       paymentDone: false,
       paymentDate: null,
+      invoiceConfirmed: false,
       orderModule: data.orderModule || { rows: [], acconto: '' },
       dtfItems: [],
       stages: this.emptyStages(),
@@ -225,7 +228,7 @@ const TCFactory = {
     let { data: row, error } = await supabaseClient.from('orders').insert(this._toDb(order)).select().single();
     if (error && error.message) {
       const payload = this._toDb(order);
-      ['dtf_items','invoice_files','payment_done','payment_date','order_module'].forEach(col => {
+      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','order_module'].forEach(col => {
         if (error.message.includes(col)) delete payload[col];
       });
       ({ data: row, error } = await supabaseClient.from('orders').insert(payload).select().single());
@@ -243,7 +246,7 @@ const TCFactory = {
     let { data: row, error } = await supabaseClient.from('orders').update(this._toDb(merged)).eq('id', id).select().single();
     if (error && error.message) {
       const payload = this._toDb(merged);
-      ['dtf_items','invoice_files','payment_done','payment_date','order_module'].forEach(col => {
+      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','order_module'].forEach(col => {
         if (error.message.includes(col)) delete payload[col];
       });
       ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());

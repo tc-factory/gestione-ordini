@@ -315,7 +315,7 @@ function renderOrderRow(o) {
   // Pagamento
   const payDone    = o.paymentDone || false;
   const payDate    = o.paymentDate;
-  const invFile    = (o.invoiceFiles || [])[0];
+  const invConf    = o.invoiceConfirmed || false;
 
   return `
     <div class="order-row-item" role="button" tabindex="0"
@@ -342,13 +342,17 @@ function renderOrderRow(o) {
         <div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline?'700':'400'};">${deadlineBadge}</div>
         <div class="orc-priority">${renderPriorityChip(p)}</div>
         <div class="orc-files">${filesBtns}${filesExtra}${moduleBtn}</div>
-        <div class="orc-payment" style="flex-direction:column;align-items:center;gap:3px;">
-          ${invFile ? `<button class="file-quick-btn" onclick="event.stopPropagation();quickPreviewInvoice('${o.id}')" title="Apri fattura">🧾</button>` : ''}
-          <button class="stage-pill ${payDone?'done':''}"
-            onclick="event.stopPropagation();togglePayment('${o.id}',${!payDone})"
-            style="font-size:0.62rem;white-space:nowrap;">
-            ${payDone ? '✓ Pagato' : 'Pagamento'}
-          </button>
+        <div class="orc-payment" style="flex-direction:column;align-items:center;gap:4px;">
+          <div style="display:flex;gap:4px;">
+            <button class="stage-pill ${invConf?'done':''}"
+              onclick="event.stopPropagation();toggleInvoiceConfirmed('${o.id}',${!invConf})"
+              title="${invConf ? 'Fattura confermata' : 'Conferma fattura'}"
+              style="font-size:0.82rem;padding:2px 6px;">🧾</button>
+            <button class="stage-pill ${payDone?'done':''}"
+              onclick="event.stopPropagation();togglePayment('${o.id}',${!payDone})"
+              title="${payDone ? 'Pagato' : 'Segna come pagato'}"
+              style="font-size:0.82rem;padding:2px 8px;font-weight:700;">€</button>
+          </div>
           ${payDone && payDate ? `<span style="font-size:0.6rem;color:#22c55e;">${TCFactory.formatDate(payDate,{day:'2-digit',month:'2-digit'})}</span>` : ''}
         </div>
       </div>
@@ -374,6 +378,13 @@ async function togglePayment(orderId, done) {
     await TCFactory.updateOrder(orderId, { paymentDone: done, paymentDate: done ? today : null });
     renderApp();
   } catch(e) { showToast('Errore pagamento', 'error'); }
+}
+
+async function toggleInvoiceConfirmed(orderId, confirmed) {
+  try {
+    await TCFactory.updateOrder(orderId, { invoiceConfirmed: confirmed });
+    renderApp();
+  } catch(e) { showToast('Errore fattura', 'error'); }
 }
 
 function downloadOrderModule(orderId) {
@@ -486,14 +497,6 @@ function downloadOrderModule(orderId) {
 // ─────────────────────────────────────────────
 // AZIONI RAPIDE LISTA
 // ─────────────────────────────────────────────
-
-async function togglePayment(orderId, done) {
-  try {
-    const today = new Date().toISOString().slice(0, 10);
-    await TCFactory.updateOrder(orderId, { paymentDone: done, paymentDate: done ? today : null });
-    renderApp();
-  } catch(e) { showToast('Errore pagamento', 'error'); }
-}
 
 async function quickToggleArchive(orderId, isCurrentlyArchived) {
   try {
