@@ -975,3 +975,24 @@ html.dark .app-shell {
 @media (max-width: 440px) {
   .login-card { padding: 24px 20px; }
 }
+
+/* ─────────────────────────────────────────────
+   Griglia Attivi — 8 colonne (senza Spedizione)
+   ───────────────────────────────────────────── */
+
+.order-row-grid--active {
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 2.8fr)   /* Nome */
+    92px                    /* Data */
+    minmax(80px, 1.3fr)    /* Tipologia */
+    210px                   /* Lavorazione (più larga, ha anche la data stampato) */
+    82px                    /* Scadenza */
+    108px                   /* Urgenza */
+    62px                    /* Ordine */
+    90px                    /* Pagamento */
+  ;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+}

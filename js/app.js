@@ -106,7 +106,7 @@ function renderHeader() {
 
 function renderStats() {
   const active  = TCFactory.getActiveOrders().length;
-  const partial = TCFactory.getPartialOrders().length;
+  const partial = TCFactory.getEvasioneOrders().length;
   const arch    = TCFactory.getArchivedOrders().length;
 
   document.getElementById('stats-root').innerHTML = `
@@ -117,7 +117,7 @@ function renderStats() {
     </div>
     <div class="glass-card stat-card">
       <div class="stat-card-glow" style="background:#f97316;"></div>
-      <div class="stat-card-label">Parziale</div>
+      <div class="stat-card-label">Evasione</div>
       <div class="stat-card-value" style="color:#f97316;">${partial}</div>
     </div>
     <div class="glass-card stat-card">
@@ -180,17 +180,17 @@ function clearTagFilters() { AppState.filterTags = []; renderOrderList(); }
 
 function renderOrderList() {
   const nActive   = TCFactory.getActiveOrders().length;
-  const nPartial  = TCFactory.getPartialOrders().length;
+  const nEvasione = TCFactory.getEvasioneOrders().length;
   const nDaRisc   = TCFactory.getDaRiscuotereOrders().length;
   const nArchived = TCFactory.getArchivedOrders().length;
 
   let source =
-    AppState.view === 'active'       ? TCFactory.getActiveOrders()        :
-    AppState.view === 'partial'      ? TCFactory.getPartialOrders()       :
-    AppState.view === 'dariscuotere' ? TCFactory.getDaRiscuotereOrders()  :
+    AppState.view === 'active'       ? TCFactory.getActiveOrders()       :
+    AppState.view === 'evasione'     ? TCFactory.getEvasioneOrders()     :
+    AppState.view === 'dariscuotere' ? TCFactory.getDaRiscuotereOrders() :
                                        TCFactory.getArchivedOrders();
 
-  // Filtro archivio (fatturati/non)
+  // Filtro archivio
   if (AppState.view === 'archived' && AppState.filterArchive !== 'all') {
     source = source.filter(o =>
       AppState.filterArchive === 'fatturati' ? o.invoiceConfirmed : !o.invoiceConfirmed
@@ -225,6 +225,9 @@ function renderOrderList() {
     }
   });
 
+  const isActive   = AppState.view === 'active';
+  const isEvasione = AppState.view === 'evasione';
+
   const allTags = TCFactory.getTags();
   const tagFilterRow = allTags.length > 0 ? `
     <div style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
@@ -255,9 +258,33 @@ function renderOrderList() {
   const emptyMsg =
     q || AppState.filterTags.length > 0 ? 'Nessun risultato.' :
     AppState.view === 'archived'       ? 'Nessun ordine archiviato.' :
-    AppState.view === 'partial'        ? 'Nessun ordine spedito parzialmente.' :
+    AppState.view === 'evasione'       ? 'Nessun ordine in evasione.' :
     AppState.view === 'dariscuotere'   ? 'Nessun ordine da riscuotere.' :
     'Nessun ordine attivo.';
+
+  // Header colonne — dipende dal tab
+  const hdrGrid = isActive
+    ? `<div class="order-row-grid order-row-grid--active">
+        <div class="orc-name orc-hdr">Nome</div>
+        <div class="orc-date orc-hdr">Data</div>
+        <div class="orc-tags orc-hdr">Tipologia</div>
+        <div class="orc-lav orc-hdr">Lavorazione</div>
+        <div class="orc-deadline orc-hdr">Scadenza</div>
+        <div class="orc-priority orc-hdr">Urgenza</div>
+        <div class="orc-files orc-hdr">Ordine</div>
+        <div class="orc-payment orc-hdr">Pagamento</div>
+      </div>`
+    : `<div class="order-row-grid">
+        <div class="orc-name orc-hdr">Nome</div>
+        <div class="orc-date orc-hdr">Data</div>
+        <div class="orc-tags orc-hdr">Tipologia</div>
+        <div class="orc-lav orc-hdr">${isEvasione ? 'Stampato' : 'Lavorazione'}</div>
+        <div class="orc-eva orc-hdr">${isEvasione ? 'Evasione' : 'Spedizione'}</div>
+        <div class="orc-deadline orc-hdr">Scadenza</div>
+        <div class="orc-priority orc-hdr">Urgenza</div>
+        <div class="orc-files orc-hdr">Ordine</div>
+        <div class="orc-payment orc-hdr">Pagamento</div>
+      </div>`;
 
   document.getElementById('orderlist-root').innerHTML = `
     <div class="glass-card">
@@ -269,7 +296,7 @@ function renderOrderList() {
           </div>
           <div class="view-tabs">
             <button class="view-tab ${AppState.view==='active'?'active':''}"        onclick="setView('active')">Attivi · ${nActive}</button>
-            <button class="view-tab ${AppState.view==='partial'?'active':''}"       onclick="setView('partial')">${Icons.truck(12)} Parziale · ${nPartial}</button>
+            <button class="view-tab ${AppState.view==='evasione'?'active':''}"      onclick="setView('evasione')">Evasione · ${nEvasione}</button>
             <button class="view-tab ${AppState.view==='dariscuotere'?'active':''}"  onclick="setView('dariscuotere')" style="${AppState.view==='dariscuotere'?'':'color:#ef4444;'}">€ Da riscuotere · ${nDaRisc}</button>
             <button class="view-tab ${AppState.view==='archived'?'active':''}"      onclick="setView('archived')">${Icons.archive(12)} Archivio · ${nArchived}</button>
           </div>
@@ -291,17 +318,7 @@ function renderOrderList() {
       <div class="order-rows">
         <div class="order-row-item order-row-header-row" onclick="event.stopPropagation()">
           <div class="order-row-bar" style="background:transparent;"></div>
-          <div class="order-row-grid">
-            <div class="orc-name orc-hdr">Nome</div>
-            <div class="orc-date orc-hdr">Data</div>
-            <div class="orc-tags orc-hdr">Tipologia</div>
-            <div class="orc-lav orc-hdr">Lavorazione</div>
-            <div class="orc-eva orc-hdr">Spedizione</div>
-            <div class="orc-deadline orc-hdr">Scadenza</div>
-            <div class="orc-priority orc-hdr">Urgenza</div>
-            <div class="orc-files orc-hdr">Ordine</div>
-            <div class="orc-payment orc-hdr">Pagamento</div>
-          </div>
+          ${hdrGrid}
         </div>
         ${sorted.length === 0
           ? `<div class="empty-list">${emptyMsg}</div>`
@@ -311,12 +328,14 @@ function renderOrderList() {
   `;
 }
 
+
 function setArchiveFilter(f) { AppState.filterArchive = f; renderOrderList(); }
 
 
 function renderOrderRow(o) {
   const p     = TCFactory.getPriority(o.priorityId);
   const color = p?.color || '#64748b';
+  const view  = AppState.view;
 
   // Deadline badge
   let deadlineBadge = '—';
@@ -328,28 +347,9 @@ function renderOrderRow(o) {
     deadlineBadge = diff < 0 ? `scad. ${Math.abs(diff)}gg` : diff === 0 ? 'oggi' : `${diff}gg`;
   }
 
-  // Lavorazione pills + data Stampato automatica
-  const lavPills = LAVORAZIONE_DEFS.map(s => {
-    const done = o.stages?.[s.id]?.done;
-    return `<button class="stage-pill ${done?'done':''}"
-      onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
-      title="${s.label}">${s.shortLabel}</button>`;
-  }).join('');
-  const stampatoStage = o.stages?.ordineStampato;
-  const stampatoDate  = stampatoStage?.done && stampatoStage?.date
-    ? `<div style="font-size:0.62rem;color:#22c55e;margin-top:3px;">📅 ${TCFactory.formatDate(stampatoStage.date,{day:'2-digit',month:'2-digit'})}</div>` : '';
-
-  // Evasione pills + archivio inline
-  const evaPills = EVASIONE_DEFS.map(s => {
-    const done = o.stages?.[s.id]?.done;
-    return `<button class="stage-pill evasione ${done?'done':''}"
-      onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
-      title="${s.label}">${s.shortLabel}</button>`;
-  }).join('');
-
-  // Tag
+  // Tag cliccabili
   const tagPills = o.tags.slice(0, 3).map(t => {
-    const c      = TCFactory.getTagColor(t);
+    const c = TCFactory.getTagColor(t);
     const active = AppState.filterTags.includes(t);
     return `<button class="chip chip-btn" onclick="event.stopPropagation();toggleTagFilter('${escapeHtml(t)}')"
       style="background:${active ? c : `color-mix(in srgb, ${c} 14%, transparent)`};color:${active ? '#fff' : c};padding:2px 6px;cursor:pointer;font-size:0.68rem;">
@@ -357,57 +357,132 @@ function renderOrderRow(o) {
     </button>`;
   }).join('');
 
-  // Allegati ordine + pulsante modulo se presente
+  // Allegati ordine + modulo
   const filesBtns = (o.files || []).slice(0, 2).map((f, i) => {
     const icon = f.type?.startsWith('image/') ? '🖼' : f.type === 'application/pdf' ? '📄' : '📎';
     return `<button class="file-quick-btn" onclick="event.stopPropagation();quickPreviewFile('${o.id}',${i})" title="${escapeHtml(f.name)}">${icon}</button>`;
   }).join('');
-  const filesExtra = (o.files||[]).length > 2
-    ? `<span style="font-size:0.65rem;color:var(--text-muted);">+${(o.files||[]).length - 2}</span>` : '';
-  const moduleBtn = (o.orderModule?.rows?.length || 0) > 0
-    ? `<button class="file-quick-btn" onclick="event.stopPropagation();downloadOrderModule('${o.id}')" title="Modulo d'ordine">📋</button>`
-    : '';
+  const filesExtra = (o.files||[]).length > 2 ? `<span style="font-size:0.65rem;color:var(--text-muted);">+${(o.files||[]).length - 2}</span>` : '';
+  const moduleBtn  = (o.orderModule?.rows?.length || 0) > 0
+    ? `<button class="file-quick-btn" onclick="event.stopPropagation();downloadOrderModule('${o.id}')" title="Modulo d'ordine">📋</button>` : '';
 
   // Pagamento
-  const payDone    = o.paymentDone || false;
-  const payDate    = o.paymentDate;
-  const invConf    = o.invoiceConfirmed || false;
+  const payDone = o.paymentDone || false;
+  const payDate = o.paymentDate;
+  const invConf = o.invoiceConfirmed || false;
+
+  const paymentCell = `
+    <div class="orc-payment" style="flex-direction:column;align-items:center;gap:4px;">
+      <div style="display:flex;gap:4px;">
+        <button class="stage-pill ${invConf?'done':''}"
+          onclick="event.stopPropagation();toggleInvoiceConfirmed('${o.id}',${!invConf})"
+          title="${invConf ? 'Fattura confermata' : 'Conferma fattura'}"
+          style="font-size:0.82rem;padding:2px 6px;">🧾</button>
+        <button class="stage-pill ${payDone?'done':''}"
+          onclick="event.stopPropagation();togglePayment('${o.id}',${!payDone})"
+          title="${payDone ? 'Pagato' : 'Segna come pagato'}"
+          style="font-size:0.82rem;padding:2px 8px;font-weight:700;">€</button>
+      </div>
+      ${payDone && payDate ? `<span style="font-size:0.6rem;color:#22c55e;">${TCFactory.formatDate(payDate,{day:'2-digit',month:'2-digit'})}</span>` : ''}
+    </div>`;
+
+  const scadenzaCell = `<div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline?'700':'400'};">${deadlineBadge}</div>`;
+  const urgenzaCell  = `<div class="orc-priority">${renderPriorityChip(p)}</div>`;
+  const ordineCell   = `<div class="orc-files">${filesBtns}${filesExtra}${moduleBtn}</div>`;
+
+  // ── ATTIVI: solo Lavorazione, nessuna Spedizione ──────────────────────
+  if (view === 'active') {
+    const lavPills = LAVORAZIONE_DEFS.map(s => {
+      const done  = o.stages?.[s.id]?.done;
+      const stage = o.stages?.[s.id];
+      // Stampato: data inline accanto alla pill
+      if (s.id === 'ordineStampato' && done && stage?.date) {
+        const d = TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'});
+        return `<button class="stage-pill done" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',false)" title="${s.label}">${s.shortLabel}</button><span style="font-size:0.62rem;color:#22c55e;white-space:nowrap;">${d}</span>`;
+      }
+      return `<button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>`;
+    }).join('');
+
+    return `
+      <div class="order-row-item" role="button" tabindex="0"
+        onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
+        <div class="order-row-bar" style="background:${color};"></div>
+        <div class="order-row-grid order-row-grid--active">
+          <div class="orc-name">${escapeHtml(o.nome)}</div>
+          <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
+          <div class="orc-tags">${tagPills}</div>
+          <div class="orc-lav" style="gap:3px;flex-wrap:wrap;">${lavPills}</div>
+          ${scadenzaCell}
+          ${urgenzaCell}
+          ${ordineCell}
+          ${paymentCell}
+        </div>
+      </div>`;
+  }
+
+  // ── EVASIONE: Data stampato + Parziale/Evaso pills ───────────────────
+  if (view === 'evasione') {
+    const stampatoDate = o.stages?.ordineStampato?.date
+      ? TCFactory.formatDate(o.stages.ordineStampato.date, {day:'2-digit',month:'long'})
+      : '—';
+
+    const evaPills = EVASIONE_DEFS.map(s => {
+      const done = o.stages?.[s.id]?.done;
+      return `<button class="stage-pill evasione ${done?'done':''}"
+        onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
+        title="${s.label}">${s.shortLabel}</button>`;
+    }).join('');
+
+    return `
+      <div class="order-row-item" role="button" tabindex="0"
+        onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
+        <div class="order-row-bar" style="background:${color};"></div>
+        <div class="order-row-grid">
+          <div class="orc-name">${escapeHtml(o.nome)}</div>
+          <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
+          <div class="orc-tags">${tagPills}</div>
+          <div class="orc-lav" style="font-size:0.78rem;font-weight:600;color:#22c55e;">${stampatoDate}</div>
+          <div class="orc-eva" style="gap:4px;flex-wrap:nowrap;">${evaPills}</div>
+          ${scadenzaCell}
+          ${urgenzaCell}
+          ${ordineCell}
+          ${paymentCell}
+        </div>
+      </div>`;
+  }
+
+  // ── DA RISCUOTERE / ARCHIVIO / ALTRI: layout completo ────────────────
+  const lavPills = LAVORAZIONE_DEFS.map(s => {
+    const done = o.stages?.[s.id]?.done;
+    return `<button class="stage-pill ${done?'done':''}"
+      onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
+      title="${s.label}">${s.shortLabel}</button>`;
+  }).join('');
+
+  const evaPills = EVASIONE_DEFS.map(s => {
+    const done = o.stages?.[s.id]?.done;
+    return `<button class="stage-pill evasione ${done?'done':''}"
+      onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
+      title="${s.label}">${s.shortLabel}</button>`;
+  }).join('');
 
   return `
     <div class="order-row-item" role="button" tabindex="0"
-      onclick="openOrderDetail('${o.id}')"
-      onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
+      onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-bar" style="background:${color};"></div>
       <div class="order-row-grid">
         <div class="orc-name">${escapeHtml(o.nome)}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         <div class="orc-tags">${tagPills}</div>
-        <div class="orc-lav" style="flex-direction:column;align-items:flex-start;">
-          <div style="display:flex;gap:3px;">${lavPills}</div>
-          ${stampatoDate}
-        </div>
-        <div class="orc-eva" style="flex-wrap:nowrap;gap:4px;align-items:center;">
-          ${evaPills}
-        </div>
-        <div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline?'700':'400'};">${deadlineBadge}</div>
-        <div class="orc-priority">${renderPriorityChip(p)}</div>
-        <div class="orc-files">${filesBtns}${filesExtra}${moduleBtn}</div>
-        <div class="orc-payment" style="flex-direction:column;align-items:center;gap:4px;">
-          <div style="display:flex;gap:4px;">
-            <button class="stage-pill ${invConf?'done':''}"
-              onclick="event.stopPropagation();toggleInvoiceConfirmed('${o.id}',${!invConf})"
-              title="${invConf ? 'Fattura confermata' : 'Conferma fattura'}"
-              style="font-size:0.82rem;padding:2px 6px;">🧾</button>
-            <button class="stage-pill ${payDone?'done':''}"
-              onclick="event.stopPropagation();togglePayment('${o.id}',${!payDone})"
-              title="${payDone ? 'Pagato' : 'Segna come pagato'}"
-              style="font-size:0.82rem;padding:2px 8px;font-weight:700;">€</button>
-          </div>
-          ${payDone && payDate ? `<span style="font-size:0.6rem;color:#22c55e;">${TCFactory.formatDate(payDate,{day:'2-digit',month:'2-digit'})}</span>` : ''}
-        </div>
+        <div class="orc-lav" style="gap:3px;flex-wrap:wrap;">${lavPills}</div>
+        <div class="orc-eva" style="gap:4px;flex-wrap:nowrap;">${evaPills}</div>
+        ${scadenzaCell}
+        ${urgenzaCell}
+        ${ordineCell}
+        ${paymentCell}
       </div>
-    </div>
-  `;
+    </div>`;
+
 }
 
 function quickPreviewFile(orderId, fileIndex) {
@@ -425,12 +500,14 @@ function quickPreviewInvoice(orderId) {
 async function togglePayment(orderId, done) {
   try {
     const today = new Date().toISOString().slice(0, 10);
-    // € è l'UNICO modo per archiviare un ordine
     await TCFactory.updateOrder(orderId, {
       paymentDone: done,
       paymentDate: done ? today : null,
     });
-    await TCFactory.setArchived(orderId, done);
+    // Archivio SOLO se ENTRAMBI: evaso (spedito.done) E pagato
+    const order = TCFactory.getOrderById(orderId);
+    const isEvaso = !!order?.stages?.spedito?.done;
+    await TCFactory.setArchived(orderId, done && isEvaso);
     renderApp();
   } catch(e) { showToast('Errore pagamento', 'error'); }
 }
@@ -576,11 +653,15 @@ async function quickToggleArchive(orderId, isCurrentlyArchived) {
 
 async function toggleStageInline(orderId, stageId, done) {
   try {
-    let updated = await TCFactory.setStage(orderId, stageId, done);
+    await TCFactory.setStage(orderId, stageId, done);
+    // Regola archivio: SOLO se Evaso (spedito.done) E pagato (paymentDone) entrambi true
     if (stageId === 'spedito') {
-      updated = await TCFactory.setArchived(orderId, done);
-      if (!done && updated.stages?.speditoParzialmente?.done) {
-        updated = await TCFactory.setStage(orderId, 'speditoParzialmente', false);
+      const order = TCFactory.getOrderById(orderId);
+      const isPaid = !!order?.paymentDone;
+      await TCFactory.setArchived(orderId, done && isPaid);
+      if (!done) {
+        await TCFactory.updateOrder(orderId, { paymentDone: false, paymentDate: null });
+        await TCFactory.setArchived(orderId, false);
       }
     }
     if (stageId === 'speditoParzialmente' && !done) {
@@ -596,11 +677,14 @@ async function toggleStageInline(orderId, stageId, done) {
 
 async function toggleStageDetail(orderId, stageId, done) {
   try {
-    let updated = await TCFactory.setStage(orderId, stageId, done);
+    await TCFactory.setStage(orderId, stageId, done);
     if (stageId === 'spedito') {
-      updated = await TCFactory.setArchived(orderId, done);
-      if (!done && updated.stages?.speditoParzialmente?.done) {
-        updated = await TCFactory.setStage(orderId, 'speditoParzialmente', false);
+      const order = TCFactory.getOrderById(orderId);
+      const isPaid = !!order?.paymentDone;
+      await TCFactory.setArchived(orderId, done && isPaid);
+      if (!done) {
+        await TCFactory.updateOrder(orderId, { paymentDone: false, paymentDate: null });
+        await TCFactory.setArchived(orderId, false);
       }
     }
     if (stageId === 'speditoParzialmente' && !done) {
@@ -1744,3 +1828,4 @@ const Icons = {
 };
 
 window.Icons = Icons;
+

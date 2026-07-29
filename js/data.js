@@ -13,7 +13,7 @@ const LAVORAZIONE_DEFS = [
 // EVASIONE (spedizione)
 const EVASIONE_DEFS = [
   { id: 'speditoParzialmente', label: 'Spedito parzialmente', shortLabel: 'Parziale' },
-  { id: 'spedito',             label: 'Spedito',              shortLabel: '📦 Spedito' },
+  { id: 'spedito',             label: 'Evaso',                shortLabel: 'Evaso' },
 ];
 
 // Compatibilità con vecchio codice
@@ -186,13 +186,15 @@ const TCFactory = {
   getOrderById(id) { return this._orders.find(o => o.id === id) || null; },
 
   // Attivi: non archiviati e non spediti parzialmente
-  // Attivi: né archiviati, né in spedizione parziale, né spediti
-  getActiveOrders()         { return this.getOrders().filter(o => !o.archived && !o.stages?.speditoParzialmente?.done && !o.stages?.spedito?.done); },
-  // Parziale: spedito parzialmente ma non completamente spediti
+  // Attivi: non archiviati e non ancora stampati
+  getActiveOrders()         { return this.getOrders().filter(o => !o.archived && !o.stages?.ordineStampato?.done); },
+  // Evasione: stampati ma non ancora evasi
+  getEvasioneOrders()       { return this.getOrders().filter(o => !o.archived && !!o.stages?.ordineStampato?.done && !o.stages?.spedito?.done); },
+  // Compat (non più usato come tab)
   getPartialOrders()        { return this.getOrders().filter(o => !o.archived && o.stages?.speditoParzialmente?.done && !o.stages?.spedito?.done); },
-  // Da riscuotere: spediti completamente, pagamento non ancora ricevuto
-  getDaRiscuotereOrders()   { return this.getOrders().filter(o => !o.archived && o.stages?.spedito?.done); },
-  // Archivio: archiviati (solo via pagamento €)
+  // Da riscuotere: evasi (spedito.done) ma non ancora pagati
+  getDaRiscuotereOrders()   { return this.getOrders().filter(o => !o.archived && !!o.stages?.spedito?.done); },
+  // Archivio: solo quando ENTRAMBI evaso E pagato
   getArchivedOrders()       { return this.getOrders().filter(o => o.archived); },
 
   generateId() {
