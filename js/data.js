@@ -242,6 +242,8 @@ const TCFactory = {
     }
     if (error) throw error;
     const created = this._fromDb(row);
+    // Aggiorna subito il cache locale senza aspettare realtime
+    this._orders = [...this._orders.filter(o => o.id !== created.id), created];
     this._log('Ordine creato', created.id, created.nome, { priorityId: created.priorityId, deadline: created.deadline });
     return created;
   },
@@ -258,7 +260,10 @@ const TCFactory = {
       ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
     }
     if (error) throw error;
-    return this._fromDb(row);
+    const updated = this._fromDb(row);
+    // Aggiorna subito il cache locale senza aspettare realtime
+    this._orders = this._orders.map(o => o.id === id ? updated : o);
+    return updated;
   },
 
   async setStage(id, stageId, done) {

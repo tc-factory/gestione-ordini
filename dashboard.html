@@ -46,7 +46,9 @@
     TCAuth.init();
 
     TCFactory.onUpdate(() => renderApp());
-    TCFactory.init().then(() => {
+    TCFactory.init().then(async () => {
+      // Aggiorna il flag economico dal DB (senza richiedere nuovo login)
+      await TCAuth.refreshEconomicsFlag();
       if (!TCAuth.isLoggedIn()) {
         renderLoginScreen();
       } else {

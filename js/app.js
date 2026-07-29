@@ -499,18 +499,28 @@ function quickPreviewInvoice(orderId) {
 
 async function togglePayment(orderId, done) {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    // Leggi stato PRIMA dell'aggiornamento (cache locale è aggiornata)
+    const order   = TCFactory.getOrderById(orderId);
+    const isEvaso = !!order?.stages?.spedito?.done;
+    const today   = new Date().toISOString().slice(0, 10);
+
     await TCFactory.updateOrder(orderId, {
       paymentDone: done,
       paymentDate: done ? today : null,
     });
-    // Archivio SOLO se ENTRAMBI: evaso (spedito.done) E pagato
-    const order = TCFactory.getOrderById(orderId);
-    const isEvaso = !!order?.stages?.spedito?.done;
-    await TCFactory.setArchived(orderId, done && isEvaso);
+
+    // Archivio SOLO se ENTRAMBI Evaso E € sono true
+    if (done && isEvaso) {
+      await TCFactory.setArchived(orderId, true);   // → Archivio
+    } else if (!done) {
+      await TCFactory.setArchived(orderId, false);  // Deseleziona € → esce dall'archivio
+    }
+    // done=true ma !isEvaso → resta in Evasione (non archivia)
+
     renderApp();
-  } catch(e) { showToast('Errore pagamento', 'error'); }
+  } catch(e) { showToast('Errore pagamento', 'error'); console.error(e); }
 }
+
 
 async function toggleInvoiceConfirmed(orderId, confirmed) {
   try {
@@ -653,17 +663,26 @@ async function quickToggleArchive(orderId, isCurrentlyArchived) {
 
 async function toggleStageInline(orderId, stageId, done) {
   try {
+    // Leggi stato PRIMA del setStage (cache locale aggiornata immediatamente dopo)
+    const orderBefore = TCFactory.getOrderById(orderId);
+    const isPaidBefore  = !!orderBefore?.paymentDone;
+
     await TCFactory.setStage(orderId, stageId, done);
-    // Regola archivio: SOLO se Evaso (spedito.done) E pagato (paymentDone) entrambi true
+
     if (stageId === 'spedito') {
-      const order = TCFactory.getOrderById(orderId);
-      const isPaid = !!order?.paymentDone;
-      await TCFactory.setArchived(orderId, done && isPaid);
-      if (!done) {
+      if (done) {
+        // Evaso = true
+        if (isPaidBefore) {
+          await TCFactory.setArchived(orderId, true);   // ENTRAMBI → Archivio
+        }
+        // solo Evaso senza € → Da riscuotere (non archivia)
+      } else {
+        // De-evaso → reset pagamento e unarchive
         await TCFactory.updateOrder(orderId, { paymentDone: false, paymentDate: null });
         await TCFactory.setArchived(orderId, false);
       }
     }
+
     if (stageId === 'speditoParzialmente' && !done) {
       const cur = TCFactory.getOrderById(orderId);
       if (cur?.stages?.spedito?.done) {
@@ -671,18 +690,22 @@ async function toggleStageInline(orderId, stageId, done) {
         await TCFactory.setArchived(orderId, false);
       }
     }
+
     renderApp();
-  } catch(e) { showToast('Errore aggiornamento fase', 'error'); }
+  } catch(e) { showToast('Errore aggiornamento fase', 'error'); console.error(e); }
 }
 
 async function toggleStageDetail(orderId, stageId, done) {
   try {
+    const orderBefore = TCFactory.getOrderById(orderId);
+    const isPaidBefore = !!orderBefore?.paymentDone;
+
     await TCFactory.setStage(orderId, stageId, done);
+
     if (stageId === 'spedito') {
-      const order = TCFactory.getOrderById(orderId);
-      const isPaid = !!order?.paymentDone;
-      await TCFactory.setArchived(orderId, done && isPaid);
-      if (!done) {
+      if (done) {
+        if (isPaidBefore) await TCFactory.setArchived(orderId, true);
+      } else {
         await TCFactory.updateOrder(orderId, { paymentDone: false, paymentDate: null });
         await TCFactory.setArchived(orderId, false);
       }
@@ -694,10 +717,11 @@ async function toggleStageDetail(orderId, stageId, done) {
         await TCFactory.setArchived(orderId, false);
       }
     }
+
     AppState.selectedOrder = TCFactory.getOrderById(orderId);
     renderOrderDetail();
     renderApp();
-  } catch(e) { showToast('Errore aggiornando la fase', 'error'); }
+  } catch(e) { showToast('Errore aggiornando la fase', 'error'); console.error(e); }
 }
 
 async function moveOrderTo(id, target) {
@@ -1641,7 +1665,7 @@ async function createNewUser() {
 async function setUserEconomicsFlag(nick, value) {
   try {
     await TCAuth.setUserEconomics(nick, value);
-    showToast(`Gestione economica ${value ? 'abilitata' : 'disabilitata'} per ${nick}`);
+    showToast(`Gestione economica ${value ? 'abilitata' : 'disabilitata'} per ${nick} — effettiva al prossimo accesso`);
   } catch(e) { showToast(e.message, 'error'); }
 }
 

@@ -12,6 +12,22 @@ const TCAuth = {
     catch { this._session = null; }
   },
 
+  // Rilegge can_view_economics dal DB senza fare logout — utile dopo che l'admin cambia il flag
+  async refreshEconomicsFlag() {
+    if (!this._session?.nickname) return;
+    try {
+      const { data } = await supabaseClient
+        .from('app_users')
+        .select('can_view_economics')
+        .eq('nickname', this._session.nickname)
+        .single();
+      if (data) {
+        this._session.canViewEconomics = !!data.can_view_economics;
+        localStorage.setItem('tcf_session', JSON.stringify(this._session));
+      }
+    } catch { /* non blocca l'avvio */ }
+  },
+
   getUser()            { return this._session; },
   getNickname()        { return this._session?.nickname || '?'; },
   isLoggedIn()         { return !!this._session; },
