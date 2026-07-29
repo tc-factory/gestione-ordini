@@ -406,14 +406,12 @@ function renderOrderRow(o) {
       const done  = o.stages?.[s.id]?.done;
       const stage = o.stages?.[s.id];
       // Stampato: data SOTTO la pill
-      if (s.id === 'ordineStampato' && done && stage?.date) {
-        const d = TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'});
-        return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
-          <button class="stage-pill done" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',false)" title="${s.label}">${s.shortLabel}</button>
-          <span style="font-size:0.6rem;color:#22c55e;white-space:nowrap;">${d}</span>
-        </div>`;
-      }
-      return `<button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>`;
+      const stDate = (s.id === 'ordineStampato' && done && stage?.date)
+        ? TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'}) : '';
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+        <button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>
+        <span style="font-size:0.6rem;white-space:nowrap;color:${stDate?'#22c55e':'transparent'};">${stDate||'00/00'}</span>
+      </div>`;
     }).join('');
 
     return `
@@ -448,7 +446,7 @@ function renderOrderRow(o) {
         <button class="stage-pill evasione ${done?'done':''}"
           onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
           title="${s.label}">${s.shortLabel}</button>
-        ${stageDate ? `<span style="font-size:0.6rem;color:#22c55e;white-space:nowrap;">${stageDate}</span>` : ''}
+        <span style="font-size:0.6rem;white-space:nowrap;color:${stageDate?'#22c55e':'transparent'};">${stageDate||'00/00'}</span>
       </div>`;
     }).join('');
 
@@ -477,16 +475,12 @@ function renderOrderRow(o) {
   const lavPills = LAVORAZIONE_DEFS.map(s => {
     const done  = o.stages?.[s.id]?.done;
     const stage = o.stages?.[s.id];
-    if (s.id === 'ordineStampato' && done && stage?.date) {
-      const d = TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'});
-      return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
-        <button class="stage-pill done" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',false)" title="${s.label}">${s.shortLabel}</button>
-        <span style="font-size:0.6rem;color:#22c55e;white-space:nowrap;">${d}</span>
-      </div>`;
-    }
-    return `<button class="stage-pill ${done?'done':''}"
-      onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
-      title="${s.label}">${s.shortLabel}</button>`;
+    const stDate = (s.id === 'ordineStampato' && done && stage?.date)
+      ? TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'}) : '';
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+      <button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>
+      <span style="font-size:0.6rem;white-space:nowrap;color:${stDate?'#22c55e':'transparent'};">${stDate||'00/00'}</span>
+    </div>`;
   }).join('');
 
   const evaPills = EVASIONE_DEFS.map(s => {
