@@ -129,6 +129,7 @@ const TCFactory = {
       paymentDone: !!row.payment_done,
       paymentDate: row.payment_date || null,
       invoiceConfirmed: !!row.invoice_confirmed,
+      importo: parseFloat(row.importo) || 0,
       orderModule: row.order_module || { rows: [], acconto: '' },
       dtfItems: row.dtf_items || [],
       stages: row.stages || { merceCompleta: { done: false }, dtfPronti: { done: false }, ordineStampato: { done: false } },
@@ -152,6 +153,7 @@ const TCFactory = {
       payment_done: !!order.paymentDone,
       payment_date: order.paymentDate || null,
       invoice_confirmed: !!order.invoiceConfirmed,
+      importo: parseFloat(order.importo) || 0,
       order_module: order.orderModule || { rows: [], acconto: '' },
       dtf_items: order.dtfItems || [],
       stages: order.stages,
@@ -184,11 +186,14 @@ const TCFactory = {
   getOrderById(id) { return this._orders.find(o => o.id === id) || null; },
 
   // Attivi: non archiviati e non spediti parzialmente
-  getActiveOrders()  { return this.getOrders().filter(o => !o.archived && !o.stages?.speditoParzialmente?.done); },
-  // Spedito parzialmente: stage speditoParzialmente done ma non archiviati
-  getPartialOrders() { return this.getOrders().filter(o => !o.archived && o.stages?.speditoParzialmente?.done); },
-  // Archivio: archiviati (include spedito totale)
-  getArchivedOrders(){ return this.getOrders().filter(o => o.archived); },
+  // Attivi: né archiviati, né in spedizione parziale, né spediti
+  getActiveOrders()         { return this.getOrders().filter(o => !o.archived && !o.stages?.speditoParzialmente?.done && !o.stages?.spedito?.done); },
+  // Parziale: spedito parzialmente ma non completamente spediti
+  getPartialOrders()        { return this.getOrders().filter(o => !o.archived && o.stages?.speditoParzialmente?.done && !o.stages?.spedito?.done); },
+  // Da riscuotere: spediti completamente, pagamento non ancora ricevuto
+  getDaRiscuotereOrders()   { return this.getOrders().filter(o => !o.archived && o.stages?.spedito?.done); },
+  // Archivio: archiviati (solo via pagamento €)
+  getArchivedOrders()       { return this.getOrders().filter(o => o.archived); },
 
   generateId() {
     const nums = this._orders.map(o => parseInt((o.id || '').replace('ORD-', '')) || 0);
@@ -220,6 +225,7 @@ const TCFactory = {
       paymentDone: false,
       paymentDate: null,
       invoiceConfirmed: false,
+      importo: parseFloat(data.importo) || 0,
       orderModule: data.orderModule || { rows: [], acconto: '' },
       dtfItems: [],
       stages: this.emptyStages(),
@@ -228,7 +234,7 @@ const TCFactory = {
     let { data: row, error } = await supabaseClient.from('orders').insert(this._toDb(order)).select().single();
     if (error && error.message) {
       const payload = this._toDb(order);
-      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','order_module'].forEach(col => {
+      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module'].forEach(col => {
         if (error.message.includes(col)) delete payload[col];
       });
       ({ data: row, error } = await supabaseClient.from('orders').insert(payload).select().single());
@@ -246,7 +252,7 @@ const TCFactory = {
     let { data: row, error } = await supabaseClient.from('orders').update(this._toDb(merged)).eq('id', id).select().single();
     if (error && error.message) {
       const payload = this._toDb(merged);
-      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','order_module'].forEach(col => {
+      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module'].forEach(col => {
         if (error.message.includes(col)) delete payload[col];
       });
       ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
@@ -294,14 +300,27 @@ const TCFactory = {
     } catch(e) { /* non bloccare le operazioni se il log fallisce */ }
   },
 
-  async getActivityLog(limit = 100) {
+  async getActivityLog({ filterUser = '', searchQuery = '', offset = 0, pageSize = 100 } = {}) {
+    let query = supabaseClient
+      .from('activity_log')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false });
+    if (filterUser)   query = query.eq('user_nickname', filterUser);
+    if (searchQuery)  query = query.or(`action.ilike.%${searchQuery}%,order_name.ilike.%${searchQuery}%`);
+    query = query.range(offset, offset + pageSize - 1);
+    const { data, error, count } = await query;
+    if (error) throw error;
+    return { entries: data || [], total: count || 0 };
+  },
+
+  async getLogUsers() {
     const { data, error } = await supabaseClient
       .from('activity_log')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(limit);
-    if (error) throw error;
-    return data || [];
+      .select('user_nickname')
+      .order('user_nickname');
+    if (error) return [];
+    const unique = [...new Set((data||[]).map(r => r.user_nickname))];
+    return unique;
   },
 
   // ─────────────────────────────────────────────

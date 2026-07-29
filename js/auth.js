@@ -12,10 +12,11 @@ const TCAuth = {
     catch { this._session = null; }
   },
 
-  getUser()     { return this._session; },
-  getNickname() { return this._session?.nickname || '?'; },
-  isLoggedIn()  { return !!this._session; },
-  isAdmin()     { return !!this._session?.isAdmin; },
+  getUser()            { return this._session; },
+  getNickname()        { return this._session?.nickname || '?'; },
+  isLoggedIn()         { return !!this._session; },
+  isAdmin()            { return !!this._session?.isAdmin; },
+  canViewEconomics()   { return !!this._session?.canViewEconomics || !!this._session?.isAdmin; },
 
   async login(nickname, password) {
     const { data, error } = await supabaseClient.rpc('tc_login', {
@@ -24,8 +25,12 @@ const TCAuth = {
     });
     if (error) throw new Error('Errore di connessione');
     if (!data?.success) throw new Error(data?.error || 'Credenziali non valide');
-    // _pwd è salvato per le operazioni admin che richiedono ri-verifica lato DB
-    this._session = { nickname: data.nickname, isAdmin: !!data.is_admin, _pwd: password };
+    this._session = {
+      nickname: data.nickname,
+      isAdmin: !!data.is_admin,
+      canViewEconomics: !!data.can_view_economics,
+      _pwd: password
+    };
     localStorage.setItem('tcf_session', JSON.stringify(this._session));
     return this._session;
   },
@@ -40,7 +45,7 @@ const TCAuth = {
   async listUsers() {
     const { data, error } = await supabaseClient
       .from('app_users')
-      .select('nickname, is_admin, created_at')
+      .select('nickname, is_admin, can_view_economics, created_at')
       .order('created_at');
     if (error) throw error;
     return data || [];
@@ -100,6 +105,17 @@ const TCAuth = {
   _requireAdminPwd() {
     if (!this._session?.isAdmin) throw new Error('Non autorizzato');
     if (!this._session?._pwd) throw new Error('Sessione scaduta — effettua di nuovo il login');
+  },
+
+  async setUserEconomics(targetNickname, value) {
+    this._requireAdminPwd();
+    const { data, error } = await supabaseClient.rpc('tc_set_user_economics', {
+      p_admin_nick:  this._session.nickname,
+      p_admin_pwd:   this._session._pwd,
+      p_target_nick: targetNickname,
+      p_value:       value,
+    });
+    if (error || !data?.success) throw new Error(data?.error || 'Errore');
   },
 };
 

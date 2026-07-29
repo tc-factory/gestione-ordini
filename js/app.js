@@ -12,6 +12,10 @@ const AppState = {
   searchQuery: '',
   sortKey: 'data',
   filterTags: [],
+  filterArchive: 'all',   // 'all' | 'fatturati' | 'non-fatturati'
+  logFilterUser: '',
+  logSearchQuery: '',
+  logOffset: 0,
   selectedOrder: null,
   dayOpen: null,
   formEditOrder: null,
@@ -76,7 +80,7 @@ function showToast(message, type = 'success') {
 
 function renderApp() {
   renderHeader();
-  renderStats();
+  renderStats(); // include renderEconomicDashboard() call
   renderOrderList();
 }
 
@@ -113,13 +117,42 @@ function renderStats() {
     </div>
     <div class="glass-card stat-card">
       <div class="stat-card-glow" style="background:#f97316;"></div>
-      <div class="stat-card-label">Spedito parz.</div>
+      <div class="stat-card-label">Parziale</div>
       <div class="stat-card-value" style="color:#f97316;">${partial}</div>
     </div>
     <div class="glass-card stat-card">
       <div class="stat-card-glow" style="background:#22c55e;"></div>
       <div class="stat-card-label">Archiviati</div>
       <div class="stat-card-value" style="color:#22c55e;">${arch}</div>
+    </div>
+  `;
+  renderEconomicDashboard();
+}
+
+function renderEconomicDashboard() {
+  const root = document.getElementById('economic-root');
+  if (!root) return;
+  if (!TCAuth.canViewEconomics()) { root.innerHTML = ''; return; }
+
+  const daRisc = TCFactory.getDaRiscuotereOrders();
+  const arch   = TCFactory.getArchivedOrders();
+  const totDaRisc  = daRisc.reduce((s,o) => s + (parseFloat(o.importo)||0), 0);
+  const totRiscosso= arch.reduce((s,o)   => s + (parseFloat(o.importo)||0), 0);
+
+  root.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="glass-card stat-card" role="button" style="cursor:pointer;" onclick="setView('dariscuotere')" title="Vedi ordini da riscuotere">
+        <div class="stat-card-glow" style="background:#ef4444;"></div>
+        <div class="stat-card-label" style="color:#ef4444;">Da riscuotere</div>
+        <div class="stat-card-value" style="color:#ef4444;">€ ${totDaRisc.toFixed(2)}</div>
+        <div style="font-size:0.72rem;color:var(--text-muted);">${daRisc.length} ordini</div>
+      </div>
+      <div class="glass-card stat-card">
+        <div class="stat-card-glow" style="background:#22c55e;"></div>
+        <div class="stat-card-label" style="color:#22c55e;">Riscosso</div>
+        <div class="stat-card-value" style="color:#22c55e;">€ ${totRiscosso.toFixed(2)}</div>
+        <div style="font-size:0.72rem;color:var(--text-muted);">${arch.length} ordini</div>
+      </div>
     </div>
   `;
 }
@@ -148,34 +181,38 @@ function clearTagFilters() { AppState.filterTags = []; renderOrderList(); }
 function renderOrderList() {
   const nActive   = TCFactory.getActiveOrders().length;
   const nPartial  = TCFactory.getPartialOrders().length;
+  const nDaRisc   = TCFactory.getDaRiscuotereOrders().length;
   const nArchived = TCFactory.getArchivedOrders().length;
 
-  const source =
-    AppState.view === 'active'  ? TCFactory.getActiveOrders()  :
-    AppState.view === 'partial' ? TCFactory.getPartialOrders() :
-                                  TCFactory.getArchivedOrders();
+  let source =
+    AppState.view === 'active'       ? TCFactory.getActiveOrders()        :
+    AppState.view === 'partial'      ? TCFactory.getPartialOrders()       :
+    AppState.view === 'dariscuotere' ? TCFactory.getDaRiscuotereOrders()  :
+                                       TCFactory.getArchivedOrders();
 
-  // Filtro testo
+  // Filtro archivio (fatturati/non)
+  if (AppState.view === 'archived' && AppState.filterArchive !== 'all') {
+    source = source.filter(o =>
+      AppState.filterArchive === 'fatturati' ? o.invoiceConfirmed : !o.invoiceConfirmed
+    );
+  }
+
   const q = AppState.searchQuery.trim().toLowerCase();
   let filtered = q
     ? source.filter(o => o.nome.toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q)))
     : source;
 
-  // Filtro tag
   if (AppState.filterTags.length > 0) {
     filtered = filtered.filter(o => AppState.filterTags.every(t => o.tags.includes(t)));
   }
 
-  // Comparatori — getLavDone completamente autonomo, senza riferimenti esterni
   const getLavDone = (o) => {
     const s = o.stages || {};
-    return (s.merceCompleta?.done ? 1 : 0)
-         + (s.dtfPronti?.done     ? 1 : 0)
-         + (s.ordineStampato?.done ? 1 : 0);
+    return (s.merceCompleta?.done?1:0) + (s.dtfPronti?.done?1:0) + (s.ordineStampato?.done?1:0);
   };
-  const cmpDate        = (a, b) => (a.dataOrdine || '').localeCompare(b.dataOrdine || '');
+  const cmpDate        = (a, b) => (a.dataOrdine||'').localeCompare(b.dataOrdine||'');
   const cmpPriorita    = (a, b) => TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
-  const cmpAvanzamento = (a, b) => getLavDone(b) - getLavDone(a); // più avanzati prima
+  const cmpAvanzamento = (a, b) => getLavDone(b) - getLavDone(a);
 
   if (!['data','priorita','avanzamento'].includes(AppState.sortKey)) AppState.sortKey = 'data';
 
@@ -202,11 +239,25 @@ function renderOrderList() {
       ${AppState.filterTags.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="clearTagFilters()" style="font-size:0.72rem;">× rimuovi filtri</button>` : ''}
     </div>` : '';
 
+  const archiveFilterRow = AppState.view === 'archived' ? `
+    <div style="padding:6px 16px;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center;">
+      <span style="font-size:0.72rem;color:var(--text-muted);font-weight:600;">Filtro:</span>
+      ${['all','fatturati','non-fatturati'].map(f => {
+        const labels = {all:'Tutti', fatturati:'Fatturati 🧾', 'non-fatturati':'Non fatturati'};
+        const active = AppState.filterArchive === f;
+        return `<button class="chip chip-btn" onclick="setArchiveFilter('${f}')"
+          style="background:${active ? 'var(--brand-gold)' : 'var(--bg-secondary)'};color:${active ? '#fff' : 'var(--text-primary)'};border:1px solid var(--border);">
+          ${labels[f]}
+        </button>`;
+      }).join('')}
+    </div>` : '';
+
   const emptyMsg =
     q || AppState.filterTags.length > 0 ? 'Nessun risultato.' :
-    AppState.view === 'archived' ? 'Nessun ordine archiviato.' :
-    AppState.view === 'partial'  ? 'Nessun ordine spedito parzialmente.' :
-    'Nessun ordine attivo. Premi "+ Nuovo ordine" per iniziare.';
+    AppState.view === 'archived'       ? 'Nessun ordine archiviato.' :
+    AppState.view === 'partial'        ? 'Nessun ordine spedito parzialmente.' :
+    AppState.view === 'dariscuotere'   ? 'Nessun ordine da riscuotere.' :
+    'Nessun ordine attivo.';
 
   document.getElementById('orderlist-root').innerHTML = `
     <div class="glass-card">
@@ -217,9 +268,10 @@ function renderOrderList() {
             <p>${filtered.length} di ${source.length}</p>
           </div>
           <div class="view-tabs">
-            <button class="view-tab ${AppState.view==='active'?'active':''}"   onclick="setView('active')">Attivi · ${nActive}</button>
-            <button class="view-tab ${AppState.view==='partial'?'active':''}"  onclick="setView('partial')">${Icons.truck(12)} Sped. parz. · ${nPartial}</button>
-            <button class="view-tab ${AppState.view==='archived'?'active':''}" onclick="setView('archived')">${Icons.archive(12)} Archivio · ${nArchived}</button>
+            <button class="view-tab ${AppState.view==='active'?'active':''}"        onclick="setView('active')">Attivi · ${nActive}</button>
+            <button class="view-tab ${AppState.view==='partial'?'active':''}"       onclick="setView('partial')">${Icons.truck(12)} Parziale · ${nPartial}</button>
+            <button class="view-tab ${AppState.view==='dariscuotere'?'active':''}"  onclick="setView('dariscuotere')" style="${AppState.view==='dariscuotere'?'':'color:#ef4444;'}">€ Da riscuotere · ${nDaRisc}</button>
+            <button class="view-tab ${AppState.view==='archived'?'active':''}"      onclick="setView('archived')">${Icons.archive(12)} Archivio · ${nArchived}</button>
           </div>
         </div>
         <div class="list-controls">
@@ -235,11 +287,12 @@ function renderOrderList() {
         </div>
       </div>
       ${tagFilterRow}
+      ${archiveFilterRow}
       <div class="order-rows">
         <div class="order-row-item order-row-header-row" onclick="event.stopPropagation()">
           <div class="order-row-bar" style="background:transparent;"></div>
           <div class="order-row-grid">
-              <div class="orc-name orc-hdr">Nome</div>
+            <div class="orc-name orc-hdr">Nome</div>
             <div class="orc-date orc-hdr">Data</div>
             <div class="orc-tags orc-hdr">Tipologia</div>
             <div class="orc-lav orc-hdr">Lavorazione</div>
@@ -257,6 +310,9 @@ function renderOrderList() {
     </div>
   `;
 }
+
+function setArchiveFilter(f) { AppState.filterArchive = f; renderOrderList(); }
+
 
 function renderOrderRow(o) {
   const p     = TCFactory.getPriority(o.priorityId);
@@ -332,12 +388,6 @@ function renderOrderRow(o) {
         </div>
         <div class="orc-eva" style="flex-wrap:nowrap;gap:4px;align-items:center;">
           ${evaPills}
-          <button class="stage-pill"
-            onclick="event.stopPropagation();quickToggleArchive('${o.id}',${o.archived})"
-            title="${o.archived ? 'Ripristina agli attivi' : 'Archivia'}"
-            style="opacity:0.55;padding:2px 5px;font-size:0.82rem;" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.55'">
-            📁
-          </button>
         </div>
         <div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline?'700':'400'};">${deadlineBadge}</div>
         <div class="orc-priority">${renderPriorityChip(p)}</div>
@@ -375,7 +425,12 @@ function quickPreviewInvoice(orderId) {
 async function togglePayment(orderId, done) {
   try {
     const today = new Date().toISOString().slice(0, 10);
-    await TCFactory.updateOrder(orderId, { paymentDone: done, paymentDate: done ? today : null });
+    // € è l'UNICO modo per archiviare un ordine
+    await TCFactory.updateOrder(orderId, {
+      paymentDone: done,
+      paymentDate: done ? today : null,
+    });
+    await TCFactory.setArchived(orderId, done);
     renderApp();
   } catch(e) { showToast('Errore pagamento', 'error'); }
 }
@@ -385,6 +440,16 @@ async function toggleInvoiceConfirmed(orderId, confirmed) {
     await TCFactory.updateOrder(orderId, { invoiceConfirmed: confirmed });
     renderApp();
   } catch(e) { showToast('Errore fattura', 'error'); }
+}
+
+// quickToggleArchive ora RIPRISTINA solo, non archivia più
+async function quickToggleArchive(orderId, isArchived) {
+  if (!isArchived) {
+    showToast('Usa la spunta € per archiviare');
+    return;
+  }
+  try { await moveOrderTo(orderId, 'active'); }
+  catch(e) { showToast('Errore', 'error'); }
 }
 
 function downloadOrderModule(orderId) {
@@ -555,22 +620,17 @@ async function moveOrderTo(id, target) {
   try {
     await TCFactory.setStage(id, 'speditoParzialmente', false);
     await TCFactory.setStage(id, 'spedito', false);
+    await TCFactory.updateOrder(id, { paymentDone: false, paymentDate: null });
     await TCFactory.setArchived(id, false);
-    if (target === 'partial') {
-      await TCFactory.setStage(id, 'speditoParzialmente', true);
-    } else if (target === 'archived') {
-      await TCFactory.setStage(id, 'speditoParzialmente', true);
-      await TCFactory.setStage(id, 'spedito', true);
-      await TCFactory.setArchived(id, true);
-    }
+    if (target === 'partial')      await TCFactory.setStage(id, 'speditoParzialmente', true);
+    if (target === 'dariscuotere') { await TCFactory.setStage(id, 'speditoParzialmente', true); await TCFactory.setStage(id, 'spedito', true); }
     AppState.selectedOrder = TCFactory.getOrderById(id);
     renderOrderDetail();
     renderApp();
-    const labels = { active: 'Attivi', partial: 'Spedito parz.', archived: 'Archivio' };
-    showToast(`Ordine spostato in: ${labels[target]}`);
-  } catch(e) { showToast('Errore spostamento ordine', 'error'); }
+    const labels = { active: 'Attivi', partial: 'Parziale', dariscuotere: 'Da riscuotere' };
+    showToast('Spostato in: ' + (labels[target] || target));
+  } catch(e) { showToast('Errore spostamento', 'error'); }
 }
-
 async function restoreOrder(id) {
   await moveOrderTo(id, 'active');
 }
@@ -765,6 +825,15 @@ function openOrderForm(order = null, defaultDate = null) {
           <div class="form-group">
             <label class="form-label">Deadline</label>
             <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}" onchange="checkDeadlineUrgency(this.value)">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Importo <span style="font-size:0.72rem;color:var(--text-muted);">(auto dal modulo se compilato)</span></label>
+          <div style="position:relative;">
+            <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-weight:600;">€</span>
+            <input id="of-importo" type="number" class="form-input" style="padding-left:28px;" step="0.01" min="0"
+              value="${order?.importo || ''}" placeholder="0.00">
           </div>
         </div>
 
@@ -1001,6 +1070,11 @@ function updateModuleTotals() {
   const es = document.getElementById('mod-saldo-val');
   if (et) et.textContent = '€ ' + total.toFixed(2);
   if (es) { es.textContent = '€ ' + saldo.toFixed(2); es.style.color = saldo > 0 ? '#ef4444' : '#22c55e'; }
+  // Auto-popola il campo importo se il modulo ha prezzi
+  if (total > 0) {
+    const importoField = document.getElementById('of-importo');
+    if (importoField) importoField.value = total.toFixed(2);
+  }
 }
 function addModRow() {
   AppState.formModuleRows.push({ catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false });
@@ -1089,6 +1163,7 @@ async function submitOrderForm() {
     tags: AppState.formTags,
     files: AppState.formFiles,
     invoiceFiles: AppState.formInvoiceFiles,
+    importo: parseFloat(document.getElementById('of-importo')?.value) || 0,
     orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto },
   };
 
@@ -1420,12 +1495,16 @@ async function renderUsersSection(container) {
     <div class="settings-section-hint">Solo gli admin possono creare e rimuovere account.</div>
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
       ${_usersList.map(u => `
-        <div class="config-row" style="justify-content:space-between;">
+        <div class="config-row" style="justify-content:space-between;flex-wrap:wrap;gap:4px;">
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="font-size:0.88rem;font-weight:600;">${escapeHtml(u.nickname)}</span>
             ${u.is_admin ? `<span class="chip" style="background:var(--brand-gold)22;color:var(--brand-gold);font-size:0.65rem;">admin</span>` : ''}
           </div>
-          <div style="display:flex;align-items:center;gap:6px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:5px;font-size:0.75rem;cursor:pointer;" title="Può vedere la dashboard economica">
+              <input type="checkbox" ${u.can_view_economics?'checked':''} ${u.nickname===TCAuth.getNickname()?'disabled':''} onchange="setUserEconomicsFlag('${escapeHtml(u.nickname)}',this.checked)">
+              Gest. economica
+            </label>
             <span style="font-size:0.72rem;color:var(--text-muted);">${new Date(u.created_at).toLocaleDateString('it-IT')}</span>
             ${u.nickname !== TCAuth.getNickname() ? `
               <button class="btn btn-secondary btn-sm" style="font-size:0.72rem;" onclick="adminResetPwdPrompt('${escapeHtml(u.nickname)}')" title="Reimposta password">🔑</button>
@@ -1465,6 +1544,13 @@ async function createNewUser() {
   } catch(e) { showToast(e.message, 'error'); }
 }
 
+async function setUserEconomicsFlag(nick, value) {
+  try {
+    await TCAuth.setUserEconomics(nick, value);
+    showToast(`Gestione economica ${value ? 'abilitata' : 'disabilitata'} per ${nick}`);
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
 async function adminResetPwdPrompt(nick) {
   const newPwd = prompt(`Nuova password per "${nick}" (min. 4 caratteri):`);
   if (!newPwd) return;
@@ -1486,22 +1572,60 @@ async function deleteUserConfirm(nick) {
 }
 
 async function renderLogSection(container) {
-  container.innerHTML = `<div style="font-size:0.8rem;color:var(--text-muted);padding:8px 0;">Caricamento log…</div>`;
+  const users = await TCFactory.getLogUsers().catch(() => []);
+  container.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+      <select id="log-user-filter" class="form-select" style="width:auto;font-size:0.8rem;" onchange="AppState.logFilterUser=this.value;AppState.logOffset=0;loadLogEntries()">
+        <option value="">Tutti gli utenti</option>
+        ${users.map(u => `<option value="${escapeHtml(u)}" ${AppState.logFilterUser===u?'selected':''}>${escapeHtml(u)}</option>`).join('')}
+      </select>
+      <div class="search-box" style="flex:1;min-width:140px;">
+        ${Icons.search(13)}
+        <input id="log-search-input" class="form-input" style="font-size:0.8rem;" placeholder="Cerca azione o ordine…"
+          value="${escapeHtml(AppState.logSearchQuery)}"
+          onkeydown="if(event.key==='Enter'){AppState.logSearchQuery=this.value;AppState.logOffset=0;loadLogEntries();}">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="AppState.logSearchQuery=document.getElementById('log-search-input').value;AppState.logOffset=0;loadLogEntries()">Cerca</button>
+      <button class="btn btn-ghost btn-sm" onclick="AppState.logFilterUser='';AppState.logSearchQuery='';AppState.logOffset=0;renderLogSection(document.getElementById('log-section-body'))">Reset</button>
+    </div>
+    <div id="log-entries-wrap"><div style="color:var(--text-muted);font-size:0.8rem;">Caricamento…</div></div>
+  `;
+  window._logContainer = container;
+  loadLogEntries();
+}
+
+async function loadLogEntries() {
+  const wrap = document.getElementById('log-entries-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = `<div style="color:var(--text-muted);font-size:0.8rem;padding:8px 0;">Caricamento…</div>`;
   try {
-    const entries = await TCFactory.getActivityLog(100);
-    if (entries.length === 0) { container.innerHTML = `<div style="font-size:0.8rem;color:var(--text-muted);">Nessuna attività registrata.</div>`; return; }
-    container.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;">
-        ${entries.map(e => {
-          const dt = new Date(e.created_at).toLocaleString('it-IT', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
-          return `<div style="display:grid;grid-template-columns:110px 80px 1fr;gap:8px;padding:6px 8px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.75rem;align-items:start;">
-            <span style="color:var(--text-muted);">${dt}</span>
-            <span style="font-weight:700;color:var(--brand-gold);">${escapeHtml(e.user_nickname)}</span>
-            <div><span style="font-weight:600;">${escapeHtml(e.action)}</span>${e.order_name ? `<span style="color:var(--text-muted);"> · ${escapeHtml(e.order_name)}</span>` : ''}</div>
-          </div>`;
-        }).join('')}
-      </div>`;
-  } catch(e) { container.innerHTML = `<div style="color:var(--priority-urgent);font-size:0.8rem;">Errore: ${e.message}</div>`; }
+    const { entries, total } = await TCFactory.getActivityLog({
+      filterUser:  AppState.logFilterUser,
+      searchQuery: AppState.logSearchQuery,
+      offset:      AppState.logOffset,
+      pageSize:    100,
+    });
+    const hasMore = AppState.logOffset + entries.length < total;
+    wrap.innerHTML = entries.length === 0
+      ? '<div style="font-size:0.8rem;color:var(--text-muted);">Nessuna voce trovata.</div>'
+      : `<div style="display:flex;flex-direction:column;gap:3px;max-height:380px;overflow-y:auto;">
+          ${entries.map(e => {
+            const dt = new Date(e.created_at).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+            return `<div style="display:grid;grid-template-columns:105px 75px 1fr;gap:6px;padding:5px 8px;border-radius:4px;background:var(--bg-secondary);font-size:0.73rem;align-items:start;">
+              <span style="color:var(--text-muted);">${dt}</span>
+              <span style="font-weight:700;color:var(--brand-gold);">${escapeHtml(e.user_nickname)}</span>
+              <div><span style="font-weight:600;">${escapeHtml(e.action)}</span>${e.order_name ? `<span style="color:var(--text-muted);"> · ${escapeHtml(e.order_name)}</span>` : ''}</div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:0.75rem;color:var(--text-muted);">
+          <span>${AppState.logOffset+1}–${AppState.logOffset+entries.length} di ${total}</span>
+          <div style="display:flex;gap:6px;">
+            ${AppState.logOffset > 0 ? `<button class="btn btn-ghost btn-sm" onclick="AppState.logOffset=Math.max(0,AppState.logOffset-100);loadLogEntries()">← Prec.</button>` : ''}
+            ${hasMore ? `<button class="btn btn-ghost btn-sm" onclick="AppState.logOffset+=100;loadLogEntries()">Succ. →</button>` : ''}
+          </div>
+        </div>`;
+  } catch(e) { wrap.innerHTML = `<div style="color:var(--priority-urgent);font-size:0.8rem;">Errore: ${e.message}</div>`; }
 }
 
 // ─────────────────────────────────────────────
