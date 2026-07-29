@@ -134,24 +134,30 @@ function renderEconomicDashboard() {
   if (!root) return;
   if (!TCAuth.canViewEconomics()) { root.innerHTML = ''; return; }
 
-  const daRisc = TCFactory.getDaRiscuotereOrders();
-  const arch   = TCFactory.getArchivedOrders();
-  const totDaRisc  = daRisc.reduce((s,o) => s + (parseFloat(o.importo)||0), 0);
-  const totRiscosso= arch.reduce((s,o)   => s + (parseFloat(o.importo)||0), 0);
+  const all = TCFactory.getOrders();
+
+  // Da riscuotere = TUTTI gli ordini non ancora pagati (Attivi + Evasione + Da riscuotere tab)
+  const daRiscOrders  = all.filter(o => !o.paymentDone);
+  const totDaRisc     = daRiscOrders.reduce((s,o) => s + (parseFloat(o.importo)||0), 0);
+  const nDaRiscTab    = TCFactory.getDaRiscuotereOrders().length; // solo tab "Da riscuotere"
+
+  // Riscosso = TUTTI gli ordini già pagati (Archivio + Evasione con € flaggato)
+  const riscossoOrders = all.filter(o => o.paymentDone);
+  const totRiscosso    = riscossoOrders.reduce((s,o) => s + (parseFloat(o.importo)||0), 0);
 
   root.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <div class="glass-card stat-card" role="button" style="cursor:pointer;" onclick="setView('dariscuotere')" title="Vedi ordini da riscuotere">
         <div class="stat-card-glow" style="background:#ef4444;"></div>
         <div class="stat-card-label" style="color:#ef4444;">Da riscuotere</div>
-        <div class="stat-card-value" style="color:#ef4444;">€ ${totDaRisc.toFixed(2)}</div>
-        <div style="font-size:0.72rem;color:var(--text-muted);">${daRisc.length} ordini</div>
+        <div class="stat-card-value" style="color:#ef4444;font-size:1.4rem;">€ ${totDaRisc.toFixed(2)}</div>
+        <div style="font-size:0.72rem;color:var(--text-muted);">${nDaRiscTab} evasi non pagati</div>
       </div>
       <div class="glass-card stat-card">
         <div class="stat-card-glow" style="background:#22c55e;"></div>
         <div class="stat-card-label" style="color:#22c55e;">Riscosso</div>
-        <div class="stat-card-value" style="color:#22c55e;">€ ${totRiscosso.toFixed(2)}</div>
-        <div style="font-size:0.72rem;color:var(--text-muted);">${arch.length} ordini</div>
+        <div class="stat-card-value" style="color:#22c55e;font-size:1.4rem;">€ ${totRiscosso.toFixed(2)}</div>
+        <div style="font-size:0.72rem;color:var(--text-muted);">${riscossoOrders.length} ordini pagati</div>
       </div>
     </div>
   `;
@@ -366,13 +372,16 @@ function renderOrderRow(o) {
   const moduleBtn  = (o.orderModule?.rows?.length || 0) > 0
     ? `<button class="file-quick-btn" onclick="event.stopPropagation();downloadOrderModule('${o.id}')" title="Modulo d'ordine">📋</button>` : '';
 
-  // Pagamento
-  const payDone = o.paymentDone || false;
-  const payDate = o.paymentDate;
-  const invConf = o.invoiceConfirmed || false;
+  // Pagamento con importo colorato condizionalmente
+  const payDone  = o.paymentDone || false;
+  const payDate  = o.paymentDate;
+  const invConf  = o.invoiceConfirmed || false;
+  const importo  = parseFloat(o.importo) || 0;
+  const impColor = payDone ? '#22c55e' : (importo > 0 ? '#ef4444' : 'var(--text-muted)');
+  const impStr   = importo > 0 ? `€ ${importo.toLocaleString('it-IT', {minimumFractionDigits:2, maximumFractionDigits:2})}` : '';
 
   const paymentCell = `
-    <div class="orc-payment" style="flex-direction:column;align-items:center;gap:4px;">
+    <div class="orc-payment" style="flex-direction:column;align-items:center;gap:3px;">
       <div style="display:flex;gap:4px;">
         <button class="stage-pill ${invConf?'done':''}"
           onclick="event.stopPropagation();toggleInvoiceConfirmed('${o.id}',${!invConf})"
@@ -383,6 +392,7 @@ function renderOrderRow(o) {
           title="${payDone ? 'Pagato' : 'Segna come pagato'}"
           style="font-size:0.82rem;padding:2px 8px;font-weight:700;">€</button>
       </div>
+      ${impStr ? `<span style="font-size:0.68rem;font-weight:700;color:${impColor};white-space:nowrap;">${impStr}</span>` : ''}
       ${payDone && payDate ? `<span style="font-size:0.6rem;color:#22c55e;">${TCFactory.formatDate(payDate,{day:'2-digit',month:'2-digit'})}</span>` : ''}
     </div>`;
 
