@@ -236,9 +236,8 @@ const TCFactory = {
     let { data: row, error } = await supabaseClient.from('orders').insert(this._toDb(order)).select().single();
     if (error && error.message) {
       const payload = this._toDb(order);
-      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module'].forEach(col => {
-        if (error.message.includes(col)) delete payload[col];
-      });
+      // Rimuovi TUTTE le colonne opzionali in un colpo solo
+      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module'].forEach(col => delete payload[col]);
       ({ data: row, error } = await supabaseClient.from('orders').insert(payload).select().single());
     }
     if (error) throw error;
@@ -254,9 +253,8 @@ const TCFactory = {
     let { data: row, error } = await supabaseClient.from('orders').update(this._toDb(merged)).eq('id', id).select().single();
     if (error && error.message) {
       const payload = this._toDb(merged);
-      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module'].forEach(col => {
-        if (error.message.includes(col)) delete payload[col];
-      });
+      // Rimuovi TUTTE le colonne opzionali in un colpo solo
+      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module'].forEach(col => delete payload[col]);
       ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
     }
     if (error) throw error;

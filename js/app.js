@@ -1251,21 +1251,31 @@ async function submitOrderForm() {
     orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto },
   };
 
+  const btn = document.querySelector('#order-form-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio…'; }
+
+  let saved = false;
   try {
-    const btn = document.querySelector('#order-form-modal .btn-primary');
-    if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio…'; }
     if (AppState.formEditOrder) {
       await TCFactory.updateOrder(AppState.formEditOrder.id, payload);
-      showToast('Ordine aggiornato');
     } else {
       await TCFactory.addOrder(payload);
-      showToast('Ordine creato');
     }
-    closeModal('order-form-modal');
+    saved = true;
   } catch(e) {
-    showToast('Errore durante il salvataggio', 'error');
-    const btn = document.querySelector('#order-form-modal .btn-primary');
-    if (btn) { btn.disabled = false; btn.textContent = AppState.formEditOrder ? 'Salva modifiche' : 'Crea ordine'; }
+    showToast('Errore durante il salvataggio — riprova', 'error');
+    console.error('[submit]', e);
+  } finally {
+    // Il pulsante torna sempre cliccabile
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = AppState.formEditOrder ? 'Salva modifiche' : 'Crea ordine';
+    }
+  }
+
+  if (saved) {
+    closeModal('order-form-modal');
+    showToast(AppState.formEditOrder ? 'Ordine aggiornato ✓' : 'Ordine creato ✓');
   }
 }
 
