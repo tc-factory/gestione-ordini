@@ -492,7 +492,7 @@ function renderOrderRow(o) {
       <button class="stage-pill evasione ${done?'done':''}"
         onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
         title="${s.label}">${s.shortLabel}</button>
-      ${stageDate ? `<span style="font-size:0.6rem;color:#22c55e;white-space:nowrap;">${stageDate}</span>` : ''}
+      <span style="font-size:0.6rem;white-space:nowrap;color:${stageDate?'#22c55e':'transparent'};">${stageDate||'00/00'}</span>
     </div>`;
   }).join('');
 
