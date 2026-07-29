@@ -405,10 +405,13 @@ function renderOrderRow(o) {
     const lavPills = LAVORAZIONE_DEFS.map(s => {
       const done  = o.stages?.[s.id]?.done;
       const stage = o.stages?.[s.id];
-      // Stampato: data inline accanto alla pill
+      // Stampato: data SOTTO la pill
       if (s.id === 'ordineStampato' && done && stage?.date) {
         const d = TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'});
-        return `<button class="stage-pill done" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',false)" title="${s.label}">${s.shortLabel}</button><span style="font-size:0.62rem;color:#22c55e;white-space:nowrap;">${d}</span>`;
+        return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+          <button class="stage-pill done" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',false)" title="${s.label}">${s.shortLabel}</button>
+          <span style="font-size:0.6rem;color:#22c55e;white-space:nowrap;">${d}</span>
+        </div>`;
       }
       return `<button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>`;
     }).join('');
@@ -421,7 +424,7 @@ function renderOrderRow(o) {
           <div class="orc-name">${escapeHtml(o.nome)}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           <div class="orc-tags">${tagPills}</div>
-          <div class="orc-lav" style="gap:3px;flex-wrap:wrap;">${lavPills}</div>
+          <div class="orc-lav" style="gap:3px;flex-wrap:wrap;align-items:flex-start;">${lavPills}</div>
           ${scadenzaCell}
           ${urgenzaCell}
           ${ordineCell}
@@ -430,17 +433,23 @@ function renderOrderRow(o) {
       </div>`;
   }
 
-  // ── EVASIONE: Data stampato + Parziale/Evaso pills ───────────────────
+  // ── EVASIONE: Data stampato + Parziale/Evaso pills con date ─────────
   if (view === 'evasione') {
     const stampatoDate = o.stages?.ordineStampato?.date
       ? TCFactory.formatDate(o.stages.ordineStampato.date, {day:'2-digit',month:'long'})
       : '—';
 
     const evaPills = EVASIONE_DEFS.map(s => {
-      const done = o.stages?.[s.id]?.done;
-      return `<button class="stage-pill evasione ${done?'done':''}"
-        onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
-        title="${s.label}">${s.shortLabel}</button>`;
+      const done      = o.stages?.[s.id]?.done;
+      const stageDate = done && o.stages?.[s.id]?.date
+        ? TCFactory.formatDate(o.stages[s.id].date, {day:'2-digit',month:'2-digit'})
+        : '';
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+        <button class="stage-pill evasione ${done?'done':''}"
+          onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
+          title="${s.label}">${s.shortLabel}</button>
+        ${stageDate ? `<span style="font-size:0.6rem;color:#22c55e;white-space:nowrap;">${stageDate}</span>` : ''}
+      </div>`;
     }).join('');
 
     return `
@@ -451,8 +460,11 @@ function renderOrderRow(o) {
           <div class="orc-name">${escapeHtml(o.nome)}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           <div class="orc-tags">${tagPills}</div>
-          <div class="orc-lav" style="font-size:0.78rem;font-weight:600;color:#22c55e;">${stampatoDate}</div>
-          <div class="orc-eva" style="gap:4px;flex-wrap:nowrap;">${evaPills}</div>
+          <div class="orc-lav" style="flex-direction:column;gap:1px;">
+            <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);">Stampato</span>
+            <span style="font-size:0.78rem;font-weight:700;color:#22c55e;">${stampatoDate}</span>
+          </div>
+          <div class="orc-eva" style="gap:6px;flex-wrap:nowrap;align-items:flex-start;">${evaPills}</div>
           ${scadenzaCell}
           ${urgenzaCell}
           ${ordineCell}
@@ -461,19 +473,33 @@ function renderOrderRow(o) {
       </div>`;
   }
 
-  // ── DA RISCUOTERE / ARCHIVIO / ALTRI: layout completo ────────────────
+  // ── DA RISCUOTERE / ARCHIVIO / ALTRI: layout completo con date ───────
   const lavPills = LAVORAZIONE_DEFS.map(s => {
-    const done = o.stages?.[s.id]?.done;
+    const done  = o.stages?.[s.id]?.done;
+    const stage = o.stages?.[s.id];
+    if (s.id === 'ordineStampato' && done && stage?.date) {
+      const d = TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'});
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+        <button class="stage-pill done" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',false)" title="${s.label}">${s.shortLabel}</button>
+        <span style="font-size:0.6rem;color:#22c55e;white-space:nowrap;">${d}</span>
+      </div>`;
+    }
     return `<button class="stage-pill ${done?'done':''}"
       onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
       title="${s.label}">${s.shortLabel}</button>`;
   }).join('');
 
   const evaPills = EVASIONE_DEFS.map(s => {
-    const done = o.stages?.[s.id]?.done;
-    return `<button class="stage-pill evasione ${done?'done':''}"
-      onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
-      title="${s.label}">${s.shortLabel}</button>`;
+    const done      = o.stages?.[s.id]?.done;
+    const stageDate = done && o.stages?.[s.id]?.date
+      ? TCFactory.formatDate(o.stages[s.id].date, {day:'2-digit',month:'2-digit'})
+      : '';
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+      <button class="stage-pill evasione ${done?'done':''}"
+        onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
+        title="${s.label}">${s.shortLabel}</button>
+      ${stageDate ? `<span style="font-size:0.6rem;color:#22c55e;white-space:nowrap;">${stageDate}</span>` : ''}
+    </div>`;
   }).join('');
 
   return `
