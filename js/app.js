@@ -408,6 +408,18 @@ function renderOrderRow(o) {
   const urgenzaCell  = `<div class="orc-priority">${renderPriorityChip(p)}</div>`;
   const ordineCell   = `<div class="orc-files">${filesBtns}${filesExtra}${moduleBtn}</div>`;
 
+  // Pill "Esterna" — visibile in tutti i tab se lavorazioneEsterna=true
+  const buildExternaPill = () => {
+    if (!o.lavorazioneEsterna) return '';
+    const externaStage = o.stages?.lavorazioneEsterna || { done: false };
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+      <button class="stage-pill ${externaStage.done?'done':''}"
+        onclick="event.stopPropagation();toggleStageInline('${o.id}','lavorazioneEsterna',${!externaStage.done})"
+        title="Lavorazione esterna completata" style="font-size:0.75rem;">Esterna</button>
+      <span style="font-size:0.6rem;white-space:nowrap;color:${externaStage.done&&externaStage.date?'#22c55e':'transparent'};">${externaStage.done&&externaStage.date ? TCFactory.formatDate(externaStage.date,{day:'2-digit',month:'2-digit'}) : '00/00'}</span>
+    </div>`;
+  };
+
   // ── ATTIVI: solo Lavorazione, nessuna Spedizione ──────────────────────
   if (view === 'active') {
     const isMerceDone = !!o.stages?.merceCompleta?.done;
@@ -425,12 +437,7 @@ function renderOrderRow(o) {
     }).join('');
 
     // Pill "Esterna" condizionale (solo se lavorazioneEsterna=true sull'ordine)
-    const externaStage = o.stages?.lavorazioneEsterna || { done: false };
-    const externaPill = o.lavorazioneEsterna ? `
-      <div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
-        <button class="stage-pill ${externaStage.done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','lavorazioneEsterna',${!externaStage.done})" title="Lavorazione esterna completata">Esterna</button>
-        <span style="font-size:0.6rem;white-space:nowrap;color:transparent;">00/00</span>
-      </div>` : '';
+    const externaPill = buildExternaPill();
 
     return `
       <div class="order-row-item" role="button" tabindex="0"
@@ -479,6 +486,7 @@ function renderOrderRow(o) {
           <div class="orc-lav" style="flex-direction:column;gap:1px;">
             <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);">Stampato</span>
             <span style="font-size:0.78rem;font-weight:700;color:#22c55e;">${stampatoDate}</span>
+            ${buildExternaPill()}
           </div>
           <div class="orc-eva" style="gap:6px;flex-wrap:nowrap;align-items:flex-start;">${evaPills}</div>
           ${scadenzaCell}
@@ -522,7 +530,7 @@ function renderOrderRow(o) {
         <div class="orc-name">${escapeHtml(o.nome)}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         <div class="orc-tags">${tagPills}</div>
-        <div class="orc-lav" style="gap:3px;flex-wrap:wrap;">${lavPills}</div>
+        <div class="orc-lav" style="gap:3px;flex-wrap:wrap;">${lavPills}${buildExternaPill()}</div>
         <div class="orc-eva" style="gap:4px;flex-wrap:nowrap;">${evaPills}</div>
         ${scadenzaCell}
         ${urgenzaCell}
