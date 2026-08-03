@@ -129,6 +129,7 @@ const TCFactory = {
       paymentDone: !!row.payment_done,
       paymentDate: row.payment_date || null,
       invoiceConfirmed: !!row.invoice_confirmed,
+      lavorazioneEsterna: !!row.lavorazione_esterna,
       importo: parseFloat(row.importo) || 0,
       orderModule: row.order_module || { rows: [], acconto: '' },
       dtfItems: row.dtf_items || [],
@@ -153,6 +154,7 @@ const TCFactory = {
       payment_done: !!order.paymentDone,
       payment_date: order.paymentDate || null,
       invoice_confirmed: !!order.invoiceConfirmed,
+      lavorazione_esterna: !!order.lavorazioneEsterna,
       importo: parseFloat(order.importo) || 0,
       order_module: order.orderModule || { rows: [], acconto: '' },
       dtf_items: order.dtfItems || [],
@@ -188,8 +190,10 @@ const TCFactory = {
   // Attivi: non archiviati e non spediti parzialmente
   // Attivi: non archiviati e non ancora stampati
   getActiveOrders()         { return this.getOrders().filter(o => !o.archived && !o.stages?.ordineStampato?.done); },
-  // Evasione: stampati ma non ancora evasi
-  getEvasioneOrders()       { return this.getOrders().filter(o => !o.archived && !!o.stages?.ordineStampato?.done && !o.stages?.spedito?.done); },
+  // Parziali: stampati senza merce completa (lavorazione parziale)
+  getParziali()             { return this.getOrders().filter(o => !o.archived && !!o.stages?.ordineStampato?.done && !o.stages?.merceCompleta?.done && !o.stages?.spedito?.done); },
+  // Evasione: merce completa + stampati, non ancora evasi
+  getEvasioneOrders()       { return this.getOrders().filter(o => !o.archived && !!o.stages?.ordineStampato?.done && !!o.stages?.merceCompleta?.done && !o.stages?.spedito?.done); },
   // Compat (non più usato come tab)
   getPartialOrders()        { return this.getOrders().filter(o => !o.archived && o.stages?.speditoParzialmente?.done && !o.stages?.spedito?.done); },
   // Da riscuotere: evasi ma NON ancora pagati (il promemoria "hai spedito senza farti pagare")
@@ -227,6 +231,7 @@ const TCFactory = {
       paymentDone: false,
       paymentDate: null,
       invoiceConfirmed: false,
+      lavorazioneEsterna: !!data.lavorazioneEsterna,
       importo: parseFloat(data.importo) || 0,
       orderModule: data.orderModule || { rows: [], acconto: '' },
       dtfItems: [],
@@ -237,7 +242,7 @@ const TCFactory = {
     if (error && error.message) {
       const payload = this._toDb(order);
       // Rimuovi TUTTE le colonne opzionali in un colpo solo
-      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module'].forEach(col => delete payload[col]);
+      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module','lavorazione_esterna'].forEach(col => delete payload[col]);
       ({ data: row, error } = await supabaseClient.from('orders').insert(payload).select().single());
     }
     if (error) throw error;
@@ -256,7 +261,7 @@ const TCFactory = {
     if (error && error.message) {
       const payload = this._toDb(merged);
       // Rimuovi TUTTE le colonne opzionali in un colpo solo
-      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module'].forEach(col => delete payload[col]);
+      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module','lavorazione_esterna'].forEach(col => delete payload[col]);
       ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
     }
     if (error) throw error;
@@ -682,6 +687,57 @@ const TCFactory = {
 
   getOrdersWithDTF() {
     return this.getOrders().filter(o => o.dtfItems && o.dtfItems.length > 0 && !o.archived);
+  },
+
+
+  // ─────────────────────────────────────────────
+  // CALENDARIO AZIENDALE
+  // ─────────────────────────────────────────────
+
+  _calEvents: [],
+
+  async loadCalendarEvents() {
+    const { data, error } = await supabaseClient
+      .from('calendar_events')
+      .select('*')
+      .order('date_from');
+    if (!error) this._calEvents = data || [];
+    return this._calEvents;
+  },
+
+  getCalendarEvents()      { return this._calEvents; },
+
+  async addCalendarEvent(ev) {
+    const { data, error } = await supabaseClient.from('calendar_events').insert({
+      title: ev.title,
+      date_from: ev.dateFrom,
+      date_to:   ev.dateTo,
+      event_type: ev.eventType || 'impegno',
+      user_ids:  ev.userIds || [],
+      color:     ev.color || '#6366f1',
+      notes:     ev.notes || '',
+      created_by: window.TCAuth?.getNickname() || 'sistema',
+    }).select().single();
+    if (error) throw error;
+    this._calEvents = [...this._calEvents, data];
+    return data;
+  },
+
+  async deleteCalendarEvent(id) {
+    const { error } = await supabaseClient.from('calendar_events').delete().eq('id', id);
+    if (error) throw error;
+    this._calEvents = this._calEvents.filter(e => e.id !== id);
+  },
+
+  getEventsForMonth(year, month) {
+    const from = `${year}-${String(month+1).padStart(2,'0')}-01`;
+    const lastDay = new Date(year, month+1, 0).getDate();
+    const to   = `${year}-${String(month+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+    return this._calEvents.filter(e => e.date_from <= to && e.date_to >= from);
+  },
+
+  getEventsForDate(dateStr) {
+    return this._calEvents.filter(e => e.date_from <= dateStr && e.date_to >= dateStr);
   },
 
   formatDate(dateStr, opts) {

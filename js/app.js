@@ -12,6 +12,9 @@ const AppState = {
   searchQuery: '',
   sortKey: 'data',
   filterTags: [],
+  calYear: new Date().getFullYear(),
+  calMonth: -1, // -1 = annual, 0-11 = specific month
+  calOpen: false,
   filterArchive: 'all',   // 'all' | 'fatturati' | 'non-fatturati'
   logFilterUser: '',
   logSearchQuery: '',
@@ -106,7 +109,8 @@ function renderHeader() {
 
 function renderStats() {
   const active  = TCFactory.getActiveOrders().length;
-  const partial = TCFactory.getEvasioneOrders().length;
+  const parziali = TCFactory.getParziali().length;
+  const partial  = TCFactory.getEvasioneOrders().length;
   const arch    = TCFactory.getArchivedOrders().length;
 
   document.getElementById('stats-root').innerHTML = `
@@ -118,7 +122,7 @@ function renderStats() {
     <div class="glass-card stat-card">
       <div class="stat-card-glow" style="background:#f97316;"></div>
       <div class="stat-card-label">Evasione</div>
-      <div class="stat-card-value" style="color:#f97316;">${partial}</div>
+      <div class="stat-card-value" style="color:#f97316;">${partial + parziali}</div>
     </div>
     <div class="glass-card stat-card">
       <div class="stat-card-glow" style="background:#22c55e;"></div>
@@ -186,12 +190,14 @@ function clearTagFilters() { AppState.filterTags = []; renderOrderList(); }
 
 function renderOrderList() {
   const nActive   = TCFactory.getActiveOrders().length;
+  const nParziali = TCFactory.getParziali().length;
   const nEvasione = TCFactory.getEvasioneOrders().length;
   const nDaRisc   = TCFactory.getDaRiscuotereOrders().length;
   const nArchived = TCFactory.getArchivedOrders().length;
 
   let source =
     AppState.view === 'active'       ? TCFactory.getActiveOrders()       :
+    AppState.view === 'parziali'     ? TCFactory.getParziali()           :
     AppState.view === 'evasione'     ? TCFactory.getEvasioneOrders()     :
     AppState.view === 'dariscuotere' ? TCFactory.getDaRiscuotereOrders() :
                                        TCFactory.getArchivedOrders();
@@ -232,7 +238,7 @@ function renderOrderList() {
   });
 
   const isActive   = AppState.view === 'active';
-  const isEvasione = AppState.view === 'evasione';
+  const isEvasione = AppState.view === 'evasione' || AppState.view === 'parziali';
 
   const allTags = TCFactory.getTags();
   const tagFilterRow = allTags.length > 0 ? `
@@ -264,6 +270,7 @@ function renderOrderList() {
   const emptyMsg =
     q || AppState.filterTags.length > 0 ? 'Nessun risultato.' :
     AppState.view === 'archived'       ? 'Nessun ordine archiviato.' :
+    AppState.view === 'parziali'       ? 'Nessun ordine parziale.' :
     AppState.view === 'evasione'       ? 'Nessun ordine in evasione.' :
     AppState.view === 'dariscuotere'   ? 'Nessun ordine da riscuotere.' :
     'Nessun ordine attivo.';
@@ -302,6 +309,7 @@ function renderOrderList() {
           </div>
           <div class="view-tabs">
             <button class="view-tab ${AppState.view==='active'?'active':''}"        onclick="setView('active')">Attivi · ${nActive}</button>
+            <button class="view-tab ${AppState.view==='parziali'?'active':''}"      onclick="setView('parziali')">Parziali · ${nParziali}</button>
             <button class="view-tab ${AppState.view==='evasione'?'active':''}"      onclick="setView('evasione')">Evasione · ${nEvasione}</button>
             <button class="view-tab ${AppState.view==='dariscuotere'?'active':''}"  onclick="setView('dariscuotere')" style="${AppState.view==='dariscuotere'?'':'color:#ef4444;'}">€ Da riscuotere · ${nDaRisc}</button>
             <button class="view-tab ${AppState.view==='archived'?'active':''}"      onclick="setView('archived')">${Icons.archive(12)} Archivio · ${nArchived}</button>
@@ -402,17 +410,27 @@ function renderOrderRow(o) {
 
   // ── ATTIVI: solo Lavorazione, nessuna Spedizione ──────────────────────
   if (view === 'active') {
+    const isMerceDone = !!o.stages?.merceCompleta?.done;
     const lavPills = LAVORAZIONE_DEFS.map(s => {
       const done  = o.stages?.[s.id]?.done;
       const stage = o.stages?.[s.id];
-      // Stampato: data SOTTO la pill
+      // Se merce NON completa, "Stampato" diventa "Parziale"
+      const label = (s.id === 'ordineStampato' && !isMerceDone) ? 'Parziale' : s.shortLabel;
       const stDate = (s.id === 'ordineStampato' && done && stage?.date)
         ? TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'}) : '';
       return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
-        <button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>
+        <button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${label}</button>
         <span style="font-size:0.6rem;white-space:nowrap;color:${stDate?'#22c55e':'transparent'};">${stDate||'00/00'}</span>
       </div>`;
     }).join('');
+
+    // Pill "Esterna" condizionale (solo se lavorazioneEsterna=true sull'ordine)
+    const externaStage = o.stages?.lavorazioneEsterna || { done: false };
+    const externaPill = o.lavorazioneEsterna ? `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+        <button class="stage-pill ${externaStage.done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','lavorazioneEsterna',${!externaStage.done})" title="Lavorazione esterna completata">Esterna</button>
+        <span style="font-size:0.6rem;white-space:nowrap;color:transparent;">00/00</span>
+      </div>` : '';
 
     return `
       <div class="order-row-item" role="button" tabindex="0"
@@ -422,7 +440,7 @@ function renderOrderRow(o) {
           <div class="orc-name">${escapeHtml(o.nome)}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           <div class="orc-tags">${tagPills}</div>
-          <div class="orc-lav" style="gap:3px;flex-wrap:wrap;align-items:flex-start;">${lavPills}</div>
+          <div class="orc-lav" style="gap:3px;flex-wrap:wrap;align-items:flex-start;">${lavPills}${externaPill}</div>
           ${scadenzaCell}
           ${urgenzaCell}
           ${ordineCell}
@@ -574,101 +592,117 @@ function downloadOrderModule(orderId) {
   const nome    = order?.nome || document.getElementById('of-nome')?.value || 'Ordine';
   const rows    = order?.orderModule?.rows || AppState.formModuleRows || [];
   const acconto = parseFloat(order?.orderModule?.acconto || AppState.formModuleAcconto || 0);
+  const notes   = order?.notes || document.getElementById('of-notes')?.value || '';
   const total   = rows.reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
   const saldo   = total - acconto;
-
-  // Urgenza
-  const priId    = order?.priorityId || document.getElementById('of-priority-picker')?.dataset?.selected || '';
+  const priId   = order?.priorityId || document.getElementById('of-priority-picker')?.dataset?.selected || '';
   const isUrgent = TCFactory.getPriority(priId)?.id === 'urgente';
+  const tags    = order?.tags || AppState.formTags || [];
+  const dl      = order?.deadline || document.getElementById('of-deadline')?.value || '';
 
-  // Tag con colori
-  const tags     = order?.tags || AppState.formTags || [];
-  const tagsHtml = tags.map(t => {
-    const c = TCFactory.getTagColor(t);
-    return `<span style="display:inline-block;background:${c}22;color:${c};border:1.5px solid ${c}77;border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700;margin-right:5px;">${t}</span>`;
-  }).join('');
+  // Usa jsPDF se disponibile, altrimenti fallback al print
+  if (window.jspdf?.jsPDF) {
+    _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl });
+  } else {
+    _generatePrintPreview({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl });
+  }
+}
 
-  // Deadline con colore condizionale
-  const dl = order?.deadline || document.getElementById('of-deadline')?.value || '';
-  let dlHtml = '<span style="color:#94a3b8">—</span>';
-  if (dl) {
-    const today = new Date().toISOString().slice(0, 10);
-    const diff  = Math.ceil((new Date(dl+'T00:00:00') - new Date(today+'T00:00:00')) / 86400000);
-    const dc    = diff < 0 ? '#dc2626' : diff <= 3 ? '#dc2626' : diff <= 7 ? '#ea580c' : '#1e40af';
-    const dlLabel = new Date(dl+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'});
-    const suffix  = diff < 0 ? ` <em style="font-size:11px">(scaduto ${Math.abs(diff)}gg fa)</em>` : diff === 0 ? ` <em style="font-size:11px">(oggi)</em>` : '';
-    dlHtml = `<span style="color:${dc};font-weight:700;">${dlLabel}${suffix}</span>`;
+function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl }) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pw = doc.internal.pageSize.width;
+
+  // Header
+  doc.setFontSize(16); doc.setTextColor(30, 64, 175); doc.setFont(undefined,'bold');
+  doc.text('T&C Factory Creative Lab', 15, 20);
+  if (isUrgent) {
+    doc.setFontSize(10); doc.setTextColor(220, 38, 38);
+    doc.text('⚠ URGENTE', pw - 15, 20, { align: 'right' });
   }
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>Modulo ordine - ${nome}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Segoe UI',Arial,sans-serif;margin:30px;color:#1e293b;background:#fff}
-  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:14px;border-bottom:3px solid #1e40af}
-  .brand{font-size:20px;font-weight:800;color:#1e40af}
-  .meta{margin-top:6px;font-size:13px;color:#64748b;line-height:1.8}
-  .meta strong{color:#1e293b}
-  .urgente{background:#fef2f2;color:#dc2626;border:2px solid #dc2626;border-radius:7px;padding:4px 14px;font-weight:800;font-size:13px;letter-spacing:.05em;white-space:nowrap}
-  table{width:100%;border-collapse:collapse;margin-top:20px;font-size:13px}
-  thead th{background:#1e40af;color:#fff;padding:10px 12px;text-align:left;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.08em;border-right:1px solid #2d55c4}
-  thead th:last-child{border-right:none}
-  tbody tr:nth-child(odd)  td{background:#ffffff}
-  tbody tr:nth-child(even) td{background:#eff6ff}
-  tbody td{padding:8px 12px;border-bottom:1px solid #dbeafe;font-size:13px}
-  tbody tr:last-child td{border-bottom:2px solid #1e40af}
-  .tot-section{margin-top:22px;display:flex;flex-direction:column;align-items:flex-end;gap:7px}
-  .tot-row{display:flex;gap:48px;font-size:14px;align-items:center}
-  .tot-label{color:#64748b;font-weight:500}
-  .tot-value{font-weight:800;min-width:100px;text-align:right}
-  .tot-big{font-size:17px;color:#1e40af}
-  .tot-saldo{color:#dc2626}
-  .tag-badge{display:inline-block;border-radius:5px;padding:2px 9px;font-size:11px;font-weight:700;margin-right:4px}
-  @media print{body{margin:12px}button{display:none}}
-</style></head><body>
-<div class="header">
-  <div>
-    <div class="brand">T&amp;C Factory Creative Lab</div>
-    <div class="meta">
-      <div><strong>Ordine:</strong> ${nome}</div>
-      <div><strong>Data:</strong> ${new Date().toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})}</div>
-      ${tags.length ? `<div><strong>Tipologia:</strong> ${tagsHtml}</div>` : ''}
-      ${dl ? `<div><strong>Deadline:</strong> ${dlHtml}</div>` : ''}
-    </div>
-  </div>
-  ${isUrgent ? `<div class="urgente">⚠️ URGENTE</div>` : ''}
-</div>
-<table>
-  <thead><tr>
-    <th>Catalogo</th><th>Codice</th><th>Colore</th>
-    <th style="text-align:center">QNT</th><th style="text-align:center">TG</th>
-    <th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th>
-    <th style="text-align:center">Ord.</th>
-  </tr></thead>
-  <tbody>
-    ${rows.length ? rows.map(r => {
-      const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
-      return `<tr>
-        <td><strong>${r.catalogo||''}</strong></td>
-        <td>${r.codice||''}</td>
-        <td>${r.colore||''}</td>
-        <td style="text-align:center">${r.qnt||''}</td>
-        <td style="text-align:center">${r.tg||''}</td>
-        <td style="text-align:right">${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
-        <td style="text-align:right;font-weight:700;color:#1e40af">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
-        <td style="text-align:center;font-size:16px;color:#16a34a">${r.ordinato?'✓':''}</td>
-      </tr>`;
-    }).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px">Nessuna riga</td></tr>'}
-  </tbody>
-</table>
-<div class="tot-section">
-  <div class="tot-row"><span class="tot-label">Totale ordine</span><span class="tot-value tot-big">€ ${total.toFixed(2)}</span></div>
-  <div class="tot-row"><span class="tot-label">Acconto</span><span class="tot-value">€ ${acconto.toFixed(2)}</span></div>
-  <div class="tot-row"><span class="tot-label">Saldo</span><span class="tot-value tot-big tot-saldo">€ ${saldo.toFixed(2)}</span></div>
-</div>
-<script>window.onload=()=>window.print()</script>
-</body></html>`;
+  doc.setFontSize(9); doc.setTextColor(100, 116, 139); doc.setFont(undefined,'normal');
+  let y = 28;
+  doc.text(`Ordine: ${nome}`, 15, y); y += 5;
+  doc.text(`Data: ${new Date().toLocaleDateString('it-IT')}`, 15, y); y += 5;
+  if (dl) { doc.text(`Deadline: ${new Date(dl+'T00:00:00').toLocaleDateString('it-IT')}`, 15, y); y += 5; }
+  if (tags.length) { doc.text(`Tipologia: ${tags.join(', ')}`, 15, y); y += 5; }
 
+  // Table
+  doc.autoTable({
+    startY: y + 3,
+    head: [['Catalogo','Codice','Colore','QNT','TG','Prezzo','Totale','Ord.']],
+    body: rows.length ? rows.map(r => {
+      const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
+      return [r.catalogo||'', r.codice||'', r.colore||'', r.qnt||'', r.tg||'',
+        r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
+        t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? '✓' : ''];
+    }) : [['','','','','','','','']],
+    styles: { fontSize: 9, cellPadding: 2 },
+    headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+    alternateRowStyles: { fillColor: [239, 246, 255] },
+    columnStyles: { 3:{halign:'center'}, 4:{halign:'center'}, 5:{halign:'right'}, 6:{halign:'right'}, 7:{halign:'center'} },
+  });
+
+  let fy = doc.lastAutoTable.finalY + 6;
+
+  // Totals
+  doc.setFontSize(10); doc.setFont(undefined,'normal'); doc.setTextColor(100, 116, 139);
+  doc.text('Totale ordine', pw - 60, fy);
+  doc.setTextColor(30, 64, 175); doc.setFont(undefined,'bold');
+  doc.text(`€ ${total.toFixed(2)}`, pw - 15, fy, { align: 'right' }); fy += 6;
+  doc.setFont(undefined,'normal'); doc.setTextColor(100, 116, 139);
+  doc.text('Acconto', pw - 60, fy);
+  doc.setTextColor(30, 41, 59);
+  doc.text(`€ ${acconto.toFixed(2)}`, pw - 15, fy, { align: 'right' }); fy += 6;
+  doc.setTextColor(100, 116, 139);
+  doc.text('Saldo', pw - 60, fy);
+  doc.setTextColor(220, 38, 38); doc.setFont(undefined,'bold');
+  doc.text(`€ ${saldo.toFixed(2)}`, pw - 15, fy, { align: 'right' }); fy += 10;
+
+  // Notes
+  if (notes && notes.trim()) {
+    doc.setFontSize(8); doc.setFont(undefined,'bold'); doc.setTextColor(100, 116, 139);
+    doc.text('NOTE', 15, fy); fy += 4;
+    doc.setFont(undefined,'normal'); doc.setTextColor(30, 41, 59); doc.setFontSize(8.5);
+    const noteLines = doc.splitTextToSize(notes, pw - 30);
+    doc.text(noteLines, 15, fy);
+  }
+
+  doc.save(`ordine-${nome.replace(/[^a-zA-Z0-9]/g,'-')}-${new Date().toISOString().slice(0,10)}.pdf`);
+}
+
+function _generatePrintPreview({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl }) {
+  // Fallback: open print dialog
+  const today = new Date().toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const tagsHtml = tags.map(t => { const c=TCFactory.getTagColor(t); return `<span style="background:${c}22;color:${c};border:1.5px solid ${c}77;border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700;margin-right:5px;">${t}</span>`; }).join('');
+  const dlHtml = dl ? (() => { const today2=new Date().toISOString().slice(0,10); const diff=Math.ceil((new Date(dl+'T00:00:00')-new Date(today2+'T00:00:00'))/86400000); const dc=diff<0?'#dc2626':diff<=7?'#ea580c':'#1e40af'; return `<span style="color:${dc};font-weight:700;">${new Date(dl+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})}</span>`; })() : '';
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Modulo - ${nome}</title>
+<style>body{font-family:'Segoe UI',Arial,sans-serif;margin:25px;color:#1e293b}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e40af;padding-bottom:12px;margin-bottom:16px}
+.brand{font-size:18px;font-weight:800;color:#1e40af}.meta{font-size:12px;color:#64748b;line-height:1.8}
+.urg{background:#fef2f2;color:#dc2626;border:2px solid #dc2626;border-radius:6px;padding:3px 12px;font-weight:800}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead th{background:#1e40af;color:#fff;padding:8px 10px;text-align:left;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em}
+tbody tr:nth-child(odd) td{background:#fff}tbody tr:nth-child(even) td{background:#eff6ff}
+tbody td{padding:7px 10px;border-bottom:1px solid #dbeafe}
+.tots{margin-top:16px;display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.tr{display:flex;gap:48px;font-size:13px}.tl{color:#64748b}.tv{font-weight:800;min-width:90px;text-align:right}
+.notes-section{margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0}
+.notes-label{font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
+.notes-text{font-size:12px;color:#1e293b;white-space:pre-wrap}
+@media print{body{margin:12px}}</style></head><body>
+<div class="hdr"><div><div class="brand">T&C Factory Creative Lab</div>
+<div class="meta"><strong>Ordine:</strong> ${nome}<br><strong>Data:</strong> ${today}
+${dlHtml ? `<br><strong>Deadline:</strong> ${dlHtml}` : ''}
+${tagsHtml ? `<br><strong>Tipologia:</strong> ${tagsHtml}` : ''}</div></div>
+${isUrgent ? `<div class="urg">⚠️ URGENTE</div>` : ''}</div>
+<table><thead><tr><th>Catalogo</th><th>Codice</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th></tr></thead><tbody>
+${rows.length ? rows.map(r=>{const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td></tr>`;}).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>'}
+</tbody></table>
+<div class="tots"><div class="tr"><span class="tl">Totale ordine</span><span class="tv" style="color:#1e40af">€ ${total.toFixed(2)}</span></div><div class="tr"><span class="tl">Acconto</span><span class="tv">€ ${acconto.toFixed(2)}</span></div><div class="tr"><span class="tl">Saldo</span><span class="tv" style="color:#dc2626">€ ${saldo.toFixed(2)}</span></div></div>
+${notes && notes.trim() ? `<div class="notes-section"><div class="notes-label">Note</div><div class="notes-text">${escapeHtml(notes.trim())}</div></div>` : ''}
+<script>window.onload=()=>window.print()</script></body></html>`;
   const win = window.open('', '_blank');
   if (win) { win.document.write(html); win.document.close(); }
   else showToast('Abilita i popup per scaricare il modulo', 'error');
@@ -989,6 +1023,13 @@ function openOrderForm(order = null, defaultDate = null) {
         </div>
 
         <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="of-lav-esterna" ${order?.lavorazioneEsterna ? 'checked' : ''}>
+            <span class="form-label" style="margin:0;">Lavorazione Esterna</span>
+          </label>
+        </div>
+
+        <div class="form-group">
           <label class="form-label">Tag</label>
           <div class="chip-picker" id="of-tag-picker">
             ${tags.map(t => renderTagPickerChip(t)).join('')}
@@ -1182,10 +1223,19 @@ function renderModuleRows() {
       <td><input class="mod-input mod-num" type="number" min="0" step="0.01" value="${r.prezzo||''}" oninput="storeMod(${i},'prezzo',this.value);calcModRow(${i})"></td>
       <td><span id="mod-tot-${i}" class="mod-calc">${tot>0 ? '€ '+tot.toFixed(2) : ''}</span></td>
       <td style="text-align:center;"><input type="checkbox" ${r.ordinato?'checked':''} onchange="storeMod(${i},'ordinato',this.checked)"></td>
-      <td><button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="removeModRow(${i})">${Icons.x(12)}</button></td>
+      <td style="display:flex;gap:3px;">
+        <button type="button" class="btn-icon" onclick="copyModRow(${i})" title="Copia riga">${Icons.copy ? Icons.copy(12) : '⧉'}</button>
+        <button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="removeModRow(${i})">${Icons.x(12)}</button>
+      </td>
     </tr>`;
   }).join('');
   updateModuleTotals();
+}
+
+function copyModRow(i) {
+  const row = { ...AppState.formModuleRows[i] };
+  AppState.formModuleRows.splice(i + 1, 0, row);
+  renderModuleRows();
 }
 
 function storeMod(i, field, value) {
@@ -1298,6 +1348,7 @@ async function submitOrderForm() {
 
   const payload = {
     nome, dataOrdine, deadline, notes, priorityId: finalPriorityId,
+    lavorazioneEsterna: !!document.getElementById('of-lav-esterna')?.checked,
     tags: AppState.formTags,
     files: AppState.formFiles,
     invoiceFiles: AppState.formInvoiceFiles,
@@ -1821,6 +1872,7 @@ async function doLogin() {
     await TCAuth.login(nick, pwd);
     document.getElementById('login-overlay').style.display = 'none';
     renderApp();
+    initCalendar();
   } catch(e) {
     if (err) err.textContent = e.message;
     if (btn) { btn.disabled = false; btn.textContent = 'Accedi'; }
@@ -1893,3 +1945,287 @@ const Icons = {
 
 window.Icons = Icons;
 
+
+// ═════════════════════════════════════════════════════════════
+// CALENDARIO AZIENDALE
+// ═════════════════════════════════════════════════════════════
+
+const CalState = {
+  open: false,
+  year: new Date().getFullYear(),
+  month: -1,  // -1 = vista annuale, 0-11 = mese specifico
+  pickerOpen: false,
+  editingEvent: null,
+};
+
+const EVENT_TYPES = [
+  { id:'impegno', label:'Impegno', color:'#6366f1' },
+  { id:'ferie',   label:'Ferie',   color:'#f97316' },
+  { id:'scadenza',label:'Scadenza',color:'#ef4444' },
+];
+
+async function initCalendar() {
+  await TCFactory.loadCalendarEvents();
+  renderCalendarSection();
+}
+
+function renderCalendarSection() {
+  const root = document.getElementById('calendar-root');
+  if (!root) return;
+
+  root.innerHTML = `
+    <div class="glass-card">
+      <div class="collapsible-header" onclick="toggleCalendar()" style="cursor:pointer;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${Icons.calendarDays(16)}
+          <span style="font-weight:700;font-size:0.95rem;">Calendario aziendale</span>
+        </div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="transform:rotate(${CalState.open?180:0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      ${CalState.open ? renderCalendarBody() : ''}
+    </div>
+  `;
+}
+
+function renderCalendarBody() {
+  const isAnnual = CalState.month === -1;
+  const MESI = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+
+  // Controlli navigazione
+  const nav = `
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);">
+      <button class="btn-icon" onclick="calNav(-1)">${Icons.chevronLeft()}</button>
+      <div style="position:relative;">
+        <button class="btn btn-ghost btn-sm" onclick="toggleCalPicker()" style="font-weight:700;font-size:1rem;">
+          ${isAnnual ? CalState.year : `${MESI[CalState.month]} ${CalState.year}`}
+          ${Icons.calendarDays(13)}
+        </button>
+        ${CalState.pickerOpen ? `
+          <div style="position:absolute;top:36px;left:0;z-index:100;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;min-width:240px;">
+            ${MESI.map((m,i) => `<button class="btn ${CalState.month===i?'btn-primary':'btn-ghost'} btn-sm" onclick="calGoMonth(${i})">${m}</button>`).join('')}
+            <button class="btn btn-ghost btn-sm" style="grid-column:span 4;" onclick="calGoAnnual()">Vista annuale</button>
+          </div>` : ''}
+      </div>
+      <button class="btn-icon" onclick="calNav(1)">${Icons.chevronRight()}</button>
+      <button class="btn btn-ghost btn-sm" onclick="calGoAnnual()">Tutti i mesi</button>
+      <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="openCalEventDialog(null,null)">+ Aggiungi</button>
+    </div>`;
+
+  if (isAnnual) {
+    const months = Array.from({length:12}, (_,i) => renderMiniMonth(CalState.year, i));
+    return nav + `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:12px 16px;">
+      ${months.join('')}
+    </div>`;
+  } else {
+    return nav + renderFullMonth(CalState.year, CalState.month);
+  }
+}
+
+function renderMiniMonth(year, month) {
+  const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  const GG   = ['L','M','M','G','V','S','D'];
+  const firstDay = new Date(year, month, 1).getDay();
+  const offset   = firstDay === 0 ? 6 : firstDay - 1;
+  const lastDate = new Date(year, month + 1, 0).getDate();
+  const today    = new Date().toISOString().slice(0, 10);
+
+  const cells = [];
+  for (let i = 0; i < offset; i++) cells.push('<div></div>');
+  for (let d = 1; d <= lastDate; d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const evs = TCFactory.getEventsForDate(dateStr);
+    const isToday = dateStr === today;
+    const dots = evs.slice(0,3).map(e => `<div style="width:5px;height:5px;border-radius:50%;background:${e.color};"></div>`).join('');
+    cells.push(`<div onclick="calGoMonth(${month});setTimeout(()=>openCalEventDialog(null,'${dateStr}'),50)" style="text-align:center;font-size:0.7rem;cursor:pointer;padding:2px;border-radius:4px;${isToday?'background:var(--brand-gold);color:#fff;font-weight:700;':''}">
+      <div>${d}</div>
+      <div style="display:flex;gap:1px;justify-content:center;min-height:6px;">${dots}</div>
+    </div>`);
+  }
+
+  return `<div style="padding:8px;border:1px solid var(--border-light);border-radius:var(--radius-md);margin:4px;">
+    <div style="font-size:0.75rem;font-weight:700;color:var(--text-muted);text-align:center;margin-bottom:6px;cursor:pointer;" onclick="calGoMonth(${month})">${MESI[month]}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px;">
+      ${GG.map(g => `<div style="text-align:center;font-size:0.6rem;color:var(--text-muted);font-weight:700;">${g}</div>`).join('')}
+      ${cells.join('')}
+    </div>
+  </div>`;
+}
+
+function renderFullMonth(year, month) {
+  const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  const GG   = ['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
+  const firstDay = new Date(year, month, 1).getDay();
+  const offset   = firstDay === 0 ? 6 : firstDay - 1;
+  const lastDate = new Date(year, month + 1, 0).getDate();
+  const today    = new Date().toISOString().slice(0, 10);
+
+  const cells = [];
+  for (let i = 0; i < offset; i++) cells.push('<div style="border:1px solid var(--border-light);min-height:80px;border-radius:4px;background:var(--bg-secondary);opacity:0.4;"></div>');
+  for (let d = 1; d <= lastDate; d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const evs = TCFactory.getEventsForDate(dateStr);
+    const isToday = dateStr === today;
+    const chips = evs.map(e => `
+      <div style="background:${e.color}22;border-left:3px solid ${e.color};padding:2px 5px;border-radius:3px;font-size:0.65rem;font-weight:600;color:${e.color};cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+        onclick="event.stopPropagation();openCalEventDialog('${e.id}',null)" title="${escapeHtml(e.title)}">
+        ${escapeHtml(e.title.length > 20 ? e.title.slice(0,18)+'…' : e.title)}
+        ${e.user_ids.length ? `<span style="opacity:0.7;">(${e.user_ids.length})</span>` : ''}
+      </div>`).join('');
+    cells.push(`
+      <div onclick="openCalEventDialog(null,'${dateStr}')" style="border:1px solid var(--border-light);min-height:80px;border-radius:4px;padding:4px;cursor:pointer;${isToday?'border-color:var(--brand-gold);background:color-mix(in srgb, var(--brand-gold) 5%, var(--bg-card))':''} hover:background:var(--bg-secondary);">
+        <div style="font-size:0.75rem;font-weight:${isToday?'800':'600'};color:${isToday?'var(--brand-gold)':'var(--text-primary)'};margin-bottom:4px;">${d}</div>
+        <div style="display:flex;flex-direction:column;gap:2px;">${chips}</div>
+      </div>`);
+  }
+
+  return `<div style="padding:12px 16px;">
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">
+      ${GG.map(g => `<div style="text-align:center;font-size:0.72rem;font-weight:700;color:var(--text-muted);padding:4px;">${g}</div>`).join('')}
+      ${cells.join('')}
+    </div>
+  </div>`;
+}
+
+function toggleCalendar() {
+  CalState.open = !CalState.open;
+  if (CalState.open) initCalendar(); else renderCalendarSection();
+}
+function toggleCalPicker()   { CalState.pickerOpen = !CalState.pickerOpen; renderCalendarSection(); }
+function calNav(delta) {
+  if (CalState.month === -1) { CalState.year += delta; }
+  else {
+    let m = CalState.month + delta;
+    if (m < 0)  { m = 11; CalState.year--; }
+    if (m > 11) { m = 0;  CalState.year++; }
+    CalState.month = m;
+  }
+  CalState.pickerOpen = false;
+  renderCalendarSection();
+}
+function calGoMonth(m)  { CalState.month = m; CalState.pickerOpen = false; renderCalendarSection(); }
+function calGoAnnual()  { CalState.month = -1; CalState.pickerOpen = false; renderCalendarSection(); }
+
+// ── Dialog eventi ─────────────────────────────
+
+async function openCalEventDialog(eventId, dateStr) {
+  const ev = eventId ? TCFactory.getCalendarEvents().find(e => e.id == eventId) : null;
+  const users = await TCAuth.listUsers().catch(() => []);
+  const modal = document.getElementById('cal-event-modal');
+  const defaultDate = dateStr || new Date().toISOString().slice(0,10);
+
+  modal.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h2>${ev ? 'Modifica evento' : 'Nuovo evento'}</h2>
+        <button class="btn-icon" onclick="closeModal('cal-event-modal')">${Icons.x()}</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Titolo *</label>
+          <input id="cal-title" class="form-input" value="${escapeHtml(ev?.title||'')}" placeholder="Es. Fiera del tessile">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Dal</label>
+            <input id="cal-from" type="date" class="form-input" value="${ev?.date_from || defaultDate}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Al</label>
+            <input id="cal-to" type="date" class="form-input" value="${ev?.date_to || defaultDate}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tipo</label>
+          <div style="display:flex;gap:8px;">
+            ${EVENT_TYPES.map(t => {
+              const active = (ev?.event_type || 'impegno') === t.id;
+              return `<button type="button" class="chip chip-btn" id="cal-type-${t.id}"
+                style="background:${active?t.color:`color-mix(in srgb, ${t.color} 12%, transparent)`};color:${active?'#fff':t.color};"
+                onclick="selectCalType('${t.id}')">${t.label}</button>`;
+            }).join('')}
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Coinvolti</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${users.map(u => {
+              const sel = (ev?.user_ids || []).includes(u.nickname);
+              return `<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.85rem;">
+                <input type="checkbox" id="cal-user-${escapeHtml(u.nickname)}" ${sel?'checked':''} value="${escapeHtml(u.nickname)}">
+                ${escapeHtml(u.nickname)}${u.is_admin?'  👑':''}
+              </label>`;
+            }).join('')}
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Note</label>
+          <textarea id="cal-notes" class="form-textarea" style="height:70px;" placeholder="Dettagli aggiuntivi…">${escapeHtml(ev?.notes||'')}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        ${ev ? `<button class="btn btn-ghost" style="color:var(--priority-urgent);margin-right:auto;" onclick="deleteCalEvent(${ev.id})">Elimina</button>` : ''}
+        <button class="btn btn-secondary" onclick="closeModal('cal-event-modal')">Annulla</button>
+        <button class="btn btn-primary" onclick="saveCalEvent(${ev ? ev.id : 'null'})">Salva</button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  modal.onclick = e => { if (e.target === modal) closeModal('cal-event-modal'); };
+  // Ensure date_from <= date_to
+  document.getElementById('cal-from')?.addEventListener('change', function() {
+    const to = document.getElementById('cal-to');
+    if (to && to.value < this.value) to.value = this.value;
+  });
+}
+
+let _calSelectedType = 'impegno';
+function selectCalType(id) {
+  _calSelectedType = id;
+  EVENT_TYPES.forEach(t => {
+    const btn = document.getElementById(`cal-type-${t.id}`);
+    if (!btn) return;
+    const active = t.id === id;
+    btn.style.background = active ? t.color : `color-mix(in srgb, ${t.color} 12%, transparent)`;
+    btn.style.color = active ? '#fff' : t.color;
+  });
+}
+
+async function saveCalEvent(existingId) {
+  const title  = document.getElementById('cal-title')?.value?.trim();
+  const from   = document.getElementById('cal-from')?.value;
+  const to     = document.getElementById('cal-to')?.value;
+  const notes  = document.getElementById('cal-notes')?.value || '';
+  if (!title || !from || !to) { showToast('Compila titolo e date', 'error'); return; }
+
+  const userIds = Array.from(document.querySelectorAll('[id^="cal-user-"]:checked')).map(el => el.value);
+  const evType  = EVENT_TYPES.find(t => t.id === _calSelectedType) || EVENT_TYPES[0];
+
+  try {
+    if (existingId) {
+      // Update
+      await supabaseClient.from('calendar_events').update({
+        title, date_from: from, date_to: to,
+        event_type: evType.id, user_ids: userIds, color: evType.color, notes,
+      }).eq('id', existingId);
+      await TCFactory.loadCalendarEvents();
+    } else {
+      await TCFactory.addCalendarEvent({
+        title, dateFrom: from, dateTo: to,
+        eventType: evType.id, userIds, color: evType.color, notes,
+      });
+    }
+    closeModal('cal-event-modal');
+    renderCalendarSection();
+    showToast('Evento salvato');
+  } catch(e) { showToast('Errore salvataggio evento', 'error'); }
+}
+
+async function deleteCalEvent(id) {
+  if (!confirm('Eliminare questo evento?')) return;
+  try {
+    await TCFactory.deleteCalendarEvent(id);
+    closeModal('cal-event-modal');
+    renderCalendarSection();
+    showToast('Evento eliminato');
+  } catch(e) { showToast('Errore eliminazione', 'error'); }
+}
