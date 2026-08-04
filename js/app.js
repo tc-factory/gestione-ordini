@@ -1995,9 +1995,49 @@ function renderCalendarSection() {
   `;
 }
 
+function calcCalendarStats(year) {
+  const events = TCFactory.getCalendarEvents().filter(ev => {
+    // Considera solo eventi che cadono nell'anno visualizzato
+    return ev.date_from.slice(0, 4) === String(year) || ev.date_to.slice(0, 4) === String(year);
+  });
+
+  const stats = {}; // { nickname: { ferie: days, impegno: days, scadenza: days } }
+
+  events.forEach(ev => {
+    const d1   = new Date(ev.date_from + 'T00:00:00');
+    const d2   = new Date(ev.date_to   + 'T00:00:00');
+    const days = Math.round((d2 - d1) / 86400000) + 1;
+    (ev.user_ids || []).forEach(user => {
+      if (!stats[user]) stats[user] = { ferie: 0, impegno: 0, scadenza: 0 };
+      const type = ev.event_type || 'impegno';
+      stats[user][type] = (stats[user][type] || 0) + days;
+    });
+  });
+
+  return stats;
+}
+
 function renderCalendarBody() {
   const isAnnual = CalState.month === -1;
   const MESI = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+
+  // Statistiche utenti per anno
+  const stats = calcCalendarStats(CalState.year);
+  const statsEntries = Object.entries(stats).sort((a, b) => a[0].localeCompare(b[0]));
+
+  const statsSection = statsEntries.length > 0 ? `
+    <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
+      <div style="font-size:0.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Statistiche ${CalState.year}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        ${statsEntries.map(([user, s]) => `
+          <div style="background:var(--bg-card);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:6px 12px;display:flex;align-items:center;gap:10px;">
+            <span style="font-size:0.82rem;font-weight:700;">${escapeHtml(user)}</span>
+            ${s.impegno > 0 ? `<span title="Giorni impegni" style="font-size:0.75rem;background:#6366f122;color:#6366f1;border-radius:4px;padding:1px 7px;font-weight:600;">📅 ${s.impegno}gg</span>` : ''}
+            ${s.ferie   > 0 ? `<span title="Giorni ferie"   style="font-size:0.75rem;background:#f9741622;color:#f97316;border-radius:4px;padding:1px 7px;font-weight:600;">🏖 ${s.ferie}gg</span>`   : ''}
+            ${s.scadenza > 0 ? `<span title="Giorni scadenze" style="font-size:0.75rem;background:#ef444422;color:#ef4444;border-radius:4px;padding:1px 7px;font-weight:600;">⚠ ${s.scadenza}gg</span>` : ''}
+          </div>`).join('')}
+      </div>
+    </div>` : '';
 
   // Controlli navigazione
   const nav = `
@@ -2021,11 +2061,11 @@ function renderCalendarBody() {
 
   if (isAnnual) {
     const months = Array.from({length:12}, (_,i) => renderMiniMonth(CalState.year, i));
-    return nav + `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:12px 16px;">
+    return nav + statsSection + `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:12px 16px;">
       ${months.join('')}
     </div>`;
   } else {
-    return nav + renderFullMonth(CalState.year, CalState.month);
+    return nav + statsSection + renderFullMonth(CalState.year, CalState.month);
   }
 }
 
