@@ -2210,29 +2210,34 @@ async function saveCalEvent(existingId) {
   const userIds = Array.from(document.querySelectorAll('[id^="cal-user-"]:checked')).map(el => el.value);
   const evType  = EVENT_TYPES.find(t => t.id === _calSelectedType) || EVENT_TYPES[0];
 
+  const payload = {
+    title,
+    date_from:  from,
+    date_to:    to,
+    event_type: evType.id,
+    user_ids:   userIds,
+    color:      evType.color,
+    notes,
+    created_by: TCAuth.getNickname?.() || 'sistema',
+  };
+
   try {
+    let error;
     if (existingId) {
-      const evType = EVENT_TYPES.find(t => t.id === _calSelectedType) || EVENT_TYPES[0];
-      const { error } = await supabaseClient.from('calendar_events').update({
-        title, date_from: from, date_to: to,
-        event_type: evType.id, user_ids: userIds, color: evType.color, notes,
-      }).eq('id', existingId);
-      if (error) throw error;
-      await TCFactory.loadCalendarEvents();
+      ({ error } = await supabaseClient.from('calendar_events').update(payload).eq('id', existingId));
     } else {
-      await TCFactory.addCalendarEvent({
-        title, dateFrom: from, dateTo: to,
-        eventType: _calSelectedType, userIds,
-        color: EVENT_TYPES.find(t => t.id === _calSelectedType)?.color || '#6366f1',
-        notes,
-      });
+      ({ error } = await supabaseClient.from('calendar_events').insert(payload));
     }
+    if (error) throw error;
+
+    await TCFactory.loadCalendarEvents();
     closeModal('cal-event-modal');
     renderCalendarSection();
     showToast('Evento salvato ✓');
   } catch(e) {
-    console.error('[saveCalEvent]', e);
-    showToast('Errore: ' + (e?.message || 'controllare la console'), 'error');
+    console.error('[calendario] ERRORE COMPLETO:', e);
+    alert('ERRORE CALENDARIO:\n' + (e?.message || JSON.stringify(e)));
+    showToast('Errore salvataggio evento', 'error');
   }
 }
 
