@@ -69,7 +69,7 @@ function showToast(message, type = 'success') {
   }
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
-  toast.innerHTML = `${type === 'success' ? Icons.check() : Icons.alert()}<span>${message}</span>`;
+  toast.innerHTML = `${type === 'success' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="20 6 9 17 4 12"/></svg>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>'}<span>${message}</span>`;
   container.appendChild(toast);
   setTimeout(() => {
     toast.style.animation = 'toastIn 0.25s ease reverse';
@@ -2069,6 +2069,20 @@ function renderCalendarBody() {
   }
 }
 
+function getEventChipText(ev) {
+  const users = ev.user_ids || [];
+  if (ev.event_type === 'ferie') {
+    // Mostra direttamente i nomi di chi è in ferie
+    return '🏖 ' + (users.length > 0 ? users.join(', ') : ev.title);
+  }
+  // Impegno / Scadenza: titolo + coinvolti in piccolo
+  const icon = ev.event_type === 'scadenza' ? '⚠ ' : '';
+  const userStr = users.length > 0
+    ? ' · ' + users.slice(0, 2).join(', ') + (users.length > 2 ? ` +${users.length-2}` : '')
+    : '';
+  return icon + ev.title + userStr;
+}
+
 function renderMiniMonth(year, month) {
   const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
   const GG   = ['L','M','M','G','V','S','D'];
@@ -2113,12 +2127,14 @@ function renderFullMonth(year, month) {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const evs = TCFactory.getEventsForDate(dateStr);
     const isToday = dateStr === today;
-    const chips = evs.map(e => `
-      <div style="background:${e.color}22;border-left:3px solid ${e.color};padding:2px 5px;border-radius:3px;font-size:0.65rem;font-weight:600;color:${e.color};cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-        onclick="event.stopPropagation();openCalEventDialog('${e.id}',null)" title="${escapeHtml(e.title)}">
-        ${escapeHtml(e.title.length > 20 ? e.title.slice(0,18)+'…' : e.title)}
-        ${e.user_ids.length ? `<span style="opacity:0.7;">(${e.user_ids.length})</span>` : ''}
-      </div>`).join('');
+    const chips = evs.map(e => {
+      const txt = getEventChipText(e);
+      const short = txt.length > 22 ? txt.slice(0, 20) + '…' : txt;
+      return `
+        <div style="background:${e.color}22;border-left:3px solid ${e.color};padding:2px 5px;border-radius:3px;font-size:0.65rem;font-weight:600;color:${e.color};cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+          onclick="event.stopPropagation();openCalEventDialog('${e.id}',null)" title="${escapeHtml(txt)}">
+          ${escapeHtml(short)}
+        </div>`}).join('');
     cells.push(`
       <div onclick="openCalEventDialog(null,'${dateStr}')" style="border:1px solid var(--border-light);min-height:80px;border-radius:4px;padding:4px;cursor:pointer;${isToday?'border-color:var(--brand-gold);background:color-mix(in srgb, var(--brand-gold) 5%, var(--bg-card))':''} hover:background:var(--bg-secondary);">
         <div style="font-size:0.75rem;font-weight:${isToday?'800':'600'};color:${isToday?'var(--brand-gold)':'var(--text-primary)'};margin-bottom:4px;">${d}</div>
@@ -2155,13 +2171,15 @@ function calGoAnnual()  { CalState.month = -1; CalState.pickerOpen = false; rend
 
 // ── Dialog eventi ─────────────────────────────
 
+let _calSelectedType = 'impegno';
+
 async function openCalEventDialog(eventId, dateStr) {
   const ev = eventId ? TCFactory.getCalendarEvents().find(e => e.id == eventId) : null;
-  // Reset il tipo selezionato ad ogni apertura
   _calSelectedType = ev?.event_type || 'impegno';
   const users = await TCAuth.listUsers().catch(() => []);
   const modal = document.getElementById('cal-event-modal');
   const defaultDate = dateStr || new Date().toISOString().slice(0,10);
+  const isFerie = _calSelectedType === 'ferie';
 
   modal.innerHTML = `
     <div class="modal">
@@ -2170,10 +2188,24 @@ async function openCalEventDialog(eventId, dateStr) {
         <button class="btn-icon" onclick="closeModal('cal-event-modal')">${Icons.x()}</button>
       </div>
       <div class="modal-body">
+
         <div class="form-group">
+          <label class="form-label">Tipo</label>
+          <div style="display:flex;gap:8px;">
+            ${EVENT_TYPES.map(t => {
+              const active = _calSelectedType === t.id;
+              return `<button type="button" class="chip chip-btn" id="cal-type-${t.id}"
+                style="background:${active?t.color:`color-mix(in srgb, ${t.color} 12%, transparent)`};color:${active?'#fff':t.color};"
+                onclick="selectCalType('${t.id}')">${t.label}</button>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <div id="cal-title-group" class="form-group" style="display:${isFerie?'none':'block'}">
           <label class="form-label">Titolo *</label>
           <input id="cal-title" class="form-input" value="${escapeHtml(ev?.title||'')}" placeholder="Es. Fiera del tessile">
         </div>
+
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Dal</label>
@@ -2184,33 +2216,25 @@ async function openCalEventDialog(eventId, dateStr) {
             <input id="cal-to" type="date" class="form-input" value="${ev?.date_to || defaultDate}">
           </div>
         </div>
+
         <div class="form-group">
-          <label class="form-label">Tipo</label>
-          <div style="display:flex;gap:8px;">
-            ${EVENT_TYPES.map(t => {
-              const active = (ev?.event_type || 'impegno') === t.id;
-              return `<button type="button" class="chip chip-btn" id="cal-type-${t.id}"
-                style="background:${active?t.color:`color-mix(in srgb, ${t.color} 12%, transparent)`};color:${active?'#fff':t.color};"
-                onclick="selectCalType('${t.id}')">${t.label}</button>`;
-            }).join('')}
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Coinvolti</label>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          <label class="form-label">${isFerie ? 'Chi è in ferie' : 'Coinvolti'}</label>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;">
             ${users.map(u => {
               const sel = (ev?.user_ids || []).includes(u.nickname);
               return `<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.85rem;">
                 <input type="checkbox" id="cal-user-${escapeHtml(u.nickname)}" ${sel?'checked':''} value="${escapeHtml(u.nickname)}">
-                ${escapeHtml(u.nickname)}${u.is_admin?'  👑':''}
+                ${escapeHtml(u.nickname)}${u.is_admin?' 👑':''}
               </label>`;
             }).join('')}
           </div>
         </div>
-        <div class="form-group">
+
+        <div id="cal-notes-group" class="form-group" style="display:${isFerie?'none':'block'}">
           <label class="form-label">Note</label>
           <textarea id="cal-notes" class="form-textarea" style="height:70px;" placeholder="Dettagli aggiuntivi…">${escapeHtml(ev?.notes||'')}</textarea>
         </div>
+
       </div>
       <div class="modal-footer">
         ${ev ? `<button class="btn btn-ghost" style="color:var(--priority-urgent);margin-right:auto;" onclick="deleteCalEvent(${ev.id})">Elimina</button>` : ''}
@@ -2221,14 +2245,12 @@ async function openCalEventDialog(eventId, dateStr) {
   `;
   modal.classList.add('active');
   modal.onclick = e => { if (e.target === modal) closeModal('cal-event-modal'); };
-  // Ensure date_from <= date_to
   document.getElementById('cal-from')?.addEventListener('change', function() {
     const to = document.getElementById('cal-to');
     if (to && to.value < this.value) to.value = this.value;
   });
 }
 
-let _calSelectedType = 'impegno';
 function selectCalType(id) {
   _calSelectedType = id;
   EVENT_TYPES.forEach(t => {
@@ -2238,17 +2260,36 @@ function selectCalType(id) {
     btn.style.background = active ? t.color : `color-mix(in srgb, ${t.color} 12%, transparent)`;
     btn.style.color = active ? '#fff' : t.color;
   });
+  const isFerie = id === 'ferie';
+  const tg = document.getElementById('cal-title-group');
+  const ng = document.getElementById('cal-notes-group');
+  if (tg) tg.style.display = isFerie ? 'none' : 'block';
+  if (ng) ng.style.display = isFerie ? 'none' : 'block';
+  // Aggiorna label coinvolti
+  const lbl = document.querySelector('[for="cal-coinvolti"], .form-label');
 }
 
 async function saveCalEvent(existingId) {
-  const title  = document.getElementById('cal-title')?.value?.trim();
+  const rawTitle = document.getElementById('cal-title')?.value?.trim() || '';
   const from   = document.getElementById('cal-from')?.value;
   const to     = document.getElementById('cal-to')?.value;
   const notes  = document.getElementById('cal-notes')?.value || '';
-  if (!title || !from || !to) { showToast('Compila titolo e date', 'error'); return; }
+  if (!from || !to) { showToast('Inserisci le date', 'error'); return; }
 
   const userIds = Array.from(document.querySelectorAll('[id^="cal-user-"]:checked')).map(el => el.value);
   const evType  = EVENT_TYPES.find(t => t.id === _calSelectedType) || EVENT_TYPES[0];
+
+  // Per le ferie il titolo è generato dai nomi; per gli altri è obbligatorio
+  let title = rawTitle;
+  if (evType.id === 'ferie') {
+    title = userIds.length > 0 ? userIds.join(', ') : 'Ferie';
+  } else if (!title) {
+    showToast('Inserisci un titolo', 'error'); return;
+  }
+
+  if (userIds.length === 0 && evType.id === 'ferie') {
+    showToast('Seleziona almeno una persona in ferie', 'error'); return;
+  }
 
   const payload = {
     title,
