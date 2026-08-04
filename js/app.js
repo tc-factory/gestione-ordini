@@ -378,7 +378,7 @@ function renderOrderRow(o) {
   }).join('');
   const filesExtra = (o.files||[]).length > 2 ? `<span style="font-size:0.65rem;color:var(--text-muted);">+${(o.files||[]).length - 2}</span>` : '';
   const moduleBtn  = (o.orderModule?.rows?.length || 0) > 0
-    ? `<button class="file-quick-btn" onclick="event.stopPropagation();downloadOrderModule('${o.id}')" title="Modulo d'ordine">📋</button>` : '';
+    ? `<button class="file-quick-btn" onclick="event.stopPropagation();previewOrderModule('${o.id}')" title="Visualizza modulo d'ordine">📋</button>` : '';
 
   // Pagamento con importo colorato condizionalmente
   const payDone  = o.paymentDone || false;
@@ -593,6 +593,99 @@ async function quickToggleArchive(orderId, isArchived) {
   }
   try { await moveOrderTo(orderId, 'active'); }
   catch(e) { showToast('Errore', 'error'); }
+}
+
+function previewOrderModule(orderId) {
+  const order   = TCFactory.getOrderById(orderId);
+  if (!order) return;
+  const rows    = order.orderModule?.rows || [];
+  const acconto = parseFloat(order.orderModule?.acconto || 0);
+  const total   = rows.reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
+  const saldo   = total - acconto;
+  const tags    = order.tags || [];
+  const modal   = document.getElementById('file-preview-modal');
+
+  const tagsHtml = tags.map(t => {
+    const c = TCFactory.getTagColor(t);
+    return `<span style="background:${c}22;color:${c};border:1px solid ${c}66;border-radius:5px;padding:1px 8px;font-size:0.75rem;font-weight:700;">${escapeHtml(t)}</span>`;
+  }).join(' ');
+
+  const dlHtml = order.deadline ? (() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const diff  = Math.ceil((new Date(order.deadline+'T00:00:00') - new Date(today+'T00:00:00')) / 86400000);
+    const dc    = diff < 0 ? '#dc2626' : diff <= 7 ? '#ea580c' : '#6366f1';
+    return `<span style="color:${dc};font-weight:700;">${new Date(order.deadline+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})}</span>`;
+  })() : '';
+
+  const rowsHtml = rows.length ? rows.map((r, i) => {
+    const t   = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
+    const bg  = i % 2 === 0 ? 'var(--bg-card)' : 'var(--bg-secondary)';
+    return `<tr style="background:${bg};">
+      <td style="padding:7px 10px;font-weight:600;">${escapeHtml(r.catalogo||'')}</td>
+      <td style="padding:7px 10px;">${escapeHtml(r.codice||'')}</td>
+      <td style="padding:7px 10px;">${escapeHtml(r.colore||'')}</td>
+      <td style="padding:7px 10px;text-align:center;">${r.qnt||''}</td>
+      <td style="padding:7px 10px;text-align:center;">${escapeHtml(r.tg||'')}</td>
+      <td style="padding:7px 10px;text-align:right;">${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
+      <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
+      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.ordinato ? '✓' : ''}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
+
+  modal.innerHTML = `
+    <div class="modal" style="max-width:820px;">
+      <div class="modal-header">
+        <div>
+          <h2 style="margin-bottom:4px;">${escapeHtml(order.nome)}</h2>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            ${tagsHtml}
+            ${dlHtml ? `<span style="font-size:0.8rem;color:var(--text-muted);">Deadline: ${dlHtml}</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-secondary btn-sm" onclick="downloadOrderModule('${order.id}')">⬇ Scarica PDF</button>
+          <button class="btn-icon" onclick="closeModal('file-preview-modal')">${Icons.x()}</button>
+        </div>
+      </div>
+      <div class="modal-body" style="padding:0;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+          <thead>
+            <tr style="background:#1e40af;">
+              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Catalogo</th>
+              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Codice</th>
+              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Colore</th>
+              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">QNT</th>
+              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">TG</th>
+              <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Prezzo</th>
+              <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Totale</th>
+              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Ord.</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <div style="padding:16px 20px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;border-top:2px solid #1e40af;">
+          <div style="display:flex;gap:32px;font-size:0.9rem;">
+            <span style="color:var(--text-muted);">Totale ordine</span>
+            <strong style="color:#1e40af;min-width:90px;text-align:right;">€ ${total.toFixed(2)}</strong>
+          </div>
+          <div style="display:flex;gap:32px;font-size:0.9rem;">
+            <span style="color:var(--text-muted);">Acconto</span>
+            <span style="min-width:90px;text-align:right;">€ ${acconto.toFixed(2)}</span>
+          </div>
+          <div style="display:flex;gap:32px;font-size:0.9rem;">
+            <span style="color:var(--text-muted);">Saldo</span>
+            <strong style="color:#dc2626;min-width:90px;text-align:right;">€ ${saldo.toFixed(2)}</strong>
+          </div>
+        </div>
+        ${order.notes ? `<div style="padding:12px 20px;border-top:1px solid var(--border);">
+          <div style="font-size:0.7rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Note</div>
+          <div style="font-size:0.85rem;white-space:pre-wrap;">${escapeHtml(order.notes)}</div>
+        </div>` : ''}
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  modal.onclick = e => { if (e.target === modal) closeModal('file-preview-modal'); };
 }
 
 function downloadOrderModule(orderId) {
@@ -916,8 +1009,8 @@ function renderOrderDetail() {
         ${(order.orderModule?.rows?.length || 0) > 0 ? `
           <div class="detail-files">
             <div class="detail-meta-label" style="margin-bottom:8px;">Modulo d'ordine</div>
-            <button class="file-item" onclick="downloadOrderModule('${order.id}')">
-              📋 <span>Apri / scarica modulo (${order.orderModule.rows.length} righe)</span>
+            <button class="file-item" onclick="previewOrderModule('${order.id}')">
+              📋 <span>Visualizza modulo (${order.orderModule.rows.length} righe)</span>
             </button>
           </div>` : ''}
 
