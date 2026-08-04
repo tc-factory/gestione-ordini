@@ -2117,6 +2117,8 @@ function calGoAnnual()  { CalState.month = -1; CalState.pickerOpen = false; rend
 
 async function openCalEventDialog(eventId, dateStr) {
   const ev = eventId ? TCFactory.getCalendarEvents().find(e => e.id == eventId) : null;
+  // Reset il tipo selezionato ad ogni apertura
+  _calSelectedType = ev?.event_type || 'impegno';
   const users = await TCAuth.listUsers().catch(() => []);
   const modal = document.getElementById('cal-event-modal');
   const defaultDate = dateStr || new Date().toISOString().slice(0,10);
@@ -2210,22 +2212,28 @@ async function saveCalEvent(existingId) {
 
   try {
     if (existingId) {
-      // Update
-      await supabaseClient.from('calendar_events').update({
+      const evType = EVENT_TYPES.find(t => t.id === _calSelectedType) || EVENT_TYPES[0];
+      const { error } = await supabaseClient.from('calendar_events').update({
         title, date_from: from, date_to: to,
         event_type: evType.id, user_ids: userIds, color: evType.color, notes,
       }).eq('id', existingId);
+      if (error) throw error;
       await TCFactory.loadCalendarEvents();
     } else {
       await TCFactory.addCalendarEvent({
         title, dateFrom: from, dateTo: to,
-        eventType: evType.id, userIds, color: evType.color, notes,
+        eventType: _calSelectedType, userIds,
+        color: EVENT_TYPES.find(t => t.id === _calSelectedType)?.color || '#6366f1',
+        notes,
       });
     }
     closeModal('cal-event-modal');
     renderCalendarSection();
-    showToast('Evento salvato');
-  } catch(e) { showToast('Errore salvataggio evento', 'error'); }
+    showToast('Evento salvato ✓');
+  } catch(e) {
+    console.error('[saveCalEvent]', e);
+    showToast('Errore: ' + (e?.message || 'controllare la console'), 'error');
+  }
 }
 
 async function deleteCalEvent(id) {
