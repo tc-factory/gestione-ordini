@@ -1080,7 +1080,7 @@ function openOrderForm(order = null, defaultDate = null) {
   const modal      = document.getElementById('order-form-modal');
 
   modal.innerHTML = `
-    <div class="modal">
+    <div class="modal" style="max-width:min(1100px, 95vw);">
       <div class="modal-header">
         <h2>${isEdit ? 'Modifica ordine' : 'Nuovo ordine'}</h2>
         <button class="btn-icon" onclick="closeModal('order-form-modal')">${Icons.x()}</button>
@@ -1150,20 +1150,20 @@ function openOrderForm(order = null, defaultDate = null) {
               <svg id="module-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${AppState.formModuleOpen?180:0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
             </div>
           </div>
-          <div id="module-body" style="display:${AppState.formModuleOpen?'block':'none'};padding:12px 14px;overflow-x:auto;">
-            <table class="mod-table" style="width:100%;">
+          <div id="module-body" style="display:${AppState.formModuleOpen?'block':'none'};padding:12px 14px;">
+            <table class="mod-table" style="width:100%;table-layout:fixed;">
               <thead>
                 <tr>
-                  <th style="min-width:100px;">CATALOGO</th>
-                  <th style="min-width:80px;">CODICE</th>
-                  <th style="min-width:120px;">DESCRIZIONE</th>
-                  <th style="min-width:70px;">COLORE</th>
-                  <th style="width:52px;">QNT</th>
-                  <th style="width:44px;">TG</th>
-                  <th style="width:76px;">PREZZO</th>
-                  <th style="width:76px;">TOTALE</th>
-                  <th style="width:40px;text-align:center;">ORD.</th>
-                  <th style="width:28px;"></th>
+                  <th style="width:14%;">CATALOGO</th>
+                  <th style="width:11%;">CODICE</th>
+                  <th style="width:16%;">DESCRIZIONE</th>
+                  <th style="width:9%;">COLORE</th>
+                  <th style="width:7%;">QNT</th>
+                  <th style="width:6%;">TG</th>
+                  <th style="width:9%;">PREZZO</th>
+                  <th style="width:9%;">TOTALE</th>
+                  <th style="width:7%;text-align:center;">ORD.</th>
+                  <th style="width:12%;"></th>
                 </tr>
               </thead>
               <tbody id="mod-rows-body"></tbody>
