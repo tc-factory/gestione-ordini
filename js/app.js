@@ -623,6 +623,7 @@ function previewOrderModule(orderId) {
     return `<tr style="background:${bg};">
       <td style="padding:7px 10px;font-weight:600;">${escapeHtml(r.catalogo||'')}</td>
       <td style="padding:7px 10px;">${escapeHtml(r.codice||'')}</td>
+      <td style="padding:7px 10px;">${escapeHtml(r.descrizione||'')}</td>
       <td style="padding:7px 10px;">${escapeHtml(r.colore||'')}</td>
       <td style="padding:7px 10px;text-align:center;">${r.qnt||''}</td>
       <td style="padding:7px 10px;text-align:center;">${escapeHtml(r.tg||'')}</td>
@@ -653,6 +654,7 @@ function previewOrderModule(orderId) {
             <tr style="background:#1e40af;">
               <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Catalogo</th>
               <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Codice</th>
+              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Descrizione</th>
               <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Colore</th>
               <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">QNT</th>
               <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">TG</th>
@@ -732,10 +734,10 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
   // Table
   doc.autoTable({
     startY: y + 3,
-    head: [['Catalogo','Codice','Colore','QNT','TG','Prezzo','Totale','Ord.']],
+    head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.']],
     body: rows.length ? rows.map(r => {
       const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
-      return [r.catalogo||'', r.codice||'', r.colore||'', r.qnt||'', r.tg||'',
+      return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
         r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
         t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? '✓' : ''];
     }) : [['','','','','','','','']],
@@ -798,8 +800,8 @@ tbody td{padding:7px 10px;border-bottom:1px solid #dbeafe}
 ${dlHtml ? `<br><strong>Deadline:</strong> ${dlHtml}` : ''}
 ${tagsHtml ? `<br><strong>Tipologia:</strong> ${tagsHtml}` : ''}</div></div>
 ${isUrgent ? `<div class="urg">⚠️ URGENTE</div>` : ''}</div>
-<table><thead><tr><th>Catalogo</th><th>Codice</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th></tr></thead><tbody>
-${rows.length ? rows.map(r=>{const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td></tr>`;}).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>'}
+<table><thead><tr><th>Catalogo</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th></tr></thead><tbody>
+${rows.length ? rows.map(r=>{const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td></tr>`;}).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>'}
 </tbody></table>
 <div class="tots"><div class="tr"><span class="tl">Totale ordine</span><span class="tv" style="color:#1e40af">€ ${total.toFixed(2)}</span></div><div class="tr"><span class="tl">Acconto</span><span class="tv">€ ${acconto.toFixed(2)}</span></div><div class="tr"><span class="tl">Saldo</span><span class="tv" style="color:#dc2626">€ ${saldo.toFixed(2)}</span></div></div>
 ${notes && notes.trim() ? `<div class="notes-section"><div class="notes-label">Note</div><div class="notes-text">${escapeHtml(notes.trim())}</div></div>` : ''}
@@ -1154,6 +1156,7 @@ function openOrderForm(order = null, defaultDate = null) {
                 <tr>
                   <th style="min-width:100px;">CATALOGO</th>
                   <th style="min-width:80px;">CODICE</th>
+                  <th style="min-width:120px;">DESCRIZIONE</th>
                   <th style="min-width:70px;">COLORE</th>
                   <th style="width:52px;">QNT</th>
                   <th style="width:44px;">TG</th>
@@ -1318,6 +1321,7 @@ function renderModuleRows() {
     return `<tr>
       <td><input class="mod-input" value="${escapeHtml(r.catalogo||'')}" oninput="storeMod(${i},'catalogo',this.value)"></td>
       <td><input class="mod-input" value="${escapeHtml(r.codice||'')}" oninput="storeMod(${i},'codice',this.value)"></td>
+      <td><input class="mod-input" value="${escapeHtml(r.descrizione||'')}" oninput="storeMod(${i},'descrizione',this.value)"></td>
       <td><input class="mod-input" value="${escapeHtml(r.colore||'')}" oninput="storeMod(${i},'colore',this.value)"></td>
       <td><input class="mod-input mod-num" type="number" min="0" value="${r.qnt||''}" oninput="storeMod(${i},'qnt',this.value);calcModRow(${i})"></td>
       <td><input class="mod-input mod-sm" value="${escapeHtml(r.tg||'')}" oninput="storeMod(${i},'tg',this.value)"></td>
@@ -1341,7 +1345,7 @@ function copyModRow(i) {
 
 function storeMod(i, field, value) {
   if (!AppState.formModuleRows[i]) return;
-  const textFields = ['catalogo','codice','colore','tg'];
+  const textFields = ['catalogo','codice','descrizione','colore','tg'];
   AppState.formModuleRows[i][field] = textFields.includes(field) ? value : (field === 'ordinato' ? value : (parseFloat(value) || ''));
 }
 function calcModRow(i) {
