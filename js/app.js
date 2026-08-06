@@ -1133,7 +1133,7 @@ function openOrderForm(order = null, defaultDate = null) {
         </div>
 
         <div class="form-group">
-          <label class="form-label">Tag</label>
+          <label class="form-label">Tipologia * <span style="font-size:0.72rem;color:var(--text-muted);font-weight:400;">(seleziona 1)</span></label>
           <div class="chip-picker" id="of-tag-picker">
             ${tags.map(t => renderTagPickerChip(t)).join('')}
           </div>
@@ -1267,11 +1267,8 @@ function renderTagPickerChip(t) {
 
 function selectTagChip(name, toggle = true) {
   if (toggle) {
-    if (AppState.formTags.includes(name)) {
-      AppState.formTags = AppState.formTags.filter(t => t !== name);
-    } else {
-      AppState.formTags.push(name);
-    }
+    // Comportamento radio: seleziona questo, deseleziona tutti gli altri
+    AppState.formTags = AppState.formTags.includes(name) ? [] : [name];
   }
   document.querySelectorAll('#of-tag-picker .chip-btn').forEach(btn => {
     const t = TCFactory.getTags().find(t => t.name === btn.dataset.tag);
@@ -1427,6 +1424,8 @@ async function submitOrderForm() {
 
   if (!nome) { showToast('Inserisci un nome', 'error'); return; }
   if (!dataOrdine) { showToast('Inserisci una data', 'error'); return; }
+  if (AppState.formTags.length === 0) { showToast('Seleziona una tipologia (tag)', 'error'); return; }
+  if (AppState.formTags.length > 1)   { showToast('Puoi selezionare una sola tipologia', 'error'); return; }
 
   // Auto-urgente se deadline entro 7 giorni
   let finalPriorityId = priorityId;
