@@ -34,6 +34,7 @@ const AppState = {
   settingsUsersOpen: false,
   settingsLogOpen: false,
   settingsPwdOpen: false,
+  settingsCestinoOpen: false,
 };
 
 
@@ -174,7 +175,13 @@ function renderEconomicDashboard() {
 function setView(v) { AppState.view = v; renderOrderList(); }
 function setSortKey(v) { AppState.sortKey = v; renderOrderList(); }
 
-function setSearchQuery(v) { AppState.searchQuery = v; renderOrderList(); }
+function setSearchQuery(v) {
+  AppState.searchQuery = v;
+  renderOrderList();
+  // Re-focalizza il campo cerca dopo il re-render
+  const el = document.querySelector('.search-box input[type="text"]');
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
 
 
 function toggleTagFilter(tag) {
@@ -637,11 +644,8 @@ function previewOrderModule(orderId) {
     <div class="modal" style="max-width:820px;">
       <div class="modal-header">
         <div>
-          <h2 style="margin-bottom:4px;">${escapeHtml(order.nome)}</h2>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-            ${tagsHtml}
-            ${dlHtml ? `<span style="font-size:0.8rem;color:var(--text-muted);">Deadline: ${dlHtml}</span>` : ''}
-          </div>
+          <div style="font-size:1.8rem;font-weight:900;color:#1e40af;line-height:1.1;">${escapeHtml(tags[0] || 'Ordine')}</div>
+          <div style="font-size:0.9rem;color:var(--text-muted);margin-top:3px;">${escapeHtml(order.nome)}${dlHtml ? ` · Deadline: ${dlHtml}` : ''}</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
           <button class="btn btn-secondary btn-sm" onclick="downloadOrderModule('${order.id}')">⬇ Scarica PDF</button>
@@ -717,8 +721,9 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
   const pw = doc.internal.pageSize.width;
 
   // Header
-  doc.setFontSize(16); doc.setTextColor(30, 64, 175); doc.setFont(undefined,'bold');
-  doc.text('T&C Factory Creative Lab', 15, 20);
+  doc.setFontSize(22); doc.setTextColor(30, 64, 175); doc.setFont(undefined,'bold');
+  const tipologia = tags[0] || 'Ordine';
+  doc.text(tipologia, 15, 20);
   if (isUrgent) {
     doc.setFontSize(10); doc.setTextColor(220, 38, 38);
     doc.text('⚠ URGENTE', pw - 15, 20, { align: 'right' });
@@ -726,7 +731,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
 
   doc.setFontSize(9); doc.setTextColor(100, 116, 139); doc.setFont(undefined,'normal');
   let y = 28;
-  doc.text(`Ordine: ${nome}`, 15, y); y += 5;
+  doc.text(`${nome}`, 15, y); y += 5;
   doc.text(`Data: ${new Date().toLocaleDateString('it-IT')}`, 15, y); y += 5;
   if (dl) { doc.text(`Deadline: ${new Date(dl+'T00:00:00').toLocaleDateString('it-IT')}`, 15, y); y += 5; }
   if (tags.length) { doc.text(`Tipologia: ${tags.join(', ')}`, 15, y); y += 5; }
@@ -1027,12 +1032,12 @@ function renderOrderDetail() {
 async function deleteOrderConfirm(id) {
   const order = TCFactory.getOrderById(id);
   if (!order) return;
-  if (!confirm(`Eliminare definitivamente "${order.nome}"? L'operazione non è reversibile.`)) return;
+  if (!confirm(`Spostare "${order.nome}" nel cestino? Potrai ripristinarlo dalle Impostazioni per 7 giorni.`)) return;
   try {
     await TCFactory.deleteOrder(id);
     closeModal('order-detail-modal');
     renderApp();
-    showToast('Ordine eliminato');
+    showToast('Ordine spostato nel cestino 🗑');
   } catch(e) { showToast('Errore eliminazione', 'error'); }
 }
 
@@ -1660,6 +1665,11 @@ function renderSettingsDialog() {
             <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="doChangePassword()">Aggiorna password</button>
           </div>` : ''}
         </div>
+
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          ${sectionBtn('🗑 Cestino', Icons.trash(14), AppState.settingsCestinoOpen, 'toggleSettingsCestino')}
+          ${AppState.settingsCestinoOpen ? `<div id="cestino-body" style="padding:12px 14px;"></div>` : ''}
+        </div>
         ` : ''}
 
       </div>
@@ -1681,7 +1691,71 @@ function toggleSettingsPrio()  { AppState.settingsPrioOpen  = !AppState.settings
 function toggleSettingsTag()   { AppState.settingsTagOpen   = !AppState.settingsTagOpen;   renderSettingsDialog(); }
 function toggleSettingsUsers() { AppState.settingsUsersOpen = !AppState.settingsUsersOpen; renderSettingsDialog(); }
 function toggleSettingsLog()   { AppState.settingsLogOpen   = !AppState.settingsLogOpen;   renderSettingsDialog(); }
-function toggleSettingsPwd()   { AppState.settingsPwdOpen   = !AppState.settingsPwdOpen;   renderSettingsDialog(); }
+function toggleSettingsPwd()     { AppState.settingsPwdOpen     = !AppState.settingsPwdOpen;     renderSettingsDialog(); }
+function toggleSettingsCestino() { AppState.settingsCestinoOpen = !AppState.settingsCestinoOpen; renderSettingsDialog(); if (AppState.settingsCestinoOpen) { const b = document.getElementById('cestino-body'); if (b) renderCestinoSection(b); } }
+
+async function renderCestinoSection(container) {
+  const trashed = TCFactory.getTrashedOrders();
+  const now     = new Date();
+
+  // Auto-pulizia: elimina definitivamente dopo 7 giorni
+  for (const o of trashed) {
+    const deletedMs = new Date(o.deletedAt).getTime();
+    if (now - deletedMs > 7 * 24 * 60 * 60 * 1000) {
+      await TCFactory.permanentDeleteOrder(o.id).catch(() => {});
+    }
+  }
+
+  const current = TCFactory.getTrashedOrders(); // aggiornato dopo pulizia
+
+  if (current.length === 0) {
+    container.innerHTML = `<div style="font-size:0.82rem;color:var(--text-muted);text-align:center;padding:12px 0;">Il cestino è vuoto.</div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:8px;">Gli ordini vengono eliminati definitivamente dopo 7 giorni.</div>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      ${current.map(o => {
+        const deletedDate = new Date(o.deletedAt);
+        const daysLeft = 7 - Math.floor((now - deletedDate) / (24*60*60*1000));
+        const dt = deletedDate.toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'2-digit'});
+        const tag = o.tags?.[0] ? `<span style="font-size:0.7rem;color:${TCFactory.getTagColor(o.tags[0])};font-weight:600;">${escapeHtml(o.tags[0])}</span>` : '';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:0.85rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(o.nome)}</div>
+            <div style="display:flex;gap:6px;align-items:center;margin-top:2px;">
+              ${tag}
+              <span style="font-size:0.7rem;color:var(--text-muted);">Eliminato ${dt} · ${daysLeft}gg rimasti</span>
+            </div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="restoreOrderFromTrash('${o.id}')">Ripristina</button>
+          <button class="btn-icon" style="color:var(--priority-urgent);" onclick="permanentDeleteConfirm('${o.id}')" title="Elimina definitivamente">${Icons.trash(14)}</button>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+async function restoreOrderFromTrash(id) {
+  try {
+    await TCFactory.restoreOrder(id);
+    showToast('Ordine ripristinato');
+    renderApp();
+    const b = document.getElementById('cestino-body');
+    if (b) renderCestinoSection(b);
+  } catch(e) { showToast('Errore ripristino', 'error'); }
+}
+
+async function permanentDeleteConfirm(id) {
+  const o = TCFactory.getTrashedOrders().find(x => x.id === id);
+  if (!confirm(`Eliminare definitivamente "${o?.nome || id}"? Impossibile annullare.`)) return;
+  try {
+    await TCFactory.permanentDeleteOrder(id);
+    showToast('Eliminato definitivamente');
+    const b = document.getElementById('cestino-body');
+    if (b) renderCestinoSection(b);
+  } catch(e) { showToast('Errore', 'error'); }
+}
 
 async function doChangePassword() {
   const oldPwd = document.getElementById('pwd-old')?.value;

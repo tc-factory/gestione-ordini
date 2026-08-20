@@ -134,6 +134,7 @@ const TCFactory = {
       orderModule: row.order_module || { rows: [], acconto: '' },
       dtfItems: row.dtf_items || [],
       stages: row.stages || { merceCompleta: { done: false }, dtfPronti: { done: false }, ordineStampato: { done: false } },
+      deletedAt: row.deleted_at || null,
       archived: row.archived,
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -160,6 +161,7 @@ const TCFactory = {
       dtf_items: order.dtfItems || [],
       stages: order.stages,
       archived: !!order.archived,
+      deleted_at: order.deletedAt || null,
     };
   },
 
@@ -189,17 +191,18 @@ const TCFactory = {
 
   // Attivi: non archiviati e non spediti parzialmente
   // Attivi: non archiviati e non ancora stampati
-  getActiveOrders()         { return this.getOrders().filter(o => !o.archived && !o.stages?.ordineStampato?.done); },
+  getActiveOrders()         { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !o.stages?.ordineStampato?.done); },
   // Parziali: stampati senza merce completa (lavorazione parziale)
-  getParziali()             { return this.getOrders().filter(o => !o.archived && !!o.stages?.ordineStampato?.done && !o.stages?.merceCompleta?.done && !o.stages?.spedito?.done); },
+  getParziali()             { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !!o.stages?.ordineStampato?.done && !o.stages?.merceCompleta?.done && !o.stages?.spedito?.done); },
   // Evasione: merce completa + stampati, non ancora evasi
-  getEvasioneOrders()       { return this.getOrders().filter(o => !o.archived && !!o.stages?.ordineStampato?.done && !!o.stages?.merceCompleta?.done && !o.stages?.spedito?.done); },
+  getEvasioneOrders()       { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !!o.stages?.ordineStampato?.done && !!o.stages?.merceCompleta?.done && !o.stages?.spedito?.done); },
   // Compat (non più usato come tab)
   getPartialOrders()        { return this.getOrders().filter(o => !o.archived && o.stages?.speditoParzialmente?.done && !o.stages?.spedito?.done); },
   // Da riscuotere: evasi ma NON ancora pagati (il promemoria "hai spedito senza farti pagare")
-  getDaRiscuotereOrders()   { return this.getOrders().filter(o => !o.archived && !!o.stages?.spedito?.done && !o.paymentDone); },
+  getDaRiscuotereOrders()   { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !!o.stages?.spedito?.done && !o.paymentDone); },
   // Archivio: solo quando ENTRAMBI evaso E pagato
-  getArchivedOrders()       { return this.getOrders().filter(o => o.archived); },
+  getArchivedOrders()       { return this.getOrders().filter(o => !o.deletedAt && o.archived); },
+  getTrashedOrders()        { return this.getOrders().filter(o => !!o.deletedAt); },
 
   generateId() {
     const nums = this._orders.map(o => parseInt((o.id || '').replace('ORD-', '')) || 0);
@@ -290,10 +293,24 @@ const TCFactory = {
   },
 
   async deleteOrder(id) {
-    const current = this.getOrderById(id);
+    const nome = this.getOrderById(id)?.nome || '';
+    const now  = new Date().toISOString();
+    const { error } = await supabaseClient.from('orders').update({ deleted_at: now }).eq('id', id);
+    if (error) throw error;
+    this._orders = this._orders.map(o => o.id === id ? { ...o, deletedAt: now } : o);
+    this._log('Ordine nel cestino', id, nome);
+  },
+
+  async restoreOrder(id) {
+    const { error } = await supabaseClient.from('orders').update({ deleted_at: null }).eq('id', id);
+    if (error) throw error;
+    this._orders = this._orders.map(o => o.id === id ? { ...o, deletedAt: null } : o);
+  },
+
+  async permanentDeleteOrder(id) {
     const { error } = await supabaseClient.from('orders').delete().eq('id', id);
     if (error) throw error;
-    this._log('Ordine eliminato', id, current?.nome || id);
+    this._orders = this._orders.filter(o => o.id !== id);
   },
 
   // ── Registro attività ──────────────────────────
