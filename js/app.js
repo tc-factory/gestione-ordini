@@ -744,7 +744,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
       const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
       return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
         r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
-        t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? '✓' : ''];
+        t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : ''];
     }) : [['','','','','','','','']],
     styles: { fontSize: 9, cellPadding: 2 },
     headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 8 },
