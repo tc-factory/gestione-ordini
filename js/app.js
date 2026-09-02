@@ -2131,9 +2131,10 @@ window.Icons = Icons;
 const CalState = {
   open: false,
   year: new Date().getFullYear(),
-  month: -1,  // -1 = vista annuale, 0-11 = mese specifico
+  month: -1,
   pickerOpen: false,
   editingEvent: null,
+  eventListOpen: false,
 };
 
 const EVENT_TYPES = [
@@ -2233,9 +2234,9 @@ function renderCalendarBody() {
     const months = Array.from({length:12}, (_,i) => renderMiniMonth(CalState.year, i));
     return nav + statsSection + `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:12px 16px;">
       ${months.join('')}
-    </div>`;
+    </div>` + renderEventList();
   } else {
-    return nav + statsSection + renderFullMonth(CalState.year, CalState.month);
+    return nav + statsSection + renderFullMonth(CalState.year, CalState.month) + renderEventList();
   }
 }
 
@@ -2284,7 +2285,6 @@ function renderMiniMonth(year, month) {
 }
 
 function renderFullMonth(year, month) {
-  const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
   const GG   = ['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
   const firstDay = new Date(year, month, 1).getDay();
   const offset   = firstDay === 0 ? 6 : firstDay - 1;
@@ -2292,23 +2292,42 @@ function renderFullMonth(year, month) {
   const today    = new Date().toISOString().slice(0, 10);
 
   const cells = [];
-  for (let i = 0; i < offset; i++) cells.push('<div style="border:1px solid var(--border-light);min-height:80px;border-radius:4px;background:var(--bg-secondary);opacity:0.4;"></div>');
+  for (let i = 0; i < offset; i++) cells.push('<div style="border:1px solid var(--border-light);min-height:90px;border-radius:4px;background:var(--bg-secondary);opacity:0.3;"></div>');
+
   for (let d = 1; d <= lastDate; d++) {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const evs = TCFactory.getEventsForDate(dateStr);
+    const evs     = TCFactory.getEventsForDate(dateStr);
     const isToday = dateStr === today;
-    const chips = evs.map(e => {
-      const txt = getEventChipText(e);
-      const short = txt.length > 22 ? txt.slice(0, 20) + '…' : txt;
-      return `
-        <div style="background:${e.color}22;border-left:3px solid ${e.color};padding:2px 5px;border-radius:3px;font-size:0.65rem;font-weight:600;color:${e.color};cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-          onclick="event.stopPropagation();openCalEventDialog('${e.id}',null)" title="${escapeHtml(txt)}">
-          ${escapeHtml(short)}
-        </div>`}).join('');
+    const MAX_VISIBLE = 2;
+    const shown   = evs.slice(0, MAX_VISIBLE);
+    const hidden  = evs.length - MAX_VISIBLE;
+
+    const chips = shown.map(e => {
+      const txt   = getEventChipText(e);
+      const users = (e.user_ids || []);
+      const short = txt.length > 26 ? txt.slice(0, 24) + '…' : txt;
+      const usersLine = e.event_type !== 'ferie' && users.length
+        ? `<div style="font-size:0.6rem;opacity:0.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">👥 ${users.join(', ')}</div>`
+        : '';
+      return `<div onclick="event.stopPropagation();openCalEventDialog('${e.id}',null)"
+        style="background:${e.color}22;border-left:3px solid ${e.color};padding:3px 6px;border-radius:3px;cursor:pointer;margin-bottom:2px;"
+        title="${escapeHtml(txt)}">
+        <div style="font-size:0.67rem;font-weight:700;color:${e.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(short)}</div>
+        ${usersLine}
+      </div>`;
+    }).join('');
+
+    const moreBtn = hidden > 0
+      ? `<div onclick="event.stopPropagation();openDayPopup('${dateStr}')"
+          style="font-size:0.65rem;font-weight:700;color:var(--brand-gold);cursor:pointer;padding:2px 4px;text-align:center;">
+          + altri ${hidden} →
+        </div>` : '';
+
     cells.push(`
-      <div onclick="openCalEventDialog(null,'${dateStr}')" style="border:1px solid var(--border-light);min-height:80px;border-radius:4px;padding:4px;cursor:pointer;${isToday?'border-color:var(--brand-gold);background:color-mix(in srgb, var(--brand-gold) 5%, var(--bg-card))':''} hover:background:var(--bg-secondary);">
+      <div onclick="${evs.length > 0 ? `openDayPopup('${dateStr}')` : `openCalEventDialog(null,'${dateStr}')`}"
+        style="border:1px solid var(--border-light);min-height:90px;border-radius:4px;padding:5px;cursor:pointer;position:relative;${isToday?'border-color:var(--brand-gold);background:color-mix(in srgb,var(--brand-gold) 5%,var(--bg-card))':'background:var(--bg-card)'}">
         <div style="font-size:0.75rem;font-weight:${isToday?'800':'600'};color:${isToday?'var(--brand-gold)':'var(--text-primary)'};margin-bottom:4px;">${d}</div>
-        <div style="display:flex;flex-direction:column;gap:2px;">${chips}</div>
+        ${chips}${moreBtn}
       </div>`);
   }
 
@@ -2318,6 +2337,106 @@ function renderFullMonth(year, month) {
       ${cells.join('')}
     </div>
   </div>`;
+}
+
+// Popup giornaliero — mostra tutti gli eventi di un giorno
+function openDayPopup(dateStr) {
+  const evs    = TCFactory.getEventsForDate(dateStr);
+  const modal  = document.getElementById('day-modal');
+  const label  = new Date(dateStr + 'T00:00:00').toLocaleDateString('it-IT', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+
+  modal.innerHTML = `
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-header">
+        <h2 style="font-size:1rem;">${label}</h2>
+        <button class="btn-icon" onclick="closeModal('day-modal')">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:10px;">
+        ${evs.length === 0 ? `<p style="color:var(--text-muted);font-size:0.85rem;">Nessun evento.</p>` :
+          evs.map(e => {
+            const typeInfo = EVENT_TYPES.find(t => t.id === e.event_type) || EVENT_TYPES[0];
+            const users    = e.user_ids || [];
+            const isMulti  = e.date_from !== e.date_to;
+            const dateRange = isMulti
+              ? `${new Date(e.date_from+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short'})} → ${new Date(e.date_to+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short'})}`
+              : '';
+            return `<div onclick="closeModal('day-modal');setTimeout(()=>openCalEventDialog('${e.id}',null),100)"
+              style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:var(--radius-md);background:var(--bg-secondary);cursor:pointer;border-left:4px solid ${e.color};">
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:0.85rem;font-weight:700;color:${e.color};">${escapeHtml(getEventChipText(e))}</div>
+                ${isMulti ? `<div style="font-size:0.72rem;color:var(--text-muted);">📅 ${dateRange}</div>` : ''}
+                ${users.length ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:3px;">👥 ${users.join(' · ')}</div>` : ''}
+                ${e.notes ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:4px;font-style:italic;">${escapeHtml(e.notes.slice(0,80))}${e.notes.length>80?'…':''}</div>` : ''}
+              </div>
+              <span style="font-size:0.7rem;background:${e.color}22;color:${e.color};border-radius:4px;padding:2px 7px;white-space:nowrap;align-self:flex-start;">${typeInfo.label}</span>
+            </div>`;
+          }).join('')}
+        <button class="btn btn-primary btn-sm" style="align-self:flex-start;" onclick="closeModal('day-modal');openCalEventDialog(null,'${dateStr}')">+ Aggiungi evento</button>
+      </div>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = e => { if (e.target === modal) closeModal('day-modal'); };
+}
+
+// Lista eventi collassabile
+function renderEventList() {
+  const all    = [...TCFactory.getCalendarEvents()].sort((a,b) => a.date_from.localeCompare(b.date_from));
+  const today  = new Date().toISOString().slice(0, 10);
+  const nextIdx = all.findIndex(e => e.date_to >= today);
+
+  const itemsHtml = all.map((e, i) => {
+    const typeInfo = EVENT_TYPES.find(t => t.id === e.event_type) || EVENT_TYPES[0];
+    const users    = e.user_ids || [];
+    const isPast   = e.date_to < today;
+    const isNext   = i === nextIdx;
+    const isMulti  = e.date_from !== e.date_to;
+    const dfrom = new Date(e.date_from+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'2-digit'});
+    const dto   = new Date(e.date_to+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'2-digit'});
+    const dateStr = isMulti ? `${dfrom} → ${dto}` : dfrom;
+
+    return `<div id="${isNext ? 'next-event-item' : ''}"
+      onclick="openCalEventDialog('${e.id}',null)"
+      style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:var(--radius-md);cursor:pointer;
+             border:1px solid var(--border-light);
+             ${isNext ? 'border-color:var(--brand-gold);box-shadow:0 0 0 2px color-mix(in srgb,var(--brand-gold) 20%,transparent);' : ''}
+             ${isPast ? 'opacity:0.45;' : ''}
+             background:var(--bg-card);">
+      <div style="width:4px;border-radius:2px;background:${typeInfo.color};align-self:stretch;flex-shrink:0;"></div>
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <span style="font-size:0.82rem;font-weight:700;">${escapeHtml(getEventChipText(e))}</span>
+          <span style="font-size:0.67rem;background:${typeInfo.color}22;color:${typeInfo.color};border-radius:4px;padding:1px 6px;">${typeInfo.label}</span>
+          ${isNext ? '<span style="font-size:0.67rem;background:var(--brand-gold)22;color:var(--brand-gold);border-radius:4px;padding:1px 6px;font-weight:700;">prossimo</span>' : ''}
+        </div>
+        <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">📅 ${dateStr}</div>
+        ${users.length && e.event_type !== 'ferie' ? `<div style="font-size:0.72rem;color:var(--text-muted);">👥 ${users.join(' · ')}</div>` : ''}
+        ${e.notes ? `<div style="font-size:0.7rem;color:var(--text-muted);font-style:italic;margin-top:2px;">${escapeHtml(e.notes.slice(0,60))}${e.notes.length>60?'…':''}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div style="border-top:1px solid var(--border);">
+      <div onclick="toggleEventList()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer;background:var(--bg-secondary);">
+        <span style="font-weight:700;font-size:0.88rem;">📋 Tutti gli eventi (${all.length})</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${CalState.eventListOpen?180:0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      ${CalState.eventListOpen ? `
+        <div style="max-height:380px;overflow-y:auto;padding:10px 16px;display:flex;flex-direction:column;gap:8px;" id="event-list-scroll">
+          ${all.length === 0 ? '<p style="color:var(--text-muted);font-size:0.82rem;text-align:center;">Nessun evento.</p>' : itemsHtml}
+        </div>` : ''}
+    </div>`;
+}
+
+function toggleEventList() {
+  CalState.eventListOpen = !CalState.eventListOpen;
+  renderCalendarSection();
+  if (CalState.eventListOpen) {
+    setTimeout(() => {
+      const el = document.getElementById('next-event-item');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+  }
 }
 
 function toggleCalendar() {
