@@ -29,6 +29,8 @@ const AppState = {
   formModuleRows: [],
   formModuleAcconto: '',
   formModuleOpen: false,
+  integrationOrderId: null,
+  integrationRows: [],
   settingsPrioOpen: false,
   settingsTagOpen: false,
   settingsUsersOpen: false,
@@ -602,6 +604,11 @@ async function quickToggleArchive(orderId, isArchived) {
   catch(e) { showToast('Errore', 'error'); }
 }
 
+// Separa le righe "normali" del modulo d'ordine da quelle aggiunte come integrazione
+function splitModuleRows(rows) {
+  return { base: rows.filter(r => !r.integrazione), integ: rows.filter(r => r.integrazione) };
+}
+
 function previewOrderModule(orderId) {
   const order   = TCFactory.getOrderById(orderId);
   if (!order) return;
@@ -624,7 +631,7 @@ function previewOrderModule(orderId) {
     return `<span style="color:${dc};font-weight:700;">${new Date(order.deadline+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})}</span>`;
   })() : '';
 
-  const rowsHtml = rows.length ? rows.map((r, i) => {
+  const renderModRow = (r, i) => {
     const t   = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
     const bg  = i % 2 === 0 ? 'var(--bg-card)' : 'var(--bg-secondary)';
     return `<tr style="background:${bg};">
@@ -638,7 +645,12 @@ function previewOrderModule(orderId) {
       <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.ordinato ? '✓' : ''}</td>
     </tr>`;
-  }).join('') : `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
+  };
+  const integHeaderRow = `<tr><td colspan="9" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>`;
+  const { base: modBase, integ: modInteg } = splitModuleRows(rows);
+  const rowsHtml = rows.length
+    ? modBase.map(renderModRow).join('') + (modInteg.length ? integHeaderRow + modInteg.map(renderModRow).join('') : '')
+    : `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
 
   modal.innerHTML = `
     <div class="modal" style="max-width:820px;">
@@ -737,22 +749,39 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
   if (tags.length) { doc.text(`Tipologia: ${tags.join(', ')}`, 15, y); y += 5; }
 
   // Table
-  doc.autoTable({
-    startY: y + 3,
-    head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.']],
-    body: rows.length ? rows.map(r => {
-      const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
-      return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
-        r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
-        t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : ''];
-    }) : [['','','','','','','','']],
+  const { base: pdfBase, integ: pdfInteg } = splitModuleRows(rows);
+  const rowToArr = r => {
+    const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
+    return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
+      r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
+      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : ''];
+  };
+  const autoTableStyle = {
     styles: { fontSize: 9, cellPadding: 2 },
     headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 8 },
     alternateRowStyles: { fillColor: [239, 246, 255] },
     columnStyles: { 3:{halign:'center'}, 4:{halign:'center'}, 5:{halign:'right'}, 6:{halign:'right'}, 7:{halign:'center'} },
+  };
+  doc.autoTable({
+    startY: y + 3,
+    head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.']],
+    body: pdfBase.length ? pdfBase.map(rowToArr) : [['','','','','','','','','']],
+    ...autoTableStyle,
   });
 
   let fy = doc.lastAutoTable.finalY + 6;
+
+  if (pdfInteg.length) {
+    doc.setFontSize(10); doc.setFont(undefined,'bold'); doc.setTextColor(30, 64, 175);
+    doc.text('INTEGRAZIONI', 15, fy); fy += 5;
+    doc.autoTable({
+      startY: fy,
+      head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.']],
+      body: pdfInteg.map(rowToArr),
+      ...autoTableStyle,
+    });
+    fy = doc.lastAutoTable.finalY + 6;
+  }
 
   // Totals
   doc.setFontSize(10); doc.setFont(undefined,'normal'); doc.setTextColor(100, 116, 139);
@@ -806,7 +835,12 @@ ${dlHtml ? `<br><strong>Deadline:</strong> ${dlHtml}` : ''}
 ${tagsHtml ? `<br><strong>Tipologia:</strong> ${tagsHtml}` : ''}</div></div>
 ${isUrgent ? `<div class="urg">⚠️ URGENTE</div>` : ''}</div>
 <table><thead><tr><th>Catalogo</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th></tr></thead><tbody>
-${rows.length ? rows.map(r=>{const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td></tr>`;}).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>'}
+${(() => {
+    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td></tr>`; };
+    const integHeaderHtml = '<tr><td colspan="9" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>';
+    const { base, integ } = splitModuleRows(rows);
+    return rows.length ? base.map(rowHtml).join('') + (integ.length ? integHeaderHtml + integ.map(rowHtml).join('') : '') : '<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
+  })()}
 </tbody></table>
 <div class="tots"><div class="tr"><span class="tl">Totale ordine</span><span class="tv" style="color:#1e40af">€ ${total.toFixed(2)}</span></div><div class="tr"><span class="tl">Acconto</span><span class="tv">€ ${acconto.toFixed(2)}</span></div><div class="tr"><span class="tl">Saldo</span><span class="tv" style="color:#dc2626">€ ${saldo.toFixed(2)}</span></div></div>
 ${notes && notes.trim() ? `<div class="notes-section"><div class="notes-label">Note</div><div class="notes-text">${escapeHtml(notes.trim())}</div></div>` : ''}
@@ -816,7 +850,115 @@ ${notes && notes.trim() ? `<div class="notes-section"><div class="notes-label">N
   else showToast('Abilita i popup per scaricare il modulo', 'error');
 }
 
+// ── Integrazioni al modulo d'ordine ──────────
 
+function openIntegrationForm(orderId) {
+  const order = TCFactory.getOrderById(orderId);
+  if (!order) return;
+  AppState.integrationOrderId = orderId;
+  AppState.integrationRows = [{ catalogo:'', codice:'', descrizione:'', colore:'', qnt:'', tg:'', prezzo:'' }];
+
+  const modal = document.getElementById('file-preview-modal');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:820px;">
+      <div class="modal-header">
+        <span>${Icons.plus(16)} Integrazioni — ${escapeHtml(order.nome)}</span>
+        <button class="btn-icon" onclick="closeModal('file-preview-modal')">${Icons.x()}</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 12px;">Le righe inserite qui si aggiungono al modulo d'ordine sotto la voce "Integrazioni".</p>
+        <table class="mod-table" style="width:100%;table-layout:fixed;">
+          <thead>
+            <tr>
+              <th style="width:15%;">CATALOGO</th>
+              <th style="width:12%;">CODICE</th>
+              <th style="width:19%;">DESCRIZIONE</th>
+              <th style="width:11%;">COLORE</th>
+              <th style="width:9%;">QNT</th>
+              <th style="width:8%;">TG</th>
+              <th style="width:11%;">PREZZO</th>
+              <th style="width:15%;"></th>
+            </tr>
+          </thead>
+          <tbody id="integ-rows-body"></tbody>
+        </table>
+        <button type="button" onclick="addIntegrationRow()" class="btn btn-secondary btn-sm" style="margin-top:8px;">${Icons.plus(13)} Aggiungi riga</button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('file-preview-modal')">Annulla</button>
+        <button class="btn btn-primary" onclick="saveIntegrationRows()">Salva integrazioni</button>
+      </div>
+    </div>
+  `;
+  renderIntegrationRows();
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('file-preview-modal'); };
+}
+
+function renderIntegrationRows() {
+  const tbody = document.getElementById('integ-rows-body');
+  if (!tbody) return;
+  tbody.innerHTML = AppState.integrationRows.map((r, i) => `
+    <tr>
+      <td><input class="mod-input" value="${escapeHtml(r.catalogo||'')}" oninput="storeIntegrationField(${i},'catalogo',this.value)"></td>
+      <td><input class="mod-input" value="${escapeHtml(r.codice||'')}" oninput="storeIntegrationField(${i},'codice',this.value)"></td>
+      <td><input class="mod-input" value="${escapeHtml(r.descrizione||'')}" oninput="storeIntegrationField(${i},'descrizione',this.value)"></td>
+      <td><input class="mod-input" value="${escapeHtml(r.colore||'')}" oninput="storeIntegrationField(${i},'colore',this.value)"></td>
+      <td><input class="mod-input mod-num" type="number" min="0" value="${r.qnt||''}" oninput="storeIntegrationField(${i},'qnt',this.value)"></td>
+      <td><input class="mod-input mod-sm" value="${escapeHtml(r.tg||'')}" oninput="storeIntegrationField(${i},'tg',this.value)"></td>
+      <td><input class="mod-input mod-num" type="number" min="0" step="0.01" value="${r.prezzo||''}" oninput="storeIntegrationField(${i},'prezzo',this.value)"></td>
+      <td style="display:flex;gap:3px;">
+        <button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="removeIntegrationRow(${i})">${Icons.x(12)}</button>
+      </td>
+    </tr>`).join('');
+}
+
+function storeIntegrationField(i, field, value) {
+  if (!AppState.integrationRows[i]) return;
+  const textFields = ['catalogo','codice','descrizione','colore','tg'];
+  AppState.integrationRows[i][field] = textFields.includes(field) ? value : (parseFloat(value) || '');
+}
+
+function addIntegrationRow() {
+  AppState.integrationRows.push({ catalogo:'', codice:'', descrizione:'', colore:'', qnt:'', tg:'', prezzo:'' });
+  renderIntegrationRows();
+}
+
+function removeIntegrationRow(i) {
+  AppState.integrationRows.splice(i, 1);
+  if (AppState.integrationRows.length === 0) {
+    AppState.integrationRows.push({ catalogo:'', codice:'', descrizione:'', colore:'', qnt:'', tg:'', prezzo:'' });
+  }
+  renderIntegrationRows();
+}
+
+async function saveIntegrationRows() {
+  const orderId = AppState.integrationOrderId;
+  const order = TCFactory.getOrderById(orderId);
+  if (!order) return;
+
+  const newRows = AppState.integrationRows
+    .filter(r => r.catalogo || r.codice || r.descrizione || r.colore || r.qnt || r.prezzo)
+    .map(r => ({ ...r, ordinato: false, integrazione: true }));
+  if (newRows.length === 0) { showToast('Inserisci almeno una riga', 'error'); return; }
+
+  const currentModule = order.orderModule || { rows: [], acconto: '' };
+  const updatedModule = { ...currentModule, rows: [...currentModule.rows, ...newRows] };
+
+  const btn = document.querySelector('#file-preview-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio…'; }
+  try {
+    const updated = await TCFactory.updateOrder(orderId, { orderModule: updatedModule });
+    AppState.selectedOrder = updated;
+    closeModal('file-preview-modal');
+    renderOrderDetail();
+    renderOrderList();
+    showToast('Integrazioni aggiunte al modulo d\'ordine');
+  } catch(e) {
+    showToast('Errore salvataggio integrazioni', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Salva integrazioni'; }
+  }
+}
 
 // ─────────────────────────────────────────────
 // AZIONI RAPIDE LISTA
@@ -1015,7 +1157,10 @@ function renderOrderDetail() {
 
         ${(order.orderModule?.rows?.length || 0) > 0 ? `
           <div class="detail-files">
-            <div class="detail-meta-label" style="margin-bottom:8px;">Modulo d'ordine</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <div class="detail-meta-label" style="margin-bottom:0;">Modulo d'ordine</div>
+              <button class="btn btn-secondary btn-sm" onclick="openIntegrationForm('${order.id}')">${Icons.plus(12)} Integrazione</button>
+            </div>
             <button class="file-item" onclick="previewOrderModule('${order.id}')">
               📋 <span>Visualizza modulo (${order.orderModule.rows.length} righe)</span>
             </button>
@@ -1318,7 +1463,7 @@ function removeFormFile(i) {
 function renderModuleRows() {
   const tbody = document.getElementById('mod-rows-body');
   if (!tbody) return;
-  tbody.innerHTML = AppState.formModuleRows.map((r, i) => {
+  const rowHtml = (r, i) => {
     const tot = (parseFloat(r.qnt)||0) * (parseFloat(r.prezzo)||0);
     return `<tr>
       <td><input class="mod-input" value="${escapeHtml(r.catalogo||'')}" oninput="storeMod(${i},'catalogo',this.value)"></td>
@@ -1335,7 +1480,12 @@ function renderModuleRows() {
         <button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="removeModRow(${i})">${Icons.x(12)}</button>
       </td>
     </tr>`;
-  }).join('');
+  };
+  const indexed = AppState.formModuleRows.map((r, i) => ({ r, i }));
+  const base  = indexed.filter(x => !x.r.integrazione);
+  const integ = indexed.filter(x => x.r.integrazione);
+  const integHeaderRow = `<tr><td colspan="10" style="padding:8px 10px;background:var(--bg-secondary);font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Integrazioni</td></tr>`;
+  tbody.innerHTML = base.map(x => rowHtml(x.r, x.i)).join('') + (integ.length ? integHeaderRow + integ.map(x => rowHtml(x.r, x.i)).join('') : '');
   updateModuleTotals();
 }
 
