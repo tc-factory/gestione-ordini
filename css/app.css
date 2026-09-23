@@ -277,6 +277,14 @@ html.dark .app-shell {
 @media (max-width: 640px) {
   .cal-day { min-height: 64px; }
   .cal-order-chip { display: none; }
+
+  /* Vista "Tutti i mesi": 3 colonne sono troppo strette su telefono e
+     tagliano i mesi fuori schermo — un mese per riga resta leggibile. */
+  .cal-annual-grid { grid-template-columns: repeat(1, 1fr) !important; }
+}
+
+@media (min-width: 641px) and (max-width: 900px) {
+  .cal-annual-grid { grid-template-columns: repeat(2, 1fr) !important; }
 }
 
 /* ─────────────────────────────────────────────
@@ -796,6 +804,7 @@ html.dark .app-shell {
    Modulo d'ordine — tabella nel form
    ───────────────────────────────────────────── */
 
+.mod-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .mod-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
 .mod-table thead tr th {
   background: #1e40af;
@@ -886,7 +895,12 @@ html.dark .app-shell {
   /* ── Riga ordine — layout a scheda invece di griglia ── */
   .order-row-item { padding: 0 10px; }
 
-  .order-row-grid {
+  /* .order-row-grid--active è definita più sotto nel file con la stessa
+     specificità: a parità di specificità vince l'ordine nel file, quindi
+     qui va qualificata con un antenato per garantire che vinca lei anche
+     su mobile (altrimenti torna la grid fissa a 8 colonne del desktop). */
+  .order-row-grid,
+  .order-row-item .order-row-grid--active {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -913,9 +927,12 @@ html.dark .app-shell {
 
   /* Seconda riga: tutto scorre inline naturalmente */
   .orc-date     { flex: 0 0 auto; font-size: 0.72rem; }
-  .orc-tags     { flex: 0 0 auto; flex-wrap: wrap; gap: 3px; }
-  .orc-lav      { flex: 0 0 auto; flex-wrap: wrap; gap: 3px; }
-  .orc-eva      { flex: 0 0 auto; flex-wrap: wrap; gap: 3px; }
+  /* width:100% forza queste righe di chip/pillole sulla propria riga così il loro
+     flex-wrap interno ha uno spazio definito in cui andare a capo, invece di
+     sfondare la larghezza della card (bug: pagina intera che si allargava su mobile) */
+  .orc-tags     { flex: 1 1 100%; width: 100%; min-width: 0; flex-wrap: wrap; gap: 3px; }
+  .orc-lav      { flex: 1 1 100%; width: 100%; min-width: 0; flex-wrap: wrap; gap: 3px; }
+  .orc-eva      { flex: 1 1 100%; width: 100%; min-width: 0; flex-wrap: wrap; gap: 3px; }
   .orc-deadline { flex: 0 0 auto; font-size: 0.75rem; }
   .orc-priority { flex: 0 0 auto; }
   .orc-files    { flex: 0 0 auto; }
@@ -947,6 +964,11 @@ html.dark .app-shell {
 
   /* ── Filtro tag ── */
   .order-row-grid .chip { font-size: 0.68rem; }
+
+  /* ── Modulo d'ordine — troppe colonne per 100% di uno schermo stretto:
+     larghezza minima fissa + scroll orizzontale contenuto, invece di
+     colonne/input illeggibili compressi a pochi pixel ── */
+  .mod-table-scroll .mod-table { width: 760px !important; }
 }
 
 /* ── Breakpoint ancora più stretto (iPhone SE, etc.) ── */

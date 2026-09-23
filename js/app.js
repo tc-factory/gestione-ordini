@@ -644,13 +644,15 @@ function previewOrderModule(orderId) {
       <td style="padding:7px 10px;text-align:right;">${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.ordinato ? '✓' : ''}</td>
+      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.lavEsterna ? '✓' : ''}</td>
+      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.neutro ? '✓' : ''}</td>
     </tr>`;
   };
-  const integHeaderRow = `<tr><td colspan="9" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>`;
+  const integHeaderRow = `<tr><td colspan="11" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>`;
   const { base: modBase, integ: modInteg } = splitModuleRows(rows);
   const rowsHtml = rows.length
     ? modBase.map(renderModRow).join('') + (modInteg.length ? integHeaderRow + modInteg.map(renderModRow).join('') : '')
-    : `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
+    : `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
 
   modal.innerHTML = `
     <div class="modal" style="max-width:820px;">
@@ -677,6 +679,8 @@ function previewOrderModule(orderId) {
               <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Prezzo</th>
               <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Totale</th>
               <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Ord.</th>
+              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Lav. est.</th>
+              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Neutro</th>
             </tr>
           </thead>
           <tbody>${rowsHtml}</tbody>
@@ -754,7 +758,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
     const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
     return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
       r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
-      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : ''];
+      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : '', r.lavEsterna ? 'SI' : '', r.neutro ? 'SI' : ''];
   };
   const autoTableStyle = {
     styles: { fontSize: 9, cellPadding: 2 },
@@ -764,8 +768,8 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
   };
   doc.autoTable({
     startY: y + 3,
-    head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.']],
-    body: pdfBase.length ? pdfBase.map(rowToArr) : [['','','','','','','','','']],
+    head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lav. est.','Neutro']],
+    body: pdfBase.length ? pdfBase.map(rowToArr) : [['','','','','','','','','','','']],
     ...autoTableStyle,
   });
 
@@ -776,7 +780,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
     doc.text('INTEGRAZIONI', 15, fy); fy += 5;
     doc.autoTable({
       startY: fy,
-      head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.']],
+      head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lav. est.','Neutro']],
       body: pdfInteg.map(rowToArr),
       ...autoTableStyle,
     });
@@ -834,12 +838,12 @@ tbody td{padding:7px 10px;border-bottom:1px solid #dbeafe}
 ${dlHtml ? `<br><strong>Deadline:</strong> ${dlHtml}` : ''}
 ${tagsHtml ? `<br><strong>Tipologia:</strong> ${tagsHtml}` : ''}</div></div>
 ${isUrgent ? `<div class="urg">⚠️ URGENTE</div>` : ''}</div>
-<table><thead><tr><th>Catalogo</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th></tr></thead><tbody>
+<table><thead><tr><th>Catalogo</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th><th style="text-align:center">Lav. est.</th><th style="text-align:center">Neutro</th></tr></thead><tbody>
 ${(() => {
-    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td></tr>`; };
-    const integHeaderHtml = '<tr><td colspan="9" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>';
+    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td><td style="text-align:center;color:#16a34a">${r.lavEsterna?'✓':''}</td><td style="text-align:center;color:#16a34a">${r.neutro?'✓':''}</td></tr>`; };
+    const integHeaderHtml = '<tr><td colspan="11" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>';
     const { base, integ } = splitModuleRows(rows);
-    return rows.length ? base.map(rowHtml).join('') + (integ.length ? integHeaderHtml + integ.map(rowHtml).join('') : '') : '<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
+    return rows.length ? base.map(rowHtml).join('') + (integ.length ? integHeaderHtml + integ.map(rowHtml).join('') : '') : '<tr><td colspan="11" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
   })()}
 </tbody></table>
 <div class="tots"><div class="tr"><span class="tl">Totale ordine</span><span class="tv" style="color:#1e40af">€ ${total.toFixed(2)}</span></div><div class="tr"><span class="tl">Acconto</span><span class="tv">€ ${acconto.toFixed(2)}</span></div><div class="tr"><span class="tl">Saldo</span><span class="tv" style="color:#dc2626">€ ${saldo.toFixed(2)}</span></div></div>
@@ -867,21 +871,23 @@ function openIntegrationForm(orderId) {
       </div>
       <div class="modal-body">
         <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 12px;">Le righe inserite qui si aggiungono al modulo d'ordine sotto la voce "Integrazioni".</p>
-        <table class="mod-table" style="width:100%;table-layout:fixed;">
-          <thead>
-            <tr>
-              <th style="width:15%;">CATALOGO</th>
-              <th style="width:12%;">CODICE</th>
-              <th style="width:19%;">DESCRIZIONE</th>
-              <th style="width:11%;">COLORE</th>
-              <th style="width:9%;">QNT</th>
-              <th style="width:8%;">TG</th>
-              <th style="width:11%;">PREZZO</th>
-              <th style="width:15%;"></th>
-            </tr>
-          </thead>
-          <tbody id="integ-rows-body"></tbody>
-        </table>
+        <div class="mod-table-scroll">
+          <table class="mod-table" style="width:100%;table-layout:fixed;">
+            <thead>
+              <tr>
+                <th style="width:15%;">CATALOGO</th>
+                <th style="width:12%;">CODICE</th>
+                <th style="width:19%;">DESCRIZIONE</th>
+                <th style="width:11%;">COLORE</th>
+                <th style="width:9%;">QNT</th>
+                <th style="width:8%;">TG</th>
+                <th style="width:11%;">PREZZO</th>
+                <th style="width:15%;"></th>
+              </tr>
+            </thead>
+            <tbody id="integ-rows-body"></tbody>
+          </table>
+        </div>
         <button type="button" onclick="addIntegrationRow()" class="btn btn-secondary btn-sm" style="margin-top:8px;">${Icons.plus(13)} Aggiungi riga</button>
       </div>
       <div class="modal-footer">
@@ -1301,23 +1307,27 @@ function openOrderForm(order = null, defaultDate = null) {
             </div>
           </div>
           <div id="module-body" style="display:${AppState.formModuleOpen?'block':'none'};padding:12px 14px;">
-            <table class="mod-table" style="width:100%;table-layout:fixed;">
-              <thead>
-                <tr>
-                  <th style="width:14%;">CATALOGO</th>
-                  <th style="width:11%;">CODICE</th>
-                  <th style="width:16%;">DESCRIZIONE</th>
-                  <th style="width:9%;">COLORE</th>
-                  <th style="width:7%;">QNT</th>
-                  <th style="width:6%;">TG</th>
-                  <th style="width:9%;">PREZZO</th>
-                  <th style="width:9%;">TOTALE</th>
-                  <th style="width:7%;text-align:center;">ORD.</th>
-                  <th style="width:12%;"></th>
-                </tr>
-              </thead>
-              <tbody id="mod-rows-body"></tbody>
-            </table>
+            <div class="mod-table-scroll">
+              <table class="mod-table" style="width:100%;table-layout:fixed;">
+                <thead>
+                  <tr>
+                    <th style="width:13%;">CATALOGO</th>
+                    <th style="width:10%;">CODICE</th>
+                    <th style="width:14%;">DESCRIZIONE</th>
+                    <th style="width:9%;">COLORE</th>
+                    <th style="width:6%;">QNT</th>
+                    <th style="width:5%;">TG</th>
+                    <th style="width:8%;">PREZZO</th>
+                    <th style="width:8%;">TOTALE</th>
+                    <th style="width:5%;text-align:center;">ORD.</th>
+                    <th style="width:6%;text-align:center;" title="Lavorazione esterna">LAV. EST.</th>
+                    <th style="width:6%;text-align:center;">NEUTRO</th>
+                    <th style="width:10%;"></th>
+                  </tr>
+                </thead>
+                <tbody id="mod-rows-body"></tbody>
+              </table>
+            </div>
             <button type="button" onclick="addModRow()" class="btn btn-secondary btn-sm" style="margin-top:8px;">${Icons.plus(13)} Aggiungi riga</button>
             <div style="margin-top:12px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;border-top:1px solid var(--border);padding-top:10px;">
               <div style="display:flex;align-items:center;gap:12px;font-size:0.82rem;">
@@ -1475,6 +1485,8 @@ function renderModuleRows() {
       <td><input class="mod-input mod-num" type="number" min="0" step="0.01" value="${r.prezzo||''}" oninput="storeMod(${i},'prezzo',this.value);calcModRow(${i})"></td>
       <td><span id="mod-tot-${i}" class="mod-calc">${tot>0 ? '€ '+tot.toFixed(2) : ''}</span></td>
       <td style="text-align:center;"><input type="checkbox" ${r.ordinato?'checked':''} onchange="storeMod(${i},'ordinato',this.checked)"></td>
+      <td style="text-align:center;"><input type="checkbox" title="Lavorazione esterna" ${r.lavEsterna?'checked':''} onchange="storeMod(${i},'lavEsterna',this.checked)"></td>
+      <td style="text-align:center;"><input type="checkbox" title="Neutro" ${r.neutro?'checked':''} onchange="storeMod(${i},'neutro',this.checked)"></td>
       <td style="display:flex;gap:3px;">
         <button type="button" class="btn-icon" onclick="copyModRow(${i})" title="Copia riga">${Icons.copy ? Icons.copy(12) : '⧉'}</button>
         <button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="removeModRow(${i})">${Icons.x(12)}</button>
@@ -1484,7 +1496,7 @@ function renderModuleRows() {
   const indexed = AppState.formModuleRows.map((r, i) => ({ r, i }));
   const base  = indexed.filter(x => !x.r.integrazione);
   const integ = indexed.filter(x => x.r.integrazione);
-  const integHeaderRow = `<tr><td colspan="10" style="padding:8px 10px;background:var(--bg-secondary);font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Integrazioni</td></tr>`;
+  const integHeaderRow = `<tr><td colspan="12" style="padding:8px 10px;background:var(--bg-secondary);font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Integrazioni</td></tr>`;
   tbody.innerHTML = base.map(x => rowHtml(x.r, x.i)).join('') + (integ.length ? integHeaderRow + integ.map(x => rowHtml(x.r, x.i)).join('') : '');
   updateModuleTotals();
 }
@@ -1498,7 +1510,7 @@ function copyModRow(i) {
 function storeMod(i, field, value) {
   if (!AppState.formModuleRows[i]) return;
   const textFields = ['catalogo','codice','descrizione','colore','tg'];
-  AppState.formModuleRows[i][field] = textFields.includes(field) ? value : (field === 'ordinato' ? value : (parseFloat(value) || ''));
+  AppState.formModuleRows[i][field] = textFields.includes(field) ? value : (['ordinato','lavEsterna','neutro'].includes(field) ? value : (parseFloat(value) || ''));
 }
 function calcModRow(i) {
   const r = AppState.formModuleRows[i] || {};
@@ -1522,7 +1534,7 @@ function updateModuleTotals() {
   }
 }
 function addModRow() {
-  AppState.formModuleRows.push({ catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false });
+  AppState.formModuleRows.push({ catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false, lavEsterna:false, neutro:false });
   renderModuleRows();
 }
 function removeModRow(i) {
@@ -2382,7 +2394,7 @@ function renderCalendarBody() {
 
   if (isAnnual) {
     const months = Array.from({length:12}, (_,i) => renderMiniMonth(CalState.year, i));
-    return nav + statsSection + `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:12px 16px;">
+    return nav + statsSection + `<div class="cal-annual-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:12px 16px;">
       ${months.join('')}
     </div>` + renderEventList();
   } else {
