@@ -1890,3 +1890,22 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
   box-shadow: 0 0 0 2px var(--brand-gold) inset;
   border-color: var(--brand-gold);
 }
+
+/* ── Mostra / nascondi password ── */
+.pw-wrap { position: relative; width: 100%; }
+.pw-wrap input { width: 100%; padding-right: 44px; }
+.pw-toggle {
+  position: absolute;
+  top: 50%; right: 4px;
+  transform: translateY(-50%);
+  width: 34px; height: 34px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background-color var(--transition), color var(--transition);
+}
+.pw-toggle:hover { background: var(--fill-hover); color: var(--text-primary); }
+.pw-toggle[aria-pressed="true"] { color: var(--brand-gold); }
+.pw-toggle:focus-visible { box-shadow: var(--focus-ring); }
