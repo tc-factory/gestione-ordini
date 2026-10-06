@@ -24,6 +24,20 @@ const NAV_FOOTER_ITEMS = [
 
 const DEFAULT_VIEW = 'ordini';
 
+// Navbar ridotta a sole icone (solo computer); la scelta resta salvata nel browser
+const SidebarCollapse = {
+  KEY: 'tcf_sidebar_collapsed',
+  get() { try { return localStorage.getItem(this.KEY) === '1'; } catch { return false; } },
+  apply() { document.documentElement.classList.toggle('sidebar-collapsed', this.get()); },
+  toggle() {
+    try { localStorage.setItem(this.KEY, this.get() ? '0' : '1'); } catch {}
+    this.apply();
+    renderSidebar();
+    document.querySelector('.sidebar-collapse-btn')?.focus();
+  },
+};
+SidebarCollapse.apply();
+
 // ─────────────────────────────────────────────
 // ROUTER
 // ─────────────────────────────────────────────
@@ -107,21 +121,27 @@ function renderCurrentView() {
 // NAVBAR
 // ─────────────────────────────────────────────
 
-function renderSidebar() {
-  const root = document.getElementById('sidebar-root');
-  if (!root) return;
-
-  const badges = {
+function navBadges() {
+  return {
     ordini:  TCFactory.getActiveOrders().length,
     cestino: TCFactory.getTrashedOrders().length,
     supporto: TCAuth.isAdmin() ? Tickets.countOpen() : 0,   // ticket da fare
   };
+}
+
+function renderSidebar() {
+  renderBottomNav();
+  const root = document.getElementById('sidebar-root');
+  if (!root) return;
+
+  const badges = navBadges();
 
   const navLink = (item) => {
     const active = Nav.current === item.id;
     const badge  = badges[item.id];
     return `
       <a href="#/${item.id}" class="nav-item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}
+         ${collapsed ? `title="${item.label}${badge ? ` (${badge})` : ''}" aria-label="${item.label}"` : ''}
          onclick="event.preventDefault();Nav.go('${item.id}')">
         <span class="nav-item-icon">${item.icon()}</span>
         <span class="nav-item-label">${item.label}</span>
@@ -130,6 +150,7 @@ function renderSidebar() {
   };
 
   const visible = NAV_ITEMS.filter(i => Nav.isAllowed(i.id));
+  const collapsed = SidebarCollapse.get();
   const isDark  = Theme.get() === 'dark';
   const nick    = TCAuth.getNickname();
   const role    = TCAuth.isAdmin() ? 'Admin' : 'Staff';
@@ -142,6 +163,9 @@ function renderSidebar() {
         <span>Gestione ordini</span>
       </div>
       <button class="btn-icon sidebar-close" onclick="Nav.closeDrawer()" aria-label="Chiudi menu">${Icons.x()}</button>
+      <button class="btn-icon sidebar-collapse-btn" onclick="SidebarCollapse.toggle()"
+        aria-label="${collapsed ? 'Espandi la navbar' : 'Riduci la navbar'}" aria-expanded="${!collapsed}"
+        title="${collapsed ? 'Espandi' : 'Riduci'}">${collapsed ? Icons.panelOpen(18) : Icons.panelClose(18)}</button>
     </div>
 
     <nav class="sidebar-nav">
@@ -155,7 +179,7 @@ function renderSidebar() {
           <strong>${escapeHtml(nick)}</strong>
           <span>${role}</span>
         </div>
-        <button class="btn-icon" onclick="Theme.toggle()" aria-label="${isDark ? 'Passa al tema chiaro' : 'Passa al tema scuro'}" title="Cambia tema">${isDark ? Icons.sun(16) : Icons.moon(16)}</button>
+        <button class="btn-icon" onclick="Theme.toggle()" aria-label="${isDark ? 'Passa al tema chiaro' : 'Passa al tema scuro'}" title="${isDark ? 'Tema chiaro' : 'Tema scuro'}">${isDark ? Icons.sun(16) : Icons.moon(16)}</button>
         <button class="btn-icon" onclick="doLogout()" aria-label="Esci" title="Esci">${Icons.logOut(16)}</button>
       </div>
       <div class="sidebar-footer-pair">
@@ -163,6 +187,63 @@ function renderSidebar() {
       </div>
     </div>
   `;
+}
+
+// ─────────────────────────────────────────────
+// SMARTPHONE: barra in basso + pannello "Altro"
+// ─────────────────────────────────────────────
+
+const BOTTOM_PRIMARY = ['planner', 'ordini', 'clienti', 'cassa'];
+
+function renderBottomNav() {
+  const root = document.getElementById('bottomnav-root');
+  if (!root) return;
+  if (!TCAuth.isLoggedIn()) { root.innerHTML = ''; return; }
+
+  const badges  = navBadges();
+  const primary = BOTTOM_PRIMARY.filter(id => Nav.isAllowed(id)).map(id => Nav._item(id));
+  const moreIds = [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].filter(i => !BOTTOM_PRIMARY.includes(i.id) && Nav.isAllowed(i.id)).map(i => i.id);
+  const moreActive = moreIds.includes(Nav.current);
+  const moreBadge  = moreIds.reduce((n, id) => n + (id === 'supporto' ? (badges[id] || 0) : 0), 0);
+
+  const tab = (id, label, icon, active, badge, onclick) => `
+    <a href="${id ? '#/' + id : '#'}" class="bn-item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}
+       onclick="event.preventDefault();${onclick}">
+      <span class="bn-icon">${icon}${badge ? `<span class="bn-badge">${badge > 99 ? '99+' : badge}</span>` : ''}</span>
+      <span class="bn-label">${label}</span>
+    </a>`;
+
+  root.innerHTML =
+    primary.map(i => tab(i.id, i.label, i.icon(), Nav.current === i.id, i.id === 'ordini' ? 0 : badges[i.id], `Nav.go('${i.id}')`)).join('') +
+    tab('', 'Altro', Icons.menu(21), moreActive, moreBadge, 'openMoreSheet()');
+}
+
+function openMoreSheet() {
+  const sheet = document.getElementById('more-sheet');
+  const badges = navBadges();
+  const items = [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].filter(i => !BOTTOM_PRIMARY.includes(i.id) && Nav.isAllowed(i.id));
+  const isDark = Theme.get() === 'dark';
+
+  sheet.innerHTML = `
+    <div class="modal more-sheet" role="dialog" aria-modal="true" aria-label="Altre sezioni">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sidebar-user more-user">
+        <span class="user-avatar" aria-hidden="true">${escapeHtml(TCAuth.getNickname().charAt(0).toUpperCase())}</span>
+        <div class="user-text"><strong>${escapeHtml(TCAuth.getNickname())}</strong><span>${TCAuth.isAdmin() ? 'Admin' : 'Staff'}</span></div>
+        <button class="btn-icon" onclick="Theme.toggle();openMoreSheet()" aria-label="${isDark ? 'Passa al tema chiaro' : 'Passa al tema scuro'}">${isDark ? Icons.sun(18) : Icons.moon(18)}</button>
+        <button class="btn-icon" onclick="closeModal('more-sheet');doLogout()" aria-label="Esci">${Icons.logOut(18)}</button>
+      </div>
+      <nav class="more-list">
+        ${items.map(i => `
+          <a href="#/${i.id}" class="more-item ${Nav.current === i.id ? 'active' : ''}" onclick="event.preventDefault();closeModal('more-sheet');Nav.go('${i.id}')">
+            <span class="nav-item-icon">${i.icon()}</span>
+            <span class="more-item-text"><strong>${i.label}</strong><small>${i.subtitle}</small></span>
+            ${badges[i.id] ? `<span class="nav-item-badge">${badges[i.id]}</span>` : ''}
+          </a>`).join('')}
+      </nav>
+    </div>`;
+  sheet.classList.add('active');
+  sheet.onclick = (e) => { if (e.target === sheet) closeModal('more-sheet'); };
 }
 
 // Barra in alto: titolo della sezione + azioni contestuali

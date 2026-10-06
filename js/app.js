@@ -56,6 +56,7 @@ const Theme = {
   init() {
     this.apply(this.get());
     A11yPrefs.init();
+    initPasswordToggles();
   }
 };
 
@@ -87,6 +88,45 @@ const A11yPrefs = {
     }
   },
 };
+
+// ─────────────────────────────────────────────
+// MOSTRA / NASCONDI PASSWORD
+// Ogni campo password riceve l'occhio, anche quelli creati dopo
+// ─────────────────────────────────────────────
+
+function enhancePasswordField(input) {
+  if (input.dataset.pwToggle) return;
+  input.dataset.pwToggle = '1';
+  const wrap = document.createElement('div');
+  wrap.className = 'pw-wrap';
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'pw-toggle';
+  const sync = () => {
+    const visible = input.type === 'text';
+    btn.innerHTML = visible ? Icons.eyeOff(17) : Icons.eye(17);
+    btn.setAttribute('aria-label', visible ? 'Nascondi password' : 'Mostra password');
+    btn.setAttribute('aria-pressed', visible);
+    btn.title = visible ? 'Nascondi password' : 'Mostra password';
+  };
+  // mousedown: il campo non perde il focus e il cursore resta dov'era
+  btn.addEventListener('mousedown', e => e.preventDefault());
+  btn.addEventListener('click', () => { input.type = input.type === 'password' ? 'text' : 'password'; sync(); input.focus(); });
+  sync();
+  wrap.appendChild(btn);
+}
+
+function initPasswordToggles() {
+  const scan = (root) => root.querySelectorAll?.('input[type="password"]').forEach(enhancePasswordField);
+  scan(document);
+  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => {
+    if (n.nodeType !== 1) return;
+    if (n.matches?.('input[type="password"]')) enhancePasswordField(n); else scan(n);
+  }))).observe(document.body, { childList: true, subtree: true });
+}
 
 // ─────────────────────────────────────────────
 // TOAST
@@ -2308,6 +2348,10 @@ const Icons = {
   idBadge: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.5"/><path d="M5.5 17a3.5 3.5 0 0 1 7 0"/><line x1="15" y1="10" x2="18" y2="10"/><line x1="15" y1="14" x2="18" y2="14"/></svg>`,
   lifeBuoy: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><line x1="4.93" y1="19.07" x2="9.17" y2="14.83"/></svg>`,
   menu: (s=20) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>`,
+  eye: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  eyeOff: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
+  panelClose: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="16 15 13 12 16 9"/></svg>`,
+  panelOpen: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="13 9 16 12 13 15"/></svg>`,
   // Logo provvisorio — da sostituire con quello ufficiale
   logoPlaceholder: (s=26) => `<span class="brand-logo-mark" style="font-size:${Math.round(s*0.56)}px;">T&amp;C</span>`,
 };
@@ -2772,7 +2816,7 @@ function renderFullMonth(year, month) {
       </div>`);
   }
 
-  return `<div style="padding:12px 16px;">
+  return `<div class="month-wrap">
     <div class="month-grid">
       ${GG.map(g => `<div class="month-head">${g}</div>`).join('')}
       ${cells.join('')}
