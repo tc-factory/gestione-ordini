@@ -2,8 +2,8 @@
  * T&C Factory — Supporto
  * Utenti (non admin): aprono ticket e ne seguono lo stato.
  * Admin: vedono tutti i ticket e li segnano Da fare / In lavorazione / Risolto.
- * I ticket passano solo dalle funzioni tc_ticket_* (sql/supporto-setup.sql),
- * che verificano nickname e password: la tabella non è leggibile direttamente.
+ * I ticket passano solo dalle funzioni tc_ticket_* (sql/sicurezza-1-prepara.sql),
+ * che riconoscono l'utente collegato: la tabella non è leggibile direttamente.
  */
 
 const TICKET_STATI = [
@@ -31,14 +31,8 @@ const Tickets = {
   error: null,
   _timer: null,
 
-  _creds() {
-    const u = TCAuth.getUser();
-    if (!u?._pwd) throw new Error('Sessione scaduta — effettua di nuovo il login');
-    return { p_nick: u.nickname, p_pwd: u._pwd };
-  },
-
   async _rpc(fn, args = {}) {
-    const { data, error } = await supabaseClient.rpc(fn, { ...this._creds(), ...args });
+    const { data, error } = await supabaseClient.rpc(fn, args);
     if (error) {
       // Funzione assente: lo script SQL non è ancora stato eseguito
       if (error.code === 'PGRST202' || /function .* does not exist|Could not find the function/i.test(error.message)) {
@@ -77,6 +71,12 @@ const Tickets = {
     await this._rpc('tc_ticket_set_priority', { p_id: id, p_priorita: priorita });
     const t = this._list.find(x => x.id === id);
     if (t) t.priorita = priorita;
+  },
+
+  async reply(id, testo) {
+    const data = await this._rpc('tc_ticket_reply', { p_id: id, p_testo: testo });
+    const t = this._list.find(x => x.id === id);
+    if (t) t.risposte = [...(t.risposte || []), data.risposta];
   },
 
   get(id)        { return this._list.find(t => t.id === id); },
@@ -216,9 +216,10 @@ async function submitTicket() {
 function renderAdminTickets() {
   const all = Tickets._list;
   const counts = Object.fromEntries(TICKET_STATI.map(s => [s.id, all.filter(t => t.stato === s.id).length]));
-  // Ordine: priorità (Urgente in cima), poi data e ora di apertura, i più recenti prima
+  // Ordine: urgenti in cima, poi tutti gli altri; dentro ogni gruppo per data e ora, i più recenti prima
+  const isUrg = (t) => t.priorita === 'urgente' ? 0 : 1;
   const list = (SupportState.filter === 'tutti' ? all : all.filter(t => t.stato === SupportState.filter))
-    .slice().sort((a, b) => prioRank(a.priorita) - prioRank(b.priorita) || b.created_at.localeCompare(a.created_at));
+    .slice().sort((a, b) => isUrg(a) - isUrg(b) || b.created_at.localeCompare(a.created_at));
 
   const tabs = [['tutti', 'Tutti', all.length], ...TICKET_STATI.map(s => [s.id, s.label, counts[s.id]])];
   return `
@@ -258,12 +259,44 @@ function renderTicketCard(t, isAdmin) {
         ${t.stato !== 'da_fare' && t.updated_by ? ` · ${st.label.toLowerCase()} da ${escapeHtml(t.updated_by)}` : ''}
       </div>
       ${t.descrizione ? `<p class="ticket-desc">${escapeHtml(t.descrizione)}</p>` : ''}
+      ${(t.risposte || []).length ? `
+        <div class="ticket-replies">
+          ${t.risposte.map(r => `
+            <div class="ticket-reply">
+              <div class="ticket-reply-meta"><strong>${escapeHtml(r.da)}</strong> · ${fmtDateTime(r.at)}</div>
+              <p>${escapeHtml(r.testo)}</p>
+            </div>`).join('')}
+        </div>` : ''}
+      ${isAdmin ? `
+        <form class="ticket-reply-form" onsubmit="event.preventDefault();sendTicketReply('${t.id}')">
+          <label class="sr-only" for="reply-${t.id}">Risposta a ${escapeHtml(t.created_by)}</label>
+          <textarea id="reply-${t.id}" class="form-textarea" rows="1" maxlength="5000" placeholder="Rispondi a ${escapeHtml(t.created_by)}…"
+            oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
+            onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)){event.preventDefault();sendTicketReply('${t.id}')}"></textarea>
+          <button type="submit" class="btn btn-secondary btn-sm">Rispondi</button>
+        </form>` : ''}
       ${isAdmin ? `
         <div class="segmented ticket-actions" role="radiogroup" aria-label="Stato del ticket">
           ${TICKET_STATI.map(s => `<button type="button" role="radio" aria-checked="${t.stato === s.id}" class="${t.stato === s.id ? 'active' : ''}"
             style="--st:${s.color};" onclick="setTicketStatus('${t.id}','${s.id}')">${s.label}</button>`).join('')}
         </div>` : ''}
     </article>`;
+}
+
+async function sendTicketReply(id) {
+  const el = document.getElementById('reply-' + id);
+  const testo = el?.value.trim();
+  if (!testo) { el?.focus(); return; }
+  const btn = el.form.querySelector('button');
+  btn.disabled = true; btn.textContent = 'Invio…';
+  try {
+    await Tickets.reply(id, testo);
+    showToast('Risposta inviata');
+    renderSupportPage();
+  } catch (e) {
+    showToast(e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Rispondi';
+  }
 }
 
 async function setTicketPriority(id, priorita) {

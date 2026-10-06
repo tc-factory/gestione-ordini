@@ -80,22 +80,10 @@
   <script src="js/nav.js"></script>
   <script>
     Theme.init();
-    TCAuth.init();
+    TCFactory.onUpdate(() => { if (TCAuth.isLoggedIn()) renderApp(); });
 
-    TCFactory.onUpdate(() => renderApp());
-    TCFactory.init().then(async () => {
-      // Aggiorna il flag economico dal DB (senza richiedere nuovo login)
-      await TCAuth.refreshEconomicsFlag();
-      if (!TCAuth.isLoggedIn()) {
-        renderLoginScreen();
-      } else {
-        document.getElementById('login-overlay').style.display = 'none';
-        Nav.init();
-        renderApp();
-        initCalendar();
-        Tickets.startPolling();
-      }
-    });
+    // Sessione Supabase salvata → entra direttamente; altrimenti login
+    TCAuth.init().then(() => TCAuth.isLoggedIn() ? startApp() : renderLoginScreen());
   </script>
 </body>
 </html>

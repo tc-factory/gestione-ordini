@@ -112,6 +112,12 @@ const TCFactory = {
     this._notify();
   },
 
+  // Logout: svuota i dati in memoria e chiude il canale realtime
+  reset() {
+    if (this._channel) { try { supabaseClient.removeChannel(this._channel); } catch {} this._channel = null; }
+    Object.assign(this, { _orders: [], _priorities: [], _tags: [], _clients: [], _calEvents: [], _settings: {}, _clientsAvailable: false });
+  },
+
   onUpdate(fn) { this._listeners.push(fn); },
   _notify() { this._listeners.forEach(fn => { try { fn(); } catch {} }); },
 
@@ -191,8 +197,17 @@ const TCFactory = {
     const safeName = Date.now() + '-' + Math.random().toString(36).slice(2, 7) + '-' + file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
     const { error } = await supabaseClient.storage.from('allegati').upload(safeName, file);
     if (error) throw error;
-    const { data } = supabaseClient.storage.from('allegati').getPublicUrl(safeName);
-    return { name: file.name, type: file.type, size: file.size, url: data.publicUrl };
+    // Il bucket è privato: si salva il percorso, il link si genera all'apertura
+    return { name: file.name, type: file.type, size: file.size, path: safeName };
+  },
+
+  // Link temporaneo (1 ora) per aprire un allegato; serve essere autenticati
+  async getFileUrl(file) {
+    const path = file.path || decodeURIComponent((file.url || '').split('/object/public/allegati/')[1] || '');
+    if (!path) throw new Error('Percorso file mancante');
+    const { data, error } = await supabaseClient.storage.from('allegati').createSignedUrl(path, 3600);
+    if (error) throw error;
+    return data.signedUrl;
   },
 
   // ─────────────────────────────────────────────

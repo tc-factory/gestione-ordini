@@ -1862,3 +1862,19 @@ html.dark .report-day { color: #fdba74; }
 .ticket-prio select:focus-visible { box-shadow: var(--focus-ring); }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Risposte ai ticket */
+.ticket-replies { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.ticket-reply {
+  border-radius: 12px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--brand-gold) 7%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--brand-gold) 15%, transparent);
+}
+.ticket-reply-meta { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 2px; }
+.ticket-reply-meta strong { color: var(--brand-gold); }
+html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
+.ticket-reply p { font-size: 0.86rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.ticket-reply-form { display: flex; gap: 8px; align-items: flex-end; margin-top: 4px; }
+.ticket-reply-form textarea { min-height: 38px; resize: none; padding-top: 8px; padding-bottom: 8px; font-size: 0.86rem; }

@@ -1175,8 +1175,12 @@ async function deleteOrderConfirm(id) {
   } catch(e) { showToast('Errore eliminazione', 'error'); }
 }
 
-function previewFile(file) {
-  if (!file) return;
+async function previewFile(stored) {
+  if (!stored) return;
+  let url;
+  try { url = await TCFactory.getFileUrl(stored); }
+  catch (e) { showToast('Impossibile aprire il file', 'error'); return; }
+  const file = { ...stored, url };
   const modal = document.getElementById('file-preview-modal');
   const isImg = file.type?.startsWith('image/');
   const isPdf = file.type === 'application/pdf';
@@ -1831,7 +1835,7 @@ function renderSettingsDialog() {
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
             <div class="settings-section-hint">Inserisci la password attuale per confermarne il cambio.</div>
             <input id="pwd-old"  type="password" class="form-input" placeholder="Password attuale">
-            <input id="pwd-new1" type="password" class="form-input" placeholder="Nuova password (min. 4 caratteri)">
+            <input id="pwd-new1" type="password" class="form-input" placeholder="Nuova password (min. ${MIN_PASSWORD_LENGTH} caratteri)">
             <input id="pwd-new2" type="password" class="form-input" placeholder="Ripeti nuova password"
               onkeydown="if(event.key==='Enter')doChangePassword()">
             <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="doChangePassword()">Aggiorna password</button>
@@ -1928,7 +1932,7 @@ async function doChangePassword() {
   const repPwd = document.getElementById('pwd-new2')?.value;
   if (!oldPwd || !newPwd) { showToast('Compila tutti i campi', 'error'); return; }
   if (newPwd !== repPwd)  { showToast('Le nuove password non coincidono', 'error'); return; }
-  if (newPwd.length < 4)  { showToast('Minimo 4 caratteri', 'error'); return; }
+  if (newPwd.length < MIN_PASSWORD_LENGTH) { showToast(`Minimo ${MIN_PASSWORD_LENGTH} caratteri`, 'error'); return; }
   try {
     await TCAuth.changePassword(oldPwd, newPwd);
     showToast('Password aggiornata ✓');
@@ -2077,7 +2081,7 @@ async function createNewUser() {
   const pwd   = document.getElementById('new-user-pwd')?.value;
   const isAdm = document.getElementById('new-user-admin')?.checked || false;
   if (!nick || !pwd) { showToast('Compila nickname e password', 'error'); return; }
-  if (pwd.length < 4) { showToast('Password troppo corta (min 4 caratteri)', 'error'); return; }
+  if (pwd.length < MIN_PASSWORD_LENGTH) { showToast(`Password troppo corta (min. ${MIN_PASSWORD_LENGTH} caratteri)`, 'error'); return; }
   try {
     await TCAuth.createUser(nick, pwd, isAdm);
     showToast(`Account "${nick}" creato`);
@@ -2094,9 +2098,9 @@ async function setUserEconomicsFlag(nick, value) {
 }
 
 async function adminResetPwdPrompt(nick) {
-  const newPwd = prompt(`Nuova password per "${nick}" (min. 4 caratteri):`);
+  const newPwd = prompt(`Nuova password per "${nick}" (min. ${MIN_PASSWORD_LENGTH} caratteri):`);
   if (!newPwd) return;
-  if (newPwd.length < 4) { showToast('Minimo 4 caratteri', 'error'); return; }
+  if (newPwd.length < MIN_PASSWORD_LENGTH) { showToast(`Minimo ${MIN_PASSWORD_LENGTH} caratteri`, 'error'); return; }
   try {
     await TCAuth.adminResetPassword(nick, newPwd);
     showToast(`Password di "${nick}" aggiornata ✓`);
@@ -2211,23 +2215,31 @@ async function doLogin() {
   if (err) err.textContent = '';
   try {
     await TCAuth.login(nick, pwd);
-    document.getElementById('login-overlay').style.display = 'none';
-    Nav.init();
-    Nav.show(Nav._fromHash(), Nav._paramFromHash()); // ricontrolla i permessi delle sezioni per il nuovo utente
-    renderApp();
-    initCalendar();
-    Tickets.startPolling();
+    await startApp();
   } catch(e) {
     if (err) err.textContent = e.message;
     if (btn) { btn.disabled = false; btn.textContent = 'Accedi'; }
   }
 }
 
-function doLogout() {
+// Dopo il login (o con una sessione già attiva): carica i dati e mostra l'app.
+// I dati si leggono solo da autenticati: il database rifiuta le richieste anonime.
+async function startApp() {
+  await TCFactory.init();
+  document.getElementById('login-overlay').style.display = 'none';
+  Nav.init();
+  Nav.show(Nav._fromHash(), Nav._paramFromHash()); // ricontrolla i permessi delle sezioni per l'utente
+  renderApp();
+  initCalendar();
+  Tickets.startPolling();
+}
+
+async function doLogout() {
   if (!confirm('Vuoi uscire?')) return;
-  TCAuth.logout();
   Tickets.stopPolling();
   Object.assign(Tickets, { _list: [], loaded: false, error: null });
+  TCFactory.reset();
+  await TCAuth.logout();
   renderLoginScreen();
 }
 

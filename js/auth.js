@@ -1,31 +1,56 @@
 /**
  * T&C Factory — Auth Module
- * Gestisce sessione, login/logout e gestione utenti.
- * La password viene verificata lato DB tramite bcrypt (pgcrypto).
+ * Login con Supabase Auth: la sessione è un token firmato gestito da Supabase,
+ * il database verifica chi sei a ogni richiesta (policy RLS).
+ * Nel browser non resta nessuna password.
+ *
+ * Gli utenti continuano a entrare con il nickname: l'email di login è
+ * <nickname>@tcfactory.local e non viene mai usata per inviare posta.
+ * Creazione/eliminazione utenti e reset password passano dalla funzione
+ * admin-users (supabase/functions/admin-users), che verifica che chi chiama sia admin.
  */
 
-const TCAuth = {
-  _session: null,
+const LOGIN_EMAIL_DOMAIN = 'tcfactory.local';
+const nicknameToEmail = (nick) => `${nick.trim().toLowerCase()}@${LOGIN_EMAIL_DOMAIN}`;
 
-  init() {
-    try { this._session = JSON.parse(localStorage.getItem('tcf_session') || 'null'); }
-    catch { this._session = null; }
+const TCAuth = {
+  _session: null,   // { nickname, isAdmin, canViewEconomics, authId }
+
+  // Recupera la sessione salvata da Supabase e il profilo dell'utente
+  async init() {
+    localStorage.removeItem('tcf_session');   // sessione del vecchio login, con password in chiaro
+    const { data } = await supabaseClient.auth.getSession();
+    if (data?.session) await this._loadProfile(data.session.user);
+
+    supabaseClient.auth.onAuthStateChange((event) => {
+      // Sessione scaduta o chiusa da un'altra scheda: torna al login
+      if (event === 'SIGNED_OUT' && this._session) {
+        this._session = null;
+        window.renderLoginScreen?.();
+      }
+    });
   },
 
-  // Rilegge can_view_economics dal DB senza fare logout — utile dopo che l'admin cambia il flag
+  async _loadProfile(user) {
+    const { data, error } = await supabaseClient
+      .from('app_users')
+      .select('nickname, is_admin, can_view_economics')
+      .eq('auth_id', user.id)
+      .maybeSingle();
+    if (error || !data) { this._session = null; return null; }
+    this._session = {
+      nickname: data.nickname,
+      isAdmin: !!data.is_admin,
+      canViewEconomics: !!data.can_view_economics,
+      authId: user.id,
+    };
+    return this._session;
+  },
+
+  // Rilegge ruolo e permessi senza rifare il login (es. dopo che l'admin cambia il flag)
   async refreshEconomicsFlag() {
-    if (!this._session?.nickname) return;
-    try {
-      const { data } = await supabaseClient
-        .from('app_users')
-        .select('can_view_economics')
-        .eq('nickname', this._session.nickname)
-        .single();
-      if (data) {
-        this._session.canViewEconomics = !!data.can_view_economics;
-        localStorage.setItem('tcf_session', JSON.stringify(this._session));
-      }
-    } catch { /* non blocca l'avvio */ }
+    const { data } = await supabaseClient.auth.getUser();
+    if (data?.user) await this._loadProfile(data.user);
   },
 
   getUser()            { return this._session; },
@@ -35,28 +60,39 @@ const TCAuth = {
   canViewEconomics()   { return !!this._session?.canViewEconomics || !!this._session?.isAdmin; },
 
   async login(nickname, password) {
-    const { data, error } = await supabaseClient.rpc('tc_login', {
-      p_nickname: nickname.trim().toLowerCase(),
-      p_password: password,
+    const { data, error } = await supabaseClient.auth.signInWithPassword({
+      email: nicknameToEmail(nickname),
+      password,
     });
-    if (error) throw new Error('Errore di connessione');
-    if (!data?.success) throw new Error(data?.error || 'Credenziali non valide');
-    this._session = {
-      nickname: data.nickname,
-      isAdmin: !!data.is_admin,
-      canViewEconomics: !!data.can_view_economics,
-      _pwd: password
-    };
-    localStorage.setItem('tcf_session', JSON.stringify(this._session));
-    return this._session;
+    if (error) {
+      throw new Error(/invalid login credentials/i.test(error.message) ? 'Credenziali non valide' : 'Errore di connessione');
+    }
+    const profile = await this._loadProfile(data.user);
+    if (!profile) {
+      await supabaseClient.auth.signOut();
+      throw new Error('Account non abilitato al gestionale');
+    }
+    return profile;
   },
 
-  logout() {
+  async logout() {
     this._session = null;
-    localStorage.removeItem('tcf_session');
+    await supabaseClient.auth.signOut();
   },
 
-  // ── User management (solo admin) ──────────────
+  // ── Gestione utenti (solo admin, via funzione admin-users) ──
+
+  async _admin(action, payload = {}) {
+    if (!this.isAdmin()) throw new Error('Non autorizzato');
+    const { data, error } = await supabaseClient.functions.invoke('admin-users', { body: { action, ...payload } });
+    if (error) {
+      let msg = 'Errore di connessione';
+      try { msg = (await error.context.json()).error || msg; } catch {}
+      throw new Error(msg);
+    }
+    if (!data?.success) throw new Error(data?.error || 'Errore');
+    return data;
+  },
 
   async listUsers() {
     const { data, error } = await supabaseClient
@@ -67,72 +103,35 @@ const TCAuth = {
     return data || [];
   },
 
-  async createUser(newNickname, newPassword, isAdmin = false) {
-    this._requireAdminPwd();
-    const { data, error } = await supabaseClient.rpc('tc_manage_user', {
-      p_admin_nick: this._session.nickname,
-      p_admin_pwd:  this._session._pwd,
-      p_action:     'create',
-      p_target_nick: newNickname.trim().toLowerCase(),
-      p_target_pwd:  newPassword,
-      p_is_admin:    isAdmin,
-    });
-    if (error || !data?.success) throw new Error(data?.error || 'Errore creazione utente');
+  createUser(newNickname, newPassword, isAdmin = false) {
+    return this._admin('create', { nickname: newNickname.trim().toLowerCase(), password: newPassword, isAdmin });
   },
 
-  async deleteUser(targetNickname) {
-    this._requireAdminPwd();
-    const { data, error } = await supabaseClient.rpc('tc_manage_user', {
-      p_admin_nick: this._session.nickname,
-      p_admin_pwd:  this._session._pwd,
-      p_action:     'delete',
-      p_target_nick: targetNickname,
-      p_target_pwd:  '',
-      p_is_admin:    false,
-    });
-    if (error || !data?.success) throw new Error(data?.error || 'Errore eliminazione');
+  deleteUser(targetNickname) {
+    return this._admin('delete', { nickname: targetNickname });
   },
 
-  // Cambio password self-service
+  adminResetPassword(targetNickname, newPassword) {
+    return this._admin('reset_password', { nickname: targetNickname, password: newPassword });
+  },
+
+  setUserEconomics(targetNickname, value) {
+    return this._admin('set_economics', { nickname: targetNickname, value: !!value });
+  },
+
+  // Cambio password self-service: verifica la password attuale, poi aggiorna
   async changePassword(oldPassword, newPassword) {
-    const { data, error } = await supabaseClient.rpc('tc_change_password', {
-      p_nickname:     this._session.nickname,
-      p_old_password: oldPassword,
-      p_new_password: newPassword,
+    const { error: authErr } = await supabaseClient.auth.signInWithPassword({
+      email: nicknameToEmail(this._session.nickname),
+      password: oldPassword,
     });
-    if (error || !data?.success) throw new Error(data?.error || 'Errore cambio password');
-    // Aggiorna la password in sessione (serve per le operazioni admin)
-    this._session._pwd = newPassword;
-    localStorage.setItem('tcf_session', JSON.stringify(this._session));
-  },
-
-  // Reset password da admin (senza conoscere la vecchia)
-  async adminResetPassword(targetNickname, newPassword) {
-    this._requireAdminPwd();
-    const { data, error } = await supabaseClient.rpc('tc_admin_reset_password', {
-      p_admin_nick:  this._session.nickname,
-      p_admin_pwd:   this._session._pwd,
-      p_target_nick: targetNickname,
-      p_new_pwd:     newPassword,
-    });
-    if (error || !data?.success) throw new Error(data?.error || 'Errore reset password');
-  },
-
-  _requireAdminPwd() {
-    if (!this._session?.isAdmin) throw new Error('Non autorizzato');
-    if (!this._session?._pwd) throw new Error('Sessione scaduta — effettua di nuovo il login');
-  },
-
-  async setUserEconomics(targetNickname, value) {
-    this._requireAdminPwd();
-    const { data, error } = await supabaseClient.rpc('tc_set_user_economics', {
-      p_admin_nick:  this._session.nickname,
-      p_admin_pwd:   this._session._pwd,
-      p_target_nick: targetNickname,
-      p_value:       value,
-    });
-    if (error || !data?.success) throw new Error(data?.error || 'Errore');
+    if (authErr) throw new Error('Password attuale non corretta');
+    const { error } = await supabaseClient.auth.updateUser({ password: newPassword });
+    if (error) throw new Error(/should be at least/i.test(error.message) ? `Password troppo corta (min. ${MIN_PASSWORD_LENGTH} caratteri)` : 'Errore cambio password');
   },
 };
+
+// Lunghezza minima delle password nuove (le esistenti restano valide)
+const MIN_PASSWORD_LENGTH = 8;
 
 window.TCAuth = TCAuth;
