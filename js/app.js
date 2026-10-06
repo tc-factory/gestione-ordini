@@ -1867,8 +1867,10 @@ async function renderCestinoSection(container) {
   const trashed = TCFactory.getTrashedOrders();
   const now     = new Date();
 
-  // Auto-pulizia: elimina definitivamente dopo 7 giorni
-  for (const o of trashed) {
+  const isAdmin = TCAuth.isAdmin();
+
+  // Auto-pulizia dopo 7 giorni: solo un admin può eliminare definitivamente
+  if (isAdmin) for (const o of trashed) {
     const deletedMs = new Date(o.deletedAt).getTime();
     if (now - deletedMs > 7 * 24 * 60 * 60 * 1000) {
       await TCFactory.permanentDeleteOrder(o.id).catch(() => {});
@@ -1883,11 +1885,13 @@ async function renderCestinoSection(container) {
   }
 
   container.innerHTML = `
-    <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:8px;">Gli ordini vengono eliminati definitivamente dopo 7 giorni.</div>
+    <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:8px;">
+      ${isAdmin ? 'Gli ordini vengono eliminati definitivamente dopo 7 giorni.' : 'Puoi ripristinare gli ordini. Solo un admin può eliminarli definitivamente.'}
+    </div>
     <div style="display:flex;flex-direction:column;gap:6px;">
       ${current.map(o => {
         const deletedDate = new Date(o.deletedAt);
-        const daysLeft = 7 - Math.floor((now - deletedDate) / (24*60*60*1000));
+        const daysLeft = Math.max(0, 7 - Math.floor((now - deletedDate) / (24*60*60*1000)));
         const dt = deletedDate.toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'2-digit'});
         const tag = o.tags?.[0] ? `<span style="font-size:0.7rem;color:${TCFactory.getTagColor(o.tags[0])};font-weight:600;">${escapeHtml(o.tags[0])}</span>` : '';
         return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);">
@@ -1895,11 +1899,11 @@ async function renderCestinoSection(container) {
             <div style="font-size:0.85rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(o.nome)}</div>
             <div style="display:flex;gap:6px;align-items:center;margin-top:2px;">
               ${tag}
-              <span style="font-size:0.7rem;color:var(--text-muted);">Eliminato ${dt} · ${daysLeft}gg rimasti</span>
+              <span style="font-size:0.7rem;color:var(--text-muted);">Eliminato ${dt} · ${daysLeft > 0 ? `${daysLeft}gg rimasti` : 'in attesa di eliminazione'}</span>
             </div>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="restoreOrderFromTrash('${o.id}')">Ripristina</button>
-          <button class="btn-icon" style="color:var(--priority-urgent);" onclick="permanentDeleteConfirm('${o.id}')" title="Elimina definitivamente">${Icons.trash(14)}</button>
+          ${isAdmin ? `<button class="btn-icon" style="color:var(--priority-urgent);" onclick="permanentDeleteConfirm('${o.id}')" title="Elimina definitivamente" aria-label="Elimina definitivamente ${escapeHtml(o.nome)}">${Icons.trash(14)}</button>` : ''}
         </div>`;
       }).join('')}
     </div>`;
@@ -1916,6 +1920,7 @@ async function restoreOrderFromTrash(id) {
 }
 
 async function permanentDeleteConfirm(id) {
+  if (!TCAuth.isAdmin()) { showToast('Solo un admin può eliminare definitivamente', 'error'); return; }
   const o = TCFactory.getTrashedOrders().find(x => x.id === id);
   if (!confirm(`Eliminare definitivamente "${o?.nome || id}"? Impossibile annullare.`)) return;
   try {
@@ -1923,7 +1928,7 @@ async function permanentDeleteConfirm(id) {
     showToast('Eliminato definitivamente');
     const b = document.getElementById('cestino-body');
     if (b) renderCestinoSection(b);
-  } catch(e) { showToast('Errore', 'error'); }
+  } catch(e) { showToast(e.message || 'Errore', 'error'); }
 }
 
 async function doChangePassword() {
@@ -2397,7 +2402,7 @@ function plannerItemsForDate(dateStr) {
       const client = TCFactory.getClient(o.clientId);
       const subParts = [client ? TCFactory.clientName(client) : '', auto ? 'scadenza automatica' : ''].filter(Boolean);
       items.push({
-        kind: 'order', auto, color: TCFactory.getPriority(o.priorityId)?.color || '#64748b',
+        kind: 'order', orderId: o.id, auto, color: TCFactory.getPriority(o.priorityId)?.color || '#64748b',
         text: '📦 ' + o.nome, sub: subParts.join(' · '),
         open: `openOrderDetail('${o.id}')`,
       });
@@ -2406,9 +2411,11 @@ function plannerItemsForDate(dateStr) {
   return items;
 }
 
-function renderPlannerChip(item, compact = false) {
+function renderPlannerChip(item, compact = false, draggable = false) {
+  const drag = draggable && item.kind === 'order'
+    ? `draggable="true" ondragstart="plannerDragStart(event,'${item.orderId}')" ondragend="plannerDragEnd()"` : '';
   return `<button type="button" class="pl-chip ${item.kind === 'order' ? 'pl-chip-order' : ''} ${item.auto ? 'pl-chip-auto' : ''} ${compact ? 'pl-chip-compact' : ''}"
-    style="--ev:${item.color};" onclick="event.stopPropagation();${item.open}" title="${escapeHtml(item.text + (item.sub ? ' — ' + item.sub : ''))}">
+    style="--ev:${item.color};" ${drag} onclick="event.stopPropagation();${item.open}" title="${escapeHtml(item.text + (item.sub ? ' — ' + item.sub : ''))}${drag ? ' · trascina su un altro giorno per spostare la scadenza' : ''}">
     <span class="pl-chip-title">${escapeHtml(item.text)}</span>
     ${item.sub && !compact ? `<span class="pl-chip-sub">${escapeHtml(item.sub)}</span>` : ''}
   </button>`;
@@ -2586,17 +2593,65 @@ function renderWeek(weekStart) {
     const isPast  = dateStr < today;
 
     return `
-      <div class="week-col ${isToday ? 'today' : ''} ${i >= 5 ? 'weekend' : ''} ${isPast ? 'past' : ''}">
+      <div class="week-col ${isToday ? 'today' : ''} ${i >= 5 ? 'weekend' : ''} ${isPast ? 'past' : ''}" ${plannerDropAttrs(dateStr)}>
         <div class="week-col-head">
           <span class="week-col-day">${g}</span>
           <span class="week-col-num">${d.getDate()}</span>
         </div>
-        <div class="week-col-events">${items.map(it => renderPlannerChip(it)).join('')}</div>
+        <div class="week-col-events">${items.map(it => renderPlannerChip(it, false, true)).join('')}</div>
         <button type="button" class="week-add" onclick="openCalEventDialog(null,'${dateStr}')" aria-label="Aggiungi evento il ${d.toLocaleDateString('it-IT',{day:'numeric',month:'long'})}">${Icons.plus(13)}</button>
       </div>`;
   }).join('');
 
   return `<div class="cal-week">${cols}</div>`;
+}
+
+// ── Trascina un ordine su un altro giorno: la deadline diventa quel giorno ──
+
+let _dragOrderId = null;
+
+function plannerDropAttrs(dateStr) {
+  return `ondragover="plannerDragOver(event)" ondragleave="this.classList.remove('drop-target')" ondrop="plannerDrop(event,'${dateStr}')"`;
+}
+
+function plannerDragStart(e, orderId) {
+  _dragOrderId = orderId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', orderId);   // Firefox richiede dati per avviare il trascinamento
+  document.body.classList.add('planner-dragging');
+}
+
+function plannerDragEnd() {
+  _dragOrderId = null;
+  document.body.classList.remove('planner-dragging');
+  document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+}
+
+function plannerDragOver(e) {
+  if (!_dragOrderId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drop-target');
+}
+
+async function plannerDrop(e, dateStr) {
+  e.preventDefault();
+  const id = _dragOrderId;
+  plannerDragEnd();
+  const o = id && TCFactory.getOrderById(id);
+  if (!o) return;
+  const prev = TCFactory.getEffectiveDeadline(o);
+  if (prev?.date === dateStr && !prev.auto) return;
+
+  try {
+    await TCFactory.updateOrder(id, { deadline: dateStr });
+    TCFactory._log('Scadenza spostata', id, o.nome, { da: o.deadline || null, a: dateStr });
+    showToast(`"${o.nome}" → scadenza ${TCFactory.formatDate(dateStr, { day: 'numeric', month: 'long' })}`);
+    renderCalendarSection();
+    renderOrderList();
+  } catch (err) {
+    showToast('Impossibile spostare la scadenza', 'error');
+  }
 }
 
 // Riepilogo scadenze: in ritardo + prossimi 7 giorni (cliccabili)
@@ -2710,9 +2765,9 @@ function renderFullMonth(year, month) {
     const hidden  = items.length - MAX_VISIBLE;
 
     cells.push(`
-      <div class="month-cell ${isToday ? 'today' : ''}" onclick="${items.length > 0 ? `openDayPopup('${dateStr}')` : `openCalEventDialog(null,'${dateStr}')`}">
+      <div class="month-cell ${isToday ? 'today' : ''}" ${plannerDropAttrs(dateStr)} onclick="${items.length > 0 ? `openDayPopup('${dateStr}')` : `openCalEventDialog(null,'${dateStr}')`}">
         <div class="month-cell-num">${d}</div>
-        ${items.slice(0, MAX_VISIBLE).map(it => renderPlannerChip(it, true)).join('')}
+        ${items.slice(0, MAX_VISIBLE).map(it => renderPlannerChip(it, true, true)).join('')}
         ${hidden > 0 ? `<button type="button" class="month-more" onclick="event.stopPropagation();openDayPopup('${dateStr}')">+ altri ${hidden}</button>` : ''}
       </div>`);
   }

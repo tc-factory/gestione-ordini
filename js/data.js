@@ -337,8 +337,10 @@ const TCFactory = {
   },
 
   async permanentDeleteOrder(id) {
-    const { error } = await supabaseClient.from('orders').delete().eq('id', id);
+    // Se il database rifiuta (non admin) non dà errore: elimina 0 righe
+    const { error, count } = await supabaseClient.from('orders').delete({ count: 'exact' }).eq('id', id);
     if (error) throw error;
+    if (!count) throw new Error('Solo un admin può eliminare definitivamente');
     this._orders = this._orders.filter(o => o.id !== id);
   },
 
