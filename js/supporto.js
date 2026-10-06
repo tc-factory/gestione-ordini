@@ -16,6 +16,13 @@ const TICKET_CATEGORIE = [
   { id: 'richiesta', label: 'Richiesta', emoji: '💡' },
   { id: 'altro',     label: 'Altro',     emoji: '💬' },
 ];
+// Priorità impostata a mano dall'admin; ordine = rango
+const TICKET_PRIORITA = [
+  { id: 'urgente', label: 'Urgente', color: '#ef4444' },
+  { id: 'alta',    label: 'Alta',    color: '#f97316' },
+  { id: 'normale', label: 'Normale', color: '#6366f1' },
+  { id: 'bassa',   label: 'Bassa',   color: '#94a3b8' },
+];
 const TICKETS_POLL_MS = 60000;
 
 const Tickets = {
@@ -66,6 +73,12 @@ const Tickets = {
     if (t) Object.assign(t, { stato, updated_at: new Date().toISOString(), updated_by: TCAuth.getNickname() });
   },
 
+  async setPriority(id, priorita) {
+    await this._rpc('tc_ticket_set_priority', { p_id: id, p_priorita: priorita });
+    const t = this._list.find(x => x.id === id);
+    if (t) t.priorita = priorita;
+  },
+
   get(id)        { return this._list.find(t => t.id === id); },
   countOpen()    { return this._list.filter(t => t.stato === 'da_fare').length; },
 
@@ -90,12 +103,14 @@ const Tickets = {
 window.Tickets = Tickets;
 
 const SupportState = {
-  filter: 'da_fare',       // filtro admin: stato o 'tutti'
+  filter: 'tutti',         // filtro admin: 'tutti' o uno stato
   categoria: 'problema',   // categoria scelta nel modulo nuovo ticket
 };
 
 const ticketStato = (id) => TICKET_STATI.find(s => s.id === id) || TICKET_STATI[0];
 const ticketCat   = (id) => TICKET_CATEGORIE.find(c => c.id === id) || TICKET_CATEGORIE[2];
+const ticketPrio  = (id) => TICKET_PRIORITA.find(p => p.id === id) || TICKET_PRIORITA[2];
+const prioRank    = (id) => { const i = TICKET_PRIORITA.findIndex(p => p.id === id); return i < 0 ? 2 : i; };
 const fmtDateTime = (iso) => new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 // ─────────────────────────────────────────────
@@ -201,13 +216,11 @@ async function submitTicket() {
 function renderAdminTickets() {
   const all = Tickets._list;
   const counts = Object.fromEntries(TICKET_STATI.map(s => [s.id, all.filter(t => t.stato === s.id).length]));
+  // Ordine: priorità (Urgente in cima), poi data e ora di apertura, i più recenti prima
   const list = (SupportState.filter === 'tutti' ? all : all.filter(t => t.stato === SupportState.filter))
-    // Da fare: prima i più vecchi; negli altri: prima i più recenti
-    .slice().sort((a, b) => SupportState.filter === 'da_fare'
-      ? a.created_at.localeCompare(b.created_at)
-      : (b.updated_at || b.created_at).localeCompare(a.updated_at || a.created_at));
+    .slice().sort((a, b) => prioRank(a.priorita) - prioRank(b.priorita) || b.created_at.localeCompare(a.created_at));
 
-  const tabs = [...TICKET_STATI.map(s => [s.id, s.label, counts[s.id]]), ['tutti', 'Tutti', all.length]];
+  const tabs = [['tutti', 'Tutti', all.length], ...TICKET_STATI.map(s => [s.id, s.label, counts[s.id]])];
   return `
     <div class="glass-card page-card">
       <div class="table-toolbar">
@@ -230,6 +243,12 @@ function renderTicketCard(t, isAdmin) {
   return `
     <article class="ticket-card" style="--st:${st.color};">
       <div class="ticket-head">
+        ${isAdmin ? `<label class="ticket-prio" style="--p:${ticketPrio(t.priorita).color};">
+          <span class="sr-only">Priorità</span>
+          <select onchange="setTicketPriority('${t.id}', this.value)" aria-label="Priorità del ticket">
+            ${TICKET_PRIORITA.map(p => `<option value="${p.id}" ${ticketPrio(t.priorita).id === p.id ? 'selected' : ''}>${p.label}</option>`).join('')}
+          </select>
+        </label>` : ''}
         <span class="ticket-cat">${cat.emoji} ${cat.label}</span>
         <h3>${escapeHtml(t.oggetto)}</h3>
         ${isAdmin ? '' : `<span class="ticket-status">${st.label}</span>`}
@@ -245,6 +264,14 @@ function renderTicketCard(t, isAdmin) {
             style="--st:${s.color};" onclick="setTicketStatus('${t.id}','${s.id}')">${s.label}</button>`).join('')}
         </div>` : ''}
     </article>`;
+}
+
+async function setTicketPriority(id, priorita) {
+  try {
+    await Tickets.setPriority(id, priorita);
+    showToast(`Priorità: ${ticketPrio(priorita).label}`);
+    renderSupportPage();
+  } catch (e) { showToast(e.message, 'error'); renderSupportPage(); }
 }
 
 async function setTicketStatus(id, stato) {

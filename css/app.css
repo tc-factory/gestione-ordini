@@ -151,18 +151,30 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 /* Cestino e Supporto: una a fianco all'altra */
 .sidebar-footer-pair {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 6px;
 }
 .sidebar-footer-pair .nav-item {
+  min-width: 0;
   justify-content: center;
-  gap: 7px;
-  padding: 9px 8px;
+  gap: 6px;
+  padding: 9px 6px;
   font-size: 0.82rem;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
-.sidebar-footer-pair .nav-item-label { flex: 0 1 auto; }
-.sidebar-footer-pair .nav-item-badge { min-width: 18px; padding: 0 5px; font-size: 0.65rem; }
+.sidebar-footer-pair .nav-item-label { flex: 0 1 auto; min-width: 0; }
+/* Contatore come notifica sull'angolo, per non togliere spazio al testo */
+.sidebar-footer-pair .nav-item .nav-item-badge {
+  position: absolute;
+  top: -6px; right: -4px;
+  min-width: 18px;
+  padding: 1px 5px;
+  font-size: 0.65rem;
+  color: #fff;
+  background: var(--brand-gold);
+  box-shadow: 0 0 0 2px var(--bg-card);
+}
+.sidebar-footer-pair .nav-item[href="#/supporto"] .nav-item-badge { background: #ef4444; }
 
 .sidebar-scrim { display: none; }
 
@@ -1810,3 +1822,43 @@ html.dark .report-day { color: #fdba74; }
   .ticket-actions { align-self: stretch; }
   .support-form .segmented { align-self: stretch; }
 }
+
+/* Priorità ticket (admin): menu compatto con pallino colorato */
+.ticket-prio {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--p) 13%, transparent);
+  transition: background-color var(--transition);
+}
+.ticket-prio:hover { background: color-mix(in srgb, var(--p) 22%, transparent); }
+.ticket-prio::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--p);
+  pointer-events: none;
+}
+.ticket-prio select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--p);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 22px 3px 21px;
+  border-radius: 999px;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 11px center, right 7px center;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+.ticket-prio select:focus-visible { box-shadow: var(--focus-ring); }
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

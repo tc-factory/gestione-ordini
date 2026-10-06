@@ -29,6 +29,16 @@ create table if not exists support_tickets (
   resolved_at timestamptz
 );
 
+-- Priorità impostata a mano dall'admin
+alter table support_tickets add column if not exists priorita text not null default 'normale';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'support_tickets_priorita_check') then
+    alter table support_tickets add constraint support_tickets_priorita_check
+      check (priorita in ('urgente', 'alta', 'normale', 'bassa'));
+  end if;
+end $$;
+
 -- RLS attivo e nessuna policy: accesso diretto negato a anon/authenticated
 alter table support_tickets enable row level security;
 revoke all on support_tickets from anon, authenticated;
@@ -144,9 +154,37 @@ begin
 end;
 $$;
 
+-- ─────────────────────────────────────────────
+-- 6. Priorità (solo admin)
+-- ─────────────────────────────────────────────
+
+create or replace function tc_ticket_set_priority(p_nick text, p_pwd text, p_id uuid, p_priorita text)
+returns jsonb
+security definer
+set search_path = public, extensions
+language plpgsql as $$
+declare v app_users;
+begin
+  v := _tc_check_user(p_nick, p_pwd);
+  if v.nickname is null or not v.is_admin then
+    return jsonb_build_object('success', false, 'error', 'Solo gli admin possono cambiare la priorità');
+  end if;
+  if p_priorita not in ('urgente', 'alta', 'normale', 'bassa') then
+    return jsonb_build_object('success', false, 'error', 'Priorità non valida');
+  end if;
+
+  update support_tickets set priorita = p_priorita, updated_at = now() where id = p_id;
+  if not found then
+    return jsonb_build_object('success', false, 'error', 'Ticket non trovato');
+  end if;
+  return jsonb_build_object('success', true);
+end;
+$$;
+
 grant execute on function tc_ticket_create(text, text, text, text, text) to anon, authenticated;
 grant execute on function tc_ticket_list(text, text)                     to anon, authenticated;
 grant execute on function tc_ticket_set_status(text, text, uuid, text)   to anon, authenticated;
+grant execute on function tc_ticket_set_priority(text, text, uuid, text) to anon, authenticated;
 
 -- ════════════════════════════════════════════════════════
 -- FINE SCRIPT
