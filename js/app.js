@@ -33,16 +33,13 @@ const AppState = {
   integrationRows: [],
   settingsPrioOpen: false,
   settingsTagOpen: false,
-  settingsUsersOpen: false,
-  settingsLogOpen: false,
   settingsPwdOpen: false,
-  settingsCestinoOpen: false,
 };
 
 
 
 // ─────────────────────────────────────────────
-// TEMA CHIARO/SCURO
+// TEMA CHIARO/SCURO + ACCESSIBILITÀ
 // ─────────────────────────────────────────────
 
 const Theme = {
@@ -54,8 +51,41 @@ const Theme = {
     localStorage.setItem(this.KEY, next);
     this.apply(next);
     renderApp();
+    if (Nav.current === 'impostazioni') renderSettingsDialog();
   },
-  init() { this.apply(this.get()); }
+  init() {
+    this.apply(this.get());
+    A11yPrefs.init();
+  }
+};
+
+// Riduci trasparenza / movimento: se l'utente non ha scelto, segue il sistema operativo
+const A11yPrefs = {
+  PREFS: {
+    transparency: { key: 'tcf_reduce_transparency', cls: 'reduce-transparency', media: '(prefers-reduced-transparency: reduce)' },
+    motion:       { key: 'tcf_reduce_motion',       cls: 'reduce-motion',       media: '(prefers-reduced-motion: reduce)' },
+  },
+  get(name) {
+    const p = this.PREFS[name];
+    const saved = localStorage.getItem(p.key);
+    if (saved !== null) return saved === '1';
+    return window.matchMedia?.(p.media).matches || false;
+  },
+  set(name, on) {
+    localStorage.setItem(this.PREFS[name].key, on ? '1' : '0');
+    this.apply();
+  },
+  apply() {
+    for (const name of Object.keys(this.PREFS)) {
+      document.documentElement.classList.toggle(this.PREFS[name].cls, this.get(name));
+    }
+  },
+  init() {
+    this.apply();
+    for (const p of Object.values(this.PREFS)) {
+      window.matchMedia?.(p.media).addEventListener?.('change', () => this.apply());
+    }
+  },
 };
 
 // ─────────────────────────────────────────────
@@ -85,29 +115,11 @@ function showToast(message, type = 'success') {
 // ─────────────────────────────────────────────
 
 function renderApp() {
+  renderSidebar();
   renderHeader();
   renderStats(); // include renderEconomicDashboard() call
   renderOrderList();
-}
-
-function renderHeader() {
-  const isDark = Theme.get() === 'dark';
-
-  document.getElementById('header-root').innerHTML = `
-    <div class="app-logo">
-      <div class="app-logo-icon">${Icons.package(20)}</div>
-      <div class="app-logo-text">
-        <h1>T&amp;C <span class="accent">Gestione ordini</span></h1>
-      </div>
-    </div>
-    <div class="app-header-actions">
-      ${TCAuth.isLoggedIn() ? `<span style="font-size:0.75rem;color:var(--text-muted);padding:0 4px;">👤 ${escapeHtml(TCAuth.getNickname())}</span>` : ''}
-      <button class="btn-icon" onclick="Theme.toggle()" title="Cambia tema">${isDark ? Icons.sun() : Icons.moon()}</button>
-      <button class="btn-icon" onclick="openSettings()" title="Impostazioni">${Icons.settings()}</button>
-      ${TCAuth.isLoggedIn() ? `<button class="btn-icon" onclick="doLogout()" title="Esci">${Icons.logOut()}</button>` : ''}
-      <button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>
-    </div>
-  `;
+  if (Nav.current === 'cestino') renderCestinoPage();
 }
 
 function renderStats() {
@@ -153,13 +165,13 @@ function renderEconomicDashboard() {
   const totRiscosso    = riscossoOrders.reduce((s,o) => s + (parseFloat(o.importo)||0), 0);
 
   root.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-      <div class="glass-card stat-card" role="button" style="cursor:pointer;" onclick="setView('dariscuotere')" title="Vedi ordini da riscuotere">
+    <div class="cassa-grid">
+      <button type="button" class="glass-card stat-card stat-card-btn" onclick="Nav.go('ordini');setView('dariscuotere')" title="Vedi ordini da riscuotere">
         <div class="stat-card-glow" style="background:#ef4444;"></div>
         <div class="stat-card-label" style="color:#ef4444;">Da riscuotere</div>
         <div class="stat-card-value" style="color:#ef4444;font-size:1.4rem;">€ ${totDaRisc.toFixed(2)}</div>
         <div style="font-size:0.72rem;color:var(--text-muted);">${nDaRiscTab} evasi non pagati</div>
-      </div>
+      </button>
       <div class="glass-card stat-card">
         <div class="stat-card-glow" style="background:#22c55e;"></div>
         <div class="stat-card-label" style="color:#22c55e;">Riscosso</div>
@@ -1718,7 +1730,13 @@ async function handleFormFiles(event) {
 
 function closeModal(id) {
   const modal = document.getElementById(id);
-  if (modal) modal.classList.remove('active');
+  if (!modal || !modal.classList.contains('active')) return;
+  modal.classList.remove('active');
+  if (A11yPrefs.get('motion')) return;
+  // Resta visibile per l'animazione di chiusura; se viene riaperto subito, .active ha la precedenza
+  modal.classList.add('closing');
+  clearTimeout(modal._closeTimer);
+  modal._closeTimer = setTimeout(() => modal.classList.remove('closing'), 180);
 }
 
 // ─────────────────────────────────────────────
@@ -1728,31 +1746,39 @@ function closeModal(id) {
 let _newPrioColor = '#3b82f6';
 let _newTagColor  = '#10b981';
 
-function openSettings() {
-  const modal = document.getElementById('settings-modal');
-  renderSettingsDialog();
-  modal.classList.add('active');
-}
+function openSettings() { Nav.go('impostazioni'); }
 
 function renderSettingsDialog() {
   const priorities = TCFactory.getPriorities();
   const tags       = TCFactory.getTags();
-  const modal      = document.getElementById('settings-modal');
+  const root       = document.getElementById('settings-root');
+  if (!root) return;
 
   const sectionBtn = (label, icon, isOpen, fn) => `
-    <button type="button" onclick="${fn}()"
+    <button type="button" class="settings-section-btn" onclick="${fn}()" aria-expanded="${isOpen}"
       style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border:none;cursor:pointer;color:var(--text-primary);font-family:var(--font-body);font-weight:700;font-size:0.88rem;border-radius:${isOpen ? `var(--radius-md) var(--radius-md) 0 0` : 'var(--radius-md)'};margin-bottom:${isOpen ? 0 : 6}px;">
       <div style="display:flex;align-items:center;gap:8px;">${icon} ${label}</div>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${isOpen ? 180 : 0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
     </button>`;
 
-  modal.innerHTML = `
-    <div class="modal">
-      <div class="modal-header">
-        <h2>Impostazioni</h2>
-        <button class="btn-icon" onclick="closeModal('settings-modal')">${Icons.x()}</button>
-      </div>
-      <div class="modal-body" style="gap:8px;">
+  const switchRow = (label, hint, checked, onchange) => `
+    <label class="switch-row">
+      <span><strong>${label}</strong><small>${hint}</small></span>
+      <input type="checkbox" class="switch" ${checked ? 'checked' : ''} onchange="${onchange}">
+    </label>`;
+
+  root.innerHTML = `
+    <div class="glass-card page-card page-narrow">
+      <div class="page-card-body" style="display:flex;flex-direction:column;gap:8px;">
+
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          <div class="settings-static-head">${Icons.sun(14)} Aspetto</div>
+          <div style="padding:4px 14px 10px;">
+            ${switchRow('Tema scuro', 'Colori scuri per ambienti poco illuminati', Theme.get() === 'dark', 'Theme.toggle()')}
+            ${switchRow('Riduci trasparenza', 'Superfici opache al posto del vetro', A11yPrefs.get('transparency'), "A11yPrefs.set('transparency', this.checked)")}
+            ${switchRow('Riduci movimento', 'Disattiva animazioni e transizioni', A11yPrefs.get('motion'), "A11yPrefs.set('motion', this.checked)")}
+          </div>
+        </div>
 
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           ${sectionBtn('Priorità', Icons.flag(14), AppState.settingsPrioOpen, 'toggleSettingsPrio')}
@@ -1803,17 +1829,6 @@ function renderSettingsDialog() {
           </div>` : ''}
         </div>
 
-        ${TCAuth.isAdmin() ? `
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          ${sectionBtn('Gestione utenti', Icons.users(14), AppState.settingsUsersOpen, 'toggleSettingsUsers')}
-          ${AppState.settingsUsersOpen ? `<div id="users-section-body" style="padding:12px 14px;"></div>` : ''}
-        </div>
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          ${sectionBtn('Registro modifiche', Icons.clock(14), AppState.settingsLogOpen, 'toggleSettingsLog')}
-          ${AppState.settingsLogOpen ? `<div id="log-section-body" style="padding:12px 14px;"></div>` : ''}
-        </div>
-        ` : ''}
-
         ${TCAuth.isLoggedIn() ? `
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           ${sectionBtn('La mia password', Icons.lock(14), AppState.settingsPwdOpen, 'toggleSettingsPwd')}
@@ -1827,34 +1842,16 @@ function renderSettingsDialog() {
             <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="doChangePassword()">Aggiorna password</button>
           </div>` : ''}
         </div>
-
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          ${sectionBtn('🗑 Cestino', Icons.trash(14), AppState.settingsCestinoOpen, 'toggleSettingsCestino')}
-          ${AppState.settingsCestinoOpen ? `<div id="cestino-body" style="padding:12px 14px;"></div>` : ''}
-        </div>
         ` : ''}
 
       </div>
     </div>
   `;
-  modal.onclick = (e) => { if (e.target === modal) closeModal('settings-modal'); };
-
-  if (AppState.settingsUsersOpen && TCAuth.isAdmin()) {
-    const ub = document.getElementById('users-section-body');
-    if (ub) renderUsersSection(ub);
-  }
-  if (AppState.settingsLogOpen && TCAuth.isAdmin()) {
-    const lb = document.getElementById('log-section-body');
-    if (lb) renderLogSection(lb);
-  }
 }
 
 function toggleSettingsPrio()  { AppState.settingsPrioOpen  = !AppState.settingsPrioOpen;  renderSettingsDialog(); }
 function toggleSettingsTag()   { AppState.settingsTagOpen   = !AppState.settingsTagOpen;   renderSettingsDialog(); }
-function toggleSettingsUsers() { AppState.settingsUsersOpen = !AppState.settingsUsersOpen; renderSettingsDialog(); }
-function toggleSettingsLog()   { AppState.settingsLogOpen   = !AppState.settingsLogOpen;   renderSettingsDialog(); }
-function toggleSettingsPwd()     { AppState.settingsPwdOpen     = !AppState.settingsPwdOpen;     renderSettingsDialog(); }
-function toggleSettingsCestino() { AppState.settingsCestinoOpen = !AppState.settingsCestinoOpen; renderSettingsDialog(); if (AppState.settingsCestinoOpen) { const b = document.getElementById('cestino-body'); if (b) renderCestinoSection(b); } }
+function toggleSettingsPwd()   { AppState.settingsPwdOpen   = !AppState.settingsPwdOpen;   renderSettingsDialog(); }
 
 async function renderCestinoSection(container) {
   const trashed = TCFactory.getTrashedOrders();
@@ -2176,11 +2173,9 @@ function renderLoginScreen() {
   if (!overlay) return;
   overlay.style.display = 'flex';
   overlay.innerHTML = `
-    <div class="login-card glass-card">
+    <div class="login-card glass">
       <div style="display:flex;justify-content:center;margin-bottom:16px;">
-        <div style="width:52px;height:52px;border-radius:14px;background:var(--brand-gradient);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 4px 14px color-mix(in srgb, var(--brand-gold) 40%, transparent);">
-          ${Icons.package(26)}
-        </div>
+        <div class="brand-logo brand-logo-lg">${Icons.logoPlaceholder(30)}</div>
       </div>
       <h2 style="text-align:center;font-size:1.05rem;font-weight:700;margin-bottom:4px;">T&amp;C Gestione ordini</h2>
       <p style="text-align:center;font-size:0.78rem;color:var(--text-muted);margin-bottom:24px;">Accedi per continuare</p>
@@ -2211,6 +2206,8 @@ async function doLogin() {
   try {
     await TCAuth.login(nick, pwd);
     document.getElementById('login-overlay').style.display = 'none';
+    Nav.init();
+    Nav.show(Nav._fromHash()); // ricontrolla i permessi delle sezioni per il nuovo utente
     renderApp();
     initCalendar();
   } catch(e) {
@@ -2281,6 +2278,12 @@ const Icons = {
   checkCircle: (color='currentColor', s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
   package: (s=20) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`,
   calendarDays: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>`,
+  wallet: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"/><path d="M21 8h-5a3 3 0 0 0 0 6h5a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1z"/><line x1="16" y1="11" x2="16.01" y2="11"/></svg>`,
+  idBadge: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.5"/><path d="M5.5 17a3.5 3.5 0 0 1 7 0"/><line x1="15" y1="10" x2="18" y2="10"/><line x1="15" y1="14" x2="18" y2="14"/></svg>`,
+  lifeBuoy: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><line x1="4.93" y1="19.07" x2="9.17" y2="14.83"/></svg>`,
+  menu: (s=20) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>`,
+  // Logo provvisorio — da sostituire con quello ufficiale
+  logoPlaceholder: (s=26) => `<span class="brand-logo-mark" style="font-size:${Math.round(s*0.56)}px;">T&amp;C</span>`,
 };
 
 window.Icons = Icons;
@@ -2290,14 +2293,29 @@ window.Icons = Icons;
 // CALENDARIO AZIENDALE
 // ═════════════════════════════════════════════════════════════
 
+const CAL_MODE_KEY = 'tcf_cal_mode';
+
 const CalState = {
-  open: false,
+  mode: ['week','month','year'].includes(localStorage.getItem(CAL_MODE_KEY)) ? localStorage.getItem(CAL_MODE_KEY) : 'month',
   year: new Date().getFullYear(),
-  month: -1,
+  month: new Date().getMonth(),   // usato dalla vista mese
+  weekStart: startOfWeek(new Date()),
   pickerOpen: false,
   editingEvent: null,
   eventListOpen: false,
+  slide: 0,                        // direzione dell'ultima navigazione, per l'animazione
 };
+
+// Data locale in formato YYYY-MM-DD (toISOString userebbe UTC e sbaglierebbe giorno dopo mezzanotte)
+function localISODate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function startOfWeek(d) {
+  const r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  r.setDate(r.getDate() - ((r.getDay() + 6) % 7)); // lunedì
+  return r;
+}
 
 const EVENT_TYPES = [
   { id:'impegno', label:'Impegno', color:'#6366f1' },
@@ -2314,18 +2332,33 @@ function renderCalendarSection() {
   const root = document.getElementById('calendar-root');
   if (!root) return;
 
-  root.innerHTML = `
-    <div class="glass-card">
-      <div class="collapsible-header" onclick="toggleCalendar()" style="cursor:pointer;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          ${Icons.calendarDays(16)}
-          <span style="font-weight:700;font-size:0.95rem;">Calendario aziendale</span>
-        </div>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="transform:rotate(${CalState.open?180:0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      ${CalState.open ? renderCalendarBody() : ''}
-    </div>
-  `;
+  root.innerHTML = `<div class="glass-card planner-card">${renderCalendarBody()}</div>`;
+  CalState.slide = 0;
+  bindPlannerGestures(root);
+}
+
+// Frecce ← → da tastiera e swipe su touch per scorrere settimane/mesi/anni
+function bindPlannerGestures(root) {
+  if (root._gesturesBound) return;
+  root._gesturesBound = true;
+
+  document.addEventListener('keydown', (e) => {
+    if (Nav.current !== 'planner') return;
+    if (e.target.closest('input, textarea, select, [contenteditable]')) return;
+    if (document.querySelector('.modal-overlay.active')) return;
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); calNav(-1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); calNav(1); }
+  });
+
+  let x0 = null, y0 = null;
+  root.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  root.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    const dy = e.changedTouches[0].clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) calNav(dx < 0 ? 1 : -1);
+  });
 }
 
 function calcCalendarStats(year) {
@@ -2350,8 +2383,17 @@ function calcCalendarStats(year) {
   return stats;
 }
 
+function calPeriodLabel() {
+  const MESI_LUNGHI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  if (CalState.mode === 'year')  return String(CalState.year);
+  if (CalState.mode === 'month') return `${MESI_LUNGHI[CalState.month]} ${CalState.year}`;
+  const ws = CalState.weekStart;
+  const we = new Date(ws); we.setDate(ws.getDate() + 6);
+  const fmt = (d, withYear) => d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) });
+  return `${fmt(ws, ws.getFullYear() !== we.getFullYear())} – ${fmt(we, true)}`;
+}
+
 function renderCalendarBody() {
-  const isAnnual = CalState.month === -1;
   const MESI = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
 
   // Statistiche utenti per anno
@@ -2372,34 +2414,79 @@ function renderCalendarBody() {
       </div>
     </div>` : '';
 
+  const unit = { week: 'settimana', month: 'mese', year: 'anno' }[CalState.mode];
+  const modes = [['week','Settimana'],['month','Mese'],['year','Anno']];
+
   // Controlli navigazione
   const nav = `
-    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);">
-      <button class="btn-icon" onclick="calNav(-1)">${Icons.chevronLeft()}</button>
-      <div style="position:relative;">
-        <button class="btn btn-ghost btn-sm" onclick="toggleCalPicker()" style="font-weight:700;font-size:1rem;">
-          ${isAnnual ? CalState.year : `${MESI[CalState.month]} ${CalState.year}`}
-          ${Icons.calendarDays(13)}
-        </button>
-        ${CalState.pickerOpen ? `
-          <div style="position:absolute;top:36px;left:0;z-index:100;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;min-width:240px;">
-            ${MESI.map((m,i) => `<button class="btn ${CalState.month===i?'btn-primary':'btn-ghost'} btn-sm" onclick="calGoMonth(${i})">${m}</button>`).join('')}
-            <button class="btn btn-ghost btn-sm" style="grid-column:span 4;" onclick="calGoAnnual()">Vista annuale</button>
-          </div>` : ''}
+    <div class="planner-toolbar">
+      <div class="planner-nav">
+        <button class="btn-icon" onclick="calNav(-1)" aria-label="${unit === 'settimana' ? 'Settimana precedente' : unit === 'mese' ? 'Mese precedente' : 'Anno precedente'}">${Icons.chevronLeft()}</button>
+        <div style="position:relative;">
+          <button class="btn btn-ghost btn-sm planner-period" onclick="toggleCalPicker()" aria-expanded="${CalState.pickerOpen}" aria-haspopup="true">
+            ${calPeriodLabel()}
+            ${Icons.calendarDays(13)}
+          </button>
+          ${CalState.pickerOpen ? `
+            <div class="popover glass" role="menu">
+              ${MESI.map((m,i) => `<button class="btn ${CalState.mode==='month' && CalState.month===i?'btn-primary':'btn-ghost'} btn-sm" role="menuitem" onclick="calGoMonth(${i})">${m}</button>`).join('')}
+              <button class="btn btn-ghost btn-sm" role="menuitem" style="grid-column:span 4;" onclick="calGoAnnual()">Vista annuale ${CalState.year}</button>
+            </div>` : ''}
+        </div>
+        <button class="btn-icon" onclick="calNav(1)" aria-label="${unit === 'settimana' ? 'Settimana successiva' : unit === 'mese' ? 'Mese successivo' : 'Anno successivo'}">${Icons.chevronRight()}</button>
+        <button class="btn btn-secondary btn-sm" onclick="calToday()">Oggi</button>
       </div>
-      <button class="btn-icon" onclick="calNav(1)">${Icons.chevronRight()}</button>
-      <button class="btn btn-ghost btn-sm" onclick="calGoAnnual()">Tutti i mesi</button>
-      <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="openCalEventDialog(null,null)">+ Aggiungi</button>
+      <div class="segmented" role="tablist" aria-label="Vista calendario">
+        ${modes.map(([id, label]) => `<button role="tab" aria-selected="${CalState.mode===id}" class="${CalState.mode===id?'active':''}" onclick="calSetMode('${id}')">${label}</button>`).join('')}
+      </div>
     </div>`;
 
-  if (isAnnual) {
+  const slideCls = CalState.slide > 0 ? 'slide-next' : CalState.slide < 0 ? 'slide-prev' : '';
+  let body;
+  if (CalState.mode === 'year') {
     const months = Array.from({length:12}, (_,i) => renderMiniMonth(CalState.year, i));
-    return nav + statsSection + `<div class="cal-annual-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:12px 16px;">
+    body = `<div class="cal-annual-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:12px 16px;">
       ${months.join('')}
-    </div>` + renderEventList();
+    </div>`;
+  } else if (CalState.mode === 'month') {
+    body = renderFullMonth(CalState.year, CalState.month);
   } else {
-    return nav + statsSection + renderFullMonth(CalState.year, CalState.month) + renderEventList();
+    body = renderWeek(CalState.weekStart);
   }
+  return nav + statsSection + `<div class="planner-body ${slideCls}">${body}</div>` + renderEventList();
+}
+
+function renderWeek(weekStart) {
+  const GG    = ['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
+  const today = localISODate(new Date());
+
+  const cols = GG.map((g, i) => {
+    const d       = new Date(weekStart); d.setDate(weekStart.getDate() + i);
+    const dateStr = localISODate(d);
+    const evs     = TCFactory.getEventsForDate(dateStr);
+    const isToday = dateStr === today;
+
+    const chips = evs.map(e => {
+      const users = e.user_ids || [];
+      return `<button type="button" class="week-event" onclick="openCalEventDialog('${e.id}',null)"
+        style="--ev:${e.color};" title="${escapeHtml(getEventChipText(e))}">
+        <span class="week-event-title">${escapeHtml(getEventChipText(e))}</span>
+        ${e.event_type !== 'ferie' && users.length ? `<span class="week-event-users">👥 ${escapeHtml(users.join(', '))}</span>` : ''}
+      </button>`;
+    }).join('');
+
+    return `
+      <div class="week-col ${isToday ? 'today' : ''} ${i >= 5 ? 'weekend' : ''}">
+        <div class="week-col-head">
+          <span class="week-col-day">${g}</span>
+          <span class="week-col-num">${d.getDate()}</span>
+        </div>
+        <div class="week-col-events">${chips}</div>
+        <button type="button" class="week-add" onclick="openCalEventDialog(null,'${dateStr}')" aria-label="Aggiungi evento il ${d.toLocaleDateString('it-IT',{day:'numeric',month:'long'})}">${Icons.plus(13)}</button>
+      </div>`;
+  }).join('');
+
+  return `<div class="cal-week">${cols}</div>`;
 }
 
 function getEventChipText(ev) {
@@ -2422,7 +2509,7 @@ function renderMiniMonth(year, month) {
   const firstDay = new Date(year, month, 1).getDay();
   const offset   = firstDay === 0 ? 6 : firstDay - 1;
   const lastDate = new Date(year, month + 1, 0).getDate();
-  const today    = new Date().toISOString().slice(0, 10);
+  const today    = localISODate(new Date());
 
   const cells = [];
   for (let i = 0; i < offset; i++) cells.push('<div></div>');
@@ -2451,7 +2538,7 @@ function renderFullMonth(year, month) {
   const firstDay = new Date(year, month, 1).getDay();
   const offset   = firstDay === 0 ? 6 : firstDay - 1;
   const lastDate = new Date(year, month + 1, 0).getDate();
-  const today    = new Date().toISOString().slice(0, 10);
+  const today    = localISODate(new Date());
 
   const cells = [];
   for (let i = 0; i < offset; i++) cells.push('<div style="border:1px solid var(--border-light);min-height:90px;border-radius:4px;background:var(--bg-secondary);opacity:0.3;"></div>');
@@ -2601,24 +2688,56 @@ function toggleEventList() {
   }
 }
 
-function toggleCalendar() {
-  CalState.open = !CalState.open;
-  if (CalState.open) initCalendar(); else renderCalendarSection();
-}
 function toggleCalPicker()   { CalState.pickerOpen = !CalState.pickerOpen; renderCalendarSection(); }
+
 function calNav(delta) {
-  if (CalState.month === -1) { CalState.year += delta; }
-  else {
+  if (CalState.mode === 'year') {
+    CalState.year += delta;
+  } else if (CalState.mode === 'month') {
     let m = CalState.month + delta;
     if (m < 0)  { m = 11; CalState.year--; }
     if (m > 11) { m = 0;  CalState.year++; }
     CalState.month = m;
+  } else {
+    const ws = new Date(CalState.weekStart);
+    ws.setDate(ws.getDate() + 7 * delta);
+    CalState.weekStart = ws;
+    CalState.year  = ws.getFullYear();
+    CalState.month = ws.getMonth();
   }
+  CalState.pickerOpen = false;
+  CalState.slide = delta;
+  renderCalendarSection();
+}
+
+function calSetMode(mode) {
+  if (mode === 'week' && CalState.mode !== 'week') {
+    // Entrando nella vista settimana resta nel mese che si stava guardando
+    const now = new Date();
+    const inView = now.getFullYear() === CalState.year && (CalState.mode === 'year' || now.getMonth() === CalState.month);
+    CalState.weekStart = startOfWeek(inView ? now : new Date(CalState.year, CalState.mode === 'year' ? 0 : CalState.month, 1));
+  }
+  if (mode === 'month' && CalState.mode === 'week') {
+    CalState.year  = CalState.weekStart.getFullYear();
+    CalState.month = CalState.weekStart.getMonth();
+  }
+  CalState.mode = mode;
+  CalState.pickerOpen = false;
+  try { localStorage.setItem(CAL_MODE_KEY, mode); } catch {}
+  renderCalendarSection();
+}
+
+function calToday() {
+  const now = new Date();
+  CalState.year = now.getFullYear();
+  CalState.month = now.getMonth();
+  CalState.weekStart = startOfWeek(now);
   CalState.pickerOpen = false;
   renderCalendarSection();
 }
-function calGoMonth(m)  { CalState.month = m; CalState.pickerOpen = false; renderCalendarSection(); }
-function calGoAnnual()  { CalState.month = -1; CalState.pickerOpen = false; renderCalendarSection(); }
+
+function calGoMonth(m)  { CalState.month = m; CalState.mode = 'month'; CalState.pickerOpen = false; renderCalendarSection(); }
+function calGoAnnual()  { CalState.mode = 'year'; CalState.pickerOpen = false; renderCalendarSection(); }
 
 // ── Dialog eventi ─────────────────────────────
 
