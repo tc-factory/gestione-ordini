@@ -117,9 +117,13 @@ function showToast(message, type = 'success') {
 function renderApp() {
   renderSidebar();
   renderHeader();
-  renderStats(); // include renderEconomicDashboard() call
+  renderStats();
   renderOrderList();
+  // Sezioni che dipendono da ordini/clienti: si aggiornano anche in tempo reale
   if (Nav.current === 'cestino') renderCestinoPage();
+  if (Nav.current === 'planner') renderCalendarSection();
+  if (Nav.current === 'clienti') renderClientsPage();
+  if (Nav.current === 'cassa')   renderCassaPage();
 }
 
 function renderStats() {
@@ -143,41 +147,6 @@ function renderStats() {
       <div class="stat-card-glow" style="background:#22c55e;"></div>
       <div class="stat-card-label">Archiviati</div>
       <div class="stat-card-value" style="color:#22c55e;">${arch}</div>
-    </div>
-  `;
-  renderEconomicDashboard();
-}
-
-function renderEconomicDashboard() {
-  const root = document.getElementById('economic-root');
-  if (!root) return;
-  if (!TCAuth.canViewEconomics()) { root.innerHTML = ''; return; }
-
-  const all = TCFactory.getOrders();
-
-  // Da riscuotere = TUTTI gli ordini non ancora pagati (Attivi + Evasione + Da riscuotere tab)
-  const daRiscOrders  = all.filter(o => !o.paymentDone);
-  const totDaRisc     = daRiscOrders.reduce((s,o) => s + (parseFloat(o.importo)||0), 0);
-  const nDaRiscTab    = TCFactory.getDaRiscuotereOrders().length; // solo tab "Da riscuotere"
-
-  // Riscosso = TUTTI gli ordini già pagati (Archivio + Evasione con € flaggato)
-  const riscossoOrders = all.filter(o => o.paymentDone);
-  const totRiscosso    = riscossoOrders.reduce((s,o) => s + (parseFloat(o.importo)||0), 0);
-
-  root.innerHTML = `
-    <div class="cassa-grid">
-      <button type="button" class="glass-card stat-card stat-card-btn" onclick="Nav.go('ordini');setView('dariscuotere')" title="Vedi ordini da riscuotere">
-        <div class="stat-card-glow" style="background:#ef4444;"></div>
-        <div class="stat-card-label" style="color:#ef4444;">Da riscuotere</div>
-        <div class="stat-card-value" style="color:#ef4444;font-size:1.4rem;">€ ${totDaRisc.toFixed(2)}</div>
-        <div style="font-size:0.72rem;color:var(--text-muted);">${nDaRiscTab} evasi non pagati</div>
-      </button>
-      <div class="glass-card stat-card">
-        <div class="stat-card-glow" style="background:#22c55e;"></div>
-        <div class="stat-card-label" style="color:#22c55e;">Riscosso</div>
-        <div class="stat-card-value" style="color:#22c55e;font-size:1.4rem;">€ ${totRiscosso.toFixed(2)}</div>
-        <div style="font-size:0.72rem;color:var(--text-muted);">${riscossoOrders.length} ordini pagati</div>
-      </div>
     </div>
   `;
 }
@@ -1131,6 +1100,8 @@ function renderOrderDetail() {
       <div class="modal-body">
         <div class="detail-meta">
           <div><span class="detail-meta-label">Data ordine</span><span>${TCFactory.formatDate(order.dataOrdine)}</span></div>
+          ${TCFactory.getClient(order.clientId) ? `<div><span class="detail-meta-label">Cliente</span>
+            <a href="#/clienti/${order.clientId}" onclick="closeModal('order-detail-modal')" style="font-weight:600;">${escapeHtml(TCFactory.clientName(TCFactory.getClient(order.clientId)))}</a></div>` : ''}
           ${order.deadline ? `<div><span class="detail-meta-label">Deadline</span>
             <span style="font-weight:600;color:${TCFactory.isDeadlinePast(order) && !allLavDone ? 'var(--priority-urgent)' : 'var(--text-primary)'};">${TCFactory.formatDate(order.deadline, { day:'numeric', month:'long', year:'numeric' })}</span>
           </div>` : ''}
@@ -1232,7 +1203,7 @@ function previewFile(file) {
 // FORM ORDINE
 // ─────────────────────────────────────────────
 
-function openOrderForm(order = null, defaultDate = null) {
+function openOrderForm(order = null, defaultDate = null, defaultClientId = null) {
   AppState.formEditOrder    = order;
   AppState.formDefaultDate  = defaultDate;
   AppState.formFiles        = order ? [...(order.files || [])] : [];
@@ -1259,6 +1230,15 @@ function openOrderForm(order = null, defaultDate = null) {
           <label class="form-label">Nome ordine *</label>
           <input id="of-nome" class="form-input" placeholder="es. Polo Staff T&C" value="${escapeHtml(order?.nome || '')}">
         </div>
+
+        ${TCFactory.isClientsAvailable() ? `
+        <div class="form-group">
+          <label class="form-label" for="of-client">Cliente</label>
+          <div style="display:flex;gap:8px;">
+            <select id="of-client" class="form-select">${renderClientOptions(order?.clientId || defaultClientId)}</select>
+            <button type="button" class="btn btn-secondary" onclick="openClientForm(null, (c) => { const sel = document.getElementById('of-client'); if (sel) sel.innerHTML = renderClientOptions(c.id); })">${Icons.plus()} Nuovo</button>
+          </div>
+        </div>` : ''}
 
         <div class="form-row">
           <div class="form-group">
@@ -1638,6 +1618,8 @@ async function submitOrderForm() {
     importo: parseFloat(document.getElementById('of-importo')?.value) || 0,
     orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto },
   };
+  const clientSel = document.getElementById('of-client');
+  if (clientSel) payload.clientId = clientSel.value || null;
 
   const btn = document.querySelector('#order-form-modal .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio…'; }
@@ -1781,6 +1763,19 @@ function renderSettingsDialog() {
         </div>
 
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          <div class="settings-static-head">${Icons.calendarDays(14)} Scadenze automatiche</div>
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
+            <div class="settings-section-hint" style="margin:0;">Per gli ordini senza deadline il Planner calcola la scadenza come data ordine + questi giorni. Vale per tutti gli utenti.</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input id="auto-deadline-days" type="number" min="0" max="365" class="form-input" style="width:100px;" value="${TCFactory.getAutoDeadlineDays()}"
+                onkeydown="if(event.key==='Enter')saveAutoDeadlineDays()">
+              <span style="font-size:0.85rem;color:var(--text-secondary);">giorni dopo la data ordine</span>
+              <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="saveAutoDeadlineDays()">Salva</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           ${sectionBtn('Priorità', Icons.flag(14), AppState.settingsPrioOpen, 'toggleSettingsPrio')}
           ${AppState.settingsPrioOpen ? `<div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
             <div class="settings-section-hint">L'ordine in alto determina la priorità più alta.</div>
@@ -1847,6 +1842,17 @@ function renderSettingsDialog() {
       </div>
     </div>
   `;
+}
+
+async function saveAutoDeadlineDays() {
+  const v = parseInt(document.getElementById('auto-deadline-days')?.value, 10);
+  if (!Number.isFinite(v) || v < 0 || v > 365) { showToast('Inserisci un numero tra 0 e 365', 'error'); return; }
+  try {
+    await TCFactory.setSetting('auto_deadline_days', v);
+    showToast(`Scadenza automatica: ${v} giorni dopo la data ordine`);
+  } catch (e) {
+    showToast('Impossibile salvare: esegui prima sql/clienti-setup.sql su Supabase', 'error');
+  }
 }
 
 function toggleSettingsPrio()  { AppState.settingsPrioOpen  = !AppState.settingsPrioOpen;  renderSettingsDialog(); }
@@ -2294,6 +2300,7 @@ window.Icons = Icons;
 // ═════════════════════════════════════════════════════════════
 
 const CAL_MODE_KEY = 'tcf_cal_mode';
+const PLANNER_LAYERS_KEY = 'tcf_planner_layers';
 
 const CalState = {
   mode: ['week','month','year'].includes(localStorage.getItem(CAL_MODE_KEY)) ? localStorage.getItem(CAL_MODE_KEY) : 'month',
@@ -2304,6 +2311,7 @@ const CalState = {
   editingEvent: null,
   eventListOpen: false,
   slide: 0,                        // direzione dell'ultima navigazione, per l'animazione
+  layers: loadPlannerLayers(),     // selettori attivi: ferie / eventi / scadenze
 };
 
 // Data locale in formato YYYY-MM-DD (toISOString userebbe UTC e sbaglierebbe giorno dopo mezzanotte)
@@ -2315,6 +2323,80 @@ function startOfWeek(d) {
   const r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   r.setDate(r.getDate() - ((r.getDay() + 6) % 7)); // lunedì
   return r;
+}
+
+// ── Selettori del Planner (multi-selezione) ──
+const PLANNER_LAYERS = [
+  { id: 'ferie',    label: 'Ferie',    color: '#f97316', emoji: '🏖' },
+  { id: 'eventi',   label: 'Eventi',   color: '#6366f1', emoji: '📅' },
+  { id: 'scadenze', label: 'Scadenze', color: '#ef4444', emoji: '📦' },
+];
+
+function loadPlannerLayers() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PLANNER_LAYERS_KEY));
+    if (Array.isArray(saved)) return saved.filter(id => ['ferie','eventi','scadenze'].includes(id));
+  } catch {}
+  return ['ferie', 'eventi', 'scadenze'];
+}
+
+function togglePlannerLayer(id) {
+  const on = CalState.layers.includes(id);
+  CalState.layers = on ? CalState.layers.filter(l => l !== id) : [...CalState.layers, id];
+  try { localStorage.setItem(PLANNER_LAYERS_KEY, JSON.stringify(CalState.layers)); } catch {}
+  renderCalendarSection();
+}
+
+// Indice scadenze ordini per data, ricalcolato a ogni render
+let _deadlineIndex = {};
+function buildDeadlineIndex() {
+  const idx = {};
+  TCFactory.getOrdersToDeliver().forEach(o => {
+    const dl = TCFactory.getEffectiveDeadline(o);
+    if (!dl) return;
+    (idx[dl.date] = idx[dl.date] || []).push({ order: o, auto: dl.auto });
+  });
+  Object.values(idx).forEach(list => list.sort((a, b) =>
+    TCFactory.getPriorityRank(a.order.priorityId) - TCFactory.getPriorityRank(b.order.priorityId)));
+  _deadlineIndex = idx;
+  return idx;
+}
+
+// Elementi da mostrare in un giorno, secondo i selettori attivi
+function plannerItemsForDate(dateStr) {
+  const L = CalState.layers;
+  const items = [];
+
+  TCFactory.getEventsForDate(dateStr).forEach(e => {
+    const layer = e.event_type === 'ferie' ? 'ferie' : 'eventi';
+    if (!L.includes(layer)) return;
+    items.push({
+      kind: 'event', color: e.color, text: getEventChipText(e),
+      sub: e.event_type !== 'ferie' && (e.user_ids || []).length ? '👥 ' + e.user_ids.join(', ') : '',
+      open: `openCalEventDialog('${e.id}',null)`,
+    });
+  });
+
+  if (L.includes('scadenze')) {
+    (_deadlineIndex[dateStr] || []).forEach(({ order: o, auto }) => {
+      const client = TCFactory.getClient(o.clientId);
+      const subParts = [client ? TCFactory.clientName(client) : '', auto ? 'scadenza automatica' : ''].filter(Boolean);
+      items.push({
+        kind: 'order', auto, color: TCFactory.getPriority(o.priorityId)?.color || '#64748b',
+        text: '📦 ' + o.nome, sub: subParts.join(' · '),
+        open: `openOrderDetail('${o.id}')`,
+      });
+    });
+  }
+  return items;
+}
+
+function renderPlannerChip(item, compact = false) {
+  return `<button type="button" class="pl-chip ${item.kind === 'order' ? 'pl-chip-order' : ''} ${item.auto ? 'pl-chip-auto' : ''} ${compact ? 'pl-chip-compact' : ''}"
+    style="--ev:${item.color};" onclick="event.stopPropagation();${item.open}" title="${escapeHtml(item.text + (item.sub ? ' — ' + item.sub : ''))}">
+    <span class="pl-chip-title">${escapeHtml(item.text)}</span>
+    ${item.sub && !compact ? `<span class="pl-chip-sub">${escapeHtml(item.sub)}</span>` : ''}
+  </button>`;
 }
 
 const EVENT_TYPES = [
@@ -2395,12 +2477,13 @@ function calPeriodLabel() {
 
 function renderCalendarBody() {
   const MESI = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+  buildDeadlineIndex();
 
   // Statistiche utenti per anno
   const stats = calcCalendarStats(CalState.year);
   const statsEntries = Object.entries(stats).sort((a, b) => a[0].localeCompare(b[0]));
 
-  const statsSection = statsEntries.length > 0 ? `
+  const statsSection = statsEntries.length > 0 && (CalState.layers.includes('ferie') || CalState.layers.includes('eventi')) ? `
     <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
       <div style="font-size:0.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Statistiche ${CalState.year}</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;">
@@ -2441,6 +2524,17 @@ function renderCalendarBody() {
       </div>
     </div>`;
 
+  const layersBar = `
+    <div class="planner-layers" role="group" aria-label="Cosa mostrare">
+      ${PLANNER_LAYERS.map(l => {
+        const on = CalState.layers.includes(l.id);
+        return `<button type="button" class="layer-toggle ${on ? 'on' : ''}" style="--layer:${l.color};" aria-pressed="${on}" onclick="togglePlannerLayer('${l.id}')">
+          <span class="layer-check" aria-hidden="true">${on ? '✓' : ''}</span>${l.emoji} ${l.label}
+        </button>`;
+      }).join('')}
+      ${CalState.layers.includes('scadenze') ? renderDeadlineSummary() : ''}
+    </div>`;
+
   const slideCls = CalState.slide > 0 ? 'slide-next' : CalState.slide < 0 ? 'slide-prev' : '';
   let body;
   if (CalState.mode === 'year') {
@@ -2453,7 +2547,7 @@ function renderCalendarBody() {
   } else {
     body = renderWeek(CalState.weekStart);
   }
-  return nav + statsSection + `<div class="planner-body ${slideCls}">${body}</div>` + renderEventList();
+  return nav + layersBar + statsSection + `<div class="planner-body ${slideCls}">${body}</div>` + renderEventList();
 }
 
 function renderWeek(weekStart) {
@@ -2463,30 +2557,71 @@ function renderWeek(weekStart) {
   const cols = GG.map((g, i) => {
     const d       = new Date(weekStart); d.setDate(weekStart.getDate() + i);
     const dateStr = localISODate(d);
-    const evs     = TCFactory.getEventsForDate(dateStr);
+    const items   = plannerItemsForDate(dateStr);
     const isToday = dateStr === today;
-
-    const chips = evs.map(e => {
-      const users = e.user_ids || [];
-      return `<button type="button" class="week-event" onclick="openCalEventDialog('${e.id}',null)"
-        style="--ev:${e.color};" title="${escapeHtml(getEventChipText(e))}">
-        <span class="week-event-title">${escapeHtml(getEventChipText(e))}</span>
-        ${e.event_type !== 'ferie' && users.length ? `<span class="week-event-users">👥 ${escapeHtml(users.join(', '))}</span>` : ''}
-      </button>`;
-    }).join('');
+    const isPast  = dateStr < today;
 
     return `
-      <div class="week-col ${isToday ? 'today' : ''} ${i >= 5 ? 'weekend' : ''}">
+      <div class="week-col ${isToday ? 'today' : ''} ${i >= 5 ? 'weekend' : ''} ${isPast ? 'past' : ''}">
         <div class="week-col-head">
           <span class="week-col-day">${g}</span>
           <span class="week-col-num">${d.getDate()}</span>
         </div>
-        <div class="week-col-events">${chips}</div>
+        <div class="week-col-events">${items.map(it => renderPlannerChip(it)).join('')}</div>
         <button type="button" class="week-add" onclick="openCalEventDialog(null,'${dateStr}')" aria-label="Aggiungi evento il ${d.toLocaleDateString('it-IT',{day:'numeric',month:'long'})}">${Icons.plus(13)}</button>
       </div>`;
   }).join('');
 
   return `<div class="cal-week">${cols}</div>`;
+}
+
+// Riepilogo scadenze: in ritardo + prossimi 7 giorni (cliccabili)
+function renderDeadlineSummary() {
+  const today = localISODate(new Date());
+  const in7   = localISODate(new Date(Date.now() + 7 * 86400000));
+  let late = 0, soon = 0;
+  Object.entries(_deadlineIndex).forEach(([date, list]) => {
+    if (date < today) late += list.length;
+    else if (date <= in7) soon += list.length;
+  });
+  return `<div class="deadline-summary">
+    <button type="button" class="summary-pill late" ${late ? '' : 'disabled'} onclick="openDeadlineList('late')">${late} in ritardo</button>
+    <button type="button" class="summary-pill soon" ${soon ? '' : 'disabled'} onclick="openDeadlineList('soon')">${soon} nei prossimi 7 giorni</button>
+  </div>`;
+}
+
+function openDeadlineList(which) {
+  const today = localISODate(new Date());
+  const in7   = localISODate(new Date(Date.now() + 7 * 86400000));
+  const rows = Object.entries(_deadlineIndex)
+    .filter(([date]) => which === 'late' ? date < today : date >= today && date <= in7)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .flatMap(([date, list]) => list.map(x => ({ date, ...x })));
+
+  const modal = document.getElementById('day-modal');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header">
+        <h2 style="font-size:1rem;">${which === 'late' ? 'Ordini in ritardo' : 'Scadenze nei prossimi 7 giorni'}</h2>
+        <button class="btn-icon" onclick="closeModal('day-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:8px;">
+        ${rows.map(({ date, order: o, auto }) => {
+          const p = TCFactory.getPriority(o.priorityId);
+          const client = TCFactory.getClient(o.clientId);
+          return `<button type="button" class="day-order-row" onclick="closeModal('day-modal');openOrderDetail('${o.id}')">
+            <span class="day-order-bar" style="background:${p?.color || '#64748b'};"></span>
+            <span style="flex:1;min-width:0;">
+              <strong style="display:block;font-size:0.88rem;">${escapeHtml(o.nome)}</strong>
+              <span style="font-size:0.75rem;color:var(--text-muted);">${client ? escapeHtml(TCFactory.clientName(client)) + ' · ' : ''}${TCFactory.formatDate(date)}${auto ? ' · automatica' : ''}</span>
+            </span>
+            ${renderPriorityChip(p)}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = e => { if (e.target === modal) closeModal('day-modal'); };
 }
 
 function getEventChipText(ev) {
@@ -2515,10 +2650,10 @@ function renderMiniMonth(year, month) {
   for (let i = 0; i < offset; i++) cells.push('<div></div>');
   for (let d = 1; d <= lastDate; d++) {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const evs = TCFactory.getEventsForDate(dateStr);
+    const items   = plannerItemsForDate(dateStr);
     const isToday = dateStr === today;
-    const dots = evs.slice(0,3).map(e => `<div style="width:5px;height:5px;border-radius:50%;background:${e.color};"></div>`).join('');
-    cells.push(`<div onclick="calGoMonth(${month});setTimeout(()=>openCalEventDialog(null,'${dateStr}'),50)" style="text-align:center;font-size:0.7rem;cursor:pointer;padding:2px;border-radius:4px;${isToday?'background:var(--brand-gold);color:#fff;font-weight:700;':''}">
+    const dots = items.slice(0,3).map(e => `<div style="width:5px;height:5px;border-radius:50%;background:${e.color};"></div>`).join('');
+    cells.push(`<div onclick="${items.length ? `openDayPopup('${dateStr}')` : `openCalEventDialog(null,'${dateStr}')`}" style="text-align:center;font-size:0.7rem;cursor:pointer;padding:2px;border-radius:4px;${isToday?'background:var(--brand-gold);color:#fff;font-weight:700;':''}">
       <div>${d}</div>
       <div style="display:flex;gap:1px;justify-content:center;min-height:6px;">${dots}</div>
     </div>`);
@@ -2539,88 +2674,49 @@ function renderFullMonth(year, month) {
   const offset   = firstDay === 0 ? 6 : firstDay - 1;
   const lastDate = new Date(year, month + 1, 0).getDate();
   const today    = localISODate(new Date());
+  const MAX_VISIBLE = 3;
 
   const cells = [];
-  for (let i = 0; i < offset; i++) cells.push('<div style="border:1px solid var(--border-light);min-height:90px;border-radius:4px;background:var(--bg-secondary);opacity:0.3;"></div>');
+  for (let i = 0; i < offset; i++) cells.push('<div class="month-cell empty"></div>');
 
   for (let d = 1; d <= lastDate; d++) {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const evs     = TCFactory.getEventsForDate(dateStr);
+    const items   = plannerItemsForDate(dateStr);
     const isToday = dateStr === today;
-    const MAX_VISIBLE = 2;
-    const shown   = evs.slice(0, MAX_VISIBLE);
-    const hidden  = evs.length - MAX_VISIBLE;
-
-    const chips = shown.map(e => {
-      const txt   = getEventChipText(e);
-      const users = (e.user_ids || []);
-      const short = txt.length > 26 ? txt.slice(0, 24) + '…' : txt;
-      const usersLine = e.event_type !== 'ferie' && users.length
-        ? `<div style="font-size:0.6rem;opacity:0.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">👥 ${users.join(', ')}</div>`
-        : '';
-      return `<div onclick="event.stopPropagation();openCalEventDialog('${e.id}',null)"
-        style="background:${e.color}22;border-left:3px solid ${e.color};padding:3px 6px;border-radius:3px;cursor:pointer;margin-bottom:2px;"
-        title="${escapeHtml(txt)}">
-        <div style="font-size:0.67rem;font-weight:700;color:${e.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(short)}</div>
-        ${usersLine}
-      </div>`;
-    }).join('');
-
-    const moreBtn = hidden > 0
-      ? `<div onclick="event.stopPropagation();openDayPopup('${dateStr}')"
-          style="font-size:0.65rem;font-weight:700;color:var(--brand-gold);cursor:pointer;padding:2px 4px;text-align:center;">
-          + altri ${hidden} →
-        </div>` : '';
+    const hidden  = items.length - MAX_VISIBLE;
 
     cells.push(`
-      <div onclick="${evs.length > 0 ? `openDayPopup('${dateStr}')` : `openCalEventDialog(null,'${dateStr}')`}"
-        style="border:1px solid var(--border-light);min-height:90px;border-radius:4px;padding:5px;cursor:pointer;position:relative;${isToday?'border-color:var(--brand-gold);background:color-mix(in srgb,var(--brand-gold) 5%,var(--bg-card))':'background:var(--bg-card)'}">
-        <div style="font-size:0.75rem;font-weight:${isToday?'800':'600'};color:${isToday?'var(--brand-gold)':'var(--text-primary)'};margin-bottom:4px;">${d}</div>
-        ${chips}${moreBtn}
+      <div class="month-cell ${isToday ? 'today' : ''}" onclick="${items.length > 0 ? `openDayPopup('${dateStr}')` : `openCalEventDialog(null,'${dateStr}')`}">
+        <div class="month-cell-num">${d}</div>
+        ${items.slice(0, MAX_VISIBLE).map(it => renderPlannerChip(it, true)).join('')}
+        ${hidden > 0 ? `<button type="button" class="month-more" onclick="event.stopPropagation();openDayPopup('${dateStr}')">+ altri ${hidden}</button>` : ''}
       </div>`);
   }
 
   return `<div style="padding:12px 16px;">
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">
-      ${GG.map(g => `<div style="text-align:center;font-size:0.72rem;font-weight:700;color:var(--text-muted);padding:4px;">${g}</div>`).join('')}
+    <div class="month-grid">
+      ${GG.map(g => `<div class="month-head">${g}</div>`).join('')}
       ${cells.join('')}
     </div>
   </div>`;
 }
 
-// Popup giornaliero — mostra tutti gli eventi di un giorno
 function openDayPopup(dateStr) {
-  const evs    = TCFactory.getEventsForDate(dateStr);
+  buildDeadlineIndex();
+  const items  = plannerItemsForDate(dateStr);
   const modal  = document.getElementById('day-modal');
   const label  = new Date(dateStr + 'T00:00:00').toLocaleDateString('it-IT', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
 
   modal.innerHTML = `
     <div class="modal" style="max-width:480px;">
       <div class="modal-header">
-        <h2 style="font-size:1rem;">${label}</h2>
-        <button class="btn-icon" onclick="closeModal('day-modal')">${Icons.x()}</button>
+        <h2 style="font-size:1rem;text-transform:capitalize;">${label}</h2>
+        <button class="btn-icon" onclick="closeModal('day-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
-      <div class="modal-body" style="gap:10px;">
-        ${evs.length === 0 ? `<p style="color:var(--text-muted);font-size:0.85rem;">Nessun evento.</p>` :
-          evs.map(e => {
-            const typeInfo = EVENT_TYPES.find(t => t.id === e.event_type) || EVENT_TYPES[0];
-            const users    = e.user_ids || [];
-            const isMulti  = e.date_from !== e.date_to;
-            const dateRange = isMulti
-              ? `${new Date(e.date_from+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short'})} → ${new Date(e.date_to+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short'})}`
-              : '';
-            return `<div onclick="closeModal('day-modal');setTimeout(()=>openCalEventDialog('${e.id}',null),100)"
-              style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:var(--radius-md);background:var(--bg-secondary);cursor:pointer;border-left:4px solid ${e.color};">
-              <div style="flex:1;min-width:0;">
-                <div style="font-size:0.85rem;font-weight:700;color:${e.color};">${escapeHtml(getEventChipText(e))}</div>
-                ${isMulti ? `<div style="font-size:0.72rem;color:var(--text-muted);">📅 ${dateRange}</div>` : ''}
-                ${users.length ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:3px;">👥 ${users.join(' · ')}</div>` : ''}
-                ${e.notes ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:4px;font-style:italic;">${escapeHtml(e.notes.slice(0,80))}${e.notes.length>80?'…':''}</div>` : ''}
-              </div>
-              <span style="font-size:0.7rem;background:${e.color}22;color:${e.color};border-radius:4px;padding:2px 7px;white-space:nowrap;align-self:flex-start;">${typeInfo.label}</span>
-            </div>`;
-          }).join('')}
-        <button class="btn btn-primary btn-sm" style="align-self:flex-start;" onclick="closeModal('day-modal');openCalEventDialog(null,'${dateStr}')">+ Aggiungi evento</button>
+      <div class="modal-body" style="gap:6px;">
+        ${items.length === 0 ? `<p style="color:var(--text-muted);font-size:0.85rem;">Niente in programma.</p>` :
+          items.map(it => renderPlannerChip({ ...it, open: `closeModal('day-modal');${it.open}` })).join('')}
+        <button class="btn btn-primary btn-sm" style="align-self:flex-start;margin-top:6px;" onclick="closeModal('day-modal');openCalEventDialog(null,'${dateStr}')">+ Aggiungi evento</button>
       </div>
     </div>`;
   modal.classList.add('active');
@@ -2629,8 +2725,13 @@ function openDayPopup(dateStr) {
 
 // Lista eventi collassabile
 function renderEventList() {
-  const all    = [...TCFactory.getCalendarEvents()].sort((a,b) => a.date_from.localeCompare(b.date_from));
-  const today  = new Date().toISOString().slice(0, 10);
+  const showFerie  = CalState.layers.includes('ferie');
+  const showEventi = CalState.layers.includes('eventi');
+  if (!showFerie && !showEventi) return '';
+  const all    = [...TCFactory.getCalendarEvents()]
+    .filter(e => e.event_type === 'ferie' ? showFerie : showEventi)
+    .sort((a,b) => a.date_from.localeCompare(b.date_from));
+  const today  = localISODate(new Date());
   const nextIdx = all.findIndex(e => e.date_to >= today);
 
   const itemsHtml = all.map((e, i) => {
@@ -2667,7 +2768,7 @@ function renderEventList() {
   return `
     <div style="border-top:1px solid var(--border);">
       <div onclick="toggleEventList()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer;background:var(--bg-secondary);">
-        <span style="font-weight:700;font-size:0.88rem;">📋 Tutti gli eventi (${all.length})</span>
+        <span style="font-weight:700;font-size:0.88rem;">📋 ${showFerie && showEventi ? 'Tutti gli eventi e le ferie' : showFerie ? 'Tutte le ferie' : 'Tutti gli eventi'} (${all.length})</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${CalState.eventListOpen?180:0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
       ${CalState.eventListOpen ? `

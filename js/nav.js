@@ -30,19 +30,22 @@ const DEFAULT_VIEW = 'ordini';
 
 const Nav = {
   current: null,
+  param: null,          // sotto-pagina, es. l'id del cliente in #/clienti/<id>
   _focusTitle: false,
 
   init() {
     if (this._initialized) return;
     this._initialized = true;
-    window.addEventListener('hashchange', () => this.show(this._fromHash()));
+    window.addEventListener('hashchange', () => this.show(this._fromHash(), this._paramFromHash()));
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) this.closeDrawer();
     });
-    this.show(this._fromHash());
+    this.show(this._fromHash(), this._paramFromHash());
   },
 
-  _fromHash() { return location.hash.replace(/^#\/?/, '') || DEFAULT_VIEW; },
+  _hashParts()     { return location.hash.replace(/^#\/?/, '').split('/'); },
+  _fromHash()      { return this._hashParts()[0] || DEFAULT_VIEW; },
+  _paramFromHash() { return this._hashParts().slice(1).join('/') || null; },
 
   _item(id) { return [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].find(i => i.id === id); },
 
@@ -51,16 +54,18 @@ const Nav = {
     return !!item && (!item.allowed || item.allowed());
   },
 
-  go(id) {
+  go(id, param = null) {
     this._focusTitle = true;
-    if (this._fromHash() === id) this.show(id);
-    else location.hash = '#/' + id;
+    const hash = '#/' + id + (param ? '/' + param : '');
+    if (location.hash === hash) this.show(id, param);
+    else location.hash = hash;
   },
 
-  show(id) {
-    if (!this.isAllowed(id)) id = DEFAULT_VIEW;
-    const changed = this.current !== id;
+  show(id, param = null) {
+    if (!this.isAllowed(id)) { id = DEFAULT_VIEW; param = null; }
+    const changed = this.current !== id || this.param !== param;
     this.current = id;
+    this.param = param;
 
     document.querySelectorAll('.view').forEach(v => { v.hidden = v.dataset.view !== id; });
     renderSidebar();
@@ -89,7 +94,8 @@ window.Nav = Nav;
 function renderCurrentView() {
   switch (Nav.current) {
     case 'planner':      renderCalendarSection(); break;
-    case 'clienti':      renderComingSoon('clienti-root', 'clienti'); break;
+    case 'clienti':      renderClientsPage(); break;
+    case 'cassa':        renderCassaPage(); break;
     case 'staff':        renderStaffPage(); break;
     case 'impostazioni': renderSettingsDialog(); break;
     case 'cestino':      renderCestinoPage(); break;
@@ -168,6 +174,8 @@ function renderHeader() {
     ? `<button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>`
     : Nav.current === 'planner'
     ? `<button class="btn btn-primary" onclick="openCalEventDialog(null,null)">${Icons.plus()} <span class="new-order-btn-text">Nuovo evento</span></button>`
+    : Nav.current === 'clienti' && !Nav.param && TCFactory.isClientsAvailable()
+    ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
     : '';
 
   root.innerHTML = `
@@ -215,11 +223,6 @@ function renderCestinoPage() {
 }
 
 const COMING_SOON = {
-  clienti: {
-    icon: () => Icons.users(28),
-    title: 'Anagrafica clienti',
-    text: 'Qui potrai inserire i clienti e consultarne la lista.',
-  },
   supporto: {
     icon: () => Icons.lifeBuoy(28),
     title: 'Supporto',

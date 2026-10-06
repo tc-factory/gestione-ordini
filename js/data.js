@@ -24,6 +24,9 @@ const TCFactory = {
   _orders: [],
   _priorities: [],
   _tags: [],
+  _clients: [],
+  _clientsAvailable: false,   // false finché non è stato eseguito sql/clienti-setup.sql
+  _settings: {},
   _listeners: [],
   _channel: null,
   _isOnline: false,
@@ -48,6 +51,9 @@ const TCFactory = {
       this._priorities = prioritiesRes.data || [];
       this._tags = tagsRes.data || [];
 
+      // Tabelle aggiunte dopo (clienti, impostazioni): se mancano l'app funziona lo stesso
+      await Promise.all([this.loadClients(), this.loadSettings()]);
+
       this._isOnline = true;
       this._updateStatusBadge(true);
       this._subscribeRealtime();
@@ -68,6 +74,11 @@ const TCFactory = {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' },     (p) => this._handleRealtimeOrders(p))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'priorities' }, (p) => this._handleRealtimeSimple(p, '_priorities', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tags' },       (p) => this._handleRealtimeSimple(p, '_tags', 'name'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' },    (p) => this._handleRealtimeSimple(p, '_clients', 'id'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, (p) => {
+        if (p.new?.key) this._settings[p.new.key] = p.new.value;
+        this._notify();
+      })
       .subscribe((status) => {
         this._isOnline = (status === 'SUBSCRIBED');
         this._updateStatusBadge(this._isOnline);
@@ -135,6 +146,7 @@ const TCFactory = {
       dtfItems: row.dtf_items || [],
       stages: row.stages || { merceCompleta: { done: false }, dtfPronti: { done: false }, ordineStampato: { done: false } },
       deletedAt: row.deleted_at || null,
+      clientId: row.client_id || null,
       archived: row.archived,
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -162,6 +174,7 @@ const TCFactory = {
       stages: order.stages,
       archived: !!order.archived,
       deleted_at: order.deletedAt || null,
+      client_id: order.clientId || null,
     };
   },
 
@@ -227,6 +240,7 @@ const TCFactory = {
       dataOrdine: data.dataOrdine,
       deadline: data.deadline || null,
       notes: data.notes || '',
+      clientId: data.clientId || null,
       priorityId: data.priorityId,
       tags: data.tags || [],
       files: data.files || [],
@@ -245,7 +259,7 @@ const TCFactory = {
     if (error && error.message) {
       const payload = this._toDb(order);
       // Rimuovi TUTTE le colonne opzionali in un colpo solo
-      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module','lavorazione_esterna'].forEach(col => delete payload[col]);
+      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module','lavorazione_esterna','client_id'].forEach(col => delete payload[col]);
       ({ data: row, error } = await supabaseClient.from('orders').insert(payload).select().single());
     }
     if (error) throw error;
@@ -264,7 +278,7 @@ const TCFactory = {
     if (error && error.message) {
       const payload = this._toDb(merged);
       // Rimuovi TUTTE le colonne opzionali in un colpo solo
-      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module','lavorazione_esterna'].forEach(col => delete payload[col]);
+      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module','lavorazione_esterna','client_id'].forEach(col => delete payload[col]);
       ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
     }
     if (error) throw error;
@@ -454,6 +468,21 @@ const TCFactory = {
   },
 
   isCompleted(order) { return this.stageProgress(order).allLavDone; },
+
+  // Scadenza effettiva: deadline manuale, altrimenti data ordine + N giorni (Impostazioni)
+  getEffectiveDeadline(order) {
+    if (order.deadline) return { date: order.deadline, auto: false };
+    if (!order.dataOrdine) return null;
+    const d = new Date(order.dataOrdine + 'T00:00:00');
+    d.setDate(d.getDate() + this.getAutoDeadlineDays());
+    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return { date: iso, auto: true };
+  },
+
+  // Ordini ancora da evadere: sono quelli che hanno senso nel Planner
+  getOrdersToDeliver() {
+    return this.getOrders().filter(o => !o.deletedAt && !o.archived && !o.stages?.spedito?.done);
+  },
 
   isDeadlinePast(order) {
     if (!order.deadline) return false;
@@ -706,6 +735,100 @@ const TCFactory = {
     return this.getOrders().filter(o => o.dtfItems && o.dtfItems.length > 0 && !o.archived);
   },
 
+
+  // ─────────────────────────────────────────────
+  // CLIENTI
+  // ─────────────────────────────────────────────
+
+  CLIENT_FIELDS: ['tipo','ragione_sociale','nome','cognome','partita_iva','codice_fiscale','codice_sdi','pec',
+                  'email','telefono','indirizzo','cap','citta','provincia','nazione','referente','note'],
+
+  async loadClients() {
+    const { data, error } = await supabaseClient.from('clients').select('*');
+    this._clientsAvailable = !error;
+    this._clients = error ? [] : (data || []);
+    return this._clients;
+  },
+
+  isClientsAvailable() { return this._clientsAvailable; },
+
+  getClients() {
+    return [...this._clients].sort((a, b) => this.clientName(a).localeCompare(this.clientName(b), 'it'));
+  },
+
+  getClient(id) { return this._clients.find(c => c.id === id) || null; },
+
+  clientName(c) {
+    if (!c) return '';
+    const persona = `${c.nome || ''} ${c.cognome || ''}`.trim();
+    return (c.tipo === 'privato' ? persona : c.ragione_sociale) || c.ragione_sociale || persona || 'Senza nome';
+  },
+
+  getOrdersForClient(clientId) {
+    return this.getOrders().filter(o => o.clientId === clientId && !o.deletedAt);
+  },
+
+  async saveClient(id, fields) {
+    const payload = {};
+    this.CLIENT_FIELDS.forEach(k => { if (fields[k] !== undefined) payload[k] = String(fields[k] ?? '').trim(); });
+    payload.updated_at = new Date().toISOString();
+
+    let res;
+    if (id) {
+      res = await supabaseClient.from('clients').update(payload).eq('id', id).select().single();
+    } else {
+      payload.created_by = window.TCAuth?.getNickname() || 'sistema';
+      res = await supabaseClient.from('clients').insert(payload).select().single();
+    }
+    if (res.error) throw res.error;
+    const row = res.data;
+    this._clients = [...this._clients.filter(c => c.id !== row.id), row];
+    this._log(id ? 'Cliente modificato' : 'Cliente creato', null, this.clientName(row), { clientId: row.id });
+    this._notify();
+    return row;
+  },
+
+  async deleteClient(id) {
+    const name = this.clientName(this.getClient(id));
+    const { error } = await supabaseClient.from('clients').delete().eq('id', id);
+    if (error) throw error;
+    this._clients = this._clients.filter(c => c.id !== id);
+    // Il database scollega gli ordini (on delete set null): allinea la cache locale
+    this._orders = this._orders.map(o => o.clientId === id ? { ...o, clientId: null } : o);
+    this._log('Cliente eliminato', null, name, { clientId: id });
+    this._notify();
+  },
+
+  async setOrderClient(orderId, clientId) {
+    const updated = await this.updateOrder(orderId, { clientId: clientId || null });
+    this._notify();
+    return updated;
+  },
+
+  // ─────────────────────────────────────────────
+  // IMPOSTAZIONI CONDIVISE
+  // ─────────────────────────────────────────────
+
+  DEFAULT_AUTO_DEADLINE_DAYS: 14,
+
+  async loadSettings() {
+    const { data, error } = await supabaseClient.from('app_settings').select('*');
+    if (!error) this._settings = Object.fromEntries((data || []).map(r => [r.key, r.value]));
+    return this._settings;
+  },
+
+  getAutoDeadlineDays() {
+    const v = parseInt(this._settings.auto_deadline_days, 10);
+    return Number.isFinite(v) && v >= 0 ? v : this.DEFAULT_AUTO_DEADLINE_DAYS;
+  },
+
+  async setSetting(key, value) {
+    const { error } = await supabaseClient.from('app_settings')
+      .upsert({ key, value, updated_at: new Date().toISOString() });
+    if (error) throw error;
+    this._settings[key] = value;
+    this._notify();
+  },
 
   // ─────────────────────────────────────────────
   // CALENDARIO AZIENDALE
