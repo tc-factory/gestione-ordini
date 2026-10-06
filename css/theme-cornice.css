@@ -1,0 +1,431 @@
+/* ============================================
+   T&C FACTORY — Tema "Cornice"
+   Cornice antracite che raccoglie navbar e contenuto; il contenuto sta in un
+   pannello chiaro incassato con angoli ampi. Superfici piatte e pulite,
+   con un tocco di vetro su toolbar, menu, finestre e barra del telefono.
+   Si carica dopo variables.css e app.css e ne sovrascrive l'aspetto.
+   ============================================ */
+
+:root {
+  /* Cornice */
+  --frame: #2B2B2E;
+  --frame-raised: #38383C;
+  --frame-fg: #F2F2F3;
+  --frame-muted: #9C9CA3;
+  --frame-gap: 12px;
+
+  /* Pannello e superfici */
+  --bg-primary: #F3F3F4;
+  --bg-secondary: #ECECEE;
+  --bg-card: #FFFFFF;
+  --text-primary: #1C1C1E;
+  --text-secondary: #616167;
+  --text-muted: #96969C;
+  --border: #E4E4E7;
+  --border-light: #EEEEF0;
+
+  /* Accento azzurro tenue (riempimenti) + versione scura leggibile (testi, focus) */
+  --accent: #8DB6F0;
+  --accent-soft: #E6EFFC;
+  --accent-ink: #2F6FCB;
+  --brand-gold: var(--accent-ink);
+  --brand-gold-light: var(--accent);
+  --brand-gold-dark: #24589F;
+  --brand-copper: var(--accent);
+  --brand-gradient: linear-gradient(180deg, #3A3A3F, #28282B);
+
+  /* Vetro: solo dove serve */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.9);
+  --glass-border: rgba(255, 255, 255, 0.8);
+  --glass-edge: rgba(20, 20, 24, 0.06);
+  --glass-sheen: none;
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 10px 30px -12px rgba(20, 20, 24, 0.18);
+  --surface: #FFFFFF;
+  --fill-hover: rgba(20, 20, 24, 0.05);
+  --fill-press: rgba(20, 20, 24, 0.09);
+  --scrim: rgba(20, 20, 24, 0.35);
+
+  --shadow-sm: 0 1px 2px rgba(20, 20, 24, 0.04);
+  --shadow-md: 0 6px 20px -8px rgba(20, 20, 24, 0.14);
+  --shadow-lg: 0 24px 60px -20px rgba(20, 20, 24, 0.35);
+  --shadow-gold: 0 6px 16px -6px rgba(20, 20, 24, 0.4);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 26px;
+  --radius-panel: 32px;
+
+  --font-display: 'Plus Jakarta Sans', 'Inter', sans-serif;
+  --font-body: 'Plus Jakarta Sans', 'Inter', sans-serif;
+  --font-mono: 'Plus Jakarta Sans', 'Inter', sans-serif;
+  --sidebar-width: 232px;
+}
+
+html.dark {
+  --frame: #111113;
+  --frame-raised: #1E1E21;
+  --bg-primary: #19191C;
+  --bg-secondary: #232327;
+  --bg-card: #212125;
+  --text-primary: #F2F2F3;
+  --text-secondary: #B4B4BA;
+  --text-muted: #85858C;
+  --border: #303035;
+  --border-light: #2A2A2F;
+  --accent-soft: #1F2C40;
+  --accent-ink: #8DB6F0;
+  --glass-bg: rgba(33, 33, 37, 0.72);
+  --glass-bg-strong: rgba(33, 33, 37, 0.92);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --surface: #212125;
+  --fill-hover: rgba(255, 255, 255, 0.06);
+  --fill-press: rgba(255, 255, 255, 0.1);
+}
+
+@supports (corner-shape: squircle) {
+  :root { --radius-sm: 13px; --radius-md: 18px; --radius-lg: 26px; --radius-xl: 34px; --radius-panel: 42px; }
+}
+
+/* ─────────────────────────────────────────────
+   Cornice + pannello incassato (tablet e computer)
+   ───────────────────────────────────────────── */
+
+body, html.dark body { background: var(--frame); background-image: none; }
+/* Plus Jakarta Sans ha spazi stretti: un filo d'aria in più tra le parole */
+body { word-spacing: 0.06em; }
+
+@media (min-width: 641px) {
+  body { overflow: hidden; }
+
+  .app-main {
+    position: fixed;
+    top: var(--frame-gap);
+    right: var(--frame-gap);
+    bottom: var(--frame-gap);
+    left: calc(var(--sidebar-width) + var(--frame-gap));
+    margin: 0;
+    padding: 0 28px 28px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--bg-primary);
+    border-radius: var(--radius-panel);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.25);
+    max-width: none;
+    transition: left 280ms var(--ease-out);
+  }
+  .app-main > * { flex-shrink: 0; }
+
+  /* Planner: riempie il pannello */
+  .app-main:has(#view-planner:not([hidden])) { min-height: 0; padding-bottom: 28px; }
+  #view-planner:not([hidden]) { flex: 1 0 auto; }
+}
+
+@media (min-width: 641px) and (max-width: 860px) {
+  .app-main { left: var(--frame-gap); }
+}
+
+/* ─────────────────────────────────────────────
+   Navbar nella cornice
+   ───────────────────────────────────────────── */
+
+.sidebar {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--frame-fg);
+  top: 0; bottom: 0; left: 0;
+  border-radius: 0;
+  padding: 24px 14px 18px;
+}
+.sidebar::before { display: none; }
+
+.brand-logo {
+  background: #FFFFFF;
+  color: var(--frame);
+  box-shadow: none;
+  border-radius: 14px;
+}
+.brand-text strong { color: var(--frame-fg); }
+.brand-text span { color: var(--frame-muted); }
+.sidebar .btn-icon { color: var(--frame-muted); }
+.sidebar .btn-icon:hover { background: rgba(255, 255, 255, 0.08); color: var(--frame-fg); }
+
+.sidebar-nav { gap: 4px; margin-top: 8px; }
+
+.nav-item { color: var(--frame-muted); font-weight: 600; padding: 11px 14px; border-radius: 14px; }
+.nav-item:hover { background: rgba(255, 255, 255, 0.06); color: var(--frame-fg); }
+.nav-item:active { background: rgba(255, 255, 255, 0.1); }
+.nav-item.active,
+html.dark .nav-item.active {
+  color: var(--frame-fg);
+  background: var(--frame-raised);
+  box-shadow: none;
+}
+/* Tacca chiara sul bordo, come nel riferimento */
+.sidebar-nav .nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  width: 5px; height: 22px;
+  transform: translateY(-50%);
+  border-radius: 0 6px 6px 0;
+  background: #FFFFFF;
+}
+.nav-item.active .nav-item-icon,
+html.dark .nav-item.active .nav-item-icon { color: #FFFFFF; }
+
+.nav-item-badge { background: rgba(255, 255, 255, 0.1); color: var(--frame-fg); }
+.nav-item.active .nav-item-badge { background: var(--accent); color: var(--frame); }
+
+.sidebar-footer-pair .nav-item { border-color: rgba(255, 255, 255, 0.08); }
+.sidebar-footer-pair .nav-item .nav-item-badge { box-shadow: 0 0 0 2px var(--frame); background: var(--accent); color: var(--frame); }
+.sidebar-footer-pair .nav-item[href="#/supporto"] .nav-item-badge { background: #EF4444; color: #fff; }
+
+@media (min-width: 861px) {
+  html.sidebar-collapsed { --sidebar-width: 78px; }
+  html.sidebar-collapsed .sidebar { padding: 24px 12px 18px; }
+  html.sidebar-collapsed .sidebar-nav .nav-item.active::before { left: -12px; }
+  html.sidebar-collapsed .sidebar .nav-item .nav-item-badge { box-shadow: 0 0 0 2px var(--frame); color: var(--frame); background: var(--accent); }
+  html.sidebar-collapsed .sidebar .nav-item[href="#/supporto"] .nav-item-badge { background: #EF4444; color: #fff; }
+}
+
+/* Tablet: la navbar a scomparsa resta scura */
+@media (max-width: 860px) {
+  .sidebar { background: var(--frame); top: 0; bottom: 0; left: 0; border-radius: 0 28px 28px 0; box-shadow: var(--shadow-lg); }
+}
+
+/* ─────────────────────────────────────────────
+   Toolbar: trasparente, vetro leggero quando il contenuto scorre sotto
+   ───────────────────────────────────────────── */
+
+.app-toolbar {
+  top: 0;
+  margin: 0 -28px;
+  padding: 22px 28px 14px;
+  min-height: 0;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+}
+.app-toolbar::before { display: none; }
+.toolbar-title h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.03em; }
+.toolbar-title p { font-size: 0.82rem; color: var(--text-muted); }
+
+.account-wrap { position: relative; }
+.account-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px 5px 5px;
+  border: none;
+  border-radius: 999px;
+  background: var(--frame);
+  color: var(--frame-fg);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.85rem;
+  transition: transform var(--dur-fast) var(--ease-out), background-color var(--transition);
+}
+.account-pill:hover { background: #3A3A3F; }
+.account-pill:active { transform: scale(0.97); }
+.account-pill .user-avatar { width: 30px; height: 30px; font-size: 0.8rem; background: #FFFFFF; color: var(--frame); box-shadow: none; }
+html.dark .account-pill { background: #2A2A2F; }
+
+.account-menu {
+  left: auto;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  z-index: 120;
+  transform-origin: top right;
+}
+.account-menu-head { padding: 6px 10px 10px; border-bottom: 1px solid var(--border-light); margin-bottom: 4px; display: flex; flex-direction: column; }
+.account-menu-head span { font-size: 0.75rem; color: var(--text-muted); }
+.account-menu button {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px;
+  border: none; border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-body); font-size: 0.86rem; font-weight: 600;
+  text-align: left;
+}
+.account-menu button:hover { background: var(--fill-hover); }
+.account-menu button.danger { color: #DC2626; }
+
+/* ─────────────────────────────────────────────
+   Card e superfici: piatte, bianche, angoli ampi
+   ───────────────────────────────────────────── */
+
+.glass-card {
+  background: var(--bg-card);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: none;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-card { padding: 20px 24px; }
+.stat-card-glow { display: none; }
+.stat-card-label { font-size: 0.75rem; letter-spacing: 0.04em; }
+.stat-card-value { font-size: 2.1rem; font-weight: 800; letter-spacing: -0.03em; }
+.stat-card-btn:hover { box-shadow: var(--shadow-md); }
+.stat-card-btn.selected { box-shadow: 0 0 0 2px var(--frame), var(--shadow-md); }
+
+/* Liste (ordini, clienti, cassa): righe come card separate sul pannello */
+.list-shell { background: transparent; box-shadow: none; border-radius: 0; overflow: visible; }
+.list-shell .list-card-header,
+.list-shell .table-toolbar { padding: 0 0 14px; border-bottom: none; }
+.list-shell .list-card-header + div,
+.list-shell > div[style*="border-bottom"] { border-bottom: none !important; padding-left: 0 !important; padding-right: 0 !important; }
+
+.list-shell .order-rows { gap: 8px; }
+.list-shell .order-row-item {
+  background: var(--bg-card);
+  border: none;
+  border-radius: 18px;
+  padding: 0 16px 0 0;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition), transform var(--dur-fast) var(--ease-out);
+}
+.list-shell .order-row-item:hover { background: var(--bg-card); box-shadow: var(--shadow-md); }
+.list-shell .order-row-header-row { background: transparent !important; box-shadow: none; border: none !important; }
+.list-shell .order-row-header-row:hover { box-shadow: none; }
+.list-shell .order-row-grid > div { border-right: none; }
+.list-shell .orc-hdr { color: var(--text-muted) !important; text-transform: none !important; letter-spacing: 0 !important; font-size: 0.75rem !important; font-weight: 600 !important; }
+
+.list-shell .data-table { border-collapse: separate; border-spacing: 0 8px; margin-top: -8px; }
+.list-shell .data-table th { background: transparent; text-transform: none; letter-spacing: 0; font-size: 0.75rem; font-weight: 600; padding: 4px 16px; }
+.list-shell .data-table td { background: var(--bg-card); border-bottom: none; padding: 14px 16px; }
+.list-shell .data-table tr td:first-child { border-radius: 16px 0 0 16px; }
+.list-shell .data-table tr td:last-child  { border-radius: 0 16px 16px 0; }
+.list-shell .data-row:hover td { background: color-mix(in srgb, var(--accent) 8%, var(--bg-card)); }
+.list-shell .data-table tfoot td { background: var(--frame); color: var(--frame-fg); }
+.list-shell .table-scroll { overflow: visible; }
+
+.page-card-head { border-bottom: none; padding: 20px 22px 6px; }
+.page-card-head h2 { font-size: 1.05rem; }
+.page-card-body { padding: 14px 22px 22px; }
+
+/* ─────────────────────────────────────────────
+   Pulsanti a pillola, controlli
+   ───────────────────────────────────────────── */
+
+.btn { border-radius: 999px; font-weight: 700; padding: 10px 18px; }
+.btn-sm { border-radius: 999px; padding: 7px 14px; }
+.btn-primary {
+  background: var(--frame);
+  color: #FFFFFF;
+  box-shadow: none;
+}
+.btn-primary:hover:not(:disabled) { background: #3A3A3F; filter: none; box-shadow: var(--shadow-gold); }
+html.dark .btn-primary { background: var(--accent); color: #111113; }
+html.dark .btn-primary:hover:not(:disabled) { background: #A3C5F4; }
+.btn-secondary { background: var(--bg-card); border: 1px solid var(--border); box-shadow: none; }
+.btn-icon { border-radius: 12px; }
+
+.form-input, .form-select, .form-textarea { border-radius: 14px; background: var(--bg-card); border-color: var(--border); }
+.search-box input { border-radius: 999px !important; background: var(--bg-card); border-color: var(--border); }
+
+/* Selettori: il pulsante attivo è pieno, come "Transfer" nel riferimento */
+.segmented { background: var(--bg-secondary); border-radius: 999px; padding: 4px; box-shadow: none; }
+.segmented button { border-radius: 999px; padding: 7px 16px; }
+.segmented button.active,
+html.dark .segmented button.active { background: var(--frame); color: #FFFFFF; box-shadow: none; }
+html.dark .segmented button.active { background: var(--accent); color: #111113; }
+.view-tabs { background: var(--bg-secondary); border-radius: 999px; padding: 4px; }
+.view-tab { border-radius: 999px; padding: 6px 14px; }
+.view-tab.active { background: var(--frame); color: #FFFFFF !important; box-shadow: none; }
+html.dark .view-tab.active { background: var(--accent); color: #111113 !important; }
+
+.layer-toggle { border-radius: 999px; background: var(--bg-card); }
+.layer-toggle.on { background: color-mix(in srgb, var(--layer) 14%, var(--bg-card)); }
+
+.switch:checked { background: var(--accent-ink); }
+
+/* Stati a pillola pastello */
+.pay-badge.paid { background: #DDF3E4; color: #15803D; }
+.pay-badge.due  { background: #FCE1E1; color: #DC2626; }
+html.dark .pay-badge.paid { background: #163222; color: #4ADE80; }
+html.dark .pay-badge.due  { background: #3A1C1C; color: #F87171; }
+
+/* Avatar e logo */
+.user-avatar { background: var(--frame); color: #FFFFFF; box-shadow: none; }
+.client-avatar { background: var(--accent-soft); color: var(--accent-ink); box-shadow: none; border-radius: 50%; }
+
+/* Planner */
+.week-col, .month-cell { border-color: var(--border-light); border-radius: 16px; }
+.week-col.today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.week-col.today .week-col-num { background: var(--frame); }
+.month-cell.today { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); }
+.month-cell.today .month-cell-num { color: var(--accent-ink); }
+.planner-toolbar, .planner-layers { border-bottom-color: var(--border-light); }
+
+/* ─────────────────────────────────────────────
+   Tocco di vetro: menu, finestre, avvisi
+   ───────────────────────────────────────────── */
+
+.popover, .modal {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(30px) saturate(170%);
+  backdrop-filter: blur(30px) saturate(170%);
+  border: 1px solid var(--glass-border);
+}
+.modal-overlay { background: var(--scrim); }
+.modal-header, .modal-footer { border-color: var(--border-light); }
+
+.toast { background: rgba(43, 43, 46, 0.9); border-color: rgba(255, 255, 255, 0.08); border-radius: 999px; padding: 12px 20px; }
+
+/* ─────────────────────────────────────────────
+   Smartphone: niente cornice, pannello a schermo intero,
+   barra in basso scura con un velo di vetro
+   ───────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  body { background: var(--bg-primary); }
+  .app-toolbar { margin: 0 -10px; padding: max(14px, env(safe-area-inset-top)) 14px 10px 18px; border-radius: 0; top: 0; }
+  .toolbar-title h1 { font-size: 1.3rem; }
+  .account-pill { display: none; }
+
+  .bottom-nav {
+    background: rgba(43, 43, 46, 0.86);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    backdrop-filter: blur(24px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.45);
+  }
+  .bottom-nav::before { display: none; }
+  .bn-item { color: var(--frame-muted); }
+  .bn-item.active, html.dark .bn-item.active { color: #FFFFFF; background: rgba(255, 255, 255, 0.12); box-shadow: none; }
+  .bn-badge { box-shadow: 0 0 0 2px var(--frame); }
+
+  .list-shell .data-table { border-spacing: 0; margin-top: 0; }
+  .list-shell .cards-sm tr { background: var(--bg-card); border-radius: 16px; margin-bottom: 8px; border-bottom: none; box-shadow: var(--shadow-sm); }
+  .list-shell .cards-sm td { background: transparent; border-radius: 0 !important; padding: 0; }
+  .list-shell .order-row-item { padding: 0 6px 0 0; }
+}
+
+/* Riduci trasparenza: superfici piene */
+html.reduce-transparency .app-toolbar,
+html.reduce-transparency .bottom-nav,
+html.reduce-transparency .popover,
+html.reduce-transparency .modal { -webkit-backdrop-filter: none; backdrop-filter: none; }
+html.reduce-transparency .app-toolbar { background: var(--bg-primary); }
+html.reduce-transparency .bottom-nav { background: var(--frame); }

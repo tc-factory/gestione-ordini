@@ -112,7 +112,7 @@ function renderClientList() {
   }).join('');
 
   return `
-    <div class="glass-card page-card">
+    <div class="glass-card page-card list-shell">
       <div class="table-toolbar">
         <div class="search-box">
           ${Icons.search()}

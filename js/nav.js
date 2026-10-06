@@ -91,7 +91,7 @@ const Nav = {
       this._focusTitle = false;
       document.getElementById('toolbar-title')?.focus({ preventScroll: true });
     }
-    if (changed) window.scrollTo({ top: 0 });
+    if (changed) { window.scrollTo({ top: 0 }); document.getElementById('main-content')?.scrollTo({ top: 0 }); }
   },
 
   // Navbar a scomparsa su schermi piccoli
@@ -151,9 +151,6 @@ function renderSidebar() {
 
   const visible = NAV_ITEMS.filter(i => Nav.isAllowed(i.id));
   const collapsed = SidebarCollapse.get();
-  const isDark  = Theme.get() === 'dark';
-  const nick    = TCAuth.getNickname();
-  const role    = TCAuth.isAdmin() ? 'Admin' : 'Staff';
 
   root.innerHTML = `
     <div class="sidebar-brand">
@@ -173,15 +170,6 @@ function renderSidebar() {
     </nav>
 
     <div class="sidebar-footer">
-      <div class="sidebar-user">
-        <span class="user-avatar" aria-hidden="true">${escapeHtml(nick.charAt(0).toUpperCase())}</span>
-        <div class="user-text">
-          <strong>${escapeHtml(nick)}</strong>
-          <span>${role}</span>
-        </div>
-        <button class="btn-icon" onclick="Theme.toggle()" aria-label="${isDark ? 'Passa al tema chiaro' : 'Passa al tema scuro'}" title="${isDark ? 'Tema chiaro' : 'Tema scuro'}">${isDark ? Icons.sun(16) : Icons.moon(16)}</button>
-        <button class="btn-icon" onclick="doLogout()" aria-label="Esci" title="Esci">${Icons.logOut(16)}</button>
-      </div>
       <div class="sidebar-footer-pair">
         ${NAV_FOOTER_ITEMS.map(navLink).join('')}
       </div>
@@ -260,14 +248,58 @@ function renderHeader() {
     ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
     : '';
 
+  const nick = TCAuth.getNickname();
   root.innerHTML = `
     <button class="btn-icon menu-toggle" onclick="Nav.openDrawer()" aria-label="Apri menu">${Icons.menu()}</button>
     <div class="toolbar-title">
       <h1 id="toolbar-title" tabindex="-1">${item.label}</h1>
       <p>${item.subtitle}</p>
     </div>
-    <div class="app-header-actions">${actions}</div>
+    <div class="app-header-actions">
+      ${actions}
+      <div class="account-wrap">
+        <button type="button" class="account-pill" onclick="toggleAccountMenu(event)" aria-haspopup="menu" aria-expanded="false" id="account-btn">
+          <span class="user-avatar" aria-hidden="true">${escapeHtml(nick.charAt(0).toUpperCase())}</span>
+          <span class="account-name">${escapeHtml(nick)}</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div>
+    </div>
   `;
+}
+
+// Menu del pulsante account: ruolo, tema, esci
+function toggleAccountMenu(e) {
+  e?.stopPropagation();
+  const wrap = document.querySelector('.account-wrap');
+  const btn  = document.getElementById('account-btn');
+  const open = wrap.querySelector('.account-menu');
+  if (open) { open.remove(); btn.setAttribute('aria-expanded', 'false'); return; }
+
+  const isDark = Theme.get() === 'dark';
+  const menu = document.createElement('div');
+  menu.className = 'account-menu popover glass';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = `
+    <div class="account-menu-head">
+      <strong>${escapeHtml(TCAuth.getNickname())}</strong>
+      <span>${TCAuth.isAdmin() ? 'Admin' : 'Staff'}${TCAuth.canViewEconomics() && !TCAuth.isAdmin() ? ' · Cassa' : ''}</span>
+    </div>
+    <button type="button" role="menuitem" onclick="Theme.toggle()">${isDark ? Icons.sun(16) : Icons.moon(16)} ${isDark ? 'Tema chiaro' : 'Tema scuro'}</button>
+    <button type="button" role="menuitem" onclick="Nav.go('impostazioni')">${Icons.settings(16)} Impostazioni</button>
+    <button type="button" role="menuitem" class="danger" onclick="doLogout()">${Icons.logOut(16)} Esci</button>`;
+  wrap.appendChild(menu);
+  btn.setAttribute('aria-expanded', 'true');
+  menu.querySelector('button')?.focus();
+
+  const close = (ev) => {
+    if (ev.type === 'keydown' && ev.key !== 'Escape') return;
+    if (ev.type === 'click' && menu.contains(ev.target)) return;
+    menu.remove(); btn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('click', close); document.removeEventListener('keydown', close);
+    if (ev.type === 'keydown') btn.focus();
+  };
+  setTimeout(() => { document.addEventListener('click', close); document.addEventListener('keydown', close); });
 }
 
 // ─────────────────────────────────────────────
