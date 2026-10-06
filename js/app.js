@@ -2485,15 +2485,24 @@ function renderCalendarBody() {
 
   const statsSection = statsEntries.length > 0 && (CalState.layers.includes('ferie') || CalState.layers.includes('eventi')) ? `
     <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
-      <div style="font-size:0.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Statistiche ${CalState.year}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+        <span style="font-size:0.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;">Statistiche ${CalState.year}</span>
+        <span style="margin-left:auto;display:flex;gap:6px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openStaffReport('ferie')">🏖 Riepilogo ferie</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openStaffReport('eventi')">📅 Riepilogo eventi</button>
+        </span>
+      </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;">
-        ${statsEntries.map(([user, s]) => `
-          <div style="background:var(--bg-card);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:6px 12px;display:flex;align-items:center;gap:10px;">
+        ${statsEntries.map(([user, s]) => {
+          const u = escapeHtml(user).replace(/'/g, '&#39;');
+          const eventi = (s.impegno || 0) + (s.scadenza || 0);
+          return `
+          <div style="background:var(--bg-card);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:6px 8px 6px 12px;display:flex;align-items:center;gap:8px;">
             <span style="font-size:0.82rem;font-weight:700;">${escapeHtml(user)}</span>
-            ${s.impegno > 0 ? `<span title="Giorni impegni" style="font-size:0.75rem;background:#6366f122;color:#6366f1;border-radius:4px;padding:1px 7px;font-weight:600;">📅 ${s.impegno}gg</span>` : ''}
-            ${s.ferie   > 0 ? `<span title="Giorni ferie"   style="font-size:0.75rem;background:#f9741622;color:#f97316;border-radius:4px;padding:1px 7px;font-weight:600;">🏖 ${s.ferie}gg</span>`   : ''}
-            ${s.scadenza > 0 ? `<span title="Giorni scadenze" style="font-size:0.75rem;background:#ef444422;color:#ef4444;border-radius:4px;padding:1px 7px;font-weight:600;">⚠ ${s.scadenza}gg</span>` : ''}
-          </div>`).join('')}
+            ${eventi > 0  ? `<button type="button" class="stat-chip" style="--c:#6366f1;" onclick="openStaffReport('eventi','${u}')" title="Giorni di eventi di ${escapeHtml(user)}">📅 ${eventi}gg</button>` : ''}
+            ${s.ferie > 0 ? `<button type="button" class="stat-chip" style="--c:#f97316;" onclick="openStaffReport('ferie','${u}')" title="Giorni di ferie di ${escapeHtml(user)}">🏖 ${s.ferie}gg</button>` : ''}
+          </div>`;
+        }).join('')}
       </div>
     </div>` : '';
 
@@ -2721,6 +2730,127 @@ function openDayPopup(dateStr) {
     </div>`;
   modal.classList.add('active');
   modal.onclick = e => { if (e.target === modal) closeModal('day-modal'); };
+}
+
+// ── Riepilogo ferie / eventi per persona, diviso per mese ──
+
+const StaffReport = { type: 'ferie', user: '', year: new Date().getFullYear() };
+
+function openStaffReport(type, user = '') {
+  Object.assign(StaffReport, { type, user, year: CalState.year });
+  renderStaffReport();
+  const modal = document.getElementById('day-modal');
+  modal.classList.add('active');
+  modal.onclick = e => { if (e.target === modal) closeModal('day-modal'); };
+}
+
+function setStaffReport(key, value) { StaffReport[key] = value; renderStaffReport(); }
+
+// { persona: { mese(0-11): [{ day, ev }] } } per l'anno e il tipo scelti
+function buildStaffReport() {
+  const year = StaffReport.year;
+  const isFerie = StaffReport.type === 'ferie';
+  const data = {};
+  TCFactory.getCalendarEvents()
+    .filter(ev => (ev.event_type === 'ferie') === isFerie)
+    .forEach(ev => {
+      const users = (ev.user_ids && ev.user_ids.length) ? ev.user_ids : ['(nessuno)'];
+      const d = new Date(ev.date_from + 'T00:00:00');
+      const end = new Date(ev.date_to + 'T00:00:00');
+      for (; d <= end; d.setDate(d.getDate() + 1)) {
+        if (d.getFullYear() !== year) continue;
+        users.forEach(u => {
+          const m = d.getMonth();
+          ((data[u] = data[u] || {})[m] = data[u][m] || []).push({ day: d.getDate(), ev });
+        });
+      }
+    });
+  return data;
+}
+
+function renderStaffReport() {
+  const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  const isFerie = StaffReport.type === 'ferie';
+  const data  = buildStaffReport();
+  const users = Object.keys(data).sort((a, b) => a.localeCompare(b, 'it'));
+  const shown = StaffReport.user ? users.filter(u => u === StaffReport.user) : users;
+
+  const monthBlock = (m, entries) => {
+    entries.sort((a, b) => a.day - b.day);
+    const giorni = new Set(entries.map(e => e.day)).size;
+    let body;
+    if (isFerie) {
+      // Giorni consecutivi raggruppati: 8–10, 14, 20–24
+      const days = [...new Set(entries.map(e => e.day))];
+      const parts = [];
+      for (let i = 0; i < days.length; i++) {
+        let j = i;
+        while (j + 1 < days.length && days[j + 1] === days[j] + 1) j++;
+        parts.push(i === j ? `${days[i]}` : `${days[i]}–${days[j]}`);
+        i = j;
+      }
+      body = `<div class="report-days">${parts.map(p => `<span class="report-day">${p}</span>`).join('')}</div>`;
+    } else {
+      // Un evento per riga, con i suoi giorni nel mese
+      const byEvent = new Map();
+      entries.forEach(({ day, ev }) => { if (!byEvent.has(ev.id)) byEvent.set(ev.id, { ev, days: [] }); byEvent.get(ev.id).days.push(day); });
+      body = [...byEvent.values()].map(({ ev, days }) => {
+        const label = days.length > 1 ? `${days[0]}–${days[days.length - 1]}` : `${days[0]}`;
+        const type  = EVENT_TYPES.find(t => t.id === ev.event_type) || EVENT_TYPES[0];
+        return `<button type="button" class="report-event" style="--ev:${ev.color};" onclick="closeModal('day-modal');openCalEventDialog('${ev.id}',null)">
+          <span class="report-event-days">${label}</span>
+          <span class="report-event-title">${escapeHtml(ev.title)}</span>
+          <span class="report-event-type">${type.label}</span>
+        </button>`;
+      }).join('');
+    }
+    return `<div class="report-month">
+      <div class="report-month-head"><strong>${MESI[m]}</strong><span>${giorni} ${giorni === 1 ? 'giorno' : 'giorni'}</span></div>
+      ${body}
+    </div>`;
+  };
+
+  const personBlock = (u) => {
+    const months = Object.keys(data[u]).map(Number).sort((a, b) => a - b);
+    const tot = months.reduce((s, m) => s + new Set(data[u][m].map(e => e.day)).size, 0);
+    return `<section class="report-person">
+      <div class="report-person-head">
+        <span class="user-avatar" aria-hidden="true">${escapeHtml(u.charAt(0).toUpperCase())}</span>
+        <strong>${escapeHtml(u)}</strong>
+        <span class="report-total">${tot} ${tot === 1 ? 'giorno' : 'giorni'} nel ${StaffReport.year}</span>
+      </div>
+      ${months.map(m => monthBlock(m, data[u][m])).join('')}
+    </section>`;
+  };
+
+  document.getElementById('day-modal').innerHTML = `
+    <div class="modal" style="max-width:640px;" role="dialog" aria-modal="true" aria-labelledby="sr-title">
+      <div class="modal-header">
+        <h2 id="sr-title">${isFerie ? '🏖 Ferie' : '📅 Eventi'} per persona</h2>
+        <button class="btn-icon" onclick="closeModal('day-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="report-controls">
+        <div class="segmented" role="tablist" aria-label="Tipo">
+          <button role="tab" aria-selected="${isFerie}" class="${isFerie ? 'active' : ''}" onclick="setStaffReport('type','ferie')">Ferie</button>
+          <button role="tab" aria-selected="${!isFerie}" class="${!isFerie ? 'active' : ''}" onclick="setStaffReport('type','eventi')">Eventi</button>
+        </div>
+        <div class="report-year">
+          <button class="btn-icon" onclick="setStaffReport('year', StaffReport.year - 1)" aria-label="Anno precedente">${Icons.chevronLeft()}</button>
+          <strong>${StaffReport.year}</strong>
+          <button class="btn-icon" onclick="setStaffReport('year', StaffReport.year + 1)" aria-label="Anno successivo">${Icons.chevronRight()}</button>
+        </div>
+        <select class="form-select filter-select" aria-label="Persona" onchange="setStaffReport('user', this.value)">
+          <option value="">Tutto lo staff</option>
+          ${users.map(u => `<option value="${escapeHtml(u)}" ${u === StaffReport.user ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('')}
+          ${StaffReport.user && !users.includes(StaffReport.user) ? `<option selected>${escapeHtml(StaffReport.user)}</option>` : ''}
+        </select>
+      </div>
+      <div class="modal-body report-body">
+        ${shown.length === 0
+          ? `<p style="color:var(--text-muted);font-size:0.88rem;text-align:center;padding:20px 0;">Nessun${isFerie ? 'a ferie' : ' evento'} nel ${StaffReport.year}${StaffReport.user ? ' per ' + escapeHtml(StaffReport.user) : ''}.</p>`
+          : shown.map(personBlock).join('')}
+      </div>
+    </div>`;
 }
 
 // Lista eventi collassabile

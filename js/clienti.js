@@ -28,7 +28,9 @@ function clientTotals(orders) {
 }
 
 function clientInitials(c) {
-  return TCFactory.clientName(c).split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
+  // Solo lettere e cifre: "[PROVA] Palestra" → "PP"
+  return TCFactory.clientName(c).split(/\s+/).map(w => w.replace(/[^\p{L}\p{N}]/gu, '')).filter(Boolean)
+    .slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
 }
 
 // Opzioni del menu Cliente nel form ordine
