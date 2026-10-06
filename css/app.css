@@ -2072,3 +2072,47 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
   .segmented::-webkit-scrollbar { display: none; }
   .segmented button { white-space: nowrap; flex: 1 0 auto; }
 }
+
+/* ═══════════════════════════════════════════════
+   NAVBAR COLLASSABILE (solo computer, ≥ 861px)
+   ═══════════════════════════════════════════════ */
+
+.sidebar-collapse-btn { display: none; }
+
+@media (min-width: 861px) {
+  .sidebar { transition: width 280ms var(--ease-out), padding 280ms var(--ease-out); }
+  .app-main { transition: margin-left 280ms var(--ease-out); }
+  .sidebar-collapse-btn { display: inline-flex; margin-left: auto; flex-shrink: 0; color: var(--text-muted); }
+
+  html.sidebar-collapsed { --sidebar-width: 76px; }
+  html.sidebar-collapsed .sidebar { padding: 14px 10px; overflow-x: hidden; }
+
+  html.sidebar-collapsed .sidebar-brand { flex-direction: column; gap: 8px; padding: 0; }
+  html.sidebar-collapsed .brand-logo { width: 46px; height: 46px; border-radius: 16px; }
+  html.sidebar-collapsed .brand-logo-mark { font-size: 13px !important; }
+  html.sidebar-collapsed .sidebar-collapse-btn { margin-left: 0; }
+
+  html.sidebar-collapsed .brand-text,
+  html.sidebar-collapsed .nav-item-label,
+  html.sidebar-collapsed .user-text { display: none; }
+
+  html.sidebar-collapsed .nav-item { justify-content: center; padding: 11px 0; gap: 0; }
+
+  /* Contatori come pallino numerato sull'icona */
+  html.sidebar-collapsed .sidebar .nav-item .nav-item-badge {
+    position: absolute;
+    top: 3px; right: 6px;
+    min-width: 17px;
+    padding: 0 4px;
+    font-size: 0.6rem;
+    line-height: 17px;
+    color: #fff;
+    background: var(--brand-gold);
+    box-shadow: 0 0 0 2px var(--bg-card);
+  }
+  html.sidebar-collapsed .sidebar .nav-item[href="#/supporto"] .nav-item-badge { background: #ef4444; }
+
+  html.sidebar-collapsed .sidebar-user { flex-direction: column; gap: 4px; padding: 8px 0; }
+  html.sidebar-collapsed .sidebar-footer-pair { grid-template-columns: 1fr; }
+  html.sidebar-collapsed .sidebar-footer-pair .nav-item { padding: 10px 0; }
+}

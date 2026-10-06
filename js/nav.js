@@ -24,6 +24,20 @@ const NAV_FOOTER_ITEMS = [
 
 const DEFAULT_VIEW = 'ordini';
 
+// Navbar ridotta a sole icone (solo computer); la scelta resta salvata nel browser
+const SidebarCollapse = {
+  KEY: 'tcf_sidebar_collapsed',
+  get() { try { return localStorage.getItem(this.KEY) === '1'; } catch { return false; } },
+  apply() { document.documentElement.classList.toggle('sidebar-collapsed', this.get()); },
+  toggle() {
+    try { localStorage.setItem(this.KEY, this.get() ? '0' : '1'); } catch {}
+    this.apply();
+    renderSidebar();
+    document.querySelector('.sidebar-collapse-btn')?.focus();
+  },
+};
+SidebarCollapse.apply();
+
 // ─────────────────────────────────────────────
 // ROUTER
 // ─────────────────────────────────────────────
@@ -127,6 +141,7 @@ function renderSidebar() {
     const badge  = badges[item.id];
     return `
       <a href="#/${item.id}" class="nav-item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}
+         ${collapsed ? `title="${item.label}${badge ? ` (${badge})` : ''}" aria-label="${item.label}"` : ''}
          onclick="event.preventDefault();Nav.go('${item.id}')">
         <span class="nav-item-icon">${item.icon()}</span>
         <span class="nav-item-label">${item.label}</span>
@@ -135,6 +150,7 @@ function renderSidebar() {
   };
 
   const visible = NAV_ITEMS.filter(i => Nav.isAllowed(i.id));
+  const collapsed = SidebarCollapse.get();
   const isDark  = Theme.get() === 'dark';
   const nick    = TCAuth.getNickname();
   const role    = TCAuth.isAdmin() ? 'Admin' : 'Staff';
@@ -147,6 +163,9 @@ function renderSidebar() {
         <span>Gestione ordini</span>
       </div>
       <button class="btn-icon sidebar-close" onclick="Nav.closeDrawer()" aria-label="Chiudi menu">${Icons.x()}</button>
+      <button class="btn-icon sidebar-collapse-btn" onclick="SidebarCollapse.toggle()"
+        aria-label="${collapsed ? 'Espandi la navbar' : 'Riduci la navbar'}" aria-expanded="${!collapsed}"
+        title="${collapsed ? 'Espandi' : 'Riduci'}">${collapsed ? Icons.panelOpen(18) : Icons.panelClose(18)}</button>
     </div>
 
     <nav class="sidebar-nav">
@@ -160,7 +179,7 @@ function renderSidebar() {
           <strong>${escapeHtml(nick)}</strong>
           <span>${role}</span>
         </div>
-        <button class="btn-icon" onclick="Theme.toggle()" aria-label="${isDark ? 'Passa al tema chiaro' : 'Passa al tema scuro'}" title="Cambia tema">${isDark ? Icons.sun(16) : Icons.moon(16)}</button>
+        <button class="btn-icon" onclick="Theme.toggle()" aria-label="${isDark ? 'Passa al tema chiaro' : 'Passa al tema scuro'}" title="${isDark ? 'Tema chiaro' : 'Tema scuro'}">${isDark ? Icons.sun(16) : Icons.moon(16)}</button>
         <button class="btn-icon" onclick="doLogout()" aria-label="Esci" title="Esci">${Icons.logOut(16)}</button>
       </div>
       <div class="sidebar-footer-pair">
