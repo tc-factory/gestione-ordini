@@ -94,7 +94,7 @@ function renderCassaPage() {
       </button>
     </div>
 
-    <div class="glass-card page-card">
+    <div class="glass-card page-card list-shell">
       <div class="table-toolbar cassa-filters">
         <div class="segmented" role="tablist" aria-label="Stato pagamento">
           ${[['tutti','Tutti'],['da-riscuotere','Da riscuotere'],['riscossi','Riscossi']].map(([id, l]) =>

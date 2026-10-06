@@ -330,7 +330,7 @@ function renderOrderList() {
       </div>`;
 
   document.getElementById('orderlist-root').innerHTML = `
-    <div class="glass-card">
+    <div class="glass-card list-shell">
       <div class="list-card-header">
         <div class="list-title-group">
           <div class="list-title">
