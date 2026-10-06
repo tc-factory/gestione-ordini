@@ -1910,3 +1910,22 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
   .month-wrap { display: flex; flex-direction: column; }
   .month-grid { flex: 1; grid-template-rows: auto; grid-auto-rows: minmax(104px, 1fr); }
 }
+
+/* ── Mostra / nascondi password ── */
+.pw-wrap { position: relative; width: 100%; }
+.pw-wrap input { width: 100%; padding-right: 44px; }
+.pw-toggle {
+  position: absolute;
+  top: 50%; right: 4px;
+  transform: translateY(-50%);
+  width: 34px; height: 34px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background-color var(--transition), color var(--transition);
+}
+.pw-toggle:hover { background: var(--fill-hover); color: var(--text-primary); }
+.pw-toggle[aria-pressed="true"] { color: var(--brand-gold); }
+.pw-toggle:focus-visible { box-shadow: var(--focus-ring); }
