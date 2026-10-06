@@ -1,0 +1,8 @@
+.vercel
+.env*
+
+# Supabase CLI cache locale
+supabase/.temp
+
+# macOS
+.DS_Store
