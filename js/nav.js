@@ -99,7 +99,7 @@ function renderCurrentView() {
     case 'staff':        renderStaffPage(); break;
     case 'impostazioni': renderSettingsDialog(); break;
     case 'cestino':      renderCestinoPage(); break;
-    case 'supporto':     renderComingSoon('supporto-root', 'supporto'); break;
+    case 'supporto':     openSupportPage(); break;
   }
 }
 
@@ -114,6 +114,7 @@ function renderSidebar() {
   const badges = {
     ordini:  TCFactory.getActiveOrders().length,
     cestino: TCFactory.getTrashedOrders().length,
+    supporto: TCAuth.isAdmin() ? Tickets.countOpen() : 0,   // ticket da fare
   };
 
   const navLink = (item) => {
@@ -220,28 +221,4 @@ function renderCestinoPage() {
       </div>`;
   }
   renderCestinoSection(document.getElementById('cestino-body'));
-}
-
-const COMING_SOON = {
-  supporto: {
-    icon: () => Icons.lifeBuoy(28),
-    title: 'Supporto',
-    text: () => TCAuth.isAdmin()
-      ? 'Qui vedrai i ticket di supporto aperti dallo staff.'
-      : 'Qui potrai aprire un ticket per segnalare un problema o chiedere aiuto. Lo vedrà solo l\'amministratore.',
-  },
-};
-
-function renderComingSoon(rootId, key) {
-  const root = document.getElementById(rootId);
-  const cfg  = COMING_SOON[key];
-  if (!root || !cfg) return;
-  const text = typeof cfg.text === 'function' ? cfg.text() : cfg.text;
-  root.innerHTML = `
-    <div class="glass-card empty-state">
-      <div class="empty-state-icon" aria-hidden="true">${cfg.icon()}</div>
-      <h2>${cfg.title}</h2>
-      <p>${text}</p>
-      <span class="chip" style="background:color-mix(in srgb, var(--brand-gold) 12%, transparent);color:var(--brand-gold);">In arrivo</span>
-    </div>`;
 }

@@ -2213,9 +2213,10 @@ async function doLogin() {
     await TCAuth.login(nick, pwd);
     document.getElementById('login-overlay').style.display = 'none';
     Nav.init();
-    Nav.show(Nav._fromHash()); // ricontrolla i permessi delle sezioni per il nuovo utente
+    Nav.show(Nav._fromHash(), Nav._paramFromHash()); // ricontrolla i permessi delle sezioni per il nuovo utente
     renderApp();
     initCalendar();
+    Tickets.startPolling();
   } catch(e) {
     if (err) err.textContent = e.message;
     if (btn) { btn.disabled = false; btn.textContent = 'Accedi'; }
@@ -2225,6 +2226,8 @@ async function doLogin() {
 function doLogout() {
   if (!confirm('Vuoi uscire?')) return;
   TCAuth.logout();
+  Tickets.stopPolling();
+  Object.assign(Tickets, { _list: [], loaded: false, error: null });
   renderLoginScreen();
 }
 

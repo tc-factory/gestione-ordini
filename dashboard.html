@@ -76,6 +76,7 @@
   <script src="js/app.js"></script>
   <script src="js/clienti.js"></script>
   <script src="js/cassa.js"></script>
+  <script src="js/supporto.js"></script>
   <script src="js/nav.js"></script>
   <script>
     Theme.init();
@@ -92,6 +93,7 @@
         Nav.init();
         renderApp();
         initCalendar();
+        Tickets.startPolling();
       }
     });
   </script>
