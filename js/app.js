@@ -2772,7 +2772,7 @@ function renderFullMonth(year, month) {
       </div>`);
   }
 
-  return `<div style="padding:12px 16px;">
+  return `<div class="month-wrap">
     <div class="month-grid">
       ${GG.map(g => `<div class="month-head">${g}</div>`).join('')}
       ${cells.join('')}

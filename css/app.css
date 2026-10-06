@@ -1890,3 +1890,23 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
   box-shadow: 0 0 0 2px var(--brand-gold) inset;
   border-color: var(--brand-gold);
 }
+
+/* ── Planner a tutto schermo: il riquadro arriva in fondo, alto come la navbar ── */
+.month-wrap { padding: 12px 16px; }
+
+@media (min-width: 861px) {
+  .app-main:has(#view-planner:not([hidden])) {
+    min-height: 100vh;
+    padding-bottom: var(--sidebar-gap);   /* stesso margine in basso della navbar */
+  }
+  #view-planner:not([hidden]) { flex: 1; }
+  #view-planner #calendar-root { flex: 1; display: flex; flex-direction: column; }
+  .planner-card { flex: 1; display: flex; flex-direction: column; }
+
+  /* Il calendario occupa lo spazio libero; statistiche ed elenco eventi restano compatti */
+  .planner-body { flex: 1; display: flex; flex-direction: column; }
+  .planner-body > * { flex: 1; }
+  .cal-week { align-content: stretch; }
+  .month-wrap { display: flex; flex-direction: column; }
+  .month-grid { flex: 1; grid-template-rows: auto; grid-auto-rows: minmax(104px, 1fr); }
+}
