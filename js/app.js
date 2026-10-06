@@ -1795,7 +1795,7 @@ function renderSettingsDialog() {
 
   root.innerHTML = `
     <div class="glass-card page-card page-narrow">
-      <div class="page-card-body" style="display:flex;flex-direction:column;gap:8px;">
+      <div class="page-card-body settings-grid">
 
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           <div class="settings-static-head">${Icons.sun(14)} Aspetto</div>
