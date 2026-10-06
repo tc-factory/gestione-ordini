@@ -2,7 +2,9 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#EEF0F8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0D0D1C" media="(prefers-color-scheme: dark)">
   <title>Gestionale Ordini — T&C Factory</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700;800&display=swap">
@@ -16,6 +18,8 @@
     <!-- Navbar laterale -->
     <aside class="sidebar glass" id="sidebar-root" aria-label="Navigazione principale"></aside>
     <div class="sidebar-scrim" onclick="Nav.closeDrawer()"></div>
+    <!-- Solo smartphone: navigazione in basso -->
+    <nav class="bottom-nav glass" id="bottomnav-root" aria-label="Navigazione principale"></nav>
 
     <main class="app-main" id="main-content">
       <header class="app-toolbar glass" id="header-root"></header>
@@ -62,6 +66,7 @@
   <div id="cal-event-modal" class="modal-overlay"></div>
   <div id="client-form-modal" class="modal-overlay"></div>
   <div id="client-link-modal" class="modal-overlay"></div>
+  <div id="more-sheet" class="modal-overlay"></div>
 
   <!-- Login overlay — visibile finché non si è autenticati -->
   <div id="login-overlay" class="login-overlay" style="display:none;"></div>

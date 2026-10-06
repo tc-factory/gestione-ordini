@@ -105,8 +105,8 @@ function renderClientList() {
         </td>
         <td class="hide-sm"><div class="cell-stack">${c.email ? `<span>${escapeHtml(c.email)}</span>` : ''}${c.telefono ? `<small>${escapeHtml(c.telefono)}</small>` : ''}</div></td>
         <td class="hide-sm">${escapeHtml([c.citta, c.provincia && `(${c.provincia})`].filter(Boolean).join(' '))}</td>
-        <td class="num">${orders.length}</td>
-        <td class="num" style="${daRiscuotere > 0 ? 'color:#ef4444;font-weight:700;' : 'color:var(--text-muted);'}">${daRiscuotere > 0 ? euro(daRiscuotere) : '—'}</td>
+        <td class="num" data-label="Ordini">${orders.length}</td>
+        <td class="num" data-label="Da riscuotere" style="${daRiscuotere > 0 ? 'color:#ef4444;font-weight:700;' : 'color:var(--text-muted);'}">${daRiscuotere > 0 ? euro(daRiscuotere) : '—'}</td>
         <td class="hide-sm">${last ? TCFactory.formatDate(last) : '—'}</td>
       </tr>`;
   }).join('');
@@ -130,7 +130,7 @@ function renderClientList() {
           <button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} Crea il primo cliente</button>
         </div>` : list.length === 0 ? `<div class="empty-list">Nessun risultato.</div>` : `
       <div class="table-scroll">
-        <table class="data-table">
+        <table class="data-table cards-sm">
           <thead><tr>
             <th>Cliente</th><th class="hide-sm">Contatti</th><th class="hide-sm">Città</th>
             <th class="num">Ordini</th><th class="num">Da riscuotere</th><th class="hide-sm">Ultimo ordine</th>
@@ -198,20 +198,20 @@ function renderClientDetail(c) {
         </div>
         ${orders.length === 0 ? `<div class="empty-list">Nessun ordine collegato a questo cliente.</div>` : `
         <div class="table-scroll">
-          <table class="data-table">
+          <table class="data-table cards-sm">
             <thead><tr><th>Data</th><th>Ordine</th><th>Stato</th><th class="num">Importo</th><th>Pagamento</th><th></th></tr></thead>
             <tbody>
               ${orders.map(o => {
                 const st = orderStatus(o);
                 return `<tr class="data-row" tabindex="0" onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
-                  <td>${TCFactory.formatDate(o.dataOrdine)}</td>
-                  <td><strong>${escapeHtml(o.nome)}</strong><small class="muted-id">${o.id}</small></td>
-                  <td><span class="status-dot" style="--st:${st.color};">${st.label}</span></td>
-                  <td class="num">${o.importo ? euro(o.importo) : '—'}</td>
-                  <td>${o.paymentDone
+                  <td class="cell-date">${TCFactory.formatDate(o.dataOrdine)}</td>
+                  <td class="cell-main"><strong>${escapeHtml(o.nome)}</strong><small class="muted-id">${o.id}</small></td>
+                  <td class="cell-status"><span class="status-dot" style="--st:${st.color};">${st.label}</span></td>
+                  <td class="num cell-amount">${o.importo ? euro(o.importo) : '—'}</td>
+                  <td class="cell-pay">${o.paymentDone
                     ? `<span class="pay-badge paid">Riscosso${o.paymentDate ? ' ' + TCFactory.formatDate(o.paymentDate, { day: '2-digit', month: '2-digit' }) : ''}</span>`
                     : `<span class="pay-badge due">Da riscuotere</span>`}</td>
-                  <td><button class="btn-icon" onclick="event.stopPropagation();unlinkOrderConfirm('${o.id}')" aria-label="Scollega ordine dal cliente" title="Scollega dal cliente">${Icons.x(13)}</button></td>
+                  <td class="cell-action"><button class="btn-icon" onclick="event.stopPropagation();unlinkOrderConfirm('${o.id}')" aria-label="Scollega ordine dal cliente" title="Scollega dal cliente">${Icons.x(13)}</button></td>
                 </tr>`;
               }).join('')}
             </tbody>
@@ -301,7 +301,7 @@ function openClientForm(id = null, onSaved = null) {
         <fieldset class="form-section">
           <legend>Indirizzo</legend>
           ${input('indirizzo', 'Via e numero civico', 'maxlength="200"')}
-          <div class="form-row" style="grid-template-columns:110px 1fr 90px 1fr;">
+          <div class="form-row addr-row">
             ${input('cap', 'CAP', 'maxlength="10" inputmode="numeric"')}
             ${input('citta', 'Città', 'maxlength="100"')}
             ${input('provincia', 'Prov.', 'maxlength="4" style="text-transform:uppercase;"')}

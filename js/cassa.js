@@ -133,7 +133,7 @@ function renderCassaPage() {
 
       ${moves.length === 0 ? `<div class="empty-list">Nessun movimento${filtersActive ? ' con questi filtri' : ''}.</div>` : `
       <div class="table-scroll">
-        <table class="data-table">
+        <table class="data-table cards-sm">
           <thead><tr>
             <th>Data</th>${hasClients ? '<th>Cliente</th>' : ''}<th>Ordine</th><th class="hide-sm">Stato ordine</th>
             <th class="num">Importo</th><th>Pagamento</th>
@@ -143,14 +143,14 @@ function renderCassaPage() {
               const c  = TCFactory.getClient(o.clientId);
               const st = orderStatus(o);
               return `<tr class="data-row" tabindex="0" onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
-                <td>${TCFactory.formatDate(movementDate(o), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td>
-                ${hasClients ? `<td>${c
+                <td class="cell-date">${TCFactory.formatDate(movementDate(o), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td>
+                ${hasClients ? `<td class="cell-client">${c
                   ? `<a href="#/clienti/${c.id}" onclick="event.stopPropagation()" class="client-link">${escapeHtml(TCFactory.clientName(c))}</a>`
                   : `<span style="color:var(--text-muted);">—</span>`}</td>` : ''}
-                <td><strong>${escapeHtml(o.nome)}</strong><small class="muted-id">${o.id}</small></td>
+                <td class="cell-main"><strong>${escapeHtml(o.nome)}</strong><small class="muted-id">${o.id}</small></td>
                 <td class="hide-sm"><span class="status-dot" style="--st:${st.color};">${st.label}</span></td>
-                <td class="num" style="font-weight:700;">${euro(o.importo)}</td>
-                <td>
+                <td class="num cell-amount" style="font-weight:700;">${euro(o.importo)}</td>
+                <td class="cell-pay">
                   <button type="button" class="pay-badge ${o.paymentDone ? 'paid' : 'due'}" onclick="event.stopPropagation();cassaTogglePayment('${o.id}', ${!o.paymentDone})"
                     title="${o.paymentDone ? 'Segna come da riscuotere' : 'Segna come riscosso oggi'}">
                     ${o.paymentDone ? `✓ Riscosso${o.paymentDate ? ' ' + TCFactory.formatDate(o.paymentDate, { day: '2-digit', month: '2-digit' }) : ''}` : 'Da riscuotere'}
@@ -160,7 +160,7 @@ function renderCassaPage() {
             }).join('')}
           </tbody>
           <tfoot><tr>
-            <td colspan="${hasClients ? 4 : 3}" class="hide-sm-colspan">Totale (${moves.length})</td>
+            <td colspan="${hasClients ? 4 : 3}" class="cell-main">Totale (${moves.length})</td>
             <td class="num">${euro(sum(moves))}</td><td></td>
           </tr></tfoot>
         </table>
