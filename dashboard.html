@@ -10,33 +10,62 @@
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <div class="app-shell">
-    <header class="app-header">
-      <div class="app-header-inner" id="header-root"></div>
-    </header>
+  <a class="skip-link" href="#main-content">Vai al contenuto</a>
 
-    <main class="app-main">
-      <div class="stat-grid" id="stats-root"></div>
-      <div id="economic-root"></div>
-      <div id="calendar-root" style="margin-bottom:16px;"></div>
-      <div id="orderlist-root"></div>
+  <div class="app-shell">
+    <!-- Navbar laterale -->
+    <aside class="sidebar glass" id="sidebar-root" aria-label="Navigazione principale"></aside>
+    <div class="sidebar-scrim" onclick="Nav.closeDrawer()"></div>
+
+    <main class="app-main" id="main-content">
+      <header class="app-toolbar glass" id="header-root"></header>
+
+      <section class="view" id="view-planner" data-view="planner" hidden>
+        <div id="calendar-root"></div>
+      </section>
+
+      <section class="view" id="view-ordini" data-view="ordini" hidden>
+        <div class="stat-grid" id="stats-root"></div>
+        <div id="orderlist-root"></div>
+      </section>
+
+      <section class="view" id="view-clienti" data-view="clienti" hidden>
+        <div id="clienti-root"></div>
+      </section>
+
+      <section class="view" id="view-cassa" data-view="cassa" hidden>
+        <div id="economic-root"></div>
+      </section>
+
+      <section class="view" id="view-staff" data-view="staff" hidden>
+        <div id="staff-root"></div>
+      </section>
+
+      <section class="view" id="view-impostazioni" data-view="impostazioni" hidden>
+        <div id="settings-root"></div>
+      </section>
+
+      <section class="view" id="view-cestino" data-view="cestino" hidden>
+        <div id="cestino-root"></div>
+      </section>
+
+      <section class="view" id="view-supporto" data-view="supporto" hidden>
+        <div id="supporto-root"></div>
+      </section>
     </main>
   </div>
-
-  <button class="fab" aria-label="Nuovo ordine" onclick="openOrderForm()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" width="24" height="24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-  </button>
 
   <div id="order-form-modal" class="modal-overlay"></div>
   <div id="order-detail-modal" class="modal-overlay"></div>
   <div id="day-modal" class="modal-overlay"></div>
-  <div id="settings-modal" class="modal-overlay"></div>
   <div id="file-preview-modal" class="modal-overlay"></div>
   <div id="cal-event-modal" class="modal-overlay"></div>
+  <div id="client-form-modal" class="modal-overlay"></div>
+  <div id="client-link-modal" class="modal-overlay"></div>
 
   <!-- Login overlay — visibile finché non si è autenticati -->
-  <div id="login-overlay" style="display:none;position:fixed;inset:0;background:var(--bg-primary);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;"></div>
-  <div id="toast-container" class="toast-container"></div>
+  <div id="login-overlay" class="login-overlay" style="display:none;"></div>
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="js/supabase-config.js"></script>
@@ -45,22 +74,16 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.6.0/jspdf.plugin.autotable.min.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/clienti.js"></script>
+  <script src="js/cassa.js"></script>
+  <script src="js/supporto.js"></script>
+  <script src="js/nav.js"></script>
   <script>
     Theme.init();
-    TCAuth.init();
+    TCFactory.onUpdate(() => { if (TCAuth.isLoggedIn()) renderApp(); });
 
-    TCFactory.onUpdate(() => renderApp());
-    TCFactory.init().then(async () => {
-      // Aggiorna il flag economico dal DB (senza richiedere nuovo login)
-      await TCAuth.refreshEconomicsFlag();
-      if (!TCAuth.isLoggedIn()) {
-        renderLoginScreen();
-      } else {
-        document.getElementById('login-overlay').style.display = 'none';
-        renderApp();
-        initCalendar();
-      }
-    });
+    // Sessione Supabase salvata → entra direttamente; altrimenti login
+    TCAuth.init().then(() => TCAuth.isLoggedIn() ? startApp() : renderLoginScreen());
   </script>
 </body>
 </html>

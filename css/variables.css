@@ -1,5 +1,7 @@
 /* ============================================
    T&C FACTORY — CSS Variables & Base Styles
+   Stile Liquid Glass: vetro su navigazione, toolbar, menu e modali;
+   superfici quasi opache per tabelle, form e contenuti densi.
    ============================================ */
 
 :root {
@@ -13,18 +15,32 @@
   --brand-gradient: linear-gradient(135deg, #8B5CF6, var(--brand-gold) 55%, var(--brand-copper));
 
   /* UI Colors */
-  --bg-primary: #F6F7FB;
+  --bg-primary: #EEF0F8;
   --bg-secondary: #ECEEF6;
   --bg-card: #FFFFFF;
   --bg-sidebar: #14142B;
 
   --text-primary: #16162B;
   --text-secondary: #5C5F75;
-  --text-muted: #92949F;
+  --text-muted: #868898;
   --text-on-dark: #FAFAFB;
 
   --border: #E1E3EE;
   --border-light: #ECEEF6;
+
+  /* Vetro */
+  --glass-bg: rgba(255, 255, 255, 0.56);
+  --glass-bg-strong: rgba(255, 255, 255, 0.76);
+  --glass-border: rgba(255, 255, 255, 0.75);
+  --glass-edge: rgba(20, 20, 43, 0.07);
+  --glass-sheen: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 38%, rgba(255,255,255,0) 60%);
+  --glass-highlight: inset 0 1px 0 rgba(255,255,255,0.95), inset 0 -1px 0 rgba(255,255,255,0.3);
+  --glass-shadow: 0 1px 2px rgba(20,20,43,0.05), 0 12px 32px -12px rgba(20,20,43,0.18), 0 32px 64px -32px rgba(20,20,43,0.16);
+  --glass-blur: blur(24px) saturate(180%);
+  --surface: rgba(255, 255, 255, 0.88);          /* contenuti densi: quasi opachi, nitidi */
+  --fill-hover: rgba(20, 20, 43, 0.05);
+  --fill-press: rgba(20, 20, 43, 0.09);
+  --scrim: rgba(18, 18, 38, 0.28);
 
   /* Priority Colors */
   --priority-low: #4CAF82;
@@ -57,23 +73,56 @@
   --space-xl: 32px;
   --space-2xl: 48px;
 
-  /* Radius */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 20px;
+  /* Radius — scala concentrica: raggio interno = raggio esterno − padding */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-panel: 28px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
-  --shadow-gold: 0 4px 16px rgba(196,146,42,0.25);
+  --shadow-sm: 0 1px 2px rgba(20,20,43,0.05), 0 2px 8px -2px rgba(20,20,43,0.06);
+  --shadow-md: 0 4px 14px -4px rgba(20,20,43,0.14);
+  --shadow-lg: 0 18px 48px -16px rgba(20,20,43,0.28);
+  --shadow-gold: 0 6px 18px -6px color-mix(in srgb, var(--brand-gold) 60%, transparent);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--brand-gold) 45%, transparent);
 
   /* Sidebar width */
-  --sidebar-width: 220px;
+  --sidebar-width: 256px;
 
-  /* Transitions */
-  --transition: 0.2s ease;
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --dur-fast: 140ms;
+  --dur: 220ms;
+  --transition: var(--dur) var(--ease-out);
+}
+
+html.dark {
+  --bg-primary: #0D0D1C;
+  --bg-secondary: #1A1A33;
+  --bg-card: #1C1C36;
+  --text-primary: #F2F2FA;
+  --text-secondary: #A6A8C0;
+  --text-muted: #8587A0;
+  --border: #2C2D4C;
+  --border-light: #232440;
+
+  --glass-bg: rgba(30, 30, 58, 0.52);
+  --glass-bg-strong: rgba(30, 30, 58, 0.74);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-edge: rgba(0, 0, 0, 0.35);
+  --glass-sheen: linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 38%, rgba(255,255,255,0) 60%);
+  --glass-highlight: inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(255,255,255,0.04);
+  --glass-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -12px rgba(0,0,0,0.5), 0 32px 64px -32px rgba(0,0,0,0.5);
+  --surface: rgba(28, 28, 54, 0.9);
+  --fill-hover: rgba(255, 255, 255, 0.06);
+  --fill-press: rgba(255, 255, 255, 0.1);
+  --scrim: rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 14px -4px rgba(0,0,0,0.5);
+  --shadow-lg: 0 18px 48px -16px rgba(0,0,0,0.6);
+  color-scheme: dark;
 }
 
 /* ============================================
@@ -94,17 +143,31 @@ html {
 
 body {
   font-family: var(--font-body);
-  background: var(--bg-primary);
+  background-color: var(--bg-primary);
+  /* Sfondo con aloni colorati: dà al vetro qualcosa da rifrangere */
+  background-image:
+    radial-gradient(42vw 42vw at 4% 0%,   color-mix(in srgb, #8B5CF6 34%, transparent), transparent 70%),
+    radial-gradient(38vw 38vw at 100% 6%, color-mix(in srgb, var(--brand-copper) 28%, transparent), transparent 70%),
+    radial-gradient(30vw 30vw at 22% 70%, color-mix(in srgb, #F472B6 16%, transparent), transparent 70%),
+    radial-gradient(50vw 40vw at 70% 100%, color-mix(in srgb, var(--brand-gold) 24%, transparent), transparent 70%);
+  background-attachment: fixed;
   color: var(--text-primary);
   line-height: 1.5;
   min-height: 100vh;
   overflow-x: hidden;
 }
 
+html.dark body {
+  background-image:
+    radial-gradient(42vw 42vw at 4% 0%,   color-mix(in srgb, #8B5CF6 22%, transparent), transparent 70%),
+    radial-gradient(38vw 38vw at 100% 6%, color-mix(in srgb, var(--brand-copper) 12%, transparent), transparent 70%),
+    radial-gradient(50vw 40vw at 60% 100%, color-mix(in srgb, var(--brand-gold) 18%, transparent), transparent 70%);
+}
+
 h1, h2, h3, h4, h5 {
   font-family: var(--font-display);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.01em;
   line-height: 1.2;
 }
 
@@ -122,22 +185,52 @@ input, select, textarea {
   font-family: var(--font-body);
 }
 
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.skip-link {
+  position: fixed;
+  top: 12px; left: 12px;
+  z-index: 3000;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-weight: 600;
+  transform: translateY(-200%);
+}
+.skip-link:focus { transform: none; }
+
 /* ============================================
-   Layout
+   Vetro — superficie traslucida con riflesso
    ============================================ */
 
-.app-layout {
-  display: flex;
-  min-height: 100vh;
+.glass {
+  position: relative;
+  isolation: isolate;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), 0 0 0 0.5px var(--glass-edge), var(--glass-shadow);
 }
 
-.main-content {
-  margin-left: var(--sidebar-width);
-  flex: 1;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+/* Riflesso morbido sul bordo superiore: suggerisce lo spessore del vetro */
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-sheen);
+  pointer-events: none;
+  z-index: -1;
 }
+
+/* ============================================
+   Layout (legacy)
+   ============================================ */
 
 .page-header {
   padding: var(--space-lg) var(--space-xl);
@@ -188,50 +281,57 @@ input, select, textarea {
 .badge-spedito      { background: var(--priority-low-bg); color: var(--status-spedito); }
 
 .card {
-  background: var(--bg-card);
+  background: var(--surface);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
 }
 
+/* ── Pulsanti ── */
+
 .btn {
   display: inline-flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: 9px 18px;
+  padding: 9px 16px;
   border-radius: var(--radius-md);
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 600;
   border: none;
-  transition: all var(--transition);
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--transition),
+              background-color var(--transition), color var(--transition), filter var(--transition);
   white-space: nowrap;
 }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn:disabled { opacity: 0.5; cursor: default; }
 
 .btn-primary {
   background: var(--brand-gradient);
   color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 12px -4px color-mix(in srgb, var(--brand-gold) 60%, transparent);
 }
-.btn-primary:hover {
-  filter: brightness(1.06);
-  box-shadow: var(--shadow-gold);
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.06) saturate(1.05);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), var(--shadow-gold);
   transform: translateY(-1px);
 }
+.btn-primary:focus-visible { box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), var(--focus-ring); }
 
 .btn-secondary {
-  background: var(--bg-secondary);
+  background: var(--glass-bg-strong);
   color: var(--text-primary);
   border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
 }
-.btn-secondary:hover {
-  background: var(--border);
-}
+html.dark .btn-secondary { box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); }
+.btn-secondary:hover:not(:disabled) { background: var(--bg-card); border-color: color-mix(in srgb, var(--text-muted) 40%, var(--border)); }
 
 .btn-ghost {
   background: transparent;
   color: var(--text-secondary);
 }
-.btn-ghost:hover {
-  background: var(--bg-secondary);
+.btn-ghost:hover:not(:disabled) {
+  background: var(--fill-hover);
   color: var(--text-primary);
 }
 
@@ -240,17 +340,20 @@ input, select, textarea {
   color: var(--priority-urgent);
   border: 1px solid #F5C0C4;
 }
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled) {
   background: var(--priority-urgent);
   color: #fff;
 }
 
 .btn-sm {
-  padding: 5px 12px;
+  padding: 6px 12px;
   font-size: 0.8rem;
+  border-radius: 10px;
 }
 
 .btn-icon {
+  min-width: 36px;
+  min-height: 36px;
   padding: 8px;
   border-radius: var(--radius-md);
   background: transparent;
@@ -258,14 +361,17 @@ input, select, textarea {
   color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
-  transition: all var(--transition);
+  justify-content: center;
+  transition: background-color var(--transition), color var(--transition), transform var(--dur-fast) var(--ease-out);
 }
-.btn-icon:hover {
-  background: var(--bg-secondary);
+.btn-icon:hover:not(:disabled) {
+  background: var(--fill-hover);
   color: var(--text-primary);
 }
+.btn-icon:active:not(:disabled) { background: var(--fill-press); transform: scale(0.94); }
+.btn-icon:disabled { opacity: 0.35; cursor: default; }
 
-/* Form Elements */
+/* ── Form — nitidi e leggibili, niente vetro ── */
 .form-group {
   display: flex;
   flex-direction: column;
@@ -273,7 +379,7 @@ input, select, textarea {
 }
 
 .form-label {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -289,16 +395,20 @@ input, select, textarea {
   background: var(--bg-card);
   color: var(--text-primary);
   font-size: 0.9rem;
-  transition: border-color var(--transition);
+  transition: border-color var(--transition), box-shadow var(--transition);
   width: 100%;
 }
+
+.form-input:hover,
+.form-select:hover,
+.form-textarea:hover { border-color: color-mix(in srgb, var(--text-muted) 45%, var(--border)); }
 
 .form-input:focus,
 .form-select:focus,
 .form-textarea:focus {
   outline: none;
   border-color: var(--brand-gold);
-  box-shadow: 0 0 0 3px rgba(196,146,42,0.12);
+  box-shadow: var(--focus-ring);
 }
 
 .form-textarea {
@@ -320,50 +430,69 @@ input, select, textarea {
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text-muted) 35%, transparent); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--text-muted) 60%, transparent); }
 
-/* Modal Overlay */
+/* ============================================
+   Modali — finestra di vetro su sfondo attenuato
+   ============================================ */
+
 .modal-overlay {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   z-index: 1000;
   align-items: center;
   justify-content: center;
   padding: var(--space-lg);
 }
-.modal-overlay.active { display: flex; }
+.modal-overlay.active { display: flex; animation: overlayIn var(--dur) var(--ease-out); }
+.modal-overlay.closing:not(.active) { display: flex; pointer-events: none; animation: overlayOut 180ms var(--ease-out) forwards; }
+.modal-overlay.closing:not(.active) .modal { animation: modalOut 180ms var(--ease-out) forwards; }
 
 .modal {
-  background: var(--bg-card);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
+  position: relative;
+  isolation: isolate;
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--glass-highlight), 0 0 0 0.5px var(--glass-edge), var(--shadow-lg);
   width: 100%;
   max-width: 680px;
   max-height: 90vh;
   overflow-y: auto;
-  animation: modalIn 0.2s ease;
+  animation: modalIn 280ms var(--ease-spring);
 }
 
+@keyframes overlayIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlayOut { from { opacity: 1; } to { opacity: 0; } }
 @keyframes modalIn {
-  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes modalOut {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.97) translateY(6px); }
 }
 
 .modal-header {
   padding: var(--space-lg) var(--space-xl);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 .modal-header h2 {
-  font-size: 1.2rem;
+  font-size: 1.15rem;
+  font-weight: 700;
 }
 
 .modal-body {
@@ -375,7 +504,7 @@ input, select, textarea {
 
 .modal-footer {
   padding: var(--space-lg) var(--space-xl);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   display: flex;
   justify-content: flex-end;
   gap: var(--space-sm);
@@ -413,7 +542,10 @@ input, select, textarea {
   color: var(--brand-gold-dark);
 }
 
-/* Toast */
+/* ============================================
+   Toast — controlli flottanti in vetro scuro
+   ============================================ */
+
 .toast-container {
   position: fixed;
   bottom: var(--space-xl);
@@ -425,30 +557,78 @@ input, select, textarea {
 }
 
 .toast {
-  background: var(--text-primary);
+  background: rgba(22, 22, 43, 0.82);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.12);
   color: var(--text-on-dark);
-  padding: 12px 20px;
-  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  border-radius: var(--radius-lg);
   font-size: 0.875rem;
-  box-shadow: var(--shadow-lg);
-  animation: toastIn 0.25s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), var(--shadow-lg);
+  animation: toastIn 300ms var(--ease-spring);
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  max-width: 320px;
+  max-width: 340px;
 }
 
-.toast.success { border-left: 3px solid var(--priority-low); }
-.toast.error   { border-left: 3px solid var(--priority-urgent); }
+.toast.success svg { color: #4ADE80; }
+.toast.error   svg { color: #F87171; }
 
 @keyframes toastIn {
-  from { opacity: 0; transform: translateX(20px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-  :root { --sidebar-width: 0px; }
-  .main-content { margin-left: 0; }
-  .page-body { padding: var(--space-md); }
+/* ============================================
+   Squircle — curvatura continua dove supportata.
+   Il raggio cresce perché a parità di valore la squircle appare più "stretta".
+   ============================================ */
+
+@supports (corner-shape: squircle) {
+  :root {
+    --radius-sm: 11px;
+    --radius-md: 16px;
+    --radius-lg: 24px;
+    --radius-xl: 32px;
+    --radius-panel: 38px;
+  }
+  * { corner-shape: squircle; }
+  /* Cerchi e capsule restano tali */
+  .chip, .chip-dot, .stage-pill, .badge, .color-dot-picker, .user-avatar,
+  .nav-item-badge, .stat-card-glow, .switch, .switch::after, [style*="50%"] {
+    corner-shape: round;
+  }
+}
+
+/* ============================================
+   Accessibilità — riduci trasparenza / movimento
+   (classi impostate da A11yPrefs: seguono il sistema o la scelta nelle Impostazioni)
+   ============================================ */
+
+html.reduce-transparency {
+  --glass-bg: var(--bg-card);
+  --glass-bg-strong: var(--bg-card);
+  --surface: var(--bg-card);
+  --glass-sheen: none;
+}
+html.reduce-transparency .glass,
+html.reduce-transparency .modal,
+html.reduce-transparency .modal-overlay,
+html.reduce-transparency .toast,
+html.reduce-transparency .glass-card {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html.reduce-transparency .toast { background: #16162B; }
+html.reduce-transparency body { background-image: none; }
+
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }

@@ -33,16 +33,13 @@ const AppState = {
   integrationRows: [],
   settingsPrioOpen: false,
   settingsTagOpen: false,
-  settingsUsersOpen: false,
-  settingsLogOpen: false,
   settingsPwdOpen: false,
-  settingsCestinoOpen: false,
 };
 
 
 
 // ─────────────────────────────────────────────
-// TEMA CHIARO/SCURO
+// TEMA CHIARO/SCURO + ACCESSIBILITÀ
 // ─────────────────────────────────────────────
 
 const Theme = {
@@ -54,8 +51,41 @@ const Theme = {
     localStorage.setItem(this.KEY, next);
     this.apply(next);
     renderApp();
+    if (Nav.current === 'impostazioni') renderSettingsDialog();
   },
-  init() { this.apply(this.get()); }
+  init() {
+    this.apply(this.get());
+    A11yPrefs.init();
+  }
+};
+
+// Riduci trasparenza / movimento: se l'utente non ha scelto, segue il sistema operativo
+const A11yPrefs = {
+  PREFS: {
+    transparency: { key: 'tcf_reduce_transparency', cls: 'reduce-transparency', media: '(prefers-reduced-transparency: reduce)' },
+    motion:       { key: 'tcf_reduce_motion',       cls: 'reduce-motion',       media: '(prefers-reduced-motion: reduce)' },
+  },
+  get(name) {
+    const p = this.PREFS[name];
+    const saved = localStorage.getItem(p.key);
+    if (saved !== null) return saved === '1';
+    return window.matchMedia?.(p.media).matches || false;
+  },
+  set(name, on) {
+    localStorage.setItem(this.PREFS[name].key, on ? '1' : '0');
+    this.apply();
+  },
+  apply() {
+    for (const name of Object.keys(this.PREFS)) {
+      document.documentElement.classList.toggle(this.PREFS[name].cls, this.get(name));
+    }
+  },
+  init() {
+    this.apply();
+    for (const p of Object.values(this.PREFS)) {
+      window.matchMedia?.(p.media).addEventListener?.('change', () => this.apply());
+    }
+  },
 };
 
 // ─────────────────────────────────────────────
@@ -85,29 +115,15 @@ function showToast(message, type = 'success') {
 // ─────────────────────────────────────────────
 
 function renderApp() {
+  renderSidebar();
   renderHeader();
-  renderStats(); // include renderEconomicDashboard() call
+  renderStats();
   renderOrderList();
-}
-
-function renderHeader() {
-  const isDark = Theme.get() === 'dark';
-
-  document.getElementById('header-root').innerHTML = `
-    <div class="app-logo">
-      <div class="app-logo-icon">${Icons.package(20)}</div>
-      <div class="app-logo-text">
-        <h1>T&amp;C <span class="accent">Gestione ordini</span></h1>
-      </div>
-    </div>
-    <div class="app-header-actions">
-      ${TCAuth.isLoggedIn() ? `<span style="font-size:0.75rem;color:var(--text-muted);padding:0 4px;">👤 ${escapeHtml(TCAuth.getNickname())}</span>` : ''}
-      <button class="btn-icon" onclick="Theme.toggle()" title="Cambia tema">${isDark ? Icons.sun() : Icons.moon()}</button>
-      <button class="btn-icon" onclick="openSettings()" title="Impostazioni">${Icons.settings()}</button>
-      ${TCAuth.isLoggedIn() ? `<button class="btn-icon" onclick="doLogout()" title="Esci">${Icons.logOut()}</button>` : ''}
-      <button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>
-    </div>
-  `;
+  // Sezioni che dipendono da ordini/clienti: si aggiornano anche in tempo reale
+  if (Nav.current === 'cestino') renderCestinoPage();
+  if (Nav.current === 'planner') renderCalendarSection();
+  if (Nav.current === 'clienti') renderClientsPage();
+  if (Nav.current === 'cassa')   renderCassaPage();
 }
 
 function renderStats() {
@@ -131,41 +147,6 @@ function renderStats() {
       <div class="stat-card-glow" style="background:#22c55e;"></div>
       <div class="stat-card-label">Archiviati</div>
       <div class="stat-card-value" style="color:#22c55e;">${arch}</div>
-    </div>
-  `;
-  renderEconomicDashboard();
-}
-
-function renderEconomicDashboard() {
-  const root = document.getElementById('economic-root');
-  if (!root) return;
-  if (!TCAuth.canViewEconomics()) { root.innerHTML = ''; return; }
-
-  const all = TCFactory.getOrders();
-
-  // Da riscuotere = TUTTI gli ordini non ancora pagati (Attivi + Evasione + Da riscuotere tab)
-  const daRiscOrders  = all.filter(o => !o.paymentDone);
-  const totDaRisc     = daRiscOrders.reduce((s,o) => s + (parseFloat(o.importo)||0), 0);
-  const nDaRiscTab    = TCFactory.getDaRiscuotereOrders().length; // solo tab "Da riscuotere"
-
-  // Riscosso = TUTTI gli ordini già pagati (Archivio + Evasione con € flaggato)
-  const riscossoOrders = all.filter(o => o.paymentDone);
-  const totRiscosso    = riscossoOrders.reduce((s,o) => s + (parseFloat(o.importo)||0), 0);
-
-  root.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-      <div class="glass-card stat-card" role="button" style="cursor:pointer;" onclick="setView('dariscuotere')" title="Vedi ordini da riscuotere">
-        <div class="stat-card-glow" style="background:#ef4444;"></div>
-        <div class="stat-card-label" style="color:#ef4444;">Da riscuotere</div>
-        <div class="stat-card-value" style="color:#ef4444;font-size:1.4rem;">€ ${totDaRisc.toFixed(2)}</div>
-        <div style="font-size:0.72rem;color:var(--text-muted);">${nDaRiscTab} evasi non pagati</div>
-      </div>
-      <div class="glass-card stat-card">
-        <div class="stat-card-glow" style="background:#22c55e;"></div>
-        <div class="stat-card-label" style="color:#22c55e;">Riscosso</div>
-        <div class="stat-card-value" style="color:#22c55e;font-size:1.4rem;">€ ${totRiscosso.toFixed(2)}</div>
-        <div style="font-size:0.72rem;color:var(--text-muted);">${riscossoOrders.length} ordini pagati</div>
-      </div>
     </div>
   `;
 }
@@ -1119,6 +1100,8 @@ function renderOrderDetail() {
       <div class="modal-body">
         <div class="detail-meta">
           <div><span class="detail-meta-label">Data ordine</span><span>${TCFactory.formatDate(order.dataOrdine)}</span></div>
+          ${TCFactory.getClient(order.clientId) ? `<div><span class="detail-meta-label">Cliente</span>
+            <a href="#/clienti/${order.clientId}" onclick="closeModal('order-detail-modal')" style="font-weight:600;">${escapeHtml(TCFactory.clientName(TCFactory.getClient(order.clientId)))}</a></div>` : ''}
           ${order.deadline ? `<div><span class="detail-meta-label">Deadline</span>
             <span style="font-weight:600;color:${TCFactory.isDeadlinePast(order) && !allLavDone ? 'var(--priority-urgent)' : 'var(--text-primary)'};">${TCFactory.formatDate(order.deadline, { day:'numeric', month:'long', year:'numeric' })}</span>
           </div>` : ''}
@@ -1192,8 +1175,12 @@ async function deleteOrderConfirm(id) {
   } catch(e) { showToast('Errore eliminazione', 'error'); }
 }
 
-function previewFile(file) {
-  if (!file) return;
+async function previewFile(stored) {
+  if (!stored) return;
+  let url;
+  try { url = await TCFactory.getFileUrl(stored); }
+  catch (e) { showToast('Impossibile aprire il file', 'error'); return; }
+  const file = { ...stored, url };
   const modal = document.getElementById('file-preview-modal');
   const isImg = file.type?.startsWith('image/');
   const isPdf = file.type === 'application/pdf';
@@ -1220,7 +1207,7 @@ function previewFile(file) {
 // FORM ORDINE
 // ─────────────────────────────────────────────
 
-function openOrderForm(order = null, defaultDate = null) {
+function openOrderForm(order = null, defaultDate = null, defaultClientId = null) {
   AppState.formEditOrder    = order;
   AppState.formDefaultDate  = defaultDate;
   AppState.formFiles        = order ? [...(order.files || [])] : [];
@@ -1247,6 +1234,15 @@ function openOrderForm(order = null, defaultDate = null) {
           <label class="form-label">Nome ordine *</label>
           <input id="of-nome" class="form-input" placeholder="es. Polo Staff T&C" value="${escapeHtml(order?.nome || '')}">
         </div>
+
+        ${TCFactory.isClientsAvailable() ? `
+        <div class="form-group">
+          <label class="form-label" for="of-client">Cliente</label>
+          <div style="display:flex;gap:8px;">
+            <select id="of-client" class="form-select">${renderClientOptions(order?.clientId || defaultClientId)}</select>
+            <button type="button" class="btn btn-secondary" onclick="openClientForm(null, (c) => { const sel = document.getElementById('of-client'); if (sel) sel.innerHTML = renderClientOptions(c.id); })">${Icons.plus()} Nuovo</button>
+          </div>
+        </div>` : ''}
 
         <div class="form-row">
           <div class="form-group">
@@ -1626,6 +1622,8 @@ async function submitOrderForm() {
     importo: parseFloat(document.getElementById('of-importo')?.value) || 0,
     orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto },
   };
+  const clientSel = document.getElementById('of-client');
+  if (clientSel) payload.clientId = clientSel.value || null;
 
   const btn = document.querySelector('#order-form-modal .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio…'; }
@@ -1718,7 +1716,13 @@ async function handleFormFiles(event) {
 
 function closeModal(id) {
   const modal = document.getElementById(id);
-  if (modal) modal.classList.remove('active');
+  if (!modal || !modal.classList.contains('active')) return;
+  modal.classList.remove('active');
+  if (A11yPrefs.get('motion')) return;
+  // Resta visibile per l'animazione di chiusura; se viene riaperto subito, .active ha la precedenza
+  modal.classList.add('closing');
+  clearTimeout(modal._closeTimer);
+  modal._closeTimer = setTimeout(() => modal.classList.remove('closing'), 180);
 }
 
 // ─────────────────────────────────────────────
@@ -1728,31 +1732,52 @@ function closeModal(id) {
 let _newPrioColor = '#3b82f6';
 let _newTagColor  = '#10b981';
 
-function openSettings() {
-  const modal = document.getElementById('settings-modal');
-  renderSettingsDialog();
-  modal.classList.add('active');
-}
+function openSettings() { Nav.go('impostazioni'); }
 
 function renderSettingsDialog() {
   const priorities = TCFactory.getPriorities();
   const tags       = TCFactory.getTags();
-  const modal      = document.getElementById('settings-modal');
+  const root       = document.getElementById('settings-root');
+  if (!root) return;
 
   const sectionBtn = (label, icon, isOpen, fn) => `
-    <button type="button" onclick="${fn}()"
+    <button type="button" class="settings-section-btn" onclick="${fn}()" aria-expanded="${isOpen}"
       style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border:none;cursor:pointer;color:var(--text-primary);font-family:var(--font-body);font-weight:700;font-size:0.88rem;border-radius:${isOpen ? `var(--radius-md) var(--radius-md) 0 0` : 'var(--radius-md)'};margin-bottom:${isOpen ? 0 : 6}px;">
       <div style="display:flex;align-items:center;gap:8px;">${icon} ${label}</div>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${isOpen ? 180 : 0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
     </button>`;
 
-  modal.innerHTML = `
-    <div class="modal">
-      <div class="modal-header">
-        <h2>Impostazioni</h2>
-        <button class="btn-icon" onclick="closeModal('settings-modal')">${Icons.x()}</button>
-      </div>
-      <div class="modal-body" style="gap:8px;">
+  const switchRow = (label, hint, checked, onchange) => `
+    <label class="switch-row">
+      <span><strong>${label}</strong><small>${hint}</small></span>
+      <input type="checkbox" class="switch" ${checked ? 'checked' : ''} onchange="${onchange}">
+    </label>`;
+
+  root.innerHTML = `
+    <div class="glass-card page-card page-narrow">
+      <div class="page-card-body" style="display:flex;flex-direction:column;gap:8px;">
+
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          <div class="settings-static-head">${Icons.sun(14)} Aspetto</div>
+          <div style="padding:4px 14px 10px;">
+            ${switchRow('Tema scuro', 'Colori scuri per ambienti poco illuminati', Theme.get() === 'dark', 'Theme.toggle()')}
+            ${switchRow('Riduci trasparenza', 'Superfici opache al posto del vetro', A11yPrefs.get('transparency'), "A11yPrefs.set('transparency', this.checked)")}
+            ${switchRow('Riduci movimento', 'Disattiva animazioni e transizioni', A11yPrefs.get('motion'), "A11yPrefs.set('motion', this.checked)")}
+          </div>
+        </div>
+
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          <div class="settings-static-head">${Icons.calendarDays(14)} Scadenze automatiche</div>
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
+            <div class="settings-section-hint" style="margin:0;">Per gli ordini senza deadline il Planner calcola la scadenza come data ordine + questi giorni. Vale per tutti gli utenti.</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input id="auto-deadline-days" type="number" min="0" max="365" class="form-input" style="width:100px;" value="${TCFactory.getAutoDeadlineDays()}"
+                onkeydown="if(event.key==='Enter')saveAutoDeadlineDays()">
+              <span style="font-size:0.85rem;color:var(--text-secondary);">giorni dopo la data ordine</span>
+              <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="saveAutoDeadlineDays()">Salva</button>
+            </div>
+          </div>
+        </div>
 
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           ${sectionBtn('Priorità', Icons.flag(14), AppState.settingsPrioOpen, 'toggleSettingsPrio')}
@@ -1803,17 +1828,6 @@ function renderSettingsDialog() {
           </div>` : ''}
         </div>
 
-        ${TCAuth.isAdmin() ? `
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          ${sectionBtn('Gestione utenti', Icons.users(14), AppState.settingsUsersOpen, 'toggleSettingsUsers')}
-          ${AppState.settingsUsersOpen ? `<div id="users-section-body" style="padding:12px 14px;"></div>` : ''}
-        </div>
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          ${sectionBtn('Registro modifiche', Icons.clock(14), AppState.settingsLogOpen, 'toggleSettingsLog')}
-          ${AppState.settingsLogOpen ? `<div id="log-section-body" style="padding:12px 14px;"></div>` : ''}
-        </div>
-        ` : ''}
-
         ${TCAuth.isLoggedIn() ? `
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           ${sectionBtn('La mia password', Icons.lock(14), AppState.settingsPwdOpen, 'toggleSettingsPwd')}
@@ -1821,40 +1835,33 @@ function renderSettingsDialog() {
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
             <div class="settings-section-hint">Inserisci la password attuale per confermarne il cambio.</div>
             <input id="pwd-old"  type="password" class="form-input" placeholder="Password attuale">
-            <input id="pwd-new1" type="password" class="form-input" placeholder="Nuova password (min. 4 caratteri)">
+            <input id="pwd-new1" type="password" class="form-input" placeholder="Nuova password (min. ${MIN_PASSWORD_LENGTH} caratteri)">
             <input id="pwd-new2" type="password" class="form-input" placeholder="Ripeti nuova password"
               onkeydown="if(event.key==='Enter')doChangePassword()">
             <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="doChangePassword()">Aggiorna password</button>
           </div>` : ''}
-        </div>
-
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          ${sectionBtn('🗑 Cestino', Icons.trash(14), AppState.settingsCestinoOpen, 'toggleSettingsCestino')}
-          ${AppState.settingsCestinoOpen ? `<div id="cestino-body" style="padding:12px 14px;"></div>` : ''}
         </div>
         ` : ''}
 
       </div>
     </div>
   `;
-  modal.onclick = (e) => { if (e.target === modal) closeModal('settings-modal'); };
+}
 
-  if (AppState.settingsUsersOpen && TCAuth.isAdmin()) {
-    const ub = document.getElementById('users-section-body');
-    if (ub) renderUsersSection(ub);
-  }
-  if (AppState.settingsLogOpen && TCAuth.isAdmin()) {
-    const lb = document.getElementById('log-section-body');
-    if (lb) renderLogSection(lb);
+async function saveAutoDeadlineDays() {
+  const v = parseInt(document.getElementById('auto-deadline-days')?.value, 10);
+  if (!Number.isFinite(v) || v < 0 || v > 365) { showToast('Inserisci un numero tra 0 e 365', 'error'); return; }
+  try {
+    await TCFactory.setSetting('auto_deadline_days', v);
+    showToast(`Scadenza automatica: ${v} giorni dopo la data ordine`);
+  } catch (e) {
+    showToast('Impossibile salvare: esegui prima sql/clienti-setup.sql su Supabase', 'error');
   }
 }
 
 function toggleSettingsPrio()  { AppState.settingsPrioOpen  = !AppState.settingsPrioOpen;  renderSettingsDialog(); }
 function toggleSettingsTag()   { AppState.settingsTagOpen   = !AppState.settingsTagOpen;   renderSettingsDialog(); }
-function toggleSettingsUsers() { AppState.settingsUsersOpen = !AppState.settingsUsersOpen; renderSettingsDialog(); }
-function toggleSettingsLog()   { AppState.settingsLogOpen   = !AppState.settingsLogOpen;   renderSettingsDialog(); }
-function toggleSettingsPwd()     { AppState.settingsPwdOpen     = !AppState.settingsPwdOpen;     renderSettingsDialog(); }
-function toggleSettingsCestino() { AppState.settingsCestinoOpen = !AppState.settingsCestinoOpen; renderSettingsDialog(); if (AppState.settingsCestinoOpen) { const b = document.getElementById('cestino-body'); if (b) renderCestinoSection(b); } }
+function toggleSettingsPwd()   { AppState.settingsPwdOpen   = !AppState.settingsPwdOpen;   renderSettingsDialog(); }
 
 async function renderCestinoSection(container) {
   const trashed = TCFactory.getTrashedOrders();
@@ -1925,7 +1932,7 @@ async function doChangePassword() {
   const repPwd = document.getElementById('pwd-new2')?.value;
   if (!oldPwd || !newPwd) { showToast('Compila tutti i campi', 'error'); return; }
   if (newPwd !== repPwd)  { showToast('Le nuove password non coincidono', 'error'); return; }
-  if (newPwd.length < 4)  { showToast('Minimo 4 caratteri', 'error'); return; }
+  if (newPwd.length < MIN_PASSWORD_LENGTH) { showToast(`Minimo ${MIN_PASSWORD_LENGTH} caratteri`, 'error'); return; }
   try {
     await TCAuth.changePassword(oldPwd, newPwd);
     showToast('Password aggiornata ✓');
@@ -2074,7 +2081,7 @@ async function createNewUser() {
   const pwd   = document.getElementById('new-user-pwd')?.value;
   const isAdm = document.getElementById('new-user-admin')?.checked || false;
   if (!nick || !pwd) { showToast('Compila nickname e password', 'error'); return; }
-  if (pwd.length < 4) { showToast('Password troppo corta (min 4 caratteri)', 'error'); return; }
+  if (pwd.length < MIN_PASSWORD_LENGTH) { showToast(`Password troppo corta (min. ${MIN_PASSWORD_LENGTH} caratteri)`, 'error'); return; }
   try {
     await TCAuth.createUser(nick, pwd, isAdm);
     showToast(`Account "${nick}" creato`);
@@ -2091,9 +2098,9 @@ async function setUserEconomicsFlag(nick, value) {
 }
 
 async function adminResetPwdPrompt(nick) {
-  const newPwd = prompt(`Nuova password per "${nick}" (min. 4 caratteri):`);
+  const newPwd = prompt(`Nuova password per "${nick}" (min. ${MIN_PASSWORD_LENGTH} caratteri):`);
   if (!newPwd) return;
-  if (newPwd.length < 4) { showToast('Minimo 4 caratteri', 'error'); return; }
+  if (newPwd.length < MIN_PASSWORD_LENGTH) { showToast(`Minimo ${MIN_PASSWORD_LENGTH} caratteri`, 'error'); return; }
   try {
     await TCAuth.adminResetPassword(nick, newPwd);
     showToast(`Password di "${nick}" aggiornata ✓`);
@@ -2176,11 +2183,9 @@ function renderLoginScreen() {
   if (!overlay) return;
   overlay.style.display = 'flex';
   overlay.innerHTML = `
-    <div class="login-card glass-card">
+    <div class="login-card glass">
       <div style="display:flex;justify-content:center;margin-bottom:16px;">
-        <div style="width:52px;height:52px;border-radius:14px;background:var(--brand-gradient);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 4px 14px color-mix(in srgb, var(--brand-gold) 40%, transparent);">
-          ${Icons.package(26)}
-        </div>
+        <div class="brand-logo brand-logo-lg">${Icons.logoPlaceholder(30)}</div>
       </div>
       <h2 style="text-align:center;font-size:1.05rem;font-weight:700;margin-bottom:4px;">T&amp;C Gestione ordini</h2>
       <p style="text-align:center;font-size:0.78rem;color:var(--text-muted);margin-bottom:24px;">Accedi per continuare</p>
@@ -2210,18 +2215,31 @@ async function doLogin() {
   if (err) err.textContent = '';
   try {
     await TCAuth.login(nick, pwd);
-    document.getElementById('login-overlay').style.display = 'none';
-    renderApp();
-    initCalendar();
+    await startApp();
   } catch(e) {
     if (err) err.textContent = e.message;
     if (btn) { btn.disabled = false; btn.textContent = 'Accedi'; }
   }
 }
 
-function doLogout() {
+// Dopo il login (o con una sessione già attiva): carica i dati e mostra l'app.
+// I dati si leggono solo da autenticati: il database rifiuta le richieste anonime.
+async function startApp() {
+  await TCFactory.init();
+  document.getElementById('login-overlay').style.display = 'none';
+  Nav.init();
+  Nav.show(Nav._fromHash(), Nav._paramFromHash()); // ricontrolla i permessi delle sezioni per l'utente
+  renderApp();
+  initCalendar();
+  Tickets.startPolling();
+}
+
+async function doLogout() {
   if (!confirm('Vuoi uscire?')) return;
-  TCAuth.logout();
+  Tickets.stopPolling();
+  Object.assign(Tickets, { _list: [], loaded: false, error: null });
+  TCFactory.reset();
+  await TCAuth.logout();
   renderLoginScreen();
 }
 
@@ -2281,6 +2299,12 @@ const Icons = {
   checkCircle: (color='currentColor', s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
   package: (s=20) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`,
   calendarDays: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>`,
+  wallet: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"/><path d="M21 8h-5a3 3 0 0 0 0 6h5a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1z"/><line x1="16" y1="11" x2="16.01" y2="11"/></svg>`,
+  idBadge: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.5"/><path d="M5.5 17a3.5 3.5 0 0 1 7 0"/><line x1="15" y1="10" x2="18" y2="10"/><line x1="15" y1="14" x2="18" y2="14"/></svg>`,
+  lifeBuoy: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><line x1="4.93" y1="19.07" x2="9.17" y2="14.83"/></svg>`,
+  menu: (s=20) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>`,
+  // Logo provvisorio — da sostituire con quello ufficiale
+  logoPlaceholder: (s=26) => `<span class="brand-logo-mark" style="font-size:${Math.round(s*0.56)}px;">T&amp;C</span>`,
 };
 
 window.Icons = Icons;
@@ -2290,14 +2314,105 @@ window.Icons = Icons;
 // CALENDARIO AZIENDALE
 // ═════════════════════════════════════════════════════════════
 
+const CAL_MODE_KEY = 'tcf_cal_mode';
+const PLANNER_LAYERS_KEY = 'tcf_planner_layers';
+
 const CalState = {
-  open: false,
+  mode: ['week','month','year'].includes(localStorage.getItem(CAL_MODE_KEY)) ? localStorage.getItem(CAL_MODE_KEY) : 'month',
   year: new Date().getFullYear(),
-  month: -1,
+  month: new Date().getMonth(),   // usato dalla vista mese
+  weekStart: startOfWeek(new Date()),
   pickerOpen: false,
   editingEvent: null,
   eventListOpen: false,
+  slide: 0,                        // direzione dell'ultima navigazione, per l'animazione
+  layers: loadPlannerLayers(),     // selettori attivi: ferie / eventi / scadenze
 };
+
+// Data locale in formato YYYY-MM-DD (toISOString userebbe UTC e sbaglierebbe giorno dopo mezzanotte)
+function localISODate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function startOfWeek(d) {
+  const r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  r.setDate(r.getDate() - ((r.getDay() + 6) % 7)); // lunedì
+  return r;
+}
+
+// ── Selettori del Planner (multi-selezione) ──
+const PLANNER_LAYERS = [
+  { id: 'ferie',    label: 'Ferie',    color: '#f97316', emoji: '🏖' },
+  { id: 'eventi',   label: 'Eventi',   color: '#6366f1', emoji: '📅' },
+  { id: 'scadenze', label: 'Scadenze', color: '#ef4444', emoji: '📦' },
+];
+
+function loadPlannerLayers() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PLANNER_LAYERS_KEY));
+    if (Array.isArray(saved)) return saved.filter(id => ['ferie','eventi','scadenze'].includes(id));
+  } catch {}
+  return ['ferie', 'eventi', 'scadenze'];
+}
+
+function togglePlannerLayer(id) {
+  const on = CalState.layers.includes(id);
+  CalState.layers = on ? CalState.layers.filter(l => l !== id) : [...CalState.layers, id];
+  try { localStorage.setItem(PLANNER_LAYERS_KEY, JSON.stringify(CalState.layers)); } catch {}
+  renderCalendarSection();
+}
+
+// Indice scadenze ordini per data, ricalcolato a ogni render
+let _deadlineIndex = {};
+function buildDeadlineIndex() {
+  const idx = {};
+  TCFactory.getOrdersToDeliver().forEach(o => {
+    const dl = TCFactory.getEffectiveDeadline(o);
+    if (!dl) return;
+    (idx[dl.date] = idx[dl.date] || []).push({ order: o, auto: dl.auto });
+  });
+  Object.values(idx).forEach(list => list.sort((a, b) =>
+    TCFactory.getPriorityRank(a.order.priorityId) - TCFactory.getPriorityRank(b.order.priorityId)));
+  _deadlineIndex = idx;
+  return idx;
+}
+
+// Elementi da mostrare in un giorno, secondo i selettori attivi
+function plannerItemsForDate(dateStr) {
+  const L = CalState.layers;
+  const items = [];
+
+  TCFactory.getEventsForDate(dateStr).forEach(e => {
+    const layer = e.event_type === 'ferie' ? 'ferie' : 'eventi';
+    if (!L.includes(layer)) return;
+    items.push({
+      kind: 'event', color: e.color, text: getEventChipText(e),
+      sub: e.event_type !== 'ferie' && (e.user_ids || []).length ? '👥 ' + e.user_ids.join(', ') : '',
+      open: `openCalEventDialog('${e.id}',null)`,
+    });
+  });
+
+  if (L.includes('scadenze')) {
+    (_deadlineIndex[dateStr] || []).forEach(({ order: o, auto }) => {
+      const client = TCFactory.getClient(o.clientId);
+      const subParts = [client ? TCFactory.clientName(client) : '', auto ? 'scadenza automatica' : ''].filter(Boolean);
+      items.push({
+        kind: 'order', auto, color: TCFactory.getPriority(o.priorityId)?.color || '#64748b',
+        text: '📦 ' + o.nome, sub: subParts.join(' · '),
+        open: `openOrderDetail('${o.id}')`,
+      });
+    });
+  }
+  return items;
+}
+
+function renderPlannerChip(item, compact = false) {
+  return `<button type="button" class="pl-chip ${item.kind === 'order' ? 'pl-chip-order' : ''} ${item.auto ? 'pl-chip-auto' : ''} ${compact ? 'pl-chip-compact' : ''}"
+    style="--ev:${item.color};" onclick="event.stopPropagation();${item.open}" title="${escapeHtml(item.text + (item.sub ? ' — ' + item.sub : ''))}">
+    <span class="pl-chip-title">${escapeHtml(item.text)}</span>
+    ${item.sub && !compact ? `<span class="pl-chip-sub">${escapeHtml(item.sub)}</span>` : ''}
+  </button>`;
+}
 
 const EVENT_TYPES = [
   { id:'impegno', label:'Impegno', color:'#6366f1' },
@@ -2314,18 +2429,33 @@ function renderCalendarSection() {
   const root = document.getElementById('calendar-root');
   if (!root) return;
 
-  root.innerHTML = `
-    <div class="glass-card">
-      <div class="collapsible-header" onclick="toggleCalendar()" style="cursor:pointer;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          ${Icons.calendarDays(16)}
-          <span style="font-weight:700;font-size:0.95rem;">Calendario aziendale</span>
-        </div>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="transform:rotate(${CalState.open?180:0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      ${CalState.open ? renderCalendarBody() : ''}
-    </div>
-  `;
+  root.innerHTML = `<div class="glass-card planner-card">${renderCalendarBody()}</div>`;
+  CalState.slide = 0;
+  bindPlannerGestures(root);
+}
+
+// Frecce ← → da tastiera e swipe su touch per scorrere settimane/mesi/anni
+function bindPlannerGestures(root) {
+  if (root._gesturesBound) return;
+  root._gesturesBound = true;
+
+  document.addEventListener('keydown', (e) => {
+    if (Nav.current !== 'planner') return;
+    if (e.target.closest('input, textarea, select, [contenteditable]')) return;
+    if (document.querySelector('.modal-overlay.active')) return;
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); calNav(-1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); calNav(1); }
+  });
+
+  let x0 = null, y0 = null;
+  root.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  root.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    const dy = e.changedTouches[0].clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) calNav(dx < 0 ? 1 : -1);
+  });
 }
 
 function calcCalendarStats(year) {
@@ -2350,56 +2480,172 @@ function calcCalendarStats(year) {
   return stats;
 }
 
+function calPeriodLabel() {
+  const MESI_LUNGHI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  if (CalState.mode === 'year')  return String(CalState.year);
+  if (CalState.mode === 'month') return `${MESI_LUNGHI[CalState.month]} ${CalState.year}`;
+  const ws = CalState.weekStart;
+  const we = new Date(ws); we.setDate(ws.getDate() + 6);
+  const fmt = (d, withYear) => d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) });
+  return `${fmt(ws, ws.getFullYear() !== we.getFullYear())} – ${fmt(we, true)}`;
+}
+
 function renderCalendarBody() {
-  const isAnnual = CalState.month === -1;
   const MESI = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+  buildDeadlineIndex();
 
   // Statistiche utenti per anno
   const stats = calcCalendarStats(CalState.year);
   const statsEntries = Object.entries(stats).sort((a, b) => a[0].localeCompare(b[0]));
 
-  const statsSection = statsEntries.length > 0 ? `
+  const statsSection = statsEntries.length > 0 && (CalState.layers.includes('ferie') || CalState.layers.includes('eventi')) ? `
     <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
-      <div style="font-size:0.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Statistiche ${CalState.year}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+        <span style="font-size:0.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;">Statistiche ${CalState.year}</span>
+        <span style="margin-left:auto;display:flex;gap:6px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openStaffReport('ferie')">🏖 Riepilogo ferie</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openStaffReport('eventi')">📅 Riepilogo eventi</button>
+        </span>
+      </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;">
-        ${statsEntries.map(([user, s]) => `
-          <div style="background:var(--bg-card);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:6px 12px;display:flex;align-items:center;gap:10px;">
+        ${statsEntries.map(([user, s]) => {
+          const u = escapeHtml(user).replace(/'/g, '&#39;');
+          const eventi = (s.impegno || 0) + (s.scadenza || 0);
+          return `
+          <div style="background:var(--bg-card);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:6px 8px 6px 12px;display:flex;align-items:center;gap:8px;">
             <span style="font-size:0.82rem;font-weight:700;">${escapeHtml(user)}</span>
-            ${s.impegno > 0 ? `<span title="Giorni impegni" style="font-size:0.75rem;background:#6366f122;color:#6366f1;border-radius:4px;padding:1px 7px;font-weight:600;">📅 ${s.impegno}gg</span>` : ''}
-            ${s.ferie   > 0 ? `<span title="Giorni ferie"   style="font-size:0.75rem;background:#f9741622;color:#f97316;border-radius:4px;padding:1px 7px;font-weight:600;">🏖 ${s.ferie}gg</span>`   : ''}
-            ${s.scadenza > 0 ? `<span title="Giorni scadenze" style="font-size:0.75rem;background:#ef444422;color:#ef4444;border-radius:4px;padding:1px 7px;font-weight:600;">⚠ ${s.scadenza}gg</span>` : ''}
-          </div>`).join('')}
+            ${eventi > 0  ? `<button type="button" class="stat-chip" style="--c:#6366f1;" onclick="openStaffReport('eventi','${u}')" title="Giorni di eventi di ${escapeHtml(user)}">📅 ${eventi}gg</button>` : ''}
+            ${s.ferie > 0 ? `<button type="button" class="stat-chip" style="--c:#f97316;" onclick="openStaffReport('ferie','${u}')" title="Giorni di ferie di ${escapeHtml(user)}">🏖 ${s.ferie}gg</button>` : ''}
+          </div>`;
+        }).join('')}
       </div>
     </div>` : '';
 
+  const unit = { week: 'settimana', month: 'mese', year: 'anno' }[CalState.mode];
+  const modes = [['week','Settimana'],['month','Mese'],['year','Anno']];
+
   // Controlli navigazione
   const nav = `
-    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);">
-      <button class="btn-icon" onclick="calNav(-1)">${Icons.chevronLeft()}</button>
-      <div style="position:relative;">
-        <button class="btn btn-ghost btn-sm" onclick="toggleCalPicker()" style="font-weight:700;font-size:1rem;">
-          ${isAnnual ? CalState.year : `${MESI[CalState.month]} ${CalState.year}`}
-          ${Icons.calendarDays(13)}
-        </button>
-        ${CalState.pickerOpen ? `
-          <div style="position:absolute;top:36px;left:0;z-index:100;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;min-width:240px;">
-            ${MESI.map((m,i) => `<button class="btn ${CalState.month===i?'btn-primary':'btn-ghost'} btn-sm" onclick="calGoMonth(${i})">${m}</button>`).join('')}
-            <button class="btn btn-ghost btn-sm" style="grid-column:span 4;" onclick="calGoAnnual()">Vista annuale</button>
-          </div>` : ''}
+    <div class="planner-toolbar">
+      <div class="planner-nav">
+        <button class="btn-icon" onclick="calNav(-1)" aria-label="${unit === 'settimana' ? 'Settimana precedente' : unit === 'mese' ? 'Mese precedente' : 'Anno precedente'}">${Icons.chevronLeft()}</button>
+        <div style="position:relative;">
+          <button class="btn btn-ghost btn-sm planner-period" onclick="toggleCalPicker()" aria-expanded="${CalState.pickerOpen}" aria-haspopup="true">
+            ${calPeriodLabel()}
+            ${Icons.calendarDays(13)}
+          </button>
+          ${CalState.pickerOpen ? `
+            <div class="popover glass" role="menu">
+              ${MESI.map((m,i) => `<button class="btn ${CalState.mode==='month' && CalState.month===i?'btn-primary':'btn-ghost'} btn-sm" role="menuitem" onclick="calGoMonth(${i})">${m}</button>`).join('')}
+              <button class="btn btn-ghost btn-sm" role="menuitem" style="grid-column:span 4;" onclick="calGoAnnual()">Vista annuale ${CalState.year}</button>
+            </div>` : ''}
+        </div>
+        <button class="btn-icon" onclick="calNav(1)" aria-label="${unit === 'settimana' ? 'Settimana successiva' : unit === 'mese' ? 'Mese successivo' : 'Anno successivo'}">${Icons.chevronRight()}</button>
+        <button class="btn btn-secondary btn-sm" onclick="calToday()">Oggi</button>
       </div>
-      <button class="btn-icon" onclick="calNav(1)">${Icons.chevronRight()}</button>
-      <button class="btn btn-ghost btn-sm" onclick="calGoAnnual()">Tutti i mesi</button>
-      <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="openCalEventDialog(null,null)">+ Aggiungi</button>
+      <div class="segmented" role="tablist" aria-label="Vista calendario">
+        ${modes.map(([id, label]) => `<button role="tab" aria-selected="${CalState.mode===id}" class="${CalState.mode===id?'active':''}" onclick="calSetMode('${id}')">${label}</button>`).join('')}
+      </div>
     </div>`;
 
-  if (isAnnual) {
+  const layersBar = `
+    <div class="planner-layers" role="group" aria-label="Cosa mostrare">
+      ${PLANNER_LAYERS.map(l => {
+        const on = CalState.layers.includes(l.id);
+        return `<button type="button" class="layer-toggle ${on ? 'on' : ''}" style="--layer:${l.color};" aria-pressed="${on}" onclick="togglePlannerLayer('${l.id}')">
+          <span class="layer-check" aria-hidden="true">${on ? '✓' : ''}</span>${l.emoji} ${l.label}
+        </button>`;
+      }).join('')}
+      ${CalState.layers.includes('scadenze') ? renderDeadlineSummary() : ''}
+    </div>`;
+
+  const slideCls = CalState.slide > 0 ? 'slide-next' : CalState.slide < 0 ? 'slide-prev' : '';
+  let body;
+  if (CalState.mode === 'year') {
     const months = Array.from({length:12}, (_,i) => renderMiniMonth(CalState.year, i));
-    return nav + statsSection + `<div class="cal-annual-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:12px 16px;">
+    body = `<div class="cal-annual-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:12px 16px;">
       ${months.join('')}
-    </div>` + renderEventList();
+    </div>`;
+  } else if (CalState.mode === 'month') {
+    body = renderFullMonth(CalState.year, CalState.month);
   } else {
-    return nav + statsSection + renderFullMonth(CalState.year, CalState.month) + renderEventList();
+    body = renderWeek(CalState.weekStart);
   }
+  return nav + layersBar + statsSection + `<div class="planner-body ${slideCls}">${body}</div>` + renderEventList();
+}
+
+function renderWeek(weekStart) {
+  const GG    = ['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
+  const today = localISODate(new Date());
+
+  const cols = GG.map((g, i) => {
+    const d       = new Date(weekStart); d.setDate(weekStart.getDate() + i);
+    const dateStr = localISODate(d);
+    const items   = plannerItemsForDate(dateStr);
+    const isToday = dateStr === today;
+    const isPast  = dateStr < today;
+
+    return `
+      <div class="week-col ${isToday ? 'today' : ''} ${i >= 5 ? 'weekend' : ''} ${isPast ? 'past' : ''}">
+        <div class="week-col-head">
+          <span class="week-col-day">${g}</span>
+          <span class="week-col-num">${d.getDate()}</span>
+        </div>
+        <div class="week-col-events">${items.map(it => renderPlannerChip(it)).join('')}</div>
+        <button type="button" class="week-add" onclick="openCalEventDialog(null,'${dateStr}')" aria-label="Aggiungi evento il ${d.toLocaleDateString('it-IT',{day:'numeric',month:'long'})}">${Icons.plus(13)}</button>
+      </div>`;
+  }).join('');
+
+  return `<div class="cal-week">${cols}</div>`;
+}
+
+// Riepilogo scadenze: in ritardo + prossimi 7 giorni (cliccabili)
+function renderDeadlineSummary() {
+  const today = localISODate(new Date());
+  const in7   = localISODate(new Date(Date.now() + 7 * 86400000));
+  let late = 0, soon = 0;
+  Object.entries(_deadlineIndex).forEach(([date, list]) => {
+    if (date < today) late += list.length;
+    else if (date <= in7) soon += list.length;
+  });
+  return `<div class="deadline-summary">
+    <button type="button" class="summary-pill late" ${late ? '' : 'disabled'} onclick="openDeadlineList('late')">${late} in ritardo</button>
+    <button type="button" class="summary-pill soon" ${soon ? '' : 'disabled'} onclick="openDeadlineList('soon')">${soon} nei prossimi 7 giorni</button>
+  </div>`;
+}
+
+function openDeadlineList(which) {
+  const today = localISODate(new Date());
+  const in7   = localISODate(new Date(Date.now() + 7 * 86400000));
+  const rows = Object.entries(_deadlineIndex)
+    .filter(([date]) => which === 'late' ? date < today : date >= today && date <= in7)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .flatMap(([date, list]) => list.map(x => ({ date, ...x })));
+
+  const modal = document.getElementById('day-modal');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header">
+        <h2 style="font-size:1rem;">${which === 'late' ? 'Ordini in ritardo' : 'Scadenze nei prossimi 7 giorni'}</h2>
+        <button class="btn-icon" onclick="closeModal('day-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:8px;">
+        ${rows.map(({ date, order: o, auto }) => {
+          const p = TCFactory.getPriority(o.priorityId);
+          const client = TCFactory.getClient(o.clientId);
+          return `<button type="button" class="day-order-row" onclick="closeModal('day-modal');openOrderDetail('${o.id}')">
+            <span class="day-order-bar" style="background:${p?.color || '#64748b'};"></span>
+            <span style="flex:1;min-width:0;">
+              <strong style="display:block;font-size:0.88rem;">${escapeHtml(o.nome)}</strong>
+              <span style="font-size:0.75rem;color:var(--text-muted);">${client ? escapeHtml(TCFactory.clientName(client)) + ' · ' : ''}${TCFactory.formatDate(date)}${auto ? ' · automatica' : ''}</span>
+            </span>
+            ${renderPriorityChip(p)}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = e => { if (e.target === modal) closeModal('day-modal'); };
 }
 
 function getEventChipText(ev) {
@@ -2422,16 +2668,16 @@ function renderMiniMonth(year, month) {
   const firstDay = new Date(year, month, 1).getDay();
   const offset   = firstDay === 0 ? 6 : firstDay - 1;
   const lastDate = new Date(year, month + 1, 0).getDate();
-  const today    = new Date().toISOString().slice(0, 10);
+  const today    = localISODate(new Date());
 
   const cells = [];
   for (let i = 0; i < offset; i++) cells.push('<div></div>');
   for (let d = 1; d <= lastDate; d++) {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const evs = TCFactory.getEventsForDate(dateStr);
+    const items   = plannerItemsForDate(dateStr);
     const isToday = dateStr === today;
-    const dots = evs.slice(0,3).map(e => `<div style="width:5px;height:5px;border-radius:50%;background:${e.color};"></div>`).join('');
-    cells.push(`<div onclick="calGoMonth(${month});setTimeout(()=>openCalEventDialog(null,'${dateStr}'),50)" style="text-align:center;font-size:0.7rem;cursor:pointer;padding:2px;border-radius:4px;${isToday?'background:var(--brand-gold);color:#fff;font-weight:700;':''}">
+    const dots = items.slice(0,3).map(e => `<div style="width:5px;height:5px;border-radius:50%;background:${e.color};"></div>`).join('');
+    cells.push(`<div onclick="${items.length ? `openDayPopup('${dateStr}')` : `openCalEventDialog(null,'${dateStr}')`}" style="text-align:center;font-size:0.7rem;cursor:pointer;padding:2px;border-radius:4px;${isToday?'background:var(--brand-gold);color:#fff;font-weight:700;':''}">
       <div>${d}</div>
       <div style="display:flex;gap:1px;justify-content:center;min-height:6px;">${dots}</div>
     </div>`);
@@ -2451,99 +2697,186 @@ function renderFullMonth(year, month) {
   const firstDay = new Date(year, month, 1).getDay();
   const offset   = firstDay === 0 ? 6 : firstDay - 1;
   const lastDate = new Date(year, month + 1, 0).getDate();
-  const today    = new Date().toISOString().slice(0, 10);
+  const today    = localISODate(new Date());
+  const MAX_VISIBLE = 3;
 
   const cells = [];
-  for (let i = 0; i < offset; i++) cells.push('<div style="border:1px solid var(--border-light);min-height:90px;border-radius:4px;background:var(--bg-secondary);opacity:0.3;"></div>');
+  for (let i = 0; i < offset; i++) cells.push('<div class="month-cell empty"></div>');
 
   for (let d = 1; d <= lastDate; d++) {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const evs     = TCFactory.getEventsForDate(dateStr);
+    const items   = plannerItemsForDate(dateStr);
     const isToday = dateStr === today;
-    const MAX_VISIBLE = 2;
-    const shown   = evs.slice(0, MAX_VISIBLE);
-    const hidden  = evs.length - MAX_VISIBLE;
-
-    const chips = shown.map(e => {
-      const txt   = getEventChipText(e);
-      const users = (e.user_ids || []);
-      const short = txt.length > 26 ? txt.slice(0, 24) + '…' : txt;
-      const usersLine = e.event_type !== 'ferie' && users.length
-        ? `<div style="font-size:0.6rem;opacity:0.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">👥 ${users.join(', ')}</div>`
-        : '';
-      return `<div onclick="event.stopPropagation();openCalEventDialog('${e.id}',null)"
-        style="background:${e.color}22;border-left:3px solid ${e.color};padding:3px 6px;border-radius:3px;cursor:pointer;margin-bottom:2px;"
-        title="${escapeHtml(txt)}">
-        <div style="font-size:0.67rem;font-weight:700;color:${e.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(short)}</div>
-        ${usersLine}
-      </div>`;
-    }).join('');
-
-    const moreBtn = hidden > 0
-      ? `<div onclick="event.stopPropagation();openDayPopup('${dateStr}')"
-          style="font-size:0.65rem;font-weight:700;color:var(--brand-gold);cursor:pointer;padding:2px 4px;text-align:center;">
-          + altri ${hidden} →
-        </div>` : '';
+    const hidden  = items.length - MAX_VISIBLE;
 
     cells.push(`
-      <div onclick="${evs.length > 0 ? `openDayPopup('${dateStr}')` : `openCalEventDialog(null,'${dateStr}')`}"
-        style="border:1px solid var(--border-light);min-height:90px;border-radius:4px;padding:5px;cursor:pointer;position:relative;${isToday?'border-color:var(--brand-gold);background:color-mix(in srgb,var(--brand-gold) 5%,var(--bg-card))':'background:var(--bg-card)'}">
-        <div style="font-size:0.75rem;font-weight:${isToday?'800':'600'};color:${isToday?'var(--brand-gold)':'var(--text-primary)'};margin-bottom:4px;">${d}</div>
-        ${chips}${moreBtn}
+      <div class="month-cell ${isToday ? 'today' : ''}" onclick="${items.length > 0 ? `openDayPopup('${dateStr}')` : `openCalEventDialog(null,'${dateStr}')`}">
+        <div class="month-cell-num">${d}</div>
+        ${items.slice(0, MAX_VISIBLE).map(it => renderPlannerChip(it, true)).join('')}
+        ${hidden > 0 ? `<button type="button" class="month-more" onclick="event.stopPropagation();openDayPopup('${dateStr}')">+ altri ${hidden}</button>` : ''}
       </div>`);
   }
 
   return `<div style="padding:12px 16px;">
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">
-      ${GG.map(g => `<div style="text-align:center;font-size:0.72rem;font-weight:700;color:var(--text-muted);padding:4px;">${g}</div>`).join('')}
+    <div class="month-grid">
+      ${GG.map(g => `<div class="month-head">${g}</div>`).join('')}
       ${cells.join('')}
     </div>
   </div>`;
 }
 
-// Popup giornaliero — mostra tutti gli eventi di un giorno
 function openDayPopup(dateStr) {
-  const evs    = TCFactory.getEventsForDate(dateStr);
+  buildDeadlineIndex();
+  const items  = plannerItemsForDate(dateStr);
   const modal  = document.getElementById('day-modal');
   const label  = new Date(dateStr + 'T00:00:00').toLocaleDateString('it-IT', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
 
   modal.innerHTML = `
     <div class="modal" style="max-width:480px;">
       <div class="modal-header">
-        <h2 style="font-size:1rem;">${label}</h2>
-        <button class="btn-icon" onclick="closeModal('day-modal')">${Icons.x()}</button>
+        <h2 style="font-size:1rem;text-transform:capitalize;">${label}</h2>
+        <button class="btn-icon" onclick="closeModal('day-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
-      <div class="modal-body" style="gap:10px;">
-        ${evs.length === 0 ? `<p style="color:var(--text-muted);font-size:0.85rem;">Nessun evento.</p>` :
-          evs.map(e => {
-            const typeInfo = EVENT_TYPES.find(t => t.id === e.event_type) || EVENT_TYPES[0];
-            const users    = e.user_ids || [];
-            const isMulti  = e.date_from !== e.date_to;
-            const dateRange = isMulti
-              ? `${new Date(e.date_from+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short'})} → ${new Date(e.date_to+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short'})}`
-              : '';
-            return `<div onclick="closeModal('day-modal');setTimeout(()=>openCalEventDialog('${e.id}',null),100)"
-              style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:var(--radius-md);background:var(--bg-secondary);cursor:pointer;border-left:4px solid ${e.color};">
-              <div style="flex:1;min-width:0;">
-                <div style="font-size:0.85rem;font-weight:700;color:${e.color};">${escapeHtml(getEventChipText(e))}</div>
-                ${isMulti ? `<div style="font-size:0.72rem;color:var(--text-muted);">📅 ${dateRange}</div>` : ''}
-                ${users.length ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:3px;">👥 ${users.join(' · ')}</div>` : ''}
-                ${e.notes ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:4px;font-style:italic;">${escapeHtml(e.notes.slice(0,80))}${e.notes.length>80?'…':''}</div>` : ''}
-              </div>
-              <span style="font-size:0.7rem;background:${e.color}22;color:${e.color};border-radius:4px;padding:2px 7px;white-space:nowrap;align-self:flex-start;">${typeInfo.label}</span>
-            </div>`;
-          }).join('')}
-        <button class="btn btn-primary btn-sm" style="align-self:flex-start;" onclick="closeModal('day-modal');openCalEventDialog(null,'${dateStr}')">+ Aggiungi evento</button>
+      <div class="modal-body" style="gap:6px;">
+        ${items.length === 0 ? `<p style="color:var(--text-muted);font-size:0.85rem;">Niente in programma.</p>` :
+          items.map(it => renderPlannerChip({ ...it, open: `closeModal('day-modal');${it.open}` })).join('')}
+        <button class="btn btn-primary btn-sm" style="align-self:flex-start;margin-top:6px;" onclick="closeModal('day-modal');openCalEventDialog(null,'${dateStr}')">+ Aggiungi evento</button>
       </div>
     </div>`;
   modal.classList.add('active');
   modal.onclick = e => { if (e.target === modal) closeModal('day-modal'); };
 }
 
+// ── Riepilogo ferie / eventi per persona, diviso per mese ──
+
+const StaffReport = { type: 'ferie', user: '', year: new Date().getFullYear() };
+
+function openStaffReport(type, user = '') {
+  Object.assign(StaffReport, { type, user, year: CalState.year });
+  renderStaffReport();
+  const modal = document.getElementById('day-modal');
+  modal.classList.add('active');
+  modal.onclick = e => { if (e.target === modal) closeModal('day-modal'); };
+}
+
+function setStaffReport(key, value) { StaffReport[key] = value; renderStaffReport(); }
+
+// { persona: { mese(0-11): [{ day, ev }] } } per l'anno e il tipo scelti
+function buildStaffReport() {
+  const year = StaffReport.year;
+  const isFerie = StaffReport.type === 'ferie';
+  const data = {};
+  TCFactory.getCalendarEvents()
+    .filter(ev => (ev.event_type === 'ferie') === isFerie)
+    .forEach(ev => {
+      const users = (ev.user_ids && ev.user_ids.length) ? ev.user_ids : ['(nessuno)'];
+      const d = new Date(ev.date_from + 'T00:00:00');
+      const end = new Date(ev.date_to + 'T00:00:00');
+      for (; d <= end; d.setDate(d.getDate() + 1)) {
+        if (d.getFullYear() !== year) continue;
+        users.forEach(u => {
+          const m = d.getMonth();
+          ((data[u] = data[u] || {})[m] = data[u][m] || []).push({ day: d.getDate(), ev });
+        });
+      }
+    });
+  return data;
+}
+
+function renderStaffReport() {
+  const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  const isFerie = StaffReport.type === 'ferie';
+  const data  = buildStaffReport();
+  const users = Object.keys(data).sort((a, b) => a.localeCompare(b, 'it'));
+  const shown = StaffReport.user ? users.filter(u => u === StaffReport.user) : users;
+
+  const monthBlock = (m, entries) => {
+    entries.sort((a, b) => a.day - b.day);
+    const giorni = new Set(entries.map(e => e.day)).size;
+    let body;
+    if (isFerie) {
+      // Giorni consecutivi raggruppati: 8–10, 14, 20–24
+      const days = [...new Set(entries.map(e => e.day))];
+      const parts = [];
+      for (let i = 0; i < days.length; i++) {
+        let j = i;
+        while (j + 1 < days.length && days[j + 1] === days[j] + 1) j++;
+        parts.push(i === j ? `${days[i]}` : `${days[i]}–${days[j]}`);
+        i = j;
+      }
+      body = `<div class="report-days">${parts.map(p => `<span class="report-day">${p}</span>`).join('')}</div>`;
+    } else {
+      // Un evento per riga, con i suoi giorni nel mese
+      const byEvent = new Map();
+      entries.forEach(({ day, ev }) => { if (!byEvent.has(ev.id)) byEvent.set(ev.id, { ev, days: [] }); byEvent.get(ev.id).days.push(day); });
+      body = [...byEvent.values()].map(({ ev, days }) => {
+        const label = days.length > 1 ? `${days[0]}–${days[days.length - 1]}` : `${days[0]}`;
+        const type  = EVENT_TYPES.find(t => t.id === ev.event_type) || EVENT_TYPES[0];
+        return `<button type="button" class="report-event" style="--ev:${ev.color};" onclick="closeModal('day-modal');openCalEventDialog('${ev.id}',null)">
+          <span class="report-event-days">${label}</span>
+          <span class="report-event-title">${escapeHtml(ev.title)}</span>
+          <span class="report-event-type">${type.label}</span>
+        </button>`;
+      }).join('');
+    }
+    return `<div class="report-month">
+      <div class="report-month-head"><strong>${MESI[m]}</strong><span>${giorni} ${giorni === 1 ? 'giorno' : 'giorni'}</span></div>
+      ${body}
+    </div>`;
+  };
+
+  const personBlock = (u) => {
+    const months = Object.keys(data[u]).map(Number).sort((a, b) => a - b);
+    const tot = months.reduce((s, m) => s + new Set(data[u][m].map(e => e.day)).size, 0);
+    return `<section class="report-person">
+      <div class="report-person-head">
+        <span class="user-avatar" aria-hidden="true">${escapeHtml(u.charAt(0).toUpperCase())}</span>
+        <strong>${escapeHtml(u)}</strong>
+        <span class="report-total">${tot} ${tot === 1 ? 'giorno' : 'giorni'} nel ${StaffReport.year}</span>
+      </div>
+      ${months.map(m => monthBlock(m, data[u][m])).join('')}
+    </section>`;
+  };
+
+  document.getElementById('day-modal').innerHTML = `
+    <div class="modal" style="max-width:640px;" role="dialog" aria-modal="true" aria-labelledby="sr-title">
+      <div class="modal-header">
+        <h2 id="sr-title">${isFerie ? '🏖 Ferie' : '📅 Eventi'} per persona</h2>
+        <button class="btn-icon" onclick="closeModal('day-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="report-controls">
+        <div class="segmented" role="tablist" aria-label="Tipo">
+          <button role="tab" aria-selected="${isFerie}" class="${isFerie ? 'active' : ''}" onclick="setStaffReport('type','ferie')">Ferie</button>
+          <button role="tab" aria-selected="${!isFerie}" class="${!isFerie ? 'active' : ''}" onclick="setStaffReport('type','eventi')">Eventi</button>
+        </div>
+        <div class="report-year">
+          <button class="btn-icon" onclick="setStaffReport('year', StaffReport.year - 1)" aria-label="Anno precedente">${Icons.chevronLeft()}</button>
+          <strong>${StaffReport.year}</strong>
+          <button class="btn-icon" onclick="setStaffReport('year', StaffReport.year + 1)" aria-label="Anno successivo">${Icons.chevronRight()}</button>
+        </div>
+        <select class="form-select filter-select" aria-label="Persona" onchange="setStaffReport('user', this.value)">
+          <option value="">Tutto lo staff</option>
+          ${users.map(u => `<option value="${escapeHtml(u)}" ${u === StaffReport.user ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('')}
+          ${StaffReport.user && !users.includes(StaffReport.user) ? `<option selected>${escapeHtml(StaffReport.user)}</option>` : ''}
+        </select>
+      </div>
+      <div class="modal-body report-body">
+        ${shown.length === 0
+          ? `<p style="color:var(--text-muted);font-size:0.88rem;text-align:center;padding:20px 0;">Nessun${isFerie ? 'a ferie' : ' evento'} nel ${StaffReport.year}${StaffReport.user ? ' per ' + escapeHtml(StaffReport.user) : ''}.</p>`
+          : shown.map(personBlock).join('')}
+      </div>
+    </div>`;
+}
+
 // Lista eventi collassabile
 function renderEventList() {
-  const all    = [...TCFactory.getCalendarEvents()].sort((a,b) => a.date_from.localeCompare(b.date_from));
-  const today  = new Date().toISOString().slice(0, 10);
+  const showFerie  = CalState.layers.includes('ferie');
+  const showEventi = CalState.layers.includes('eventi');
+  if (!showFerie && !showEventi) return '';
+  const all    = [...TCFactory.getCalendarEvents()]
+    .filter(e => e.event_type === 'ferie' ? showFerie : showEventi)
+    .sort((a,b) => a.date_from.localeCompare(b.date_from));
+  const today  = localISODate(new Date());
   const nextIdx = all.findIndex(e => e.date_to >= today);
 
   const itemsHtml = all.map((e, i) => {
@@ -2580,7 +2913,7 @@ function renderEventList() {
   return `
     <div style="border-top:1px solid var(--border);">
       <div onclick="toggleEventList()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer;background:var(--bg-secondary);">
-        <span style="font-weight:700;font-size:0.88rem;">📋 Tutti gli eventi (${all.length})</span>
+        <span style="font-weight:700;font-size:0.88rem;">📋 ${showFerie && showEventi ? 'Tutti gli eventi e le ferie' : showFerie ? 'Tutte le ferie' : 'Tutti gli eventi'} (${all.length})</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${CalState.eventListOpen?180:0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
       ${CalState.eventListOpen ? `
@@ -2601,24 +2934,56 @@ function toggleEventList() {
   }
 }
 
-function toggleCalendar() {
-  CalState.open = !CalState.open;
-  if (CalState.open) initCalendar(); else renderCalendarSection();
-}
 function toggleCalPicker()   { CalState.pickerOpen = !CalState.pickerOpen; renderCalendarSection(); }
+
 function calNav(delta) {
-  if (CalState.month === -1) { CalState.year += delta; }
-  else {
+  if (CalState.mode === 'year') {
+    CalState.year += delta;
+  } else if (CalState.mode === 'month') {
     let m = CalState.month + delta;
     if (m < 0)  { m = 11; CalState.year--; }
     if (m > 11) { m = 0;  CalState.year++; }
     CalState.month = m;
+  } else {
+    const ws = new Date(CalState.weekStart);
+    ws.setDate(ws.getDate() + 7 * delta);
+    CalState.weekStart = ws;
+    CalState.year  = ws.getFullYear();
+    CalState.month = ws.getMonth();
   }
+  CalState.pickerOpen = false;
+  CalState.slide = delta;
+  renderCalendarSection();
+}
+
+function calSetMode(mode) {
+  if (mode === 'week' && CalState.mode !== 'week') {
+    // Entrando nella vista settimana resta nel mese che si stava guardando
+    const now = new Date();
+    const inView = now.getFullYear() === CalState.year && (CalState.mode === 'year' || now.getMonth() === CalState.month);
+    CalState.weekStart = startOfWeek(inView ? now : new Date(CalState.year, CalState.mode === 'year' ? 0 : CalState.month, 1));
+  }
+  if (mode === 'month' && CalState.mode === 'week') {
+    CalState.year  = CalState.weekStart.getFullYear();
+    CalState.month = CalState.weekStart.getMonth();
+  }
+  CalState.mode = mode;
+  CalState.pickerOpen = false;
+  try { localStorage.setItem(CAL_MODE_KEY, mode); } catch {}
+  renderCalendarSection();
+}
+
+function calToday() {
+  const now = new Date();
+  CalState.year = now.getFullYear();
+  CalState.month = now.getMonth();
+  CalState.weekStart = startOfWeek(now);
   CalState.pickerOpen = false;
   renderCalendarSection();
 }
-function calGoMonth(m)  { CalState.month = m; CalState.pickerOpen = false; renderCalendarSection(); }
-function calGoAnnual()  { CalState.month = -1; CalState.pickerOpen = false; renderCalendarSection(); }
+
+function calGoMonth(m)  { CalState.month = m; CalState.mode = 'month'; CalState.pickerOpen = false; renderCalendarSection(); }
+function calGoAnnual()  { CalState.mode = 'year'; CalState.pickerOpen = false; renderCalendarSection(); }
 
 // ── Dialog eventi ─────────────────────────────
 

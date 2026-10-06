@@ -66,6 +66,16 @@ Apri `index.html` direttamente nel browser, oppure pubblica la cartella su un we
 
 ---
 
+## PASSO 6 — Clienti e scadenze automatiche
+
+1. **SQL Editor** → **New query**
+2. Copia tutto il contenuto di `sql/clienti-setup.sql`, incollalo e clicca **Run**
+3. Lo script è non distruttivo: crea la tabella `clients`, la colonna `orders.client_id` e la tabella `app_settings` (giorni per la scadenza automatica, di default 14). Non tocca gli ordini esistenti e si può rieseguire.
+
+Finché lo script non è eseguito, la pagina Clienti mostra un avviso e il resto dell'app funziona come prima.
+
+---
+
 ## Cosa fa il nuovo schema database
 
 | Tabella | Contenuto | Sincronizzata in tempo reale |
@@ -73,6 +83,8 @@ Apri `index.html` direttamente nel browser, oppure pubblica la cartella su un we
 | `orders` | Ordini: nome, data, priorità, tag, allegati, fasi, archiviazione | ✅ |
 | `priorities` | Priorità configurabili (id, etichetta, colore, ordine) | ✅ |
 | `tags` | Tag configurabili (nome, colore) | ✅ |
+| `clients` | Anagrafica clienti | ✅ |
+| `app_settings` | Impostazioni condivise (es. giorni scadenza automatica) | ✅ |
 
 Tutte le modifiche fatte da un PC (creare un ordine, cambiare un colore, riordinare una priorità) appaiono su tutti gli altri schermi connessi in meno di un secondo.
 
