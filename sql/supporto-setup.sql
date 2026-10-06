@@ -40,7 +40,7 @@ revoke all on support_tickets from anon, authenticated;
 create or replace function _tc_check_user(p_nick text, p_pwd text)
 returns app_users
 security definer
-set search_path = public
+set search_path = public, extensions
 language plpgsql as $$
 declare v app_users%rowtype;
 begin
@@ -63,7 +63,7 @@ create or replace function tc_ticket_create(
 )
 returns jsonb
 security definer
-set search_path = public
+set search_path = public, extensions
 language plpgsql as $$
 declare v app_users; v_id uuid;
 begin
@@ -94,7 +94,7 @@ $$;
 create or replace function tc_ticket_list(p_nick text, p_pwd text)
 returns jsonb
 security definer
-set search_path = public
+set search_path = public, extensions
 language plpgsql as $$
 declare v app_users;
 begin
@@ -118,7 +118,7 @@ $$;
 create or replace function tc_ticket_set_status(p_nick text, p_pwd text, p_id uuid, p_stato text)
 returns jsonb
 security definer
-set search_path = public
+set search_path = public, extensions
 language plpgsql as $$
 declare v app_users;
 begin
