@@ -42,19 +42,45 @@ const AppState = {
 // TEMA CHIARO/SCURO + ACCESSIBILITÀ
 // ─────────────────────────────────────────────
 
+// Modalità: 'light' | 'dark' | 'auto' (segue il sistema operativo)
 const Theme = {
   KEY: 'tcf_theme',
-  get() { return localStorage.getItem(this.KEY) || 'light'; },
-  apply(theme) { document.documentElement.classList.toggle('dark', theme === 'dark'); },
-  toggle() {
-    const next = this.get() === 'dark' ? 'light' : 'dark';
-    localStorage.setItem(this.KEY, next);
-    this.apply(next);
+  MEDIA: '(prefers-color-scheme: dark)',
+  FRAME: { light: '#E4E4E9', dark: '#111113' },   // colore della barra del browser su telefono
+
+  mode() {
+    let v = null;
+    try { v = localStorage.getItem(this.KEY); } catch {}
+    return ['light', 'dark', 'auto'].includes(v) ? v : 'auto';
+  },
+  // Tema effettivo in uso
+  get() {
+    const m = this.mode();
+    if (m !== 'auto') return m;
+    return window.matchMedia?.(this.MEDIA).matches ? 'dark' : 'light';
+  },
+  apply() {
+    const t = this.get();
+    document.documentElement.classList.toggle('dark', t === 'dark');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', this.FRAME[t]);
+  },
+  set(mode) {
+    try { localStorage.setItem(this.KEY, mode); } catch {}
+    this.apply();
+    this._rerender();
+  },
+  // Pulsante rapido (menu account, pannello Altro): passa all'opposto di quello in uso
+  toggle() { this.set(this.get() === 'dark' ? 'light' : 'dark'); },
+  _rerender() {
+    if (!TCAuth.isLoggedIn()) return;
     renderApp();
     if (Nav.current === 'impostazioni') renderSettingsDialog();
   },
   init() {
-    this.apply(this.get());
+    this.apply();
+    window.matchMedia?.(this.MEDIA).addEventListener?.('change', () => {
+      if (this.mode() === 'auto') { this.apply(); this._rerender(); }
+    });
     A11yPrefs.init();
     initPasswordToggles();
   }
@@ -1800,7 +1826,13 @@ function renderSettingsDialog() {
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           <div class="settings-static-head">${Icons.sun(14)} Aspetto</div>
           <div style="padding:4px 14px 10px;">
-            ${switchRow('Tema scuro', 'Colori scuri per ambienti poco illuminati', Theme.get() === 'dark', 'Theme.toggle()')}
+            <div class="switch-row" style="cursor:default;">
+              <span><strong>Tema</strong><small>Automatico segue l'impostazione del computer o del telefono</small></span>
+              <div class="segmented" role="radiogroup" aria-label="Tema">
+                ${[['light','Chiaro'],['dark','Scuro'],['auto','Automatico']].map(([id, label]) =>
+                  `<button type="button" role="radio" aria-checked="${Theme.mode() === id}" class="${Theme.mode() === id ? 'active' : ''}" onclick="Theme.set('${id}')">${label}</button>`).join('')}
+              </div>
+            </div>
             ${switchRow('Riduci trasparenza', 'Superfici opache al posto del vetro', A11yPrefs.get('transparency'), "A11yPrefs.set('transparency', this.checked)")}
             ${switchRow('Riduci movimento', 'Disattiva animazioni e transizioni', A11yPrefs.get('motion'), "A11yPrefs.set('motion', this.checked)")}
           </div>
