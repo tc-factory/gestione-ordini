@@ -2467,7 +2467,7 @@ function plannerItemsForDate(dateStr) {
     const layer = e.event_type === 'ferie' ? 'ferie' : 'eventi';
     if (!L.includes(layer)) return;
     items.push({
-      kind: 'event', color: e.color, text: getEventChipText(e),
+      kind: 'event', key: 'e:' + e.id, eventId: e.id, color: e.color, text: getEventChipText(e),
       sub: e.event_type !== 'ferie' && (e.user_ids || []).length ? '👥 ' + e.user_ids.join(', ') : '',
       open: `openCalEventDialog('${e.id}',null)`,
     });
@@ -2478,20 +2478,24 @@ function plannerItemsForDate(dateStr) {
       const client = TCFactory.getClient(o.clientId);
       const subParts = [client ? TCFactory.clientName(client) : '', auto ? 'scadenza automatica' : ''].filter(Boolean);
       items.push({
-        kind: 'order', orderId: o.id, auto, color: TCFactory.getPriority(o.priorityId)?.color || '#64748b',
+        kind: 'order', key: 'o:' + o.id, orderId: o.id, auto, color: TCFactory.getPriority(o.priorityId)?.color || '#64748b',
         text: '📦 ' + o.nome, sub: subParts.join(' · '),
         open: `openOrderDetail('${o.id}')`,
       });
     });
   }
-  return items;
+
+  // Ordine manuale del giorno (trascinamento); gli elementi nuovi vanno in fondo
+  const manual = TCFactory.getPlannerOrder()[dateStr] || [];
+  const rank = (it) => { const i = manual.indexOf(it.key); return i < 0 ? Infinity : i; };
+  return items.map((it, i) => ({ it, i })).sort((a, b) => rank(a.it) - rank(b.it) || a.i - b.i).map(x => x.it);
 }
 
-function renderPlannerChip(item, compact = false, draggable = false) {
-  const drag = draggable && item.kind === 'order'
-    ? `draggable="true" ondragstart="plannerDragStart(event,'${item.orderId}')" ondragend="plannerDragEnd()"` : '';
-  return `<button type="button" class="pl-chip ${item.kind === 'order' ? 'pl-chip-order' : ''} ${item.auto ? 'pl-chip-auto' : ''} ${compact ? 'pl-chip-compact' : ''}"
-    style="--ev:${item.color};" ${drag} onclick="event.stopPropagation();${item.open}" title="${escapeHtml(item.text + (item.sub ? ' — ' + item.sub : ''))}${drag ? ' · trascina su un altro giorno per spostare la scadenza' : ''}">
+function renderPlannerChip(item, compact = false, dateStr = null) {
+  const drag = dateStr
+    ? `draggable="true" data-key="${item.key}" ondragstart="plannerDragStart(event,'${item.key}','${dateStr}')" ondragend="plannerDragEnd()"` : '';
+  return `<button type="button" class="pl-chip ${item.kind === 'order' ? 'pl-chip-order' : ''} ${compact ? 'pl-chip-compact' : ''}"
+    style="--ev:${item.color};" ${drag} onclick="event.stopPropagation();${item.open}" title="${escapeHtml(item.text + (item.sub ? ' — ' + item.sub : ''))}${drag ? ' · trascinalo su un altro giorno o riordinalo' : ''}">
     <span class="pl-chip-title">${escapeHtml(item.text)}</span>
     ${item.sub && !compact ? `<span class="pl-chip-sub">${escapeHtml(item.sub)}</span>` : ''}
   </button>`;
@@ -2674,7 +2678,7 @@ function renderWeek(weekStart) {
           <span class="week-col-day">${g}</span>
           <span class="week-col-num">${d.getDate()}</span>
         </div>
-        <div class="week-col-events">${items.map(it => renderPlannerChip(it, false, true)).join('')}</div>
+        <div class="week-col-events">${items.map(it => renderPlannerChip(it, false, dateStr)).join('')}</div>
         <button type="button" class="week-add" onclick="openCalEventDialog(null,'${dateStr}')" aria-label="Aggiungi evento il ${d.toLocaleDateString('it-IT',{day:'numeric',month:'long'})}">${Icons.plus(13)}</button>
       </div>`;
   }).join('');
@@ -2682,52 +2686,102 @@ function renderWeek(weekStart) {
   return `<div class="cal-week">${cols}</div>`;
 }
 
-// ── Trascina un ordine su un altro giorno: la deadline diventa quel giorno ──
+// ── Trascinamento nel Planner ──
+// Su un altro giorno: l'ordine prende quella deadline, l'evento si sposta mantenendo la durata.
+// Nello stesso giorno: cambia l'ordine degli elementi (condiviso tra tutti).
 
-let _dragOrderId = null;
+let _drag = null;   // { key, from }
 
 function plannerDropAttrs(dateStr) {
-  return `ondragover="plannerDragOver(event)" ondragleave="this.classList.remove('drop-target')" ondrop="plannerDrop(event,'${dateStr}')"`;
+  return `ondragover="plannerDragOver(event)" ondragleave="plannerDragLeave(event)" ondrop="plannerDrop(event,'${dateStr}')"`;
 }
 
-function plannerDragStart(e, orderId) {
-  _dragOrderId = orderId;
+function plannerDragStart(e, key, fromDate) {
+  _drag = { key, from: fromDate };
   e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', orderId);   // Firefox richiede dati per avviare il trascinamento
+  e.dataTransfer.setData('text/plain', key);   // Firefox richiede dati per avviare il trascinamento
   document.body.classList.add('planner-dragging');
+  const el = e.currentTarget;
+  requestAnimationFrame(() => el.classList.add('dragging'));
+}
+
+function plannerClearIndicators() {
+  document.querySelectorAll('.drop-target, .drop-before, .drop-after').forEach(el => el.classList.remove('drop-target', 'drop-before', 'drop-after'));
 }
 
 function plannerDragEnd() {
-  _dragOrderId = null;
+  _drag = null;
   document.body.classList.remove('planner-dragging');
-  document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+  document.querySelectorAll('.pl-chip.dragging').forEach(el => el.classList.remove('dragging'));
+  plannerClearIndicators();
+}
+
+// Elemento sotto il puntatore e se il rilascio va prima o dopo di lui
+function plannerDropSlot(e) {
+  const chip = e.target.closest?.('.pl-chip[data-key]');
+  if (!chip || chip.dataset.key === _drag?.key) return null;
+  const r = chip.getBoundingClientRect();
+  return { chip, before: e.clientY < r.top + r.height / 2 };
 }
 
 function plannerDragOver(e) {
-  if (!_dragOrderId) return;
+  if (!_drag) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
+  plannerClearIndicators();
   e.currentTarget.classList.add('drop-target');
+  const slot = plannerDropSlot(e);
+  if (slot) slot.chip.classList.add(slot.before ? 'drop-before' : 'drop-after');
+}
+
+function plannerDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('drop-target');
 }
 
 async function plannerDrop(e, dateStr) {
   e.preventDefault();
-  const id = _dragOrderId;
+  if (!_drag) return;
+  const { key, from } = _drag;
+  const slot = plannerDropSlot(e);
+  const cell = e.currentTarget;
   plannerDragEnd();
-  const o = id && TCFactory.getOrderById(id);
-  if (!o) return;
-  const prev = TCFactory.getEffectiveDeadline(o);
-  if (prev?.date === dateStr && !prev.auto) return;
+
+  // Nuova sequenza del giorno di destinazione, come appare a schermo
+  const keys = [...cell.querySelectorAll('.pl-chip[data-key]')].map(c => c.dataset.key).filter(k => k !== key);
+  let at = keys.length;
+  if (slot) at = keys.indexOf(slot.chip.dataset.key) + (slot.before ? 0 : 1);
+  keys.splice(at, 0, key);
 
   try {
-    await TCFactory.updateOrder(id, { deadline: dateStr });
-    TCFactory._log('Scadenza spostata', id, o.nome, { da: o.deadline || null, a: dateStr });
-    showToast(`"${o.nome}" → scadenza ${TCFactory.formatDate(dateStr, { day: 'numeric', month: 'long' })}`);
-    renderCalendarSection();
-    renderOrderList();
+    if (dateStr !== from) await plannerMoveItem(key, from, dateStr);
+    await TCFactory.savePlannerDay(dateStr, keys, dateStr !== from ? from : null);
   } catch (err) {
-    showToast('Impossibile spostare la scadenza', 'error');
+    console.error('[planner]', err);
+    showToast('Impossibile spostare l\'elemento', 'error');
   }
+  renderCalendarSection();
+  renderOrderList();
+}
+
+async function plannerMoveItem(key, from, to) {
+  const kind = key.slice(0, 1), id = key.slice(2);
+  const label = TCFactory.formatDate(to, { day: 'numeric', month: 'long' });
+
+  if (kind === 'o') {
+    const o = TCFactory.getOrderById(id);
+    await TCFactory.updateOrder(id, { deadline: to });
+    TCFactory._log('Scadenza spostata', id, o?.nome, { da: o?.deadline || null, a: to });
+    showToast(`"${o?.nome}" → scadenza ${label}`);
+    return;
+  }
+
+  // Evento: sposta tutto l'intervallo della stessa distanza
+  const ev = TCFactory.getCalendarEvents().find(x => x.id === id);
+  if (!ev) return;
+  const days = Math.round((new Date(to + 'T00:00:00') - new Date(from + 'T00:00:00')) / 86400000);
+  const shift = (d) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + days); return localISODate(x); };
+  await TCFactory.moveCalendarEvent(id, shift(ev.date_from), shift(ev.date_to));
+  showToast(`"${ev.title}" spostato${ev.date_from !== ev.date_to ? ' (stessa durata)' : ''} → ${label}`);
 }
 
 // Riepilogo scadenze: in ritardo + prossimi 7 giorni (cliccabili)
@@ -2843,7 +2897,7 @@ function renderFullMonth(year, month) {
     cells.push(`
       <div class="month-cell ${isToday ? 'today' : ''}" ${plannerDropAttrs(dateStr)} onclick="${items.length > 0 ? `openDayPopup('${dateStr}')` : `openCalEventDialog(null,'${dateStr}')`}">
         <div class="month-cell-num">${d}</div>
-        ${items.slice(0, MAX_VISIBLE).map(it => renderPlannerChip(it, true, true)).join('')}
+        ${items.slice(0, MAX_VISIBLE).map(it => renderPlannerChip(it, true, dateStr)).join('')}
         ${hidden > 0 ? `<button type="button" class="month-more" onclick="event.stopPropagation();openDayPopup('${dateStr}')">+ altri ${hidden}</button>` : ''}
       </div>`);
   }

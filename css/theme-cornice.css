@@ -75,7 +75,7 @@
   --font-display: 'Plus Jakarta Sans', 'Inter', sans-serif;
   --font-body: 'Plus Jakarta Sans', 'Inter', sans-serif;
   --font-mono: 'Plus Jakarta Sans', 'Inter', sans-serif;
-  --sidebar-width: 232px;
+  --sidebar-width: 262px;
 }
 
 html.dark {
@@ -458,3 +458,70 @@ html.reduce-transparency .bottom-nav { background: var(--bg-card); }
 
 /* Impostazioni: selettore tema che va a capo su schermi stretti */
 .switch-row:has(.segmented) { flex-wrap: wrap; }
+
+/* ── Profilo in fondo alla navbar (sopra Cestino e Supporto) ── */
+.sidebar-profile-wrap { position: relative; }
+.sidebar-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px 8px 8px;
+  border: none;
+  border-radius: 16px;
+  background: var(--frame-hover);
+  color: var(--frame-fg);
+  font-family: var(--font-body);
+  text-align: left;
+  transition: background-color var(--transition);
+}
+.sidebar-profile:hover, .sidebar-profile[aria-expanded="true"] { background: var(--frame-line); }
+.sidebar-profile .user-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
+.sidebar-profile .user-text strong { font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-profile .user-text span { font-size: 0.72rem; color: var(--frame-muted); }
+.sidebar-profile .profile-chevron { color: var(--frame-muted); flex-shrink: 0; }
+html.dark .sidebar-profile .user-avatar { background: #FFFFFF; color: #2B2B2E; }
+
+/* Menu che si apre verso l'alto */
+.profile-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+  left: 0; right: 0;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  z-index: 120;
+  transform-origin: bottom left;
+}
+.profile-menu button {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px;
+  border: none; border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-body); font-size: 0.86rem; font-weight: 600;
+  text-align: left;
+}
+.profile-menu button:hover { background: var(--fill-hover); }
+.profile-menu button.danger { color: #DC2626; }
+
+/* Pulsante chiaro/scuro accanto al logo */
+.sidebar-theme-btn { display: inline-flex; margin-left: auto; flex-shrink: 0; }
+.sidebar-brand .sidebar-collapse-btn { margin-left: 0; }
+
+@media (min-width: 861px) {
+  html.sidebar-collapsed .sidebar-theme-btn { margin-left: 0; }
+  html.sidebar-collapsed .sidebar-profile { justify-content: center; padding: 8px 0; }
+  html.sidebar-collapsed .sidebar-profile .user-text,
+  html.sidebar-collapsed .sidebar-profile .profile-chevron { display: none; }
+  html.sidebar-collapsed .profile-menu { right: auto; }
+}
+@media (max-width: 860px) {
+  .sidebar-brand .sidebar-close { margin-left: 0; }
+}
+.brand-text strong, .brand-text span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-brand { gap: 8px; }
+html:not(.sidebar-collapsed) .brand-logo { width: 42px; height: 42px; border-radius: 13px; }
+.sidebar-brand .btn-icon { min-width: 32px; min-height: 32px; padding: 6px; }
