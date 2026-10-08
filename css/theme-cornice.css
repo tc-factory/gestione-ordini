@@ -554,3 +554,24 @@ html.dark { --urgent-bg: #3A1F22; --urgent-bg-hover: #452428; }
 
 /* Scadenza: data semplice, stesso colore del testo */
 .deadline-date { color: var(--text-primary); font-weight: 600; }
+
+/* Lista ordini: intestazioni ordinabili */
+.sort-hdr {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: -4px -6px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--transition), color var(--transition);
+}
+.sort-hdr:hover { background: var(--fill-hover); color: var(--text-primary); }
+.sort-hdr.active { color: var(--text-primary); }
+.sort-arrow { font-size: 0.8rem; opacity: 0.45; }
+.sort-hdr.active .sort-arrow { opacity: 1; }
