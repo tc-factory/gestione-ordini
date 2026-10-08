@@ -1331,7 +1331,6 @@ html.dark .segmented button.active { background: rgba(255,255,255,0.14); box-sha
   width: 100%;
   text-align: left;
   border: none;
-  border-left: 3px solid var(--ev);
   border-radius: 8px;
   padding: 6px 8px;
   background: color-mix(in srgb, var(--ev) 13%, transparent);
@@ -1485,7 +1484,6 @@ html.dark .segmented button.active { background: rgba(255,255,255,0.14); box-sha
   width: 100%;
   text-align: left;
   border: none;
-  border-left: 3px solid var(--ev);
   border-radius: 8px;
   padding: 6px 8px;
   background: color-mix(in srgb, var(--ev) 13%, transparent);
@@ -1501,7 +1499,6 @@ html.dark .segmented button.active { background: rgba(255,255,255,0.14); box-sha
 .pl-chip-order { background: var(--bg-card); box-shadow: inset 0 0 0 1px var(--border); }
 .pl-chip-order .pl-chip-title { color: var(--text-primary); }
 .pl-chip-order:hover { background: color-mix(in srgb, var(--ev) 8%, var(--bg-card)); }
-.pl-chip-auto { border-left-style: dashed; }
 .pl-chip-compact { padding: 3px 6px; margin-bottom: 2px; }
 .pl-chip-compact .pl-chip-title { font-size: 0.67rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
 
@@ -1759,7 +1756,6 @@ html.dark .report-day { color: #fdba74; }
   width: 100%;
   text-align: left;
   border: none;
-  border-left: 3px solid var(--ev);
   border-radius: 8px;
   padding: 6px 10px;
   margin-bottom: 4px;
