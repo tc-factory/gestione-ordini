@@ -941,11 +941,11 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .order-row-grid {
   display: grid;
   grid-template-columns:
-    minmax(180px, 2.8fr)   /* Nome */
-    minmax(80px, 1.3fr)    /* Tipologia */
+    minmax(180px, 1.2fr)   /* Nome */
+    130px                   /* Tipologia */
     112px                   /* Data creazione */
     104px                   /* Scadenza */
-    188px                   /* Lavorazione */
+    minmax(220px, 1.4fr)   /* Lavorazione: prende lo spazio libero */
     175px                   /* Spedizione + archivio */
     62px                    /* Ordine */
     90px                    /* Pagamento */
@@ -1194,11 +1194,11 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .order-row-grid--active {
   display: grid;
   grid-template-columns:
-    minmax(180px, 2.8fr)   /* Nome */
-    minmax(80px, 1.3fr)    /* Tipologia */
+    minmax(180px, 1.2fr)   /* Nome */
+    130px                   /* Tipologia */
     112px                   /* Data creazione */
     104px                   /* Scadenza */
-    210px                   /* Lavorazione (più larga, ha anche la data stampato) */
+    minmax(260px, 1.6fr)   /* Lavorazione: prende lo spazio libero */
     62px                    /* Ordine */
     90px                    /* Pagamento */
   ;
@@ -2129,4 +2129,3 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 /* Lista ordini: data di scadenza (impostata o automatica) */
 .orc-deadline { flex-direction: column; align-items: flex-start !important; justify-content: center; gap: 1px; text-align: left; }
 .deadline-date { font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.deadline-auto { font-size: 0.66rem; color: var(--text-muted); }

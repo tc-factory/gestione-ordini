@@ -541,3 +541,16 @@ html:not(.sidebar-collapsed) .brand-logo { width: 42px; height: 42px; border-rad
   color: var(--text-muted);
   vertical-align: middle;
 }
+
+/* ── Ordini segnati "Urgente": tutta la card in rosso molto chiaro ── */
+:root { --urgent-bg: #FDECEC; --urgent-bg-hover: #FBE2E2; }
+html.dark { --urgent-bg: #3A1F22; --urgent-bg-hover: #452428; }
+.list-shell .order-row-item.order-urgent,
+.order-row-item.order-urgent { background: var(--urgent-bg); }
+.list-shell .order-row-item.order-urgent:hover { background: var(--urgent-bg-hover); }
+.pl-chip.pl-chip-urgent,
+.pl-chip-order.pl-chip-urgent { background: var(--urgent-bg); box-shadow: none; }
+.pl-chip.pl-chip-urgent:hover { background: var(--urgent-bg-hover); }
+
+/* Scadenza: data semplice, stesso colore del testo */
+.deadline-date { color: var(--text-primary); font-weight: 600; }

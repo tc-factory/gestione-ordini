@@ -391,18 +391,20 @@ function renderOrderList() {
 function setArchiveFilter(f) { AppState.filterArchive = f; renderOrderList(); }
 
 
+// Ordine segnato "Urgente" (priorità scelta a mano)
+function isUrgentOrder(o) {
+  const p = TCFactory.getPriority(o.priorityId);
+  return o.priorityId === 'urgente' || (p?.label || '').trim().toLowerCase() === 'urgente';
+}
+
 function renderOrderRow(o) {
   const view  = AppState.view;
 
-  // Scadenza: deadline impostata o automatica; il colore dice quanto è vicina (niente più "urgenza")
+  // Scadenza: data impostata o automatica, senza colori; l'urgenza la decide la priorità scelta a mano
   const dl = TCFactory.getEffectiveDeadline(o);
-  let deadlineColor = 'var(--text-muted)', deadlineHint = '';
-  if (dl) {
-    const diff = Math.round((new Date(dl.date + 'T00:00:00') - new Date(localISODate(new Date()) + 'T00:00:00')) / 86400000);
-    deadlineColor = diff <= 3 ? '#ef4444' : diff <= 7 ? '#f97316' : 'var(--text-primary)';
-    deadlineHint  = diff < 0 ? `scaduta da ${-diff} gg` : diff === 0 ? 'scade oggi' : `tra ${diff} gg`;
-  }
-  const color = dl ? (deadlineColor.startsWith('#') ? deadlineColor : '#94a3b8') : '#94a3b8';
+  const p  = TCFactory.getPriority(o.priorityId);
+  const color = p?.color || '#94a3b8';
+  const isUrgent = isUrgentOrder(o);
 
   // Tag cliccabili
   const tagPills = o.tags.slice(0, 3).map(t => {
@@ -447,12 +449,9 @@ function renderOrderRow(o) {
       ${payDone && payDate ? `<span style="font-size:0.6rem;color:#22c55e;">${TCFactory.formatDate(payDate,{day:'2-digit',month:'2-digit'})}</span>` : ''}
     </div>`;
 
-  const scadenzaCell = dl
-    ? `<div class="orc-deadline" title="${deadlineHint}${dl.auto ? ' · scadenza automatica' : ''}">
-        <span class="deadline-date" style="color:${deadlineColor};">${TCFactory.formatDate(dl.date, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
-        ${dl.auto ? '<span class="deadline-auto">automatica</span>' : ''}
-      </div>`
-    : `<div class="orc-deadline" style="color:var(--text-muted);">—</div>`;
+  const scadenzaCell = `<div class="orc-deadline">${dl
+    ? `<span class="deadline-date">${TCFactory.formatDate(dl.date, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>`
+    : '<span style="color:var(--text-muted);">—</span>'}</div>`;
   const ordineCell   = `<div class="orc-files">${filesBtns}${filesExtra}${moduleBtn}</div>`;
 
   // Pill "Esterna" — visibile in tutti i tab se lavorazioneEsterna=true
@@ -487,7 +486,7 @@ function renderOrderRow(o) {
     const externaPill = buildExternaPill();
 
     return `
-      <div class="order-row-item" role="button" tabindex="0"
+      <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
         onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
         <div class="order-row-bar" style="background:${color};"></div>
         <div class="order-row-grid order-row-grid--active">
@@ -522,7 +521,7 @@ function renderOrderRow(o) {
     }).join('');
 
     return `
-      <div class="order-row-item" role="button" tabindex="0"
+      <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
         onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
         <div class="order-row-bar" style="background:${color};"></div>
         <div class="order-row-grid">
@@ -568,7 +567,7 @@ function renderOrderRow(o) {
   }).join('');
 
   return `
-    <div class="order-row-item" role="button" tabindex="0"
+    <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
       onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-bar" style="background:${color};"></div>
       <div class="order-row-grid">
@@ -1309,7 +1308,7 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
           </div>
           <div class="form-group">
             <label class="form-label">Deadline</label>
-            <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}" onchange="checkDeadlineUrgency(this.value)">
+            <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}">
           </div>
         </div>
 
@@ -1451,16 +1450,6 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
   if (AppState.formModuleOpen) renderModuleRows();
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('order-form-modal'); };
-}
-
-function checkDeadlineUrgency(dateStr) {
-  if (!dateStr) return;
-  const today = new Date().toISOString().slice(0, 10);
-  const diff  = Math.ceil((new Date(dateStr + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
-  if (diff >= 0 && diff <= 7) {
-    selectPriorityChip('urgente');
-    showToast('Deadline entro 7 giorni → impostato Urgente');
-  }
 }
 
 function toggleFormModule() {
@@ -1648,16 +1637,7 @@ async function submitOrderForm() {
   if (AppState.formTags.length === 0) { showToast('Seleziona una tipologia (tag)', 'error'); return; }
   if (AppState.formTags.length > 1)   { showToast('Puoi selezionare una sola tipologia', 'error'); return; }
 
-  // Auto-urgente se deadline entro 7 giorni
-  let finalPriorityId = priorityId;
-  if (deadline) {
-    const today = new Date().toISOString().slice(0, 10);
-    const diff  = Math.ceil((new Date(deadline + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
-    if (diff >= 0 && diff <= 7 && finalPriorityId !== 'urgente') {
-      finalPriorityId = 'urgente';
-    }
-  }
-
+  // La priorità (anche "Urgente") si sceglie solo a mano
   const selectedPriority = TCFactory.getPriority(priorityId);
   if (selectedPriority?.id === 'urgente' && !deadline) {
     const dlField = document.getElementById('of-deadline');
@@ -1672,7 +1652,7 @@ async function submitOrderForm() {
   }
 
   const payload = {
-    nome, dataOrdine, deadline, notes, priorityId: finalPriorityId,
+    nome, dataOrdine, deadline, notes, priorityId,
     lavorazioneEsterna: !!document.getElementById('of-lav-esterna')?.checked,
     tags: AppState.formTags,
     files: AppState.formFiles,
@@ -2439,9 +2419,9 @@ function plannerItemsForDate(dateStr) {
   if (L.includes('scadenze')) {
     (_deadlineIndex[dateStr] || []).forEach(({ order: o, auto }) => {
       const client = TCFactory.getClient(o.clientId);
-      const subParts = [client ? TCFactory.clientName(client) : '', auto ? 'scadenza automatica' : ''].filter(Boolean);
+      const subParts = [client ? TCFactory.clientName(client) : ''].filter(Boolean);
       items.push({
-        kind: 'order', key: 'o:' + o.id, orderId: o.id, auto, color: TCFactory.getPriority(o.priorityId)?.color || '#64748b',
+        kind: 'order', key: 'o:' + o.id, orderId: o.id, auto, urgent: isUrgentOrder(o), color: TCFactory.getPriority(o.priorityId)?.color || '#64748b',
         text: '📦 ' + o.nome, sub: subParts.join(' · '),
         open: `openOrderDetail('${o.id}')`,
       });
@@ -2457,7 +2437,7 @@ function plannerItemsForDate(dateStr) {
 function renderPlannerChip(item, compact = false, dateStr = null) {
   const drag = dateStr
     ? `draggable="true" data-key="${item.key}" ondragstart="plannerDragStart(event,'${item.key}','${dateStr}')" ondragend="plannerDragEnd()"` : '';
-  return `<button type="button" class="pl-chip ${item.kind === 'order' ? 'pl-chip-order' : ''} ${compact ? 'pl-chip-compact' : ''}"
+  return `<button type="button" class="pl-chip ${item.kind === 'order' ? 'pl-chip-order' : ''} ${item.urgent ? 'pl-chip-urgent' : ''} ${compact ? 'pl-chip-compact' : ''}"
     style="--ev:${item.color};" ${drag} onclick="event.stopPropagation();${item.open}" title="${escapeHtml(item.text + (item.sub ? ' — ' + item.sub : ''))}${drag ? ' · trascinalo su un altro giorno o riordinalo' : ''}">
     <span class="pl-chip-title">${escapeHtml(item.text)}</span>
     ${item.sub && !compact ? `<span class="pl-chip-sub">${escapeHtml(item.sub)}</span>` : ''}
@@ -2785,7 +2765,7 @@ function openDeadlineList(which) {
             <span class="day-order-bar" style="background:${p?.color || '#64748b'};"></span>
             <span style="flex:1;min-width:0;">
               <strong style="display:block;font-size:0.88rem;">${escapeHtml(o.nome)}</strong>
-              <span style="font-size:0.75rem;color:var(--text-muted);">${client ? escapeHtml(TCFactory.clientName(client)) + ' · ' : ''}${TCFactory.formatDate(date)}${auto ? ' · automatica' : ''}</span>
+              <span style="font-size:0.75rem;color:var(--text-muted);">${client ? escapeHtml(TCFactory.clientName(client)) + ' · ' : ''}${TCFactory.formatDate(date)}</span>
             </span>
             ${renderPriorityChip(p)}
           </button>`;
