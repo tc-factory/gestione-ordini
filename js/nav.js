@@ -160,6 +160,9 @@ function renderSidebar() {
         <span>Gestione ordini</span>
       </div>
       <button class="btn-icon sidebar-close" onclick="Nav.closeDrawer()" aria-label="Chiudi menu">${Icons.x()}</button>
+      <button class="btn-icon sidebar-theme-btn" onclick="Theme.toggle()"
+        aria-label="${Theme.get() === 'dark' ? 'Passa al tema chiaro' : 'Passa al tema scuro'}"
+        title="${Theme.get() === 'dark' ? 'Tema chiaro' : 'Tema scuro'}">${Theme.get() === 'dark' ? Icons.sun(18) : Icons.moon(18)}</button>
       <button class="btn-icon sidebar-collapse-btn" onclick="SidebarCollapse.toggle()"
         aria-label="${collapsed ? 'Espandi la navbar' : 'Riduci la navbar'}" aria-expanded="${!collapsed}"
         title="${collapsed ? 'Espandi' : 'Riduci'}">${collapsed ? Icons.panelOpen(18) : Icons.panelClose(18)}</button>
@@ -170,6 +173,14 @@ function renderSidebar() {
     </nav>
 
     <div class="sidebar-footer">
+      <div class="sidebar-profile-wrap">
+        <button type="button" class="sidebar-profile" id="profile-btn" onclick="toggleProfileMenu(event)"
+          aria-haspopup="menu" aria-expanded="false" ${collapsed ? `title="${escapeHtml(TCAuth.getNickname())}"` : ''}>
+          <span class="user-avatar" aria-hidden="true">${escapeHtml(TCAuth.getNickname().charAt(0).toUpperCase())}</span>
+          <span class="user-text"><strong>${escapeHtml(TCAuth.getNickname())}</strong><span>${TCAuth.isAdmin() ? 'Admin' : 'Staff'}</span></span>
+          <svg class="profile-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
+        </button>
+      </div>
       <div class="sidebar-footer-pair">
         ${NAV_FOOTER_ITEMS.map(navLink).join('')}
       </div>
@@ -219,6 +230,7 @@ function openMoreSheet() {
         <span class="user-avatar" aria-hidden="true">${escapeHtml(TCAuth.getNickname().charAt(0).toUpperCase())}</span>
         <div class="user-text"><strong>${escapeHtml(TCAuth.getNickname())}</strong><span>${TCAuth.isAdmin() ? 'Admin' : 'Staff'}</span></div>
         <button class="btn-icon" onclick="Theme.toggle();openMoreSheet()" aria-label="${isDark ? 'Passa al tema chiaro' : 'Passa al tema scuro'}">${isDark ? Icons.sun(18) : Icons.moon(18)}</button>
+        <button class="btn-icon" onclick="closeModal('more-sheet');openPasswordDialog()" aria-label="Cambia password">${Icons.lock(18)}</button>
         <button class="btn-icon" onclick="closeModal('more-sheet');doLogout()" aria-label="Esci">${Icons.logOut(18)}</button>
       </div>
       <nav class="more-list">
@@ -248,7 +260,6 @@ function renderHeader() {
     ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
     : '';
 
-  const nick = TCAuth.getNickname();
   root.innerHTML = `
     <button class="btn-icon menu-toggle" onclick="Nav.openDrawer()" aria-label="Apri menu">${Icons.menu()}</button>
     <div class="toolbar-title">
@@ -257,38 +268,35 @@ function renderHeader() {
     </div>
     <div class="app-header-actions">
       ${actions}
-      <div class="account-wrap">
-        <button type="button" class="account-pill" onclick="toggleAccountMenu(event)" aria-haspopup="menu" aria-expanded="false" id="account-btn">
-          <span class="user-avatar" aria-hidden="true">${escapeHtml(nick.charAt(0).toUpperCase())}</span>
-          <span class="account-name">${escapeHtml(nick)}</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-      </div>
     </div>
   `;
 }
 
-// Menu del pulsante account: ruolo, tema, esci
-function toggleAccountMenu(e) {
+// Menu del profilo (in fondo alla navbar): cambio password ed esci
+function toggleProfileMenu(e) {
   e?.stopPropagation();
-  const wrap = document.querySelector('.account-wrap');
-  const btn  = document.getElementById('account-btn');
-  const open = wrap.querySelector('.account-menu');
+  const wrap = document.querySelector('.sidebar-profile-wrap');
+  const btn  = document.getElementById('profile-btn');
+  const open = wrap.querySelector('.profile-menu');
   if (open) { open.remove(); btn.setAttribute('aria-expanded', 'false'); return; }
 
-  const isDark = Theme.get() === 'dark';
   const menu = document.createElement('div');
-  menu.className = 'account-menu popover glass';
+  menu.className = 'profile-menu popover glass';
   menu.setAttribute('role', 'menu');
   menu.innerHTML = `
-    <div class="account-menu-head">
-      <strong>${escapeHtml(TCAuth.getNickname())}</strong>
-      <span>${TCAuth.isAdmin() ? 'Admin' : 'Staff'}${TCAuth.canViewEconomics() && !TCAuth.isAdmin() ? ' · Cassa' : ''}</span>
-    </div>
-    <button type="button" role="menuitem" onclick="Theme.toggle()">${isDark ? Icons.sun(16) : Icons.moon(16)} ${isDark ? 'Tema chiaro' : 'Tema scuro'}</button>
-    <button type="button" role="menuitem" onclick="Nav.go('impostazioni')">${Icons.settings(16)} Impostazioni</button>
+    <button type="button" role="menuitem" onclick="openPasswordDialog()">${Icons.lock(16)} Cambia password</button>
     <button type="button" role="menuitem" class="danger" onclick="doLogout()">${Icons.logOut(16)} Esci</button>`;
   wrap.appendChild(menu);
+  // Posizione fissa: la navbar (che scorre) non lo taglia, anche quando è ridotta a icone
+  const r = btn.getBoundingClientRect();
+  const collapsed = SidebarCollapse.get() && window.innerWidth > 860;
+  Object.assign(menu.style, {
+    position: 'fixed',
+    bottom: `${window.innerHeight - (collapsed ? r.bottom : r.top - 8)}px`,
+    left: `${collapsed ? r.right + 10 : r.left}px`,
+    width: collapsed ? '210px' : `${r.width}px`,
+    right: 'auto', top: 'auto',
+  });
   btn.setAttribute('aria-expanded', 'true');
   menu.querySelector('button')?.focus();
 
@@ -301,6 +309,54 @@ function toggleAccountMenu(e) {
   };
   setTimeout(() => { document.addEventListener('click', close); document.addEventListener('keydown', close); });
 }
+
+// Finestra "Cambia password"
+function openPasswordDialog() {
+  document.querySelector('.profile-menu')?.remove();
+  const modal = document.getElementById('pwd-modal');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:440px;" role="dialog" aria-modal="true" aria-labelledby="pm-title">
+      <div class="modal-header">
+        <h2 id="pm-title">Cambia password</h2>
+        <button class="btn-icon" onclick="closeModal('pwd-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <form class="modal-body" style="gap:12px;" onsubmit="event.preventDefault();submitPasswordDialog()">
+        <div class="form-group"><label class="form-label" for="pm-old">Password attuale</label>
+          <input id="pm-old" type="password" class="form-input" autocomplete="current-password" required></div>
+        <div class="form-group"><label class="form-label" for="pm-new1">Nuova password</label>
+          <input id="pm-new1" type="password" class="form-input" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" required
+            placeholder="Almeno ${MIN_PASSWORD_LENGTH} caratteri"></div>
+        <div class="form-group"><label class="form-label" for="pm-new2">Ripeti nuova password</label>
+          <input id="pm-new2" type="password" class="form-input" autocomplete="new-password" required></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('pwd-modal')">Annulla</button>
+          <button type="submit" class="btn btn-primary" id="pm-save">Aggiorna password</button>
+        </div>
+      </form>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('pwd-modal'); };
+  setTimeout(() => document.getElementById('pm-old')?.focus(), 50);
+}
+
+async function submitPasswordDialog() {
+  const oldPwd = document.getElementById('pm-old').value;
+  const newPwd = document.getElementById('pm-new1').value;
+  const repPwd = document.getElementById('pm-new2').value;
+  if (newPwd.length < MIN_PASSWORD_LENGTH) { showToast(`Minimo ${MIN_PASSWORD_LENGTH} caratteri`, 'error'); return; }
+  if (newPwd !== repPwd) { showToast('Le nuove password non coincidono', 'error'); document.getElementById('pm-new2').focus(); return; }
+  const btn = document.getElementById('pm-save');
+  btn.disabled = true; btn.textContent = 'Aggiornamento…';
+  try {
+    await TCAuth.changePassword(oldPwd, newPwd);
+    closeModal('pwd-modal');
+    showToast('Password aggiornata ✓');
+  } catch (e) {
+    showToast(e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Aggiorna password';
+  }
+}
+
 
 // ─────────────────────────────────────────────
 // PAGINE

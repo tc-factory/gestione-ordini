@@ -1879,8 +1879,22 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .ticket-reply-form textarea { min-height: 38px; resize: none; padding-top: 8px; padding-bottom: 8px; font-size: 0.86rem; }
 
 /* ── Trascinamento ordini nel Planner ── */
-.pl-chip-order[draggable="true"] { cursor: grab; }
-.pl-chip-order[draggable="true"]:active { cursor: grabbing; }
+.pl-chip[draggable="true"] { cursor: grab; position: relative; }
+.pl-chip[draggable="true"]:active { cursor: grabbing; }
+.pl-chip.dragging { opacity: 0.35; }
+/* Dove verrà inserito l'elemento (solo durante il trascinamento) */
+.pl-chip.drop-before::before,
+.pl-chip.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 4px; right: 4px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--accent, var(--brand-gold));
+  pointer-events: none;
+}
+.pl-chip.drop-before::before { top: -4px; }
+.pl-chip.drop-after::after { bottom: -4px; }
 .planner-dragging .week-col,
 .planner-dragging .month-cell:not(.empty) { transition: background-color var(--dur-fast), box-shadow var(--dur-fast); }
 .week-col.drop-target,

@@ -881,6 +881,29 @@ const TCFactory = {
     return data;
   },
 
+  // Sposta un evento mantenendo la durata (usato dal trascinamento nel Planner)
+  async moveCalendarEvent(id, dateFrom, dateTo) {
+    const { error } = await supabaseClient.from('calendar_events').update({ date_from: dateFrom, date_to: dateTo }).eq('id', id);
+    if (error) throw error;
+    this._calEvents = this._calEvents.map(e => e.id === id ? { ...e, date_from: dateFrom, date_to: dateTo } : e);
+  },
+
+  // Ordine manuale degli elementi del Planner, condiviso tra tutti: { 'YYYY-MM-DD': ['o:ORD-1', 'e:<id>', …] }
+  getPlannerOrder() {
+    const v = this._settings.planner_order;
+    return v && typeof v === 'object' ? v : {};
+  },
+
+  async savePlannerDay(dateStr, keys, removeFrom = null) {
+    const order = { ...this.getPlannerOrder(), [dateStr]: keys };
+    if (removeFrom && order[removeFrom]) order[removeFrom] = order[removeFrom].filter(k => !keys.includes(k));
+    // Tiene solo gli ultimi 90 giorni e quelli futuri: l'impostazione non cresce all'infinito
+    const limit = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+    Object.keys(order).forEach(d => { if (d < limit || !order[d]?.length) delete order[d]; });
+    this._settings.planner_order = order;
+    await this.setSetting('planner_order', order);
+  },
+
   async deleteCalendarEvent(id) {
     const { error } = await supabaseClient.from('calendar_events').delete().eq('id', id);
     if (error) throw error;
