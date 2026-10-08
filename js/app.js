@@ -13,6 +13,7 @@ const AppState = {
   sortKey: 'data',
   sortDir: 'asc',          // 'asc' | 'desc' — si inverte cliccando l'intestazione della colonna
   filterTags: [],
+  filterCreator: '',       // nickname di chi ha inserito l'ordine ('' = tutti)
   calYear: new Date().getFullYear(),
   calMonth: -1, // -1 = annual, 0-11 = specific month
   calOpen: false,
@@ -275,8 +276,15 @@ function renderOrderList() {
 
   const q = AppState.searchQuery.trim().toLowerCase();
   let filtered = q
-    ? source.filter(o => o.nome.toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q)))
+    ? source.filter(o => o.nome.toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q))
+        || (o.createdBy || '').toLowerCase().includes(q))
     : source;
+
+  // Chi ha inserito almeno un ordine: il filtro compare solo se il dato esiste
+  const creators = [...new Set(TCFactory.getOrders().filter(o => !o.deletedAt && o.createdBy).map(o => o.createdBy))]
+    .sort((a, b) => a.localeCompare(b, 'it'));
+  if (AppState.filterCreator && !creators.includes(AppState.filterCreator)) AppState.filterCreator = '';
+  if (AppState.filterCreator) filtered = filtered.filter(o => o.createdBy === AppState.filterCreator);
 
   if (AppState.filterTags.length > 0) {
     filtered = filtered.filter(o => AppState.filterTags.every(t => o.tags.includes(t)));
@@ -337,7 +345,7 @@ function renderOrderList() {
     </div>` : '';
 
   const emptyMsg =
-    q || AppState.filterTags.length > 0 ? 'Nessun risultato.' :
+    q || AppState.filterTags.length > 0 || AppState.filterCreator ? 'Nessun risultato.' :
     AppState.view === 'archived'       ? 'Nessun ordine archiviato.' :
     AppState.view === 'parziali'       ? 'Nessun ordine parziale.' :
     AppState.view === 'evasione'       ? 'Nessun ordine in evasione.' :
@@ -385,9 +393,14 @@ function renderOrderList() {
         <div class="list-controls">
           <div class="search-box">
             ${Icons.search()}
-            <input type="text" placeholder="Cerca per nome o tag…" value="${escapeHtml(AppState.searchQuery)}" oninput="setSearchQuery(this.value)">
+            <input type="text" placeholder="${creators.length ? 'Cerca nome, tag, autore…' : 'Cerca per nome o tag…'}" value="${escapeHtml(AppState.searchQuery)}" oninput="setSearchQuery(this.value)">
           </div>
-          <select class="form-select" style="width:auto;" onchange="setSortKey(this.value)">
+          ${creators.length ? `
+          <select class="form-select" style="width:auto;" aria-label="Inserito da" onchange="AppState.filterCreator=this.value;renderOrderList()">
+            <option value="">Autore: tutti</option>
+            ${creators.map(c => `<option value="${escapeHtml(c)}" ${AppState.filterCreator === c ? 'selected' : ''}>Autore: ${escapeHtml(c)}</option>`).join('')}
+          </select>` : ''}
+          <select class="form-select" style="width:auto;" aria-label="Ordina per" onchange="setSortKey(this.value)">
             <option value="data"        ${AppState.sortKey==='data'?'selected':''}>Data</option>
             <option value="scadenza"    ${AppState.sortKey==='scadenza'?'selected':''}>Scadenza</option>
           </select>
