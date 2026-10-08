@@ -11,6 +11,7 @@ const AppState = {
   view: 'active',
   searchQuery: '',
   sortKey: 'data',
+  sortDir: 'asc',          // 'asc' | 'desc' — si inverte cliccando l'intestazione della colonna
   filterTags: [],
   calYear: new Date().getFullYear(),
   calMonth: -1, // -1 = annual, 0-11 = specific month
@@ -221,7 +222,15 @@ function renderStats() {
 // ─────────────────────────────────────────────
 
 function setView(v) { AppState.view = v; renderOrderList(); }
-function setSortKey(v) { AppState.sortKey = v; renderOrderList(); }
+function setSortKey(v) { AppState.sortKey = v; AppState.sortDir = 'asc'; renderOrderList(); }
+
+// Clic sull'intestazione: stessa colonna → inverte il verso, altra colonna → crescente
+function toggleSort(key) {
+  if (AppState.sortKey === key) AppState.sortDir = AppState.sortDir === 'asc' ? 'desc' : 'asc';
+  else { AppState.sortKey = key; AppState.sortDir = 'asc'; }
+  renderOrderList();
+  document.querySelector(`.sort-hdr[data-sort="${key}"]`)?.focus();
+}
 
 function setSearchQuery(v) {
   AppState.searchQuery = v;
@@ -283,7 +292,19 @@ function renderOrderList() {
   if (AppState.sortKey === 'priorita') AppState.sortKey = 'scadenza';   // vecchio nome
   if (!['data', 'scadenza'].includes(AppState.sortKey)) AppState.sortKey = 'data';
 
-  const sorted = [...filtered].sort(AppState.sortKey === 'scadenza' ? cmpScadenza : cmpDate);
+  const cmp = AppState.sortKey === 'scadenza' ? cmpScadenza : cmpDate;
+  const dir = AppState.sortDir === 'desc' ? -1 : 1;
+  const sorted = [...filtered].sort((a, b) => dir * cmp(a, b));
+
+  // Intestazione cliccabile con freccia del verso attuale
+  const sortHdr = (key, label, cls) => {
+    const active = AppState.sortKey === key;
+    const arrow  = active ? (AppState.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    const next   = active && AppState.sortDir === 'asc' ? 'decrescente' : 'crescente';
+    return `<div class="${cls} orc-hdr"><button type="button" class="sort-hdr ${active ? 'active' : ''}" data-sort="${key}"
+      onclick="event.stopPropagation();toggleSort('${key}')" aria-label="Ordina per ${label.toLowerCase()} in ordine ${next}"
+      ${active ? `aria-sort="${AppState.sortDir === 'asc' ? 'ascending' : 'descending'}"` : ''}>${label} <span class="sort-arrow" aria-hidden="true">${arrow}</span></button></div>`;
+  };
 
   const isActive   = AppState.view === 'active';
   const isEvasione = AppState.view === 'evasione' || AppState.view === 'parziali';
@@ -328,8 +349,8 @@ function renderOrderList() {
     ? `<div class="order-row-grid order-row-grid--active">
         <div class="orc-name orc-hdr">Nome</div>
         <div class="orc-tags orc-hdr">Tipologia</div>
-        <div class="orc-date orc-hdr">Data creazione</div>
-        <div class="orc-deadline orc-hdr">Scadenza</div>
+        ${sortHdr('data', 'Data creazione', 'orc-date')}
+        ${sortHdr('scadenza', 'Scadenza', 'orc-deadline')}
         <div class="orc-lav orc-hdr">Lavorazione</div>
         <div class="orc-files orc-hdr">Ordine</div>
         <div class="orc-payment orc-hdr">Pagamento</div>
@@ -337,8 +358,8 @@ function renderOrderList() {
     : `<div class="order-row-grid">
         <div class="orc-name orc-hdr">Nome</div>
         <div class="orc-tags orc-hdr">Tipologia</div>
-        <div class="orc-date orc-hdr">Data creazione</div>
-        <div class="orc-deadline orc-hdr">Scadenza</div>
+        ${sortHdr('data', 'Data creazione', 'orc-date')}
+        ${sortHdr('scadenza', 'Scadenza', 'orc-deadline')}
         <div class="orc-lav orc-hdr">${isEvasione ? 'Stampato' : 'Lavorazione'}</div>
         <div class="orc-eva orc-hdr">${isEvasione ? 'Evasione' : 'Spedizione'}</div>
         <div class="orc-files orc-hdr">Ordine</div>
