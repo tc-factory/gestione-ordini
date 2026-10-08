@@ -2386,10 +2386,11 @@ function startOfWeek(d) {
 }
 
 // ── Selettori del Planner (multi-selezione) ──
+// "scadenze" resta l'id interno (preferenze già salvate), in pagina si chiama "Ordini"
 const PLANNER_LAYERS = [
+  { id: 'scadenze', label: 'Ordini',   color: '#ef4444', emoji: '📦' },
   { id: 'ferie',    label: 'Ferie',    color: '#f97316', emoji: '🏖' },
   { id: 'eventi',   label: 'Eventi',   color: '#6366f1', emoji: '📅' },
-  { id: 'scadenze', label: 'Scadenze', color: '#ef4444', emoji: '📦' },
 ];
 
 function loadPlannerLayers() {
@@ -2397,7 +2398,7 @@ function loadPlannerLayers() {
     const saved = JSON.parse(localStorage.getItem(PLANNER_LAYERS_KEY));
     if (Array.isArray(saved)) return saved.filter(id => ['ferie','eventi','scadenze'].includes(id));
   } catch {}
-  return ['ferie', 'eventi', 'scadenze'];
+  return ['scadenze'];   // di default solo gli ordini
 }
 
 function togglePlannerLayer(id) {
