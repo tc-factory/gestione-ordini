@@ -27,12 +27,6 @@ function clientTotals(orders) {
   return { tot, riscosso, daRiscuotere: tot - riscosso };
 }
 
-function clientInitials(c) {
-  // Solo lettere e cifre: "[PROVA] Palestra" → "PP"
-  return TCFactory.clientName(c).split(/\s+/).map(w => w.replace(/[^\p{L}\p{N}]/gu, '')).filter(Boolean)
-    .slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
-}
-
 // Opzioni del menu Cliente nel form ordine
 function renderClientOptions(selectedId) {
   return `<option value="">— Nessun cliente —</option>` +
@@ -98,7 +92,6 @@ function renderClientList() {
       <tr class="data-row" tabindex="0" onclick="Nav.go('clienti','${c.id}')" onkeydown="if(event.key==='Enter')Nav.go('clienti','${c.id}')">
         <td>
           <div class="client-cell">
-            <span class="client-avatar">${escapeHtml(clientInitials(c))}</span>
             <span><strong>${escapeHtml(TCFactory.clientName(c))}</strong>
               <small>${c.tipo === 'privato' ? 'Privato' : 'Azienda'}${c.referente ? ' · ' + escapeHtml(c.referente) : ''}</small></span>
           </div>
@@ -154,7 +147,6 @@ function renderClientDetail(c) {
     <button class="btn btn-ghost btn-sm back-link" onclick="Nav.go('clienti')">${Icons.chevronLeft(14)} Tutti i clienti</button>
 
     <div class="glass-card client-hero">
-      <span class="client-avatar client-avatar-lg">${escapeHtml(clientInitials(c))}</span>
       <div class="client-hero-text">
         <h2>${escapeHtml(TCFactory.clientName(c))}</h2>
         <p>${c.tipo === 'privato' ? 'Privato' : 'Azienda'}${c.partita_iva ? ' · P.IVA ' + escapeHtml(c.partita_iva) : ''}${c.codice_fiscale ? ' · CF ' + escapeHtml(c.codice_fiscale) : ''}</p>
