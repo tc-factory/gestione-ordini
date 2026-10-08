@@ -274,15 +274,16 @@ function renderOrderList() {
   }
 
   // Data: dal più vecchio al più recente, nient'altro.
-  // Priorità: scadenza più vicina prima (deadline, oppure quella automatica), anche se l'ordine è più recente.
+  // Scadenza: scadenza più vicina prima (deadline, oppure quella automatica), anche se l'ordine è più recente.
   const NO_DATE = '9999-12-31';
   const deadlineOf = (o) => TCFactory.getEffectiveDeadline(o)?.date || NO_DATE;
   const cmpDate     = (a, b) => (a.dataOrdine || NO_DATE).localeCompare(b.dataOrdine || NO_DATE);
   const cmpScadenza = (a, b) => deadlineOf(a).localeCompare(deadlineOf(b));
 
-  if (!['data', 'priorita'].includes(AppState.sortKey)) AppState.sortKey = 'data';
+  if (AppState.sortKey === 'priorita') AppState.sortKey = 'scadenza';   // vecchio nome
+  if (!['data', 'scadenza'].includes(AppState.sortKey)) AppState.sortKey = 'data';
 
-  const sorted = [...filtered].sort(AppState.sortKey === 'priorita' ? cmpScadenza : cmpDate);
+  const sorted = [...filtered].sort(AppState.sortKey === 'scadenza' ? cmpScadenza : cmpDate);
 
   const isActive   = AppState.view === 'active';
   const isEvasione = AppState.view === 'evasione' || AppState.view === 'parziali';
@@ -326,22 +327,20 @@ function renderOrderList() {
   const hdrGrid = isActive
     ? `<div class="order-row-grid order-row-grid--active">
         <div class="orc-name orc-hdr">Nome</div>
-        <div class="orc-date orc-hdr">Data</div>
         <div class="orc-tags orc-hdr">Tipologia</div>
-        <div class="orc-lav orc-hdr">Lavorazione</div>
+        <div class="orc-date orc-hdr">Data creazione</div>
         <div class="orc-deadline orc-hdr">Scadenza</div>
-        <div class="orc-priority orc-hdr">Urgenza</div>
+        <div class="orc-lav orc-hdr">Lavorazione</div>
         <div class="orc-files orc-hdr">Ordine</div>
         <div class="orc-payment orc-hdr">Pagamento</div>
       </div>`
     : `<div class="order-row-grid">
         <div class="orc-name orc-hdr">Nome</div>
-        <div class="orc-date orc-hdr">Data</div>
         <div class="orc-tags orc-hdr">Tipologia</div>
+        <div class="orc-date orc-hdr">Data creazione</div>
+        <div class="orc-deadline orc-hdr">Scadenza</div>
         <div class="orc-lav orc-hdr">${isEvasione ? 'Stampato' : 'Lavorazione'}</div>
         <div class="orc-eva orc-hdr">${isEvasione ? 'Evasione' : 'Spedizione'}</div>
-        <div class="orc-deadline orc-hdr">Scadenza</div>
-        <div class="orc-priority orc-hdr">Urgenza</div>
         <div class="orc-files orc-hdr">Ordine</div>
         <div class="orc-payment orc-hdr">Pagamento</div>
       </div>`;
@@ -369,7 +368,7 @@ function renderOrderList() {
           </div>
           <select class="form-select" style="width:auto;" onchange="setSortKey(this.value)">
             <option value="data"        ${AppState.sortKey==='data'?'selected':''}>Data</option>
-            <option value="priorita"    ${AppState.sortKey==='priorita'?'selected':''}>Priorità</option>
+            <option value="scadenza"    ${AppState.sortKey==='scadenza'?'selected':''}>Scadenza</option>
           </select>
         </div>
       </div>
@@ -393,19 +392,17 @@ function setArchiveFilter(f) { AppState.filterArchive = f; renderOrderList(); }
 
 
 function renderOrderRow(o) {
-  const p     = TCFactory.getPriority(o.priorityId);
-  const color = p?.color || '#64748b';
   const view  = AppState.view;
 
-  // Deadline badge
-  let deadlineBadge = '—';
-  let deadlineColor = 'var(--text-muted)';
-  if (o.deadline) {
-    const today = new Date().toISOString().slice(0, 10);
-    const diff  = Math.ceil((new Date(o.deadline + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
-    deadlineColor = diff < 0 ? '#ef4444' : diff <= 3 ? '#ef4444' : diff <= 7 ? '#f97316' : '#6366f1';
-    deadlineBadge = diff < 0 ? `scad. ${Math.abs(diff)}gg` : diff === 0 ? 'oggi' : `${diff}gg`;
+  // Scadenza: deadline impostata o automatica; il colore dice quanto è vicina (niente più "urgenza")
+  const dl = TCFactory.getEffectiveDeadline(o);
+  let deadlineColor = 'var(--text-muted)', deadlineHint = '';
+  if (dl) {
+    const diff = Math.round((new Date(dl.date + 'T00:00:00') - new Date(localISODate(new Date()) + 'T00:00:00')) / 86400000);
+    deadlineColor = diff <= 3 ? '#ef4444' : diff <= 7 ? '#f97316' : 'var(--text-primary)';
+    deadlineHint  = diff < 0 ? `scaduta da ${-diff} gg` : diff === 0 ? 'scade oggi' : `tra ${diff} gg`;
   }
+  const color = dl ? (deadlineColor.startsWith('#') ? deadlineColor : '#94a3b8') : '#94a3b8';
 
   // Tag cliccabili
   const tagPills = o.tags.slice(0, 3).map(t => {
@@ -450,8 +447,12 @@ function renderOrderRow(o) {
       ${payDone && payDate ? `<span style="font-size:0.6rem;color:#22c55e;">${TCFactory.formatDate(payDate,{day:'2-digit',month:'2-digit'})}</span>` : ''}
     </div>`;
 
-  const scadenzaCell = `<div class="orc-deadline" style="color:${deadlineColor};font-size:0.75rem;font-weight:${o.deadline?'700':'400'};">${deadlineBadge}</div>`;
-  const urgenzaCell  = `<div class="orc-priority">${renderPriorityChip(p)}</div>`;
+  const scadenzaCell = dl
+    ? `<div class="orc-deadline" title="${deadlineHint}${dl.auto ? ' · scadenza automatica' : ''}">
+        <span class="deadline-date" style="color:${deadlineColor};">${TCFactory.formatDate(dl.date, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
+        ${dl.auto ? '<span class="deadline-auto">automatica</span>' : ''}
+      </div>`
+    : `<div class="orc-deadline" style="color:var(--text-muted);">—</div>`;
   const ordineCell   = `<div class="orc-files">${filesBtns}${filesExtra}${moduleBtn}</div>`;
 
   // Pill "Esterna" — visibile in tutti i tab se lavorazioneEsterna=true
@@ -491,11 +492,10 @@ function renderOrderRow(o) {
         <div class="order-row-bar" style="background:${color};"></div>
         <div class="order-row-grid order-row-grid--active">
           <div class="orc-name">${escapeHtml(o.nome)}</div>
-          <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           <div class="orc-tags">${tagPills}</div>
-          <div class="orc-lav" style="gap:3px;flex-wrap:wrap;align-items:flex-start;">${lavPills}${externaPill}</div>
+          <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           ${scadenzaCell}
-          ${urgenzaCell}
+          <div class="orc-lav" style="gap:3px;flex-wrap:wrap;align-items:flex-start;">${lavPills}${externaPill}</div>
           ${ordineCell}
           ${paymentCell}
         </div>
@@ -527,16 +527,15 @@ function renderOrderRow(o) {
         <div class="order-row-bar" style="background:${color};"></div>
         <div class="order-row-grid">
           <div class="orc-name">${escapeHtml(o.nome)}</div>
-          <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           <div class="orc-tags">${tagPills}</div>
+          <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
+          ${scadenzaCell}
           <div class="orc-lav" style="flex-direction:column;gap:1px;">
             <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);">Stampato</span>
             <span style="font-size:0.78rem;font-weight:700;color:#22c55e;">${stampatoDate}</span>
             ${buildExternaPill()}
           </div>
           <div class="orc-eva" style="gap:6px;flex-wrap:nowrap;align-items:flex-start;">${evaPills}</div>
-          ${scadenzaCell}
-          ${urgenzaCell}
           ${ordineCell}
           ${paymentCell}
         </div>
@@ -574,12 +573,11 @@ function renderOrderRow(o) {
       <div class="order-row-bar" style="background:${color};"></div>
       <div class="order-row-grid">
         <div class="orc-name">${escapeHtml(o.nome)}</div>
-        <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         <div class="orc-tags">${tagPills}</div>
+        <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
+        ${scadenzaCell}
         <div class="orc-lav" style="gap:3px;flex-wrap:wrap;">${lavPills}${buildExternaPill()}</div>
         <div class="orc-eva" style="gap:4px;flex-wrap:nowrap;">${evaPills}</div>
-        ${scadenzaCell}
-        ${urgenzaCell}
         ${ordineCell}
         ${paymentCell}
       </div>
