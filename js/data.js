@@ -154,6 +154,7 @@ const TCFactory = {
       deletedAt: row.deleted_at || null,
       clientId: row.client_id || null,
       archived: row.archived,
+      createdBy: row.created_by || null,   // scritto dal database alla creazione, non modificabile
       created_at: row.created_at,
       updated_at: row.updated_at,
     };

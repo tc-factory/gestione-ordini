@@ -1172,6 +1172,10 @@ function renderOrderDetail() {
             <span style="font-weight:600;color:${TCFactory.isDeadlinePast(order) && !allLavDone ? 'var(--priority-urgent)' : 'var(--text-primary)'};">${TCFactory.formatDate(order.deadline, { day:'numeric', month:'long', year:'numeric' })}</span>
           </div>` : ''}
           ${order.tags.length > 0 ? `<div><span class="detail-meta-label">Tag</span><div style="display:flex;gap:4px;flex-wrap:wrap;">${order.tags.map(t => renderTagChip(t)).join('')}</div></div>` : ''}
+          ${order.createdBy ? `<div><span class="detail-meta-label">Inserito da</span>
+            <span class="created-by"><span class="user-avatar" aria-hidden="true">${escapeHtml(order.createdBy.charAt(0).toUpperCase())}</span>
+              <strong>${escapeHtml(order.createdBy)}</strong>${order.created_at ? `<span class="created-at"> · ${new Date(order.created_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>` : ''}
+            </span></div>` : ''}
         </div>
 
         ${order.notes ? `<div class="detail-notes">${escapeHtml(order.notes)}</div>` : ''}

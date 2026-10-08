@@ -525,3 +525,19 @@ html.dark .sidebar-profile .user-avatar { background: #FFFFFF; color: #2B2B2E; }
 .sidebar-brand { gap: 8px; }
 html:not(.sidebar-collapsed) .brand-logo { width: 42px; height: 42px; border-radius: 13px; }
 .sidebar-brand .btn-icon { min-width: 32px; min-height: 32px; padding: 6px; }
+
+/* Dettaglio ordine: chi ha inserito l'ordine */
+.created-by { display: inline-flex; align-items: center; gap: 7px; }
+.created-by .user-avatar { width: 22px; height: 22px; font-size: 0.68rem; }
+.created-by .created-at { color: var(--text-muted); font-size: 0.82rem; }
+
+/* Dettaglio ordine: etichetta e valore su due colonne */
+.detail-meta-label {
+  display: inline-block;
+  min-width: 112px;
+  margin-right: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
