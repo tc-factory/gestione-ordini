@@ -33,7 +33,6 @@ const AppState = {
   integrationRows: [],
   settingsPrioOpen: false,
   settingsTagOpen: false,
-  settingsPwdOpen: false,
 };
 
 
@@ -274,24 +273,16 @@ function renderOrderList() {
     filtered = filtered.filter(o => AppState.filterTags.every(t => o.tags.includes(t)));
   }
 
-  const getLavDone = (o) => {
-    const s = o.stages || {};
-    return (s.merceCompleta?.done?1:0) + (s.dtfPronti?.done?1:0) + (s.ordineStampato?.done?1:0);
-  };
-  const cmpDate        = (a, b) => (a.dataOrdine||'').localeCompare(b.dataOrdine||'');
-  const cmpPriorita    = (a, b) => TCFactory.getPriorityRank(a.priorityId) - TCFactory.getPriorityRank(b.priorityId);
-  const cmpAvanzamento = (a, b) => getLavDone(b) - getLavDone(a);
+  // Data: dal più vecchio al più recente, nient'altro.
+  // Priorità: scadenza più vicina prima (deadline, oppure quella automatica), anche se l'ordine è più recente.
+  const NO_DATE = '9999-12-31';
+  const deadlineOf = (o) => TCFactory.getEffectiveDeadline(o)?.date || NO_DATE;
+  const cmpDate     = (a, b) => (a.dataOrdine || NO_DATE).localeCompare(b.dataOrdine || NO_DATE);
+  const cmpScadenza = (a, b) => deadlineOf(a).localeCompare(deadlineOf(b));
 
-  if (!['data','priorita','avanzamento'].includes(AppState.sortKey)) AppState.sortKey = 'data';
+  if (!['data', 'priorita'].includes(AppState.sortKey)) AppState.sortKey = 'data';
 
-  const sorted = [...filtered].sort((a, b) => {
-    switch (AppState.sortKey) {
-      case 'data':        return cmpDate(a,b)        || cmpAvanzamento(a,b) || cmpPriorita(a,b);
-      case 'priorita':    return cmpPriorita(a,b)    || cmpAvanzamento(a,b) || cmpDate(a,b);
-      case 'avanzamento': return cmpAvanzamento(a,b) || cmpPriorita(a,b)   || cmpDate(a,b);
-      default: return 0;
-    }
-  });
+  const sorted = [...filtered].sort(AppState.sortKey === 'priorita' ? cmpScadenza : cmpDate);
 
   const isActive   = AppState.view === 'active';
   const isEvasione = AppState.view === 'evasione' || AppState.view === 'parziali';
@@ -379,7 +370,6 @@ function renderOrderList() {
           <select class="form-select" style="width:auto;" onchange="setSortKey(this.value)">
             <option value="data"        ${AppState.sortKey==='data'?'selected':''}>Data</option>
             <option value="priorita"    ${AppState.sortKey==='priorita'?'selected':''}>Priorità</option>
-            <option value="avanzamento" ${AppState.sortKey==='avanzamento'?'selected':''}>Avanzamento</option>
           </select>
         </div>
       </div>
@@ -1904,20 +1894,6 @@ function renderSettingsDialog() {
           </div>` : ''}
         </div>
 
-        ${TCAuth.isLoggedIn() ? `
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          ${sectionBtn('La mia password', Icons.lock(14), AppState.settingsPwdOpen, 'toggleSettingsPwd')}
-          ${AppState.settingsPwdOpen ? `
-          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
-            <div class="settings-section-hint">Inserisci la password attuale per confermarne il cambio.</div>
-            <input id="pwd-old"  type="password" class="form-input" placeholder="Password attuale">
-            <input id="pwd-new1" type="password" class="form-input" placeholder="Nuova password (min. ${MIN_PASSWORD_LENGTH} caratteri)">
-            <input id="pwd-new2" type="password" class="form-input" placeholder="Ripeti nuova password"
-              onkeydown="if(event.key==='Enter')doChangePassword()">
-            <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="doChangePassword()">Aggiorna password</button>
-          </div>` : ''}
-        </div>
-        ` : ''}
 
       </div>
     </div>
@@ -1937,7 +1913,6 @@ async function saveAutoDeadlineDays() {
 
 function toggleSettingsPrio()  { AppState.settingsPrioOpen  = !AppState.settingsPrioOpen;  renderSettingsDialog(); }
 function toggleSettingsTag()   { AppState.settingsTagOpen   = !AppState.settingsTagOpen;   renderSettingsDialog(); }
-function toggleSettingsPwd()   { AppState.settingsPwdOpen   = !AppState.settingsPwdOpen;   renderSettingsDialog(); }
 
 async function renderCestinoSection(container) {
   const trashed = TCFactory.getTrashedOrders();
@@ -2005,21 +1980,6 @@ async function permanentDeleteConfirm(id) {
     const b = document.getElementById('cestino-body');
     if (b) renderCestinoSection(b);
   } catch(e) { showToast(e.message || 'Errore', 'error'); }
-}
-
-async function doChangePassword() {
-  const oldPwd = document.getElementById('pwd-old')?.value;
-  const newPwd = document.getElementById('pwd-new1')?.value;
-  const repPwd = document.getElementById('pwd-new2')?.value;
-  if (!oldPwd || !newPwd) { showToast('Compila tutti i campi', 'error'); return; }
-  if (newPwd !== repPwd)  { showToast('Le nuove password non coincidono', 'error'); return; }
-  if (newPwd.length < MIN_PASSWORD_LENGTH) { showToast(`Minimo ${MIN_PASSWORD_LENGTH} caratteri`, 'error'); return; }
-  try {
-    await TCAuth.changePassword(oldPwd, newPwd);
-    showToast('Password aggiornata ✓');
-    AppState.settingsPwdOpen = false;
-    renderSettingsDialog();
-  } catch(e) { showToast(e.message, 'error'); }
 }
 
 // ─────────────────────────────────────────────
