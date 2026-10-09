@@ -18,6 +18,9 @@ const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf
 const DtfMisure = {
   rollCm()   { const v = parseFloat(TCFactory._settings.dtf_roll_cm);   return v > 0 ? v : 57; },
   marginCm() { const v = parseFloat(TCFactory._settings.dtf_margin_cm); return v >= 0 ? v : 0.5; },
+  // Interno: velocità della stampante (m/ora) e costo al metro (0 = non impostato)
+  speedMh()     { const v = parseFloat(TCFactory._settings.dtf_speed_mh); return v > 0 ? v : 8; },
+  costInterno() { const v = parseFloat(TCFactory._settings.dtf_cost_m);   return v > 0 ? v : 0; },
 
   // "logo_10pz.png", "logo 10 pz.pdf", "pz10_logo.png" → 10
   parsePz(name) {

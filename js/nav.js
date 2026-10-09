@@ -172,7 +172,7 @@ function renderSidebar() {
     </div>
 
     <nav class="sidebar-nav">
-      ${visible.map(navLink).join('')}
+      ${visible.map(i => navLink(i) + (i.id === 'dtf' && Nav.current === 'dtf' ? dtfSubNav() : '')).join('')}
     </nav>
 
     <div class="sidebar-footer">
@@ -249,6 +249,23 @@ function openMoreSheet() {
   sheet.onclick = (e) => { if (e.target === sheet) closeModal('more-sheet'); };
 }
 
+// Sottosezioni di DTF (compaiono aprendo DTF)
+const DTF_SECTIONS = [
+  { id: 'interno', label: 'Interno' },
+  { id: 'terzi',   label: 'Conto terzi' },
+];
+const dtfSection = () => (DTF_SECTIONS.some(s => s.id === Nav.param) ? Nav.param : 'interno');
+
+function dtfSubNav() {
+  return `<div class="nav-sub" role="group" aria-label="Sezioni DTF">
+    ${DTF_SECTIONS.map(s => {
+      const active = dtfSection() === s.id;
+      return `<a href="#/dtf/${s.id}" class="nav-sub-item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}
+        onclick="event.preventDefault();Nav.go('dtf','${s.id}')">${s.label}</a>`;
+    }).join('')}
+  </div>`;
+}
+
 // Barra in alto: titolo della sezione + azioni contestuali
 function renderHeader() {
   const root = document.getElementById('header-root');
@@ -259,15 +276,19 @@ function renderHeader() {
     ? `<button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>`
     : Nav.current === 'planner'
     ? `<button class="btn btn-primary" onclick="openCalEventDialog(null,null)">${Icons.plus()} <span class="new-order-btn-text">Nuovo evento</span></button>`
+    : Nav.current === 'dtf'
+    ? `<div class="segmented dtf-tabs" role="tablist" aria-label="Sezioni DTF">${DTF_SECTIONS.map(s =>
+        `<button role="tab" aria-selected="${dtfSection() === s.id}" class="${dtfSection() === s.id ? 'active' : ''}" onclick="Nav.go('dtf','${s.id}')">${s.label}</button>`).join('')}</div>`
     : Nav.current === 'clienti' && !Nav.param && TCFactory.isClientsAvailable()
     ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
     : '';
 
+  const sub = Nav.current === 'dtf' ? DTF_SECTIONS.find(x => x.id === dtfSection()) : null;
   root.innerHTML = `
     <button class="btn-icon menu-toggle" onclick="Nav.openDrawer()" aria-label="Apri menu">${Icons.menu()}</button>
     <div class="toolbar-title">
-      <h1 id="toolbar-title" tabindex="-1">${item.label}</h1>
-      <p>${item.subtitle}</p>
+      <h1 id="toolbar-title" tabindex="-1">${sub ? `DTF · ${sub.label}` : item.label}</h1>
+      <p>${sub ? (sub.id === 'interno' ? 'Ordini da stampare: file, metri, tempo e costo' : 'Stampe per clienti esterni') : item.subtitle}</p>
     </div>
     <div class="app-header-actions">
       ${actions}
