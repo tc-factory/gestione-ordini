@@ -189,6 +189,7 @@ function renderApp() {
   // Sezioni che dipendono da ordini/clienti: si aggiornano anche in tempo reale
   if (Nav.current === 'cestino') renderCestinoPage();
   if (Nav.current === 'planner') renderCalendarSection();
+  if (Nav.current === 'dtf')     renderDtfInterno();
   if (Nav.current === 'clienti') renderClientsPage();
   if (Nav.current === 'cassa')   renderCassaPage();
 }

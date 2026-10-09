@@ -33,6 +33,13 @@
         <div id="orderlist-root"></div>
       </section>
 
+      <section class="view" id="view-dtf" data-view="dtf" hidden>
+        <div class="dtf-grid">
+          <div class="glass-card page-card dtf-box" id="dtf-interno-root"></div>
+          <div class="glass-card page-card dtf-box" id="dtf-terzi-root"></div>
+        </div>
+      </section>
+
       <section class="view" id="view-clienti" data-view="clienti" hidden>
         <div id="clienti-root"></div>
       </section>
@@ -68,6 +75,8 @@
   <div id="client-link-modal" class="modal-overlay"></div>
   <div id="more-sheet" class="modal-overlay"></div>
   <div id="pwd-modal" class="modal-overlay"></div>
+  <div id="dtf-detail-modal" class="modal-overlay"></div>
+  <div id="dtf-client-modal" class="modal-overlay"></div>
 
   <!-- Login overlay — visibile finché non si è autenticati -->
   <div id="login-overlay" class="login-overlay" style="display:none;"></div>
@@ -83,6 +92,7 @@
   <script src="js/clienti.js"></script>
   <script src="js/cassa.js"></script>
   <script src="js/supporto.js"></script>
+  <script src="js/dtf.js"></script>
   <script src="js/nav.js"></script>
   <script>
     Theme.init();

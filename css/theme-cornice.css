@@ -575,3 +575,174 @@ html.dark { --urgent-bg: #3A1F22; --urgent-bg-hover: #452428; }
 .sort-hdr.active { color: var(--text-primary); }
 .sort-arrow { font-size: 0.8rem; opacity: 0.45; }
 .sort-hdr.active .sort-arrow { opacity: 1; }
+
+/* ═══════════════════════════════════════════════
+   DTF — Interno (timeline) e Conto terzi (calendario)
+   ═══════════════════════════════════════════════ */
+
+.dtf-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-lg); align-items: start; }
+@media (max-width: 1200px) { .dtf-grid { grid-template-columns: 1fr; } }
+
+.dtf-box { padding: 20px 22px 22px; overflow: visible; }
+.dtf-box-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.dtf-box-head h2 { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; }
+.dtf-box-head p { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+
+/* ── Interno ── */
+.dtf-box { container-type: inline-size; }
+.dtf-interno { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+/* La colonna "Stampati e rimossi" va a destra solo se il riquadro è abbastanza largo, altrimenti sotto */
+@container (min-width: 820px) {
+  .dtf-interno.side-open { grid-template-columns: minmax(0, 1fr) 270px; }
+}
+
+.dtf-timeline { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
+.dtf-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 12px;
+  border-radius: 16px;
+  background: var(--bg-primary);
+  cursor: grab;
+  transition: background-color var(--transition), box-shadow var(--transition), opacity var(--transition);
+}
+.dtf-item:hover { box-shadow: var(--shadow-sm); }
+.dtf-item:active { cursor: grabbing; }
+.dtf-item.dragging { opacity: 0.35; }
+.dtf-item.dtf-urgent { background: var(--urgent-bg); }
+.dtf-item.drop-before::before,
+.dtf-item.drop-after::after {
+  content: ''; position: absolute; left: 10px; right: 10px; height: 3px; border-radius: 3px;
+  background: var(--accent); pointer-events: none;
+}
+.dtf-item.drop-before::before { top: -6px; }
+.dtf-item.drop-after::after { bottom: -6px; }
+
+.dtf-pos {
+  width: 24px; height: 24px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 0.72rem; font-weight: 700;
+}
+.dtf-when { display: flex; flex-direction: column; align-items: center; min-width: 46px; line-height: 1.15; }
+.dtf-when strong { font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.dtf-when span { font-size: 0.68rem; color: var(--text-muted); text-transform: capitalize; }
+.dtf-when.late strong { color: #DC2626; }
+
+.dtf-main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: flex-start;
+  border: none; background: none; padding: 0;
+  color: var(--text-primary); font-family: var(--font-body); text-align: left; cursor: pointer;
+}
+.dtf-main strong { font-size: 0.9rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtf-main span { font-size: 0.74rem; color: var(--text-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtf-main:hover strong { text-decoration: underline; }
+
+.dtf-done-btn { background: #DDF3E4; color: #15803D; flex-shrink: 0; }
+.dtf-done-btn:hover:not(:disabled) { background: #C9EDD5; }
+html.dark .dtf-done-btn { background: #163222; color: #4ADE80; }
+.dtf-remove { min-width: 30px; min-height: 30px; padding: 6px; flex-shrink: 0; color: var(--text-muted); }
+
+.dtf-side { background: var(--bg-primary); border-radius: 16px; padding: 12px; }
+.dtf-side h3 { font-size: 0.8rem; font-weight: 700; margin: 4px 2px 8px; }
+.dtf-side h3 small { font-weight: 500; color: var(--text-muted); }
+.dtf-side h3 + ul, .dtf-side h3 + p { margin-bottom: 14px; }
+.dtf-side ul { list-style: none; display: flex; flex-direction: column; gap: 6px; padding: 0; }
+.dtf-side-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg-card); border-radius: 12px; }
+.dtf-side-row div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dtf-side-row strong { font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtf-side-row span { font-size: 0.7rem; color: var(--text-muted); }
+.dtf-side-empty { font-size: 0.78rem; color: var(--text-muted); padding: 0 2px; }
+
+/* ── Conto terzi ── */
+.dtf-save { font-size: 0.75rem; }
+.dtf-save.saving { color: var(--accent-ink); }
+.dtf-save.saved { color: #15803D; }
+html.dark .dtf-save.saved { color: #4ADE80; }
+
+.dtf-clients { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+.dtf-clients .form-select { flex: 1; min-width: 0; }
+.dtf-add { width: 40px; height: 40px; padding: 0; border-radius: 50% !important; justify-content: center; }
+
+.dtf-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.dtf-kpi { background: var(--bg-primary); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.dtf-kpi span { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; }
+.dtf-kpi strong { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.dtf-kpi-total { background: var(--ink); color: #FFFFFF; }
+.dtf-kpi-total span { color: rgba(255, 255, 255, 0.7); }
+
+.dtf-month-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.dtf-month-nav strong { text-transform: capitalize; min-width: 140px; text-align: center; }
+.dtf-month-nav .btn { margin-left: auto; }
+
+.dtf-calendar {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: max(360px, calc(100vh - 430px));
+  overflow-y: auto;
+  padding-right: 4px;
+  scroll-behavior: smooth;
+}
+.dtf-day {
+  display: grid;
+  grid-template-columns: 54px 130px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: var(--bg-primary);
+}
+.dtf-day.weekend { opacity: 0.7; }
+.dtf-day.today { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); opacity: 1; }
+.dtf-day-date { display: flex; align-items: baseline; gap: 5px; }
+.dtf-day-date strong { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.dtf-day-date span { font-size: 0.7rem; color: var(--text-muted); text-transform: capitalize; }
+.dtf-metri { display: flex; align-items: center; gap: 6px; }
+.dtf-metri input { padding: 6px 10px; text-align: right; font-variant-numeric: tabular-nums; }
+.dtf-metri span { font-size: 0.78rem; color: var(--text-muted); }
+.dtf-detail-btn {
+  min-width: 0;
+  text-align: left;
+  border: none;
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: flex; align-items: center; gap: 6px;
+}
+.dtf-detail-btn:hover { color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.dtf-detail-btn.has-files { color: var(--text-primary); }
+.dtf-detail-btn span { font-weight: 500; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
+
+.dtf-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 22px 16px;
+  border-radius: 16px;
+  background: var(--bg-secondary);
+  box-shadow: inset 0 0 0 2px transparent;
+  color: var(--text-muted);
+  text-align: center;
+  transition: background-color var(--transition), box-shadow var(--transition);
+}
+.dtf-drop strong { color: var(--text-primary); font-size: 0.9rem; }
+.dtf-drop span { font-size: 0.75rem; }
+.dtf-drop.over { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); color: var(--accent-ink); }
+
+@media (max-width: 640px) {
+  .dtf-box { padding: 16px 14px; }
+  .dtf-item { flex-wrap: wrap; }
+  .dtf-main { flex-basis: calc(100% - 100px); }
+  .dtf-done-btn { margin-left: 36px; }
+  .dtf-summary { grid-template-columns: 1fr 1fr; }
+  .dtf-kpi-total { grid-column: 1 / -1; }
+  .dtf-day { grid-template-columns: 46px 104px minmax(0, 1fr); gap: 6px; }
+  .dtf-calendar { max-height: none; }
+}
