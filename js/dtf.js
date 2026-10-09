@@ -280,7 +280,8 @@ function renderDtfTerzi() {
           ? DtfState.clients.map(x => `<option value="${x.id}" ${x.id === DtfState.clientId ? 'selected' : ''}>${escapeHtml(x.nome)} · ${euro(x.costo_metro)}/m</option>`).join('')
           : '<option>Nessun cliente</option>'}
       </select>
-      ${c ? `<button type="button" class="btn-icon" onclick="dtfOpenClientForm('${c.id}')" aria-label="Modifica cliente" title="Modifica cliente">${Icons.edit(16)}</button>` : ''}
+      ${c ? `<button type="button" class="btn-icon" onclick="dtfCopyLink('${c.id}')" aria-label="Copia il link per il cliente" title="Copia il link di sola lettura per il cliente">${Icons.link(16)}</button>
+      <button type="button" class="btn-icon" onclick="dtfOpenClientForm('${c.id}')" aria-label="Modifica cliente" title="Modifica cliente">${Icons.edit(16)}</button>` : ''}
       <button type="button" class="btn btn-primary btn-icon dtf-add" onclick="dtfOpenClientForm()" aria-label="Aggiungi cliente" title="Aggiungi cliente">${Icons.plus(16)}</button>
     </div>`;
 
@@ -469,6 +470,21 @@ function dtfOpenClientForm(id = null) {
           <input id="dtf-c-costo" class="form-input" inputmode="decimal" required value="${c ? String(c.costo_metro).replace('.', ',') : ''}" placeholder="es. 6,50"></div>
         <div class="form-group"><label class="form-label" for="dtf-c-note">Note</label>
           <textarea id="dtf-c-note" class="form-textarea" rows="3">${escapeHtml(c?.note || '')}</textarea></div>
+        <div class="dtf-access">
+          <div class="form-group"><label class="form-label" for="dtf-c-pwd">Password per il cliente</label>
+            <input id="dtf-c-pwd" type="password" class="form-input" autocomplete="new-password" minlength="8"
+              placeholder="${c ? 'Lascia vuoto per non cambiarla' : 'Almeno 8 caratteri (facoltativa)'}">
+            <span class="settings-section-hint" style="margin:4px 0 0;" id="dtf-c-pwd-state">${c ? 'Verifica in corso…' : 'Con la password il cliente può vedere la sua tabella in sola lettura.'}</span>
+          </div>
+          ${c ? `<div class="dtf-link-box" id="dtf-c-link" hidden>
+            <label class="form-label" for="dtf-c-link-input">Link di sola lettura</label>
+            <div class="dtf-link-row">
+              <input id="dtf-c-link-input" class="form-input" readonly onfocus="this.select()">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="dtfCopyLink('${c.id}')">${Icons.link(14)} Copia</button>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="dtfRegenerateLink('${c.id}')">Genera un nuovo link (il vecchio smette di funzionare)</button>
+          </div>` : ''}
+        </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;">
           ${c ? `<button type="button" class="btn btn-ghost btn-sm" style="color:var(--priority-urgent);margin-right:auto;" onclick="dtfDeleteClient('${c.id}')">${Icons.trash(14)} Elimina</button>` : ''}
           <button type="button" class="btn btn-secondary" onclick="closeModal('dtf-client-modal')">Annulla</button>
@@ -479,13 +495,61 @@ function dtfOpenClientForm(id = null) {
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('dtf-client-modal'); };
   setTimeout(() => document.getElementById('dtf-c-nome')?.focus(), 50);
+  if (c) dtfLoadAccess(c.id);
+}
+
+// ── Link di sola lettura per il cliente (portale) ──
+
+function dtfPortalUrl(token) {
+  return new URL('cliente-dtf.html', location.href.split('#')[0]).href + '#' + token;
+}
+
+async function dtfAccessRpc(fn, args) {
+  const { data, error } = await supabaseClient.rpc(fn, args);
+  if (error) throw new Error('Errore di connessione');
+  if (!data?.success) throw new Error(data?.error || 'Errore');
+  return data;
+}
+
+function dtfShowAccess(info) {
+  const state = document.getElementById('dtf-c-pwd-state');
+  if (state) state.textContent = info.has_password
+    ? 'Password impostata: il cliente può accedere con il link qui sotto.'
+    : 'Nessuna password: imposta una password per attivare il link del cliente.';
+  const box = document.getElementById('dtf-c-link');
+  if (box) { box.hidden = !info.has_password; document.getElementById('dtf-c-link-input').value = dtfPortalUrl(info.token); }
+}
+
+async function dtfLoadAccess(clientId) {
+  try { dtfShowAccess(await dtfAccessRpc('dtf_access_info', { p_client_id: clientId })); }
+  catch (e) { const s = document.getElementById('dtf-c-pwd-state'); if (s) s.textContent = e.message; }
+}
+
+async function dtfCopyLink(clientId) {
+  try {
+    const info = await dtfAccessRpc('dtf_access_info', { p_client_id: clientId });
+    if (!info.has_password) { showToast('Prima imposta una password per questo cliente', 'error'); dtfOpenClientForm(clientId); return; }
+    const url = dtfPortalUrl(info.token);
+    try { await navigator.clipboard.writeText(url); showToast('Link copiato: invialo al cliente insieme alla password'); }
+    catch { prompt('Copia il link per il cliente:', url); }
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function dtfRegenerateLink(clientId) {
+  if (!confirm('Generare un nuovo link?\n\nIl link attuale smetterà subito di funzionare: dovrai inviare al cliente quello nuovo.')) return;
+  try {
+    dtfShowAccess(await dtfAccessRpc('dtf_regenerate_link', { p_client_id: clientId }));
+    showToast('Nuovo link generato');
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 async function dtfSubmitClient(id) {
   const nome = document.getElementById('dtf-c-nome').value.trim();
   const costoRaw = document.getElementById('dtf-c-costo').value.trim();
   const note = document.getElementById('dtf-c-note').value.trim();
+  const pwd = document.getElementById('dtf-c-pwd').value;
   const costo = parseFloat(costoRaw.replace(',', '.'));
+  if (pwd && pwd.length < 8) { showToast('La password deve avere almeno 8 caratteri', 'error'); document.getElementById('dtf-c-pwd').focus(); return; }
   if (!nome) { showToast('Inserisci il nome', 'error'); return; }
   if (!Number.isFinite(costo) || costo < 0) { showToast('Costo al metro non valido', 'error'); document.getElementById('dtf-c-costo').focus(); return; }
 
@@ -497,8 +561,11 @@ async function dtfSubmitClient(id) {
       ? await supabaseClient.from('dtf_clients').update(payload).eq('id', id).select().single()
       : await supabaseClient.from('dtf_clients').insert(payload).select().single();
     if (res.error) throw res.error;
+    if (pwd) await dtfAccessRpc('dtf_set_password', { p_client_id: res.data.id, p_password: pwd });
     closeModal('dtf-client-modal');
-    showToast(id ? 'Cliente aggiornato' : `Cliente "${nome}" aggiunto`);
+    showToast(pwd
+      ? `${id ? 'Cliente aggiornato' : `Cliente "${nome}" aggiunto`} · password ${id ? 'cambiata' : 'impostata'}: copia il link con 🔗`
+      : (id ? 'Cliente aggiornato' : `Cliente "${nome}" aggiunto`));
     await dtfLoadClients();
     if (!id) { DtfState.clientId = res.data.id; dtfLs.set(DTF_CLIENT_KEY, res.data.id); }
     await dtfReloadTerzi(!id);
