@@ -220,11 +220,14 @@ const TCFactory = {
 
   // Attivi: non archiviati e non spediti parzialmente
   // Attivi: non archiviati e non ancora stampati
-  getActiveOrders()         { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !o.stages?.ordineStampato?.done); },
+  // Ordine NEUTRO (nessuna lavorazione): niente Attivi/Parziali, va direttamente in Evasione
+  isNeutro(o)               { return !!o?.orderModule?.neutro; },
+  getActiveOrders()         { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && !o.stages?.ordineStampato?.done); },
   // Parziali: stampati senza merce completa (lavorazione parziale)
-  getParziali()             { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !!o.stages?.ordineStampato?.done && !o.stages?.merceCompleta?.done && !o.stages?.spedito?.done); },
+  getParziali()             { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && !!o.stages?.ordineStampato?.done && !o.stages?.merceCompleta?.done && !o.stages?.spedito?.done); },
   // Evasione: merce completa + stampati, non ancora evasi
-  getEvasioneOrders()       { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !!o.stages?.ordineStampato?.done && !!o.stages?.merceCompleta?.done && !o.stages?.spedito?.done); },
+  getEvasioneOrders()       { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !o.stages?.spedito?.done
+                                && (this.isNeutro(o) || (!!o.stages?.ordineStampato?.done && !!o.stages?.merceCompleta?.done))); },
   // Compat (non più usato come tab)
   getPartialOrders()        { return this.getOrders().filter(o => !o.archived && o.stages?.speditoParzialmente?.done && !o.stages?.spedito?.done); },
   // Da riscuotere: evasi ma NON ancora pagati (il promemoria "hai spedito senza farti pagare")

@@ -10,7 +10,7 @@ const EsterneState = { tab: 'todo' };
 const DA_SPECIFICARE = '__nd';
 
 function esterneGroups() {
-  const orders = TCFactory.getOrders().filter(o => !o.deletedAt && !o.archived);
+  const orders = TCFactory.getOrders().filter(o => !o.deletedAt && !o.archived && !TCFactory.isNeutro(o));
   const groups = new Map();   // id lavorazione → { nome, items: [{ order, rows }] }
   const add = (id, nome, order, rows) => {
     if (!groups.has(id)) groups.set(id, { id, nome, items: [] });
