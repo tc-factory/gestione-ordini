@@ -239,7 +239,7 @@ async function unlinkOrderConfirm(orderId) {
 
 let _clientFormCallback = null;
 
-function openClientForm(id = null, onSaved = null) {
+function openClientForm(id = null, onSaved = null, prefill = '') {
   const c = id ? TCFactory.getClient(id) : null;
   _clientFormCallback = onSaved;
   ClientState.formTipo = c?.tipo || 'azienda';
@@ -314,6 +314,7 @@ function openClientForm(id = null, onSaved = null) {
   setClientFormTipo(ClientState.formTipo);
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('client-form-modal'); };
+  if (!c && prefill) { const f = document.getElementById('cf-ragione_sociale'); if (f) f.value = prefill; }
   setTimeout(() => document.getElementById(ClientState.formTipo === 'azienda' ? 'cf-ragione_sociale' : 'cf-nome')?.focus(), 50);
 }
 
