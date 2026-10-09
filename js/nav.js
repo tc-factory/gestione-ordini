@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
   { id: 'dtf',          label: 'DTF',           subtitle: 'Stampa interna e conto terzi',  icon: () => Icons.printer(19) },
+  { id: 'esterne',      label: 'Lavorazioni esterne', subtitle: 'Ordini con lavorazione esterna, per tipo', icon: () => Icons.truck(19) },
   { id: 'clienti',      label: 'Clienti',       subtitle: 'Anagrafica clienti',            icon: () => Icons.users(19) },
   { id: 'cassa',        label: 'Cassa',         subtitle: 'Incassi e pagamenti',           icon: () => Icons.wallet(19), allowed: () => TCAuth.canViewEconomics() },
   { id: 'staff',        label: 'Staff',         subtitle: 'Account e registro modifiche',  icon: () => Icons.idBadge(19), allowed: () => TCAuth.isAdmin() },
@@ -111,6 +112,7 @@ function renderCurrentView() {
   switch (Nav.current) {
     case 'dtf':          openDtfPage(); break;
     case 'planner':      renderCalendarSection(); break;
+    case 'esterne':      renderEsternePage(); break;
     case 'clienti':      renderClientsPage(); break;
     case 'cassa':        renderCassaPage(); break;
     case 'staff':        renderStaffPage(); break;

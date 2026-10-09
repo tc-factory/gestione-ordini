@@ -190,6 +190,7 @@ function renderApp() {
   if (Nav.current === 'cestino') renderCestinoPage();
   if (Nav.current === 'planner') renderCalendarSection();
   if (Nav.current === 'dtf')     renderDtfInterno();
+  if (Nav.current === 'esterne') renderEsternePage();
   if (Nav.current === 'clienti') renderClientsPage();
   if (Nav.current === 'cassa')   renderCassaPage();
 }
@@ -713,7 +714,7 @@ function previewOrderModule(orderId) {
       <td style="padding:7px 10px;text-align:right;">${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.ordinato ? '✓' : ''}</td>
-      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.lavEsterna ? '✓' : ''}</td>
+      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:0.8rem;font-weight:600;">${escapeHtml(modRowEsterna(r))}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.neutro ? '✓' : ''}</td>
     </tr>`;
   };
@@ -787,8 +788,7 @@ function downloadOrderModule(orderId) {
   const notes   = order?.notes || document.getElementById('of-notes')?.value || '';
   const total   = rows.reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
   const saldo   = total - acconto;
-  const priId   = order?.priorityId || document.getElementById('of-priority-picker')?.dataset?.selected || '';
-  const isUrgent = TCFactory.getPriority(priId)?.id === 'urgente';
+  const isUrgent = order ? isUrgentOrder(order) : !!document.getElementById('of-urgent')?.checked;
   const tags    = order?.tags || AppState.formTags || [];
   const dl      = order?.deadline || document.getElementById('of-deadline')?.value || '';
 
@@ -827,7 +827,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
     const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
     return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
       r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
-      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : '', r.lavEsterna ? 'SI' : '', r.neutro ? 'SI' : ''];
+      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : '', modRowEsterna(r, 'SI'), r.neutro ? 'SI' : ''];
   };
   const autoTableStyle = {
     styles: { fontSize: 9, cellPadding: 2 },
@@ -909,7 +909,7 @@ ${tagsHtml ? `<br><strong>Tipologia:</strong> ${tagsHtml}` : ''}</div></div>
 ${isUrgent ? `<div class="urg">⚠️ URGENTE</div>` : ''}</div>
 <table><thead><tr><th>Catalogo</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th><th style="text-align:center">Lav. est.</th><th style="text-align:center">Neutro</th></tr></thead><tbody>
 ${(() => {
-    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td><td style="text-align:center;color:#16a34a">${r.lavEsterna?'✓':''}</td><td style="text-align:center;color:#16a34a">${r.neutro?'✓':''}</td></tr>`; };
+    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td><td style="text-align:center;color:#16a34a">${escapeHtml(modRowEsterna(r))}</td><td style="text-align:center;color:#16a34a">${r.neutro?'✓':''}</td></tr>`; };
     const integHeaderHtml = '<tr><td colspan="11" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>';
     const { base, integ } = splitModuleRows(rows);
     return rows.length ? base.map(rowHtml).join('') + (integ.length ? integHeaderHtml + integ.map(rowHtml).join('') : '') : '<tr><td colspan="11" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
@@ -1310,9 +1310,13 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
   AppState.formModuleAcconto = mod.acconto || '';
 
   const isEdit    = !!order;
-  const priorities = TCFactory.getPriorities();
   const tags       = TCFactory.getTags();
   const modal      = document.getElementById('order-form-modal');
+  // Urgente o normale: niente altre priorità nel form
+  const isUrgent   = order ? isUrgentOrder(order) : false;
+  AppState.formLavEsterna = !!order?.lavorazioneEsterna;
+  AppState.formClientId   = order?.clientId || defaultClientId || null;
+  const clientName = !order && defaultClientId ? TCFactory.clientName(TCFactory.getClient(defaultClientId)) : '';
 
   modal.innerHTML = `
     <div class="modal" style="max-width:min(1100px, 95vw);">
@@ -1320,66 +1324,48 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
         <h2>${isEdit ? 'Modifica ordine' : 'Nuovo ordine'}</h2>
         <button class="btn-icon" onclick="closeModal('order-form-modal')">${Icons.x()}</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body order-form">
 
-        <div class="form-group">
-          <label class="form-label">Nome ordine *</label>
-          <input id="of-nome" class="form-input" placeholder="es. Polo Staff T&C" value="${escapeHtml(order?.nome || '')}">
+        <div class="of-grid of-grid-2">
+          <div class="form-group of-client-group">
+            <label class="form-label" for="of-nome">Cliente *</label>
+            <div class="of-client-field">
+            <input id="of-nome" class="form-input" autocomplete="off" placeholder="Scrivi il nome del cliente…" value="${escapeHtml(order?.nome || clientName)}"
+              role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="of-client-suggest"
+              oninput="ofClientInput(this.value)" onkeydown="ofClientKey(event)" onfocus="ofClientInput(this.value, true)" onblur="setTimeout(ofCloseSuggest, 150)">
+            <ul id="of-client-suggest" class="of-suggest" role="listbox" hidden></ul>
+            </div>
+            <span class="of-client-linked" id="of-client-linked"></span>
+          </div>
+          <div class="form-group">
+            <span class="form-label" id="of-tag-label">Tipologia *</span>
+            <div class="chip-picker" id="of-tag-picker" role="group" aria-labelledby="of-tag-label">
+              ${tags.map(t => renderTagPickerChip(t)).join('')}
+            </div>
+          </div>
         </div>
 
-        ${TCFactory.isClientsAvailable() ? `
-        <div class="form-group">
-          <label class="form-label" for="of-client">Cliente</label>
-          <div style="display:flex;gap:8px;">
-            <select id="of-client" class="form-select">${renderClientOptions(order?.clientId || defaultClientId)}</select>
-            <button type="button" class="btn btn-secondary" onclick="openClientForm(null, (c) => { const sel = document.getElementById('of-client'); if (sel) sel.innerHTML = renderClientOptions(c.id); })">${Icons.plus()} Nuovo</button>
-          </div>
-        </div>` : ''}
-
-        <div class="form-row">
+        <div class="of-grid of-grid-3">
           <div class="form-group">
-            <label class="form-label">Data ordine *</label>
+            <label class="form-label" for="of-data">Data ordine *</label>
             <input id="of-data" type="date" class="form-input" value="${order?.dataOrdine || TCFactory.getDefaultDate()}">
           </div>
           <div class="form-group">
-            <label class="form-label">Deadline</label>
+            <label class="form-label" for="of-deadline">Deadline</label>
             <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}">
           </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Importo <span style="font-size:0.72rem;color:var(--text-muted);">(auto dal modulo se compilato)</span></label>
-          <div style="position:relative;">
-            <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-weight:600;">€</span>
-            <input id="of-importo" type="number" class="form-input" style="padding-left:28px;" step="0.01" min="0"
-              value="${order?.importo || ''}" placeholder="0.00">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Priorità</label>
-          <div class="chip-picker" id="of-priority-picker" data-selected="">
-            ${priorities.map(p => {
-              const defaultPId = order ? order.priorityId : (TCFactory.getDefaultPriorityId() || priorities[0]?.id);
-              const active = defaultPId === p.id;
-              return `<button type="button" class="chip chip-btn" data-prio="${p.id}"
-                style="background:${active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`};color:${active ? '#fff' : p.color};"
-                onclick="selectPriorityChip('${p.id}')">${escapeHtml(p.label)}</button>`;
-            }).join('')}
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-            <input type="checkbox" id="of-lav-esterna" ${order?.lavorazioneEsterna ? 'checked' : ''}>
-            <span class="form-label" style="margin:0;">Lavorazione Esterna</span>
+          <label class="of-urgent">
+            <input type="checkbox" id="of-urgent" ${isUrgent ? 'checked' : ''}>
+            <span class="of-urgent-box" aria-hidden="true"></span>
+            <span>URGENTE</span>
           </label>
         </div>
 
         <div class="form-group">
-          <label class="form-label">Tipologia * <span style="font-size:0.72rem;color:var(--text-muted);font-weight:400;">(seleziona 1)</span></label>
-          <div class="chip-picker" id="of-tag-picker">
-            ${tags.map(t => renderTagPickerChip(t)).join('')}
+          <span class="form-label" id="of-lav-label">Lavorazione</span>
+          <div class="segmented of-lav" role="radiogroup" aria-labelledby="of-lav-label">
+            <button type="button" role="radio" data-lav="interna" aria-checked="${!AppState.formLavEsterna}" class="${!AppState.formLavEsterna ? 'active' : ''}" onclick="ofSetLav(false)">Interna</button>
+            <button type="button" role="radio" data-lav="esterna" aria-checked="${AppState.formLavEsterna}" class="${AppState.formLavEsterna ? 'active' : ''}" onclick="ofSetLav(true)">Esterna</button>
           </div>
         </div>
 
@@ -1399,65 +1385,74 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
               <table class="mod-table" style="width:100%;table-layout:fixed;">
                 <thead>
                   <tr>
-                    <th style="width:13%;">CATALOGO</th>
-                    <th style="width:10%;">CODICE</th>
-                    <th style="width:14%;">DESCRIZIONE</th>
+                    <th style="width:12%;">CATALOGO</th>
+                    <th style="width:9%;">CODICE</th>
+                    <th style="width:13%;">DESCRIZIONE</th>
                     <th style="width:9%;">COLORE</th>
                     <th style="width:6%;">QNT</th>
                     <th style="width:5%;">TG</th>
                     <th style="width:8%;">PREZZO</th>
                     <th style="width:8%;">TOTALE</th>
                     <th style="width:5%;text-align:center;">ORD.</th>
-                    <th style="width:6%;text-align:center;" title="Lavorazione esterna">LAV. EST.</th>
+                    <th style="width:12%;" title="Lavorazione esterna">ESTERNA</th>
                     <th style="width:6%;text-align:center;">NEUTRO</th>
-                    <th style="width:10%;"></th>
+                    <th style="width:7%;"></th>
                   </tr>
                 </thead>
                 <tbody id="mod-rows-body"></tbody>
               </table>
             </div>
             <button type="button" onclick="addModRow()" class="btn btn-secondary btn-sm" style="margin-top:8px;">${Icons.plus(13)} Aggiungi riga</button>
-            <div style="margin-top:12px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;border-top:1px solid var(--border);padding-top:10px;">
-              <div style="display:flex;align-items:center;gap:12px;font-size:0.82rem;">
-                <span style="color:var(--text-muted);">Totale ordine</span>
-                <strong id="mod-total-val" style="font-size:1.05rem;color:var(--brand-gold);min-width:80px;text-align:right;">€ 0.00</strong>
-              </div>
-              <div style="display:flex;align-items:center;gap:12px;font-size:0.82rem;">
-                <span style="color:var(--text-muted);">Acconto</span>
-                <input type="number" id="mod-acconto" class="form-input" style="width:80px;text-align:right;" min="0" step="0.01" value="${escapeHtml(String(AppState.formModuleAcconto||''))}" placeholder="0.00" oninput="AppState.formModuleAcconto=this.value;updateModuleTotals()">
-              </div>
-              <div style="display:flex;align-items:center;gap:12px;font-size:0.82rem;">
-                <span style="color:var(--text-muted);">Saldo</span>
-                <strong id="mod-saldo-val" style="font-size:1.05rem;color:#ef4444;min-width:80px;text-align:right;">€ 0.00</strong>
-              </div>
+            <div style="margin-top:12px;display:flex;justify-content:flex-end;align-items:center;gap:12px;border-top:1px solid var(--border);padding-top:10px;font-size:0.82rem;">
+              <span style="color:var(--text-muted);">Totale modulo</span>
+              <strong id="mod-total-val" style="font-size:1.05rem;min-width:80px;text-align:right;">€ 0.00</strong>
             </div>
           </div>
         </div>
 
-        <!-- ALLEGATI ORDINE -->
-        <div class="form-group">
-          <label class="form-label">Allegati ordine</label>
-          <div class="dropzone">
-            <input type="file" id="of-file-input" multiple accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx" style="display:none;" onchange="handleFormFiles(event)">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-file-input').click()">${Icons.paperclip(14)} Carica file / foto</button>
-            <p>Immagini compresse automaticamente sotto 2MB</p>
+        <!-- IMPORTO · ACCONTO · SALDO -->
+        <div class="of-money">
+          <div class="of-money-main">
+            <label class="form-label" for="of-importo">Importo <span>(dal modulo se compilato)</span></label>
+            <div class="of-money-input"><span>€</span>
+              <input id="of-importo" type="number" step="0.01" min="0" value="${order?.importo || ''}" placeholder="0,00" oninput="ofUpdateSaldo()"></div>
           </div>
-          <div id="of-files-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+          <div class="of-money-side">
+            <label class="form-label" for="of-acconto">Acconto</label>
+            <div class="of-money-input small"><span>€</span>
+              <input id="of-acconto" type="number" step="0.01" min="0" value="${escapeHtml(String(AppState.formModuleAcconto || ''))}" placeholder="0,00"
+                oninput="AppState.formModuleAcconto=this.value;ofUpdateSaldo()"></div>
+          </div>
+          <div class="of-money-side">
+            <span class="form-label">Saldo</span>
+            <strong id="of-saldo" class="of-saldo">€ 0,00</strong>
+          </div>
         </div>
 
-        <!-- FATTURA -->
-        <div class="form-group">
-          <label class="form-label">Fattura</label>
-          <div class="dropzone">
-            <input type="file" id="of-invoice-input" multiple accept="image/*,application/pdf,.pdf" style="display:none;" onchange="handleInvoiceFiles(event)">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-invoice-input').click()">🧾 Carica fattura</button>
-            <p>PDF o immagine</p>
+        <!-- ALLEGATI · FATTURA -->
+        <div class="of-grid of-grid-2">
+          <div class="form-group">
+            <label class="form-label">Allegati ordine</label>
+            <div class="dropzone">
+              <input type="file" id="of-file-input" multiple accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx" style="display:none;" onchange="handleFormFiles(event)">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-file-input').click()">${Icons.paperclip(14)} Carica file / foto</button>
+              <p>Immagini compresse automaticamente sotto 2MB</p>
+            </div>
+            <div id="of-files-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
           </div>
-          <div id="of-invoice-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+          <div class="form-group">
+            <label class="form-label">Fattura</label>
+            <div class="dropzone">
+              <input type="file" id="of-invoice-input" multiple accept="image/*,application/pdf,.pdf" style="display:none;" onchange="handleInvoiceFiles(event)">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('of-invoice-input').click()">🧾 Carica fattura</button>
+              <p>PDF o immagine</p>
+            </div>
+            <div id="of-invoice-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+          </div>
         </div>
 
         <div class="form-group">
-          <label class="form-label">Note</label>
+          <label class="form-label" for="of-notes">Note</label>
           <textarea id="of-notes" class="form-textarea" placeholder="Note interne, comunicazioni ai colleghi…">${escapeHtml(order?.notes || '')}</textarea>
         </div>
       </div>
@@ -1468,12 +1463,6 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
     </div>
   `;
 
-  if (!isEdit) {
-    document.getElementById('of-priority-picker').dataset.selected = TCFactory.getDefaultPriorityId() || priorities[0]?.id || '';
-  } else {
-    document.getElementById('of-priority-picker').dataset.selected = order.priorityId;
-  }
-
   // Seleziona tag attivi
   AppState.formTags.forEach(tagName => {
     const tag = tags.find(t => t.name === tagName);
@@ -1483,6 +1472,8 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
   renderFormFilesList();
   renderFormInvoiceList();
   if (AppState.formModuleOpen) renderModuleRows();
+  ofShowLinkedClient();
+  ofUpdateSaldo();
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('order-form-modal'); };
 }
@@ -1516,6 +1507,111 @@ function selectTagChip(name, toggle = true) {
     btn.style.color = active ? '#fff' : t.color;
     btn.style.borderColor = active ? t.color : 'transparent';
   });
+}
+
+// ── Form ordine: cliente con suggerimenti, lavorazione, saldo ──
+
+const ofNorm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const ofMatchClient = (name) => TCFactory.getClients().find(c => ofNorm(TCFactory.clientName(c)) === ofNorm(name)) || null;
+
+function ofClientInput(value, onFocus = false) {
+  const list = document.getElementById('of-client-suggest');
+  const input = document.getElementById('of-nome');
+  if (!list || !input) return;
+  const q = ofNorm(value);
+  if (!onFocus) {
+    // Scrivendo si scollega il cliente, a meno che il nome non coincida
+    const linked = AppState.formClientId ? TCFactory.getClient(AppState.formClientId) : null;
+    if (linked && ofNorm(TCFactory.clientName(linked)) !== q) AppState.formClientId = null;
+    if (!AppState.formClientId) AppState.formClientId = ofMatchClient(value)?.id || null;
+    ofShowLinkedClient();
+  }
+  if (!q || (onFocus && AppState.formClientId)) { ofCloseSuggest(); return; }
+  const matches = TCFactory.getClients()
+    .map(c => ({ c, n: ofNorm(TCFactory.clientName(c)) }))
+    .filter(x => x.n.includes(q))
+    .sort((a, b) => (b.n.startsWith(q) - a.n.startsWith(q)) || a.n.localeCompare(b.n, 'it'))
+    .slice(0, 6);
+  const exact = matches.some(x => x.n === q);
+  list.innerHTML = matches.map(({ c }, i) => `
+      <li role="option" id="of-sug-${i}" data-id="${c.id}" onmousedown="event.preventDefault();ofPickClient('${c.id}')">
+        <span class="client-avatar sm">${escapeHtml((TCFactory.clientName(c)[0] || '?').toUpperCase())}</span>
+        <span>${escapeHtml(TCFactory.clientName(c))}</span>${c.citta ? `<small>${escapeHtml(c.citta)}</small>` : ''}
+      </li>`).join('')
+    + (exact ? '' : `<li role="option" class="of-sug-new" data-new="1" onmousedown="event.preventDefault();ofNewClient()">${Icons.plus(13)} Crea cliente «${escapeHtml(value.trim())}»</li>`);
+  list.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
+  list.dataset.active = '-1';
+}
+
+function ofCloseSuggest() {
+  const list = document.getElementById('of-client-suggest');
+  if (list) { list.hidden = true; list.innerHTML = ''; }
+  document.getElementById('of-nome')?.setAttribute('aria-expanded', 'false');
+}
+
+function ofClientKey(e) {
+  const list = document.getElementById('of-client-suggest');
+  if (!list || list.hidden) return;
+  const items = [...list.querySelectorAll('li')];
+  let i = parseInt(list.dataset.active, 10);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    i = e.key === 'ArrowDown' ? Math.min(items.length - 1, i + 1) : Math.max(0, i - 1);
+    list.dataset.active = i;
+    items.forEach((li, k) => li.classList.toggle('active', k === i));
+    items[i]?.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter' && i >= 0 && items[i]) {
+    e.preventDefault();
+    items[i].dataset.new ? ofNewClient() : ofPickClient(items[i].dataset.id);
+  } else if (e.key === 'Escape') {
+    e.stopPropagation();
+    ofCloseSuggest();
+  }
+}
+
+function ofPickClient(id) {
+  const c = TCFactory.getClient(id);
+  if (!c) return;
+  AppState.formClientId = id;
+  const input = document.getElementById('of-nome');
+  if (input) input.value = TCFactory.clientName(c);
+  ofCloseSuggest();
+  ofShowLinkedClient();
+}
+
+function ofNewClient() {
+  const name = document.getElementById('of-nome')?.value?.trim() || '';
+  ofCloseSuggest();
+  openClientForm(null, (c) => ofPickClient(c.id), name);
+}
+
+function ofShowLinkedClient() {
+  const el = document.getElementById('of-client-linked');
+  if (!el) return;
+  const c = AppState.formClientId ? TCFactory.getClient(AppState.formClientId) : null;
+  el.innerHTML = c ? `${Icons.check ? Icons.check(12) : '✓'} Cliente in anagrafica` : '';
+  el.classList.toggle('on', !!c);
+}
+
+function ofSetLav(esterna) {
+  AppState.formLavEsterna = !!esterna;
+  document.querySelectorAll('.of-lav button').forEach(b => {
+    const on = (b.dataset.lav === 'esterna') === AppState.formLavEsterna;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', on);
+  });
+}
+
+function ofUpdateSaldo() {
+  const el = document.getElementById('of-saldo');
+  if (!el) return;
+  const importo = parseFloat(document.getElementById('of-importo')?.value) || 0;
+  const acconto = parseFloat(document.getElementById('of-acconto')?.value) || 0;
+  const saldo = importo - acconto;
+  el.textContent = '€ ' + saldo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  el.classList.toggle('due', saldo > 0.005);
+  el.classList.toggle('paid', importo > 0 && saldo <= 0.005);
 }
 
 function selectPriorityChip(id) {
@@ -1563,7 +1659,7 @@ function renderModuleRows() {
       <td><input class="mod-input mod-num" type="number" min="0" step="0.01" value="${r.prezzo||''}" oninput="storeMod(${i},'prezzo',this.value);calcModRow(${i})"></td>
       <td><span id="mod-tot-${i}" class="mod-calc">${tot>0 ? '€ '+tot.toFixed(2) : ''}</span></td>
       <td style="text-align:center;"><input type="checkbox" ${r.ordinato?'checked':''} onchange="storeMod(${i},'ordinato',this.checked)"></td>
-      <td style="text-align:center;"><input type="checkbox" title="Lavorazione esterna" ${r.lavEsterna?'checked':''} onchange="storeMod(${i},'lavEsterna',this.checked)"></td>
+      <td><select class="mod-input mod-esterna" aria-label="Lavorazione esterna" onchange="storeModEsterna(${i},this.value)">${modEsternaOptions(r)}</select></td>
       <td style="text-align:center;"><input type="checkbox" title="Neutro" ${r.neutro?'checked':''} onchange="storeMod(${i},'neutro',this.checked)"></td>
       <td style="display:flex;gap:3px;">
         <button type="button" class="btn-icon" onclick="copyModRow(${i})" title="Copia riga">${Icons.copy ? Icons.copy(12) : '⧉'}</button>
@@ -1610,11 +1706,36 @@ function updateModuleTotals() {
     const importoField = document.getElementById('of-importo');
     if (importoField) importoField.value = total.toFixed(2);
   }
+  ofUpdateSaldo();
 }
 function addModRow() {
-  AppState.formModuleRows.push({ catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false, lavEsterna:false, neutro:false });
+  AppState.formModuleRows.push({ catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false, esterna:'', lavEsterna:false, neutro:false });
   renderModuleRows();
 }
+// Lavorazione esterna della riga: id da Impostazioni → Lavorazioni esterne.
+// Le righe vecchie con la sola spunta valgono come "Da specificare".
+function modRowEsterna(r, legacy = '✓') {
+  if (r?.esterna) return lavEsternaName(r.esterna) || 'Esterna';
+  return r?.lavEsterna ? legacy : '';
+}
+function modEsternaOptions(r) {
+  const list = getLavEsterne();
+  const known = list.some(l => l.id === r.esterna);
+  return `<option value="">—</option>`
+    + list.map(l => `<option value="${escapeHtml(l.id)}" ${l.id === r.esterna ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')
+    + (r.esterna && !known ? `<option value="${escapeHtml(r.esterna)}" selected>(eliminata)</option>` : '')
+    + (!r.esterna && r.lavEsterna ? `<option value="__legacy" selected>Da specificare</option>` : '');
+}
+function storeModEsterna(i, value) {
+  const r = AppState.formModuleRows[i];
+  if (!r) return;
+  if (value === '__legacy') return;
+  r.esterna = value;
+  r.lavEsterna = !!value;
+  // Una riga esterna rende esterno l'ordine
+  if (value && !AppState.formLavEsterna) ofSetLav(true);
+}
+
 function removeModRow(i) {
   AppState.formModuleRows.splice(i, 1);
   renderModuleRows();
@@ -1665,16 +1786,19 @@ async function submitOrderForm() {
   const dataOrdine = document.getElementById('of-data')?.value;
   const deadline   = document.getElementById('of-deadline')?.value || null;
   const notes      = document.getElementById('of-notes')?.value || '';
-  const priorityId = document.getElementById('of-priority-picker')?.dataset?.selected;
+  const urgent     = !!document.getElementById('of-urgent')?.checked;
+  // Urgente o normale: chi non è urgente è normale. In modifica una priorità diversa resta com'è.
+  const prevPri    = AppState.formEditOrder?.priorityId;
+  const priorityId = urgent ? 'urgente'
+    : (prevPri && !isUrgentOrder(AppState.formEditOrder) ? prevPri : (TCFactory.getDefaultPriorityId() || 'normale'));
 
-  if (!nome) { showToast('Inserisci un nome', 'error'); return; }
+  if (!nome) { showToast('Inserisci il cliente', 'error'); document.getElementById('of-nome')?.focus(); return; }
   if (!dataOrdine) { showToast('Inserisci una data', 'error'); return; }
   if (AppState.formTags.length === 0) { showToast('Seleziona una tipologia (tag)', 'error'); return; }
   if (AppState.formTags.length > 1)   { showToast('Puoi selezionare una sola tipologia', 'error'); return; }
 
   // La priorità (anche "Urgente") si sceglie solo a mano
-  const selectedPriority = TCFactory.getPriority(priorityId);
-  if (selectedPriority?.id === 'urgente' && !deadline) {
+  if (urgent && !deadline) {
     const dlField = document.getElementById('of-deadline');
     if (dlField) {
       dlField.focus();
@@ -1688,15 +1812,16 @@ async function submitOrderForm() {
 
   const payload = {
     nome, dataOrdine, deadline, notes, priorityId,
-    lavorazioneEsterna: !!document.getElementById('of-lav-esterna')?.checked,
+    lavorazioneEsterna: !!AppState.formLavEsterna,
     tags: AppState.formTags,
     files: AppState.formFiles,
     invoiceFiles: AppState.formInvoiceFiles,
     importo: parseFloat(document.getElementById('of-importo')?.value) || 0,
     orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto },
   };
-  const clientSel = document.getElementById('of-client');
-  if (clientSel) payload.clientId = clientSel.value || null;
+  // Cliente collegato solo se il nome scritto è ancora quello del cliente scelto
+  const linked = AppState.formClientId ? TCFactory.getClient(AppState.formClientId) : null;
+  payload.clientId = linked && ofNorm(TCFactory.clientName(linked)) === ofNorm(nome) ? linked.id : (ofMatchClient(nome)?.id || null);
 
   const btn = document.querySelector('#order-form-modal .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio…'; }
@@ -1846,6 +1971,22 @@ function renderSettingsDialog() {
         </div>
 
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          <div class="settings-static-head">${Icons.truck(14)} Lavorazioni esterne</div>
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
+            <div class="settings-section-hint" style="margin:0 0 4px;">Compaiono nel menu "Esterna" del modulo d'ordine e raggruppano la sezione Lavorazioni esterne.</div>
+            ${getLavEsterne().map(l => `
+              <div class="config-row">
+                <input class="form-input" value="${escapeHtml(l.nome)}" maxlength="60" aria-label="Nome lavorazione" onchange="renameLavEsterna('${l.id}', this.value)">
+                <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteLavEsterna('${l.id}')" aria-label="Elimina ${escapeHtml(l.nome)}">${Icons.trash(15)}</button>
+              </div>`).join('') || '<div class="settings-section-hint" style="margin:0;">Nessuna lavorazione esterna: aggiungine una.</div>'}
+            <form class="config-add-row" onsubmit="event.preventDefault();addLavEsterna()">
+              <input id="new-lav-esterna" class="form-input" placeholder="es. Ricamo, Serigrafia…" maxlength="60">
+              <button type="submit" class="btn btn-secondary btn-icon" aria-label="Aggiungi lavorazione esterna">${Icons.plus()}</button>
+            </form>
+          </div>
+        </div>
+
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           <div class="settings-static-head">${Icons.printer(14)} DTF: calcolo dei metri</div>
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
             <div class="settings-section-hint" style="margin:0;">Usati per calcolare metri, tempo e costo dai file (Interno e Conto terzi). Vale per tutti gli utenti.</div>
@@ -1929,6 +2070,41 @@ function renderSettingsDialog() {
       </div>
     </div>
   `;
+}
+
+// ── Lavorazioni esterne (impostazioni condivise) ──
+function getLavEsterne() {
+  const v = TCFactory._settings.lavorazioni_esterne;
+  return Array.isArray(v) ? v.filter(l => l && l.id && l.nome) : [];
+}
+const lavEsternaName = (id) => getLavEsterne().find(l => l.id === id)?.nome || '';
+
+async function saveLavEsterne(list, msg) {
+  try { await TCFactory.setSetting('lavorazioni_esterne', list); if (msg) showToast(msg); }
+  catch { showToast('Salvataggio non riuscito', 'error'); }
+  renderSettingsDialog();
+}
+
+function addLavEsterna() {
+  const input = document.getElementById('new-lav-esterna');
+  const nome = input.value.trim();
+  if (!nome) return;
+  const list = getLavEsterne();
+  if (list.some(l => l.nome.toLowerCase() === nome.toLowerCase())) { showToast('Esiste già', 'error'); return; }
+  saveLavEsterne([...list, { id: 'le-' + Date.now().toString(36), nome }], `Aggiunta "${nome}"`);
+}
+
+function renameLavEsterna(id, nome) {
+  nome = nome.trim();
+  if (!nome) { renderSettingsDialog(); return; }
+  saveLavEsterne(getLavEsterne().map(l => l.id === id ? { ...l, nome } : l));
+}
+
+function deleteLavEsterna(id) {
+  const l = getLavEsterne().find(x => x.id === id);
+  const used = TCFactory.getOrders().filter(o => !o.deletedAt && (o.orderModule?.rows || []).some(r => r.esterna === id)).length;
+  if (!confirm(`Eliminare "${l?.nome}"?${used ? `\n\nÈ usata in ${used} ordini: le righe resteranno segnate come esterne, senza tipo.` : ''}`)) return;
+  saveLavEsterne(getLavEsterne().filter(x => x.id !== id), 'Lavorazione eliminata');
 }
 
 async function saveDtfSettings() {
