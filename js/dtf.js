@@ -9,6 +9,7 @@
 
 const DTF_SETTINGS_KEY = 'dtf_interno';        // { order: [id…], removed: [{ id, at }…] } condiviso
 const DTF_CLIENT_KEY   = 'tcf_dtf_client';     // cliente conto terzi selezionato (per browser)
+const DTF_TAG_KEY      = 'tcf_dtf_tag';        // filtro tipologia dell'Interno (per browser)
 const DTF_SAVE_DELAY   = 700;
 const DTF_STAMPATI_DAYS = 90;                  // in "Stampati" gli ultimi 90 giorni
 
@@ -27,6 +28,7 @@ const DtfState = {
   detailDate: null,
   channel: null,
   dragId: null,
+  tag: null,            // filtro tipologia dell'Interno
 };
 
 const dtfLs = {
@@ -98,10 +100,22 @@ function dtfFmtTime(ore) {
   return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
 }
 
+function dtfSetTag(name) {
+  DtfState.tag = DtfState.tag === name ? null : name;
+  if (DtfState.tag) dtfLs.set(DTF_TAG_KEY, DtfState.tag); else try { localStorage.removeItem(DTF_TAG_KEY); } catch {}
+  renderDtfInterno();
+}
+
 function renderDtfInterno() {
   const root = document.getElementById('dtf-interno-root');
   if (!root) return;
-  const { todo, printed, removedList } = dtfLists();
+  const { todo: all, printed, removedList } = dtfLists();
+
+  // Filtro tipologia: solo tra le tipologie presenti negli ordini da stampare
+  if (DtfState.tag === null) DtfState.tag = dtfLs.get(DTF_TAG_KEY) || null;
+  const tagsInList = TCFactory.getTags().filter(t => all.some(o => o.tags.includes(t.name)));
+  if (DtfState.tag && !tagsInList.some(t => t.name === DtfState.tag)) DtfState.tag = null;
+  const todo = DtfState.tag ? all.filter(o => o.tags.includes(DtfState.tag)) : all;
   const today = localISODate(new Date());
   const fmt = (d) => TCFactory.formatDate(d, { day: '2-digit', month: '2-digit' });
   const stats = todo.map(dtfOrderStats);
@@ -138,11 +152,24 @@ function renderDtfInterno() {
       </li>`;
   };
 
+  const tagBar = tagsInList.length > 1 || DtfState.tag ? `
+    <div class="dtf-tags" role="group" aria-label="Filtra per tipologia">
+      <span class="dtf-tags-label">Tipologia</span>
+      ${tagsInList.map(t => {
+        const on = DtfState.tag === t.name, n = all.filter(o => o.tags.includes(t.name)).length;
+        return `<button type="button" class="chip chip-btn" aria-pressed="${on}" onclick="dtfSetTag('${escapeHtml(t.name).replace(/'/g, '&#39;')}')"
+          style="background:${on ? t.color : `color-mix(in srgb, ${t.color} 12%, transparent)`};color:${on ? '#fff' : t.color};">
+          <span class="chip-dot" style="background:${on ? '#fff' : t.color};"></span>${escapeHtml(t.name)} · ${n}</button>`;
+      }).join('')}
+      ${DtfState.tag ? `<button type="button" class="btn btn-ghost btn-sm" onclick="dtfSetTag(DtfState.tag)">× Tutte</button>` : ''}
+    </div>` : '';
+
   root.innerHTML = `
     <div class="dtf-box-head">
-      <div><h2>Da stampare</h2><p>${todo.length} ${todo.length === 1 ? 'ordine' : 'ordini'} · per scadenza, trascina per dare priorità</p></div>
+      <div><h2>Da stampare</h2><p>${todo.length}${DtfState.tag ? ` di ${all.length}` : ''} ${todo.length === 1 ? 'ordine' : 'ordini'} · per scadenza, trascina per dare priorità</p></div>
       <button type="button" class="btn btn-secondary btn-sm" onclick="dtfOpenHistory()">Stampati e rimossi · ${printed.length + removedList.length}</button>
     </div>
+    ${tagBar}
     <div class="dtf-summary dtf-summary-interno">
       <div class="dtf-kpi"><span>Metri da stampare</span><strong>${dtfMetri(tot.metri)} m</strong></div>
       <div class="dtf-kpi"><span>Tempo di stampa</span><strong>${dtfFmtTime(tot.ore)}</strong></div>
@@ -153,7 +180,7 @@ function renderDtfInterno() {
     ${senzaFile ? `<p class="dtf-note">${senzaFile} ${senzaFile === 1 ? 'ordine non ha' : 'ordini non hanno'} ancora file: metri e tempo li contano solo quando ci sono.</p>` : ''}
     ${todo.length
       ? `<ol class="dtf-timeline" aria-label="Ordini da stampare">${todo.map(card).join('')}</ol>`
-      : `<div class="empty-list">Nessun ordine da stampare. 🎉</div>`}`;
+      : `<div class="empty-list">${DtfState.tag ? `Nessun ordine "${escapeHtml(DtfState.tag)}" da stampare.` : 'Nessun ordine da stampare. 🎉'}</div>`}`;
 }
 
 // ── Stampati e rimossi (finestra) ──
@@ -267,7 +294,8 @@ async function dtfDrop(e) {
   const before = target.classList.contains('drop-before');
   dtfDragEnd();
 
-  const ids = [...document.querySelectorAll('.dtf-timeline .dtf-item')].map(el => el.dataset.id).filter(x => x !== id);
+  // Si riordina l'elenco completo: con un filtro attivo gli ordini nascosti restano al loro posto
+  const ids = dtfLists().todo.map(o => o.id).filter(x => x !== id);
   ids.splice(ids.indexOf(target.dataset.id) + (before ? 0 : 1), 0, id);
   try {
     await dtfSaveSettings({ order: ids });

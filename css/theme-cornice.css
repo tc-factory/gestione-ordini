@@ -851,3 +851,7 @@ html.dark .dtf-item.dtf-urgent .dtf-stats { background: rgba(0, 0, 0, 0.2); }
   .dtf-stats { margin-left: 0; width: 100%; }
 }
 @media (max-width: 640px) { .dtf-item .dtf-done-btn { margin-left: auto; } }
+
+/* DTF Interno: filtro per tipologia */
+.dtf-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
+.dtf-tags-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); margin-right: 2px; }
