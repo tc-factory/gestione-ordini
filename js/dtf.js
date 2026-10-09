@@ -230,10 +230,10 @@ async function dtfLoadEntries() {
   DtfState.entries = {};
   if (!DtfState.clientId) return;
   const [from, to] = dtfMonthRange();
-  const { data, error } = await supabaseClient.from('dtf_entries').select('giorno, metri, dettaglio')
+  const { data, error } = await supabaseClient.from('dtf_entries').select('giorno, metri, dettaglio, files')
     .eq('client_id', DtfState.clientId).gte('giorno', from).lte('giorno', to);
   if (error) throw error;
-  (data || []).forEach(r => { DtfState.entries[r.giorno] = { metri: Number(r.metri) || 0, dettaglio: r.dettaglio || '' }; });
+  (data || []).forEach(r => { DtfState.entries[r.giorno] = { metri: Number(r.metri) || 0, dettaglio: r.dettaglio || '', files: Array.isArray(r.files) ? r.files : [] }; });
 }
 
 function dtfSaveStatus() {
@@ -369,7 +369,7 @@ async function dtfSaveDay(date) {
   dtfUpdateSummary();
   try {
     const { error } = await supabaseClient.from('dtf_entries')
-      .upsert({ client_id: clientId, giorno: date, metri: e.metri, dettaglio: e.dettaglio }, { onConflict: 'client_id,giorno' });
+      .upsert({ client_id: clientId, giorno: date, metri: e.metri, dettaglio: e.dettaglio, files: e.files || [] }, { onConflict: 'client_id,giorno' });
     if (error) throw error;
     DtfState.lastSaved = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   } catch (err) {
@@ -396,13 +396,20 @@ window.addEventListener('beforeunload', dtfFlushSaves);
 
 // ── Dettaglio: nomi dei file stampati, uno per riga ──
 
-const dtfFilesOf = (date) => (DtfState.entries[date]?.dettaglio || '').split('\n').map(x => x.trim()).filter(Boolean);
+// File del giorno: elenco con misure; i giorni salvati prima delle misure hanno solo i nomi
+function dtfFilesOf(date) {
+  const e = DtfState.entries[date];
+  if (Array.isArray(e?.files) && e.files.length) return e.files.map(f => ({ ...f }));
+  return (e?.dettaglio || '').split('\n').map(x => x.trim()).filter(Boolean).map(n => DtfMisure.fromName(n));
+}
+
+const dtfFmtCm = (v) => (v > 0 ? String(Math.round(v * 10) / 10).replace('.', ',') : '');
 
 function dtfOpenDetail(date) {
   DtfState.detailDate = date;
   const modal = document.getElementById('dtf-detail-modal');
   modal.innerHTML = `
-    <div class="modal" style="max-width:560px;" role="dialog" aria-modal="true" aria-labelledby="dtf-d-title">
+    <div class="modal" style="max-width:720px;" role="dialog" aria-modal="true" aria-labelledby="dtf-d-title">
       <div class="modal-header">
         <h2 id="dtf-d-title">${escapeHtml(dtfClient()?.nome || '')} · ${new Date(date + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}</h2>
         <button class="btn-icon" onclick="dtfCloseDetail()" aria-label="Chiudi">${Icons.x()}</button>
@@ -413,15 +420,15 @@ function dtfOpenDetail(date) {
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('dtf-file-pick').click()}">
           ${Icons.paperclip(20)}
           <strong>Trascina qui i file stampati, oppure clicca per sceglierli</strong>
-          <span>Viene salvato solo il nome: i file non vengono caricati</span>
-          <input type="file" id="dtf-file-pick" multiple hidden onchange="dtfAddFiles([...this.files].map(f => f.name));this.value=''">
+          <span>Misura e metri si calcolano sul tuo computer: i file non vengono caricati. Pezzi dal nome, es. "logo_10pz.png"</span>
+          <input type="file" id="dtf-file-pick" multiple hidden onchange="dtfAddFiles([...this.files]);this.value=''">
         </label>
         <form class="dtf-add-name" onsubmit="event.preventDefault();dtfAddTyped()">
           <input id="dtf-add-name" class="form-input" placeholder="Oppure scrivi un nome e premi Invio" maxlength="240">
           <button type="submit" class="btn btn-secondary btn-sm">${Icons.plus(14)} Aggiungi</button>
         </form>
         <div id="dtf-file-list"></div>
-        <p class="settings-section-hint" style="margin:0;">Le modifiche si salvano da sole.</p>
+        <p class="settings-section-hint" style="margin:0;">Rotolo ${dtfFmtCm(DtfMisure.rollCm())} cm · margine tra i pezzi ${dtfFmtCm(DtfMisure.marginCm()) || '0'} cm (si cambiano in Impostazioni). Le modifiche si salvano da sole.</p>
       </div>
     </div>`;
   dtfRenderFileList();
@@ -429,37 +436,88 @@ function dtfOpenDetail(date) {
   modal.onclick = (ev) => { if (ev.target === modal) dtfCloseDetail(); };
 }
 
-function dtfRenderFileList() {
+function dtfRenderFileList(busy = 0) {
   const box = document.getElementById('dtf-file-list');
   if (!box) return;
   const files = dtfFilesOf(DtfState.detailDate);
-  box.innerHTML = files.length ? `
-    <div class="dtf-files-head">${files.length} ${files.length === 1 ? 'file stampato' : 'file stampati'}</div>
+  const totale = files.reduce((s, f) => s + (f.metri || 0), 0);
+  const senza = files.filter(f => !(f.metri > 0)).length;
+
+  const note = (f) => {
+    if (f.errore === 'misura mancante') return `<span class="dtf-tag warn">${f.fonte === 'formato' ? 'formato non leggibile: inserisci la misura' : 'inserisci la misura'}</span>`;
+    if (f.errore) return `<span class="dtf-tag warn">${escapeHtml(f.errore)}</span>`;
+    const tags = [];
+    if (f.dpi_ipotizzato) tags.push(`<span class="dtf-tag" title="Il file non indica la risoluzione: usati ${f.dpi} DPI">DPI ${f.dpi} ipotizzato</span>`);
+    if (!f.pz_trovati) tags.push('<span class="dtf-tag" title="Nel nome non c\'è &quot;pz&quot;: contato 1 pezzo">pz non nel nome</span>');
+    if (f.per_riga > 1) tags.push(`<span class="dtf-tag soft">${f.per_riga} per riga${f.ruotato ? ', ruotato' : ''}</span>`);
+    else if (f.ruotato) tags.push('<span class="dtf-tag soft">ruotato</span>');
+    return tags.join('');
+  };
+
+  box.innerHTML = (files.length ? `
+    <div class="dtf-files-head">
+      <span>${files.length} ${files.length === 1 ? 'file stampato' : 'file stampati'}</span>
+      <strong>${dtfMetri(totale)} m${senza ? ` <small>(${senza} senza misura)</small>` : ''}</strong>
+    </div>
     <ul class="dtf-files">
       ${files.map((f, i) => `
-        <li class="dtf-file">
-          <span class="dtf-file-icon" aria-hidden="true">${Icons.paperclip(14)}</span>
-          <span class="dtf-file-name" title="${escapeHtml(f)}">${escapeHtml(f)}</span>
-          <button type="button" class="btn-icon dtf-file-del" onclick="dtfRemoveFile(${i})" aria-label="Elimina ${escapeHtml(f)}" title="Elimina">${Icons.x(14)}</button>
+        <li class="dtf-file ${f.metri > 0 ? '' : 'missing'}">
+          <div class="dtf-file-top">
+            <span class="dtf-file-icon" aria-hidden="true">${Icons.paperclip(14)}</span>
+            <span class="dtf-file-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
+            <span class="dtf-file-metri">${f.metri > 0 ? `${dtfMetri(f.metri)} m` : '—'}</span>
+            <button type="button" class="btn-icon dtf-file-del" onclick="dtfRemoveFile(${i})" aria-label="Elimina ${escapeHtml(f.name)}" title="Elimina">${Icons.x(14)}</button>
+          </div>
+          <div class="dtf-file-size">
+            <input class="form-input" inputmode="decimal" value="${dtfFmtCm(f.w_cm)}" placeholder="larg." aria-label="Larghezza in cm di ${escapeHtml(f.name)}" onchange="dtfEditFile(${i},'w_cm',this.value)">
+            <span>×</span>
+            <input class="form-input" inputmode="decimal" value="${dtfFmtCm(f.h_cm)}" placeholder="alt." aria-label="Altezza in cm di ${escapeHtml(f.name)}" onchange="dtfEditFile(${i},'h_cm',this.value)">
+            <span>cm ·</span>
+            <input class="form-input dtf-pz" inputmode="numeric" value="${f.pz || 1}" aria-label="Pezzi di ${escapeHtml(f.name)}" onchange="dtfEditFile(${i},'pz',this.value)">
+            <span>pz</span>
+            ${note(f)}
+          </div>
         </li>`).join('')}
-    </ul>` : '<p class="dtf-files-empty">Nessun file per questo giorno.</p>';
+    </ul>` : '<p class="dtf-files-empty">Nessun file per questo giorno.</p>')
+    + (busy ? `<p class="dtf-reading">Lettura misure di ${busy} ${busy === 1 ? 'file' : 'file'}…</p>` : '');
 }
 
+// Salva l'elenco e aggiorna i metri del giorno con la somma dei file misurati
 function dtfSetFiles(files) {
   const date = DtfState.detailDate;
-  DtfState.entries[date] = { ...(DtfState.entries[date] || { metri: 0 }), dettaglio: files.join('\n') };
+  const prev = DtfState.entries[date] || { metri: 0 };
+  const misurati = files.filter(f => f.metri > 0);
+  const metri = misurati.length ? Math.round(misurati.reduce((s, f) => s + f.metri, 0) * 100) / 100 : prev.metri;
+  DtfState.entries[date] = { ...prev, files, dettaglio: files.map(f => f.name).join('\n'), metri };
   dtfQueueSave(date);
   dtfRenderFileList();
+  dtfUpdateSummary();
 }
 
-// Aggiunge i nomi saltando quelli già presenti
-function dtfAddFiles(names) {
+// Aggiunge file (oggetti File da trascinamento/scelta) o nomi scritti; salta i doppioni
+async function dtfAddFiles(items) {
   const current = dtfFilesOf(DtfState.detailDate);
-  const fresh = [...new Set(names.map(n => String(n).trim()).filter(Boolean))].filter(n => !current.includes(n));
-  const dup = names.length - fresh.length;
-  if (fresh.length) dtfSetFiles([...current, ...fresh]);
-  if (fresh.length) showToast(`${fresh.length} ${fresh.length === 1 ? 'file aggiunto' : 'file aggiunti'}${dup ? ` · ${dup} già ${dup === 1 ? 'presente' : 'presenti'}` : ''}`);
-  else if (dup) showToast('Già presenti nell\'elenco', 'error');
+  const seen = new Set(current.map(f => f.name));
+  const fresh = [];
+  let dup = 0;
+  for (const it of items) {
+    const name = String(typeof it === 'string' ? it : it.name).trim();
+    if (!name) continue;
+    if (seen.has(name)) { dup++; continue; }
+    seen.add(name);
+    fresh.push(it);
+  }
+  if (!fresh.length) { if (dup) showToast('Già presenti nell\'elenco', 'error'); return; }
+
+  const files = fresh.filter(x => typeof x !== 'string');
+  if (files.length) dtfRenderFileList(files.length);
+  const described = await Promise.all(fresh.map(x => typeof x === 'string' ? DtfMisure.fromName(x.trim()) : DtfMisure.describe(x)));
+  dtfSetFiles([...dtfFilesOf(DtfState.detailDate), ...described]);
+
+  const daMisurare = described.filter(f => !(f.metri > 0)).length;
+  showToast(`${described.length} ${described.length === 1 ? 'file aggiunto' : 'file aggiunti'}`
+    + (dup ? ` · ${dup} già ${dup === 1 ? 'presente' : 'presenti'}` : '')
+    + (daMisurare ? ` · ${daMisurare} da misurare a mano` : ''), daMisurare ? 'error' : 'success');
 }
 
 function dtfAddTyped() {
@@ -469,12 +527,22 @@ function dtfAddTyped() {
   input.focus();
 }
 
+function dtfEditFile(index, field, value) {
+  const files = dtfFilesOf(DtfState.detailDate);
+  const f = files[index];
+  if (!f) return;
+  const n = parseFloat(String(value).replace(',', '.'));
+  if (field === 'pz') { f.pz = Math.max(1, parseInt(value, 10) || 1); f.pz_trovati = true; }
+  else { f[field] = n > 0 ? Math.round(n * 10) / 10 : null; f.dpi_ipotizzato = false; if (f.fonte !== 'manuale') f.fonte = 'corretto'; }
+  files[index] = DtfMisure.recompute(f);
+  dtfSetFiles(files);
+}
+
 function dtfRemoveFile(index) {
   const files = dtfFilesOf(DtfState.detailDate);
   const [removed] = files.splice(index, 1);
   dtfSetFiles(files);
-  showToast(`Eliminato "${removed}"`);
-  // Il focus resta nell'elenco per eliminare di seguito da tastiera
+  showToast(`Eliminato "${removed.name}"`);
   const btns = document.querySelectorAll('.dtf-file-del');
   (btns[Math.min(index, btns.length - 1)] || document.getElementById('dtf-add-name'))?.focus();
 }
@@ -482,7 +550,7 @@ function dtfRemoveFile(index) {
 function dtfDropFiles(e) {
   e.preventDefault();
   e.currentTarget.classList.remove('over');
-  dtfAddFiles([...(e.dataTransfer?.files || [])].map(f => f.name));
+  dtfAddFiles([...(e.dataTransfer?.files || [])]);
 }
 
 function dtfCloseDetail() {

@@ -67,3 +67,6 @@ body.portal { background: var(--bg-primary); overflow: auto; }
   .dtf-summary { grid-template-columns: 1fr 1fr; }
   .dtf-kpi-total { grid-column: 1 / -1; }
 }
+.portal-files li { display: flex; flex-direction: column; gap: 2px; }
+.portal-files li small { font-size: 0.76rem; color: var(--text-muted); }
+.portal-files li small strong { color: var(--text-primary); }
