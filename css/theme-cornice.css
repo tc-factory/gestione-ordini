@@ -855,3 +855,11 @@ html.dark .dtf-item.dtf-urgent .dtf-stats { background: rgba(0, 0, 0, 0.2); }
 /* DTF Interno: filtro per tipologia */
 .dtf-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
 .dtf-tags-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); margin-right: 2px; }
+
+/* Impostazioni: un campo per riga (etichetta · valore · unità) */
+.settings-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; align-items: center; }
+.settings-fields label { font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); }
+.settings-field { display: flex; align-items: center; gap: 8px; }
+.settings-field .form-input { width: 110px; text-align: right; font-variant-numeric: tabular-nums; }
+.settings-field span { font-size: 0.82rem; color: var(--text-muted); }
+@media (max-width: 420px) { .settings-fields { grid-template-columns: 1fr; gap: 4px; } .settings-fields label { margin-top: 6px; } }
