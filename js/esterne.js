@@ -67,7 +67,7 @@ function renderEsternePage() {
         </div>
         <button type="button" class="dtf-main" onclick="openOrderDetail('${o.id}')">
           <strong>${escapeHtml(o.nome)}${isUrgentOrder(o) ? ' <em class="est-urgent">Urgente</em>' : ''}</strong>
-          <span>${[client && TCFactory.clientName(client) !== o.nome ? escapeHtml(TCFactory.clientName(client)) : '', o.tags.map(escapeHtml).join(', ')].filter(Boolean).join(' · ') || '&nbsp;'}</span>
+          <span>${[orderDesc(o) ? escapeHtml(orderDesc(o)) : '', client && TCFactory.clientName(client) !== o.nome ? escapeHtml(TCFactory.clientName(client)) : '', o.tags.map(escapeHtml).join(', ')].filter(Boolean).join(' · ') || '&nbsp;'}</span>
         </button>
         <div class="est-rows" title="${escapeHtml(lines.join('\n'))}">
           ${lines.length ? lines.slice(0, 2).map(l => `<span>${escapeHtml(l)}</span>`).join('') + (lines.length > 2 ? `<small>+${lines.length - 2} righe</small>` : '')

@@ -278,7 +278,7 @@ function renderOrderList() {
 
   const q = AppState.searchQuery.trim().toLowerCase();
   let filtered = q
-    ? source.filter(o => o.nome.toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q))
+    ? source.filter(o => o.nome.toLowerCase().includes(q) || orderDesc(o).toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q))
         || (o.createdBy || '').toLowerCase().includes(q))
     : source;
 
@@ -526,7 +526,7 @@ function renderOrderRow(o) {
         onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
         <div class="order-row-bar" style="background:${color};"></div>
         <div class="order-row-grid order-row-grid--active">
-          <div class="orc-name">${escapeHtml(o.nome)}</div>
+          <div class="orc-name">${escapeHtml(o.nome)}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
           <div class="orc-tags">${tagPills}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           ${scadenzaCell}
@@ -561,7 +561,7 @@ function renderOrderRow(o) {
         onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
         <div class="order-row-bar" style="background:${color};"></div>
         <div class="order-row-grid">
-          <div class="orc-name">${escapeHtml(o.nome)}</div>
+          <div class="orc-name">${escapeHtml(o.nome)}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
           <div class="orc-tags">${tagPills}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           ${scadenzaCell}
@@ -607,7 +607,7 @@ function renderOrderRow(o) {
       onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-bar" style="background:${color};"></div>
       <div class="order-row-grid">
-        <div class="orc-name">${escapeHtml(o.nome)}</div>
+        <div class="orc-name">${escapeHtml(o.nome)}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
         <div class="orc-tags">${tagPills}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         ${scadenzaCell}
@@ -782,7 +782,8 @@ function previewOrderModule(orderId) {
 
 function downloadOrderModule(orderId) {
   const order   = orderId ? TCFactory.getOrderById(orderId) : null;
-  const nome    = order?.nome || document.getElementById('of-nome')?.value || 'Ordine';
+  const desc    = order ? orderDesc(order) : (document.getElementById('of-descrizione')?.value || '').trim();
+  const nome    = (order?.nome || document.getElementById('of-nome')?.value || 'Ordine') + (desc ? ` — ${desc}` : '');
   const rows    = order?.orderModule?.rows || AppState.formModuleRows || [];
   const acconto = parseFloat(order?.orderModule?.acconto || AppState.formModuleAcconto || 0);
   const notes   = order?.notes || document.getElementById('of-notes')?.value || '';
@@ -1178,6 +1179,7 @@ function renderOrderDetail() {
       <div class="modal-header">
         <div>
           <h2>${escapeHtml(order.nome)}</h2>
+          ${orderDesc(order) ? `<div class="detail-desc">${escapeHtml(orderDesc(order))}</div>` : ''}
           ${p ? `<div style="margin-top:4px;">${renderPriorityChip(p)}</div>` : ''}
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
@@ -1339,10 +1341,15 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
             <span class="of-client-linked" id="of-client-linked"></span>
           </div>
           <div class="form-group">
-            <span class="form-label" id="of-tag-label">Tipologia *</span>
-            <div class="chip-picker" id="of-tag-picker" role="group" aria-labelledby="of-tag-label">
-              ${tags.map(t => renderTagPickerChip(t)).join('')}
-            </div>
+            <label class="form-label" for="of-descrizione">Descrizione</label>
+            <input id="of-descrizione" class="form-input" maxlength="200" autocomplete="off" placeholder="Es. divise staff, felpe squadra…" value="${escapeHtml(orderDesc(order))}">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <span class="form-label" id="of-tag-label">Tipologia *</span>
+          <div class="chip-picker" id="of-tag-picker" role="group" aria-labelledby="of-tag-label">
+            ${tags.map(t => renderTagPickerChip(t)).join('')}
           </div>
         </div>
 
@@ -1352,11 +1359,12 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
             <input id="of-data" type="date" class="form-input" value="${order?.dataOrdine || TCFactory.getDefaultDate()}">
           </div>
           <div class="form-group">
-            <label class="form-label" for="of-deadline">Deadline</label>
-            <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}">
+            <label class="form-label" for="of-deadline">Deadline<span id="of-deadline-req" ${isUrgent ? '' : 'hidden'}> *</span></label>
+            <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}" ${isUrgent ? 'required aria-required="true"' : ''} oninput="ofCheckDeadline()" onblur="setTimeout(ofCheckDeadline, 0)">
+            <span class="of-deadline-msg" id="of-deadline-msg" role="alert"></span>
           </div>
           <label class="of-urgent">
-            <input type="checkbox" id="of-urgent" ${isUrgent ? 'checked' : ''}>
+            <input type="checkbox" id="of-urgent" ${isUrgent ? 'checked' : ''} onchange="ofUrgentChange(this.checked)">
             <span class="of-urgent-box" aria-hidden="true"></span>
             <span>URGENTE</span>
           </label>
@@ -1576,7 +1584,7 @@ function ofPickClient(id) {
   if (!c) return;
   AppState.formClientId = id;
   const input = document.getElementById('of-nome');
-  if (input) input.value = TCFactory.clientName(c);
+  if (input) input.value = ofUpper(TCFactory.clientName(c));
   ofCloseSuggest();
   ofShowLinkedClient();
 }
@@ -1614,6 +1622,40 @@ function ofRenderLav() {
     b.classList.toggle('active', !!on);
     b.setAttribute('aria-pressed', !!on);
   });
+}
+
+// Ordini e modulo d'ordine: tutto in MAIUSCOLO, come con il blocco maiuscole attivo
+const ofUpper = (v) => String(v ?? '').toLocaleUpperCase('it-IT');
+const OF_UPPER_SEL = '#order-form-modal input:not([type]), #order-form-modal input[type=text], #order-form-modal input[type=search], #order-form-modal textarea';
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (!el.matches?.(OF_UPPER_SEL) || e.isComposing) return;
+  const up = ofUpper(el.value);
+  if (up === el.value) return;
+  const { selectionStart: a, selectionEnd: b } = el;
+  el.value = up;
+  try { el.setSelectionRange(a, b); } catch {}
+}, true);   // prima dei gestori dei campi, che così salvano già il maiuscolo
+
+// URGENTE spuntato → la deadline diventa obbligatoria
+function ofUrgentChange(on) {
+  const dl = document.getElementById('of-deadline');
+  if (!dl) return;
+  dl.required = on;
+  dl.setAttribute('aria-required', on);
+  document.getElementById('of-deadline-req').hidden = !on;
+  if (on && !dl.value) { dl.focus(); try { dl.showPicker?.(); } catch {} }
+  ofCheckDeadline();
+}
+function ofCheckDeadline(show = false) {
+  const dl = document.getElementById('of-deadline'), msg = document.getElementById('of-deadline-msg');
+  if (!dl || !msg) return true;
+  const missing = !!document.getElementById('of-urgent')?.checked && !dl.value;
+  const visible = missing && (show || dl.classList.contains('invalid') || document.activeElement !== dl);
+  dl.classList.toggle('invalid', visible);
+  dl.setAttribute('aria-invalid', visible);
+  msg.textContent = visible ? 'Obbligatoria per gli ordini urgenti' : '';
+  return !missing;
 }
 
 function ofUpdateSaldo() {
@@ -1728,6 +1770,9 @@ function addModRow() {
 // Lavorazione esterna della riga: id da Impostazioni → Lavorazioni esterne.
 // Le righe vecchie con la sola spunta valgono come "Da specificare".
 // Lavorazione interna: gli ordini vecchi senza la scelta sono interni se non sono esterni
+// Descrizione dell'ordine, a fianco del cliente (salvata nel modulo d'ordine)
+const orderDesc = (o) => String(o?.orderModule?.descrizione || '').trim();
+
 function isLavInterna(o) {
   if (!o) return true;
   const v = o.orderModule?.interna;
@@ -1802,10 +1847,10 @@ function removeInvoiceFile(i) {
 // ── Submit ────────────────────────────────────
 
 async function submitOrderForm() {
-  const nome       = document.getElementById('of-nome')?.value?.trim();
+  const nome       = ofUpper(document.getElementById('of-nome')?.value?.trim());
   const dataOrdine = document.getElementById('of-data')?.value;
   const deadline   = document.getElementById('of-deadline')?.value || null;
-  const notes      = document.getElementById('of-notes')?.value || '';
+  const notes      = ofUpper(document.getElementById('of-notes')?.value || '');
   const urgent     = !!document.getElementById('of-urgent')?.checked;
   // Urgente o normale: chi non è urgente è normale. In modifica una priorità diversa resta com'è.
   const prevPri    = AppState.formEditOrder?.priorityId;
@@ -1819,13 +1864,8 @@ async function submitOrderForm() {
 
   // La priorità (anche "Urgente") si sceglie solo a mano
   if (urgent && !deadline) {
-    const dlField = document.getElementById('of-deadline');
-    if (dlField) {
-      dlField.focus();
-      dlField.style.borderColor = 'var(--priority-urgent)';
-      dlField.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--priority-urgent) 25%, transparent)';
-      dlField.addEventListener('input', () => { dlField.style.borderColor = ''; dlField.style.boxShadow = ''; }, { once: true });
-    }
+    ofCheckDeadline(true);
+    document.getElementById('of-deadline')?.focus();
     showToast('Gli ordini urgenti richiedono una deadline', 'error');
     return;
   }
@@ -1837,7 +1877,12 @@ async function submitOrderForm() {
     files: AppState.formFiles,
     invoiceFiles: AppState.formInvoiceFiles,
     importo: parseFloat(document.getElementById('of-importo')?.value) || 0,
-    orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna },
+    orderModule: { rows: AppState.formModuleRows.map(r => {
+        const u = { ...r };
+        ['catalogo', 'codice', 'descrizione', 'colore', 'tg'].forEach(k => { if (typeof u[k] === 'string') u[k] = ofUpper(u[k]); });
+        return u;
+      }), acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna,
+      descrizione: ofUpper((document.getElementById('of-descrizione')?.value || '').trim()) },
   };
   // Cliente collegato solo se il nome scritto è ancora quello del cliente scelto
   const linked = AppState.formClientId ? TCFactory.getClient(AppState.formClientId) : null;
