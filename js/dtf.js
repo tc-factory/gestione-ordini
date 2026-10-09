@@ -420,7 +420,7 @@ function dtfOpenDetail(date) {
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('dtf-file-pick').click()}">
           ${Icons.paperclip(20)}
           <strong>Trascina qui i file stampati, oppure clicca per sceglierli</strong>
-          <span>Misura e metri si calcolano sul tuo computer: i file non vengono caricati. Pezzi dal nome, es. "logo_10pz.png"</span>
+          <span>Misura e metri si calcolano sul tuo computer: i file non vengono caricati. Pezzi dal nome, es. "logo_10pz.tif"</span>
           <input type="file" id="dtf-file-pick" multiple hidden onchange="dtfAddFiles([...this.files]);this.value=''">
         </label>
         <form class="dtf-add-name" onsubmit="event.preventDefault();dtfAddTyped()">
