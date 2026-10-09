@@ -964,3 +964,28 @@ html.dark .dtf-item.dtf-urgent .dtf-stats { background: rgba(0, 0, 0, 0.2); }
 .order-form .of-grid > *, .of-money > * { min-width: 0; }
 .order-form .of-grid .form-input, .of-money-input { width: 100%; min-width: 0; box-sizing: border-box; }
 @media (max-width: 640px) { .order-form .of-lav { width: 100%; } }
+
+/* DTF Interno: lunghezza, tempo e costo in colonne allineate + bottone file a fianco */
+.dtf-cols { display: grid; grid-auto-flow: column; grid-auto-columns: 84px; flex-shrink: 0; background: var(--bg-card); border-radius: 12px; padding: 6px 0; }
+.dtf-col { display: flex; flex-direction: column; align-items: flex-end; padding: 0 12px; line-height: 1.2; }
+.dtf-col strong { font-size: 0.86rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dtf-col small { font-size: 0.66rem; color: var(--text-muted); white-space: nowrap; }
+.dtf-cols.empty strong { color: var(--text-muted); font-weight: 500; }
+.dtf-files-btn {
+  display: flex; align-items: center; gap: 7px; width: 132px; flex-shrink: 0;
+  border: none; border-radius: 12px; padding: 8px 12px; min-height: 40px;
+  background: var(--bg-card); color: var(--text-primary); font-family: var(--font-body); text-align: left; cursor: pointer;
+  transition: box-shadow var(--transition);
+}
+.dtf-files-btn:hover { box-shadow: var(--shadow-sm); }
+.dtf-files-btn span { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.dtf-files-btn strong { font-size: 0.8rem; white-space: nowrap; }
+.dtf-files-btn small { font-size: 0.66rem; color: #B45309; white-space: nowrap; }
+.dtf-files-btn.empty { color: var(--accent-ink); }
+.dtf-item.dtf-urgent .dtf-cols, .dtf-item.dtf-urgent .dtf-files-btn { background: rgba(255, 255, 255, 0.7); }
+html.dark .dtf-item.dtf-urgent .dtf-cols, html.dark .dtf-item.dtf-urgent .dtf-files-btn { background: rgba(0, 0, 0, 0.2); }
+@media (max-width: 900px) { .dtf-cols { margin-left: 36px; } }
+@media (max-width: 640px) {
+  .dtf-cols { margin-left: 0; flex: 1 1 auto; grid-auto-columns: minmax(0, 1fr); }
+  .dtf-files-btn { width: auto; }
+}

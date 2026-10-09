@@ -139,13 +139,14 @@ function renderDtfInterno() {
           <strong>${escapeHtml(o.nome)}</strong>
           <span>${[client ? escapeHtml(TCFactory.clientName(client)) : '', o.tags.map(escapeHtml).join(', ')].filter(Boolean).join(' · ')}</span>
         </button>
-        <button type="button" class="dtf-stats ${st.files ? '' : 'empty'}" onclick="dtfOpenOrderFiles('${o.id}')"
+        <div class="dtf-cols ${st.files ? '' : 'empty'}" role="group" aria-label="Lunghezza, tempo e costo">
+          <span class="dtf-col"><strong>${st.files ? `${dtfMetri(st.metri)} m` : '—'}</strong><small>lunghezza</small></span>
+          <span class="dtf-col"><strong>${st.files ? dtfFmtTime(st.ore) : '—'}</strong><small>tempo</small></span>
+          ${costoAttivo ? `<span class="dtf-col"><strong>${st.files ? euro(st.costo) : '—'}</strong><small>costo</small></span>` : ''}
+        </div>
+        <button type="button" class="dtf-files-btn ${st.files ? '' : 'empty'}" onclick="dtfOpenOrderFiles('${o.id}')"
           title="${st.files ? 'Vedi e modifica i file' : 'Aggiungi i file da stampare'}">
-          ${st.files ? `
-            <span><strong>${dtfMetri(st.metri)} m</strong><small>${st.files} file${st.senzaMisura ? ` · ${st.senzaMisura} senza misura` : ''}</small></span>
-            <span><strong>${dtfFmtTime(st.ore)}</strong><small>tempo</small></span>
-            ${costoAttivo ? `<span><strong>${euro(st.costo)}</strong><small>costo</small></span>` : ''}`
-          : `${Icons.paperclip(14)} Aggiungi file`}
+          ${Icons.paperclip(14)}<span>${st.files ? `<strong>${st.files} file</strong>${st.senzaMisura ? `<small>${st.senzaMisura} senza misura</small>` : ''}` : '<strong>Aggiungi file</strong>'}</span>
         </button>
         <button type="button" class="btn btn-sm dtf-done-btn" onclick="dtfMarkPrinted('${o.id}')">${Icons.checkCircle('currentColor', 15)} Stampato</button>
         <button type="button" class="btn-icon dtf-remove" onclick="dtfRemove('${o.id}')" aria-label="Togli ${escapeHtml(o.nome)} dalla lista DTF" title="Non serve il DTF: togli dalla lista">${Icons.x(14)}</button>
