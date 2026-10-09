@@ -753,3 +753,23 @@ html.dark .dtf-save.saved { color: #4ADE80; }
 .dtf-link-row { display: flex; gap: 8px; width: 100%; }
 .dtf-link-row .form-input { flex: 1; min-width: 0; font-size: 0.8rem; color: var(--text-secondary); }
 .dtf-link-box .btn-ghost { padding-left: 0; font-size: 0.78rem; color: var(--text-muted); }
+
+/* DTF: file stampati come elementi eliminabili */
+.dtf-drop { cursor: pointer; }
+.dtf-drop:focus-visible { box-shadow: var(--focus-ring); }
+.dtf-add-name { display: flex; gap: 8px; }
+.dtf-add-name .form-input { flex: 1; min-width: 0; }
+.dtf-files-head { font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 6px; }
+.dtf-files { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; max-height: 45vh; overflow-y: auto; }
+.dtf-file {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 12px;
+  background: var(--bg-primary);
+  animation: viewIn 200ms var(--ease-out);
+}
+.dtf-file-icon { color: var(--text-muted); display: inline-flex; }
+.dtf-file-name { flex: 1; min-width: 0; font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtf-file-del { min-width: 30px; min-height: 30px; padding: 6px; color: var(--text-muted); }
+.dtf-file-del:hover { color: #DC2626; background: var(--urgent-bg); }
+.dtf-files-empty { font-size: 0.82rem; color: var(--text-muted); text-align: center; padding: 8px 0; }
