@@ -59,7 +59,7 @@ const dtfDone = (o) => !!o.stages?.dtfPronti?.done;
 function dtfLists() {
   const { order, removed } = dtfSettings();
   const removedAt = new Map(removed.map(r => [r.id, r.at]));
-  const internal = TCFactory.getOrders().filter(o => !o.deletedAt && !o.lavorazioneEsterna);
+  const internal = TCFactory.getOrders().filter(o => !o.deletedAt && isLavInterna(o));
   const deadline = (o) => TCFactory.getEffectiveDeadline(o)?.date || '9999-12-31';
 
   // Da stampare: ordini attivi a lavorazione interna, DTF non ancora fatto, non rimossi

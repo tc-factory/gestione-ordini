@@ -1315,6 +1315,7 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
   // Urgente o normale: niente altre priorità nel form
   const isUrgent   = order ? isUrgentOrder(order) : false;
   AppState.formLavEsterna = !!order?.lavorazioneEsterna;
+  AppState.formLavInterna = isLavInterna(order);
   AppState.formClientId   = order?.clientId || defaultClientId || null;
   const clientName = !order && defaultClientId ? TCFactory.clientName(TCFactory.getClient(defaultClientId)) : '';
 
@@ -1363,9 +1364,9 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
 
         <div class="form-group">
           <span class="form-label" id="of-lav-label">Lavorazione</span>
-          <div class="segmented of-lav" role="radiogroup" aria-labelledby="of-lav-label">
-            <button type="button" role="radio" data-lav="interna" aria-checked="${!AppState.formLavEsterna}" class="${!AppState.formLavEsterna ? 'active' : ''}" onclick="ofSetLav(false)">Interna</button>
-            <button type="button" role="radio" data-lav="esterna" aria-checked="${AppState.formLavEsterna}" class="${AppState.formLavEsterna ? 'active' : ''}" onclick="ofSetLav(true)">Esterna</button>
+          <div class="segmented of-lav" role="group" aria-labelledby="of-lav-label">
+            <button type="button" data-lav="interna" aria-pressed="${AppState.formLavInterna}" class="${AppState.formLavInterna ? 'active' : ''}" onclick="ofToggleLav('interna')">Interna</button>
+            <button type="button" data-lav="esterna" aria-pressed="${AppState.formLavEsterna}" class="${AppState.formLavEsterna ? 'active' : ''}" onclick="ofToggleLav('esterna')">Esterna</button>
           </div>
         </div>
 
@@ -1594,12 +1595,24 @@ function ofShowLinkedClient() {
   el.classList.toggle('on', !!c);
 }
 
+// Interna ed Esterna si possono spuntare entrambe (almeno una).
+// Con entrambe: le righe con una lavorazione esterna vanno in Lavorazioni esterne, il resto si fa in casa.
+function ofToggleLav(which) {
+  const key = which === 'esterna' ? 'formLavEsterna' : 'formLavInterna';
+  const other = which === 'esterna' ? 'formLavInterna' : 'formLavEsterna';
+  AppState[key] = !AppState[key];
+  if (!AppState[key] && !AppState[other]) AppState[other] = true;   // mai nessuna delle due
+  ofRenderLav();
+}
 function ofSetLav(esterna) {
-  AppState.formLavEsterna = !!esterna;
+  if (esterna) AppState.formLavEsterna = true; else AppState.formLavInterna = true;
+  ofRenderLav();
+}
+function ofRenderLav() {
   document.querySelectorAll('.of-lav button').forEach(b => {
-    const on = (b.dataset.lav === 'esterna') === AppState.formLavEsterna;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-checked', on);
+    const on = b.dataset.lav === 'esterna' ? AppState.formLavEsterna : AppState.formLavInterna;
+    b.classList.toggle('active', !!on);
+    b.setAttribute('aria-pressed', !!on);
   });
 }
 
@@ -1714,6 +1727,13 @@ function addModRow() {
 }
 // Lavorazione esterna della riga: id da Impostazioni → Lavorazioni esterne.
 // Le righe vecchie con la sola spunta valgono come "Da specificare".
+// Lavorazione interna: gli ordini vecchi senza la scelta sono interni se non sono esterni
+function isLavInterna(o) {
+  if (!o) return true;
+  const v = o.orderModule?.interna;
+  return typeof v === 'boolean' ? v : !o.lavorazioneEsterna;
+}
+
 function modRowEsterna(r, legacy = '✓') {
   if (r?.esterna) return lavEsternaName(r.esterna) || 'Esterna';
   return r?.lavEsterna ? legacy : '';
@@ -1817,7 +1837,7 @@ async function submitOrderForm() {
     files: AppState.formFiles,
     invoiceFiles: AppState.formInvoiceFiles,
     importo: parseFloat(document.getElementById('of-importo')?.value) || 0,
-    orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto },
+    orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna },
   };
   // Cliente collegato solo se il nome scritto è ancora quello del cliente scelto
   const linked = AppState.formClientId ? TCFactory.getClient(AppState.formClientId) : null;
