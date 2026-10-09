@@ -773,3 +773,22 @@ html.dark .dtf-save.saved { color: #4ADE80; }
 .dtf-file-del { min-width: 30px; min-height: 30px; padding: 6px; color: var(--text-muted); }
 .dtf-file-del:hover { color: #DC2626; background: var(--urgent-bg); }
 .dtf-files-empty { font-size: 0.82rem; color: var(--text-muted); text-align: center; padding: 8px 0; }
+
+/* DTF: righe file con misure */
+.dtf-files-head { display: flex; justify-content: space-between; align-items: baseline; }
+.dtf-files-head strong { font-size: 0.95rem; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.dtf-files-head small { font-weight: 500; color: #B45309; }
+.dtf-file { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 6px 10px 12px; }
+.dtf-file.missing { background: #FFFBEB; }
+html.dark .dtf-file.missing { background: #2A2412; }
+.dtf-file-top { display: flex; align-items: center; gap: 10px; }
+.dtf-file-metri { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dtf-file-size { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-left: 24px; font-size: 0.78rem; color: var(--text-muted); }
+.dtf-file-size .form-input { width: 64px; padding: 4px 8px; font-size: 0.8rem; text-align: right; font-variant-numeric: tabular-nums; }
+.dtf-file-size .dtf-pz { width: 52px; }
+.dtf-tag { font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #FEF3C7; color: #92400E; }
+.dtf-tag.warn { background: #FEE2E2; color: #B91C1C; }
+.dtf-tag.soft { background: var(--bg-card); color: var(--text-secondary); }
+html.dark .dtf-tag { background: #3B2F14; color: #FCD34D; }
+html.dark .dtf-tag.warn { background: #3A1C1C; color: #FCA5A5; }
+.dtf-reading { font-size: 0.82rem; color: var(--accent-ink); text-align: center; padding: 6px 0; }

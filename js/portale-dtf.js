@@ -91,7 +91,7 @@ async function doPortalLogin() {
 function applyData(data) {
   Portal.cliente = data.cliente;
   Portal.entries = {};
-  (data.entries || []).forEach(e => { Portal.entries[e.giorno] = { metri: Number(e.metri) || 0, dettaglio: e.dettaglio || '' }; });
+  (data.entries || []).forEach(e => { Portal.entries[e.giorno] = { metri: Number(e.metri) || 0, dettaglio: e.dettaglio || '', files: Array.isArray(e.files) ? e.files : [] }; });
 }
 
 async function changeMonth(delta) {
@@ -183,7 +183,9 @@ function showDetail(key) {
       <div class="modal-body" style="gap:10px;">
         <div class="dtf-kpi"><span>Metri stampati</span><strong>${metri(e?.metri)} m</strong></div>
         <h3 class="portal-files-title">File stampati (${files.length})</h3>
-        <ul class="portal-files">${files.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+        <ul class="portal-files">${(e?.files?.length ? e.files : files.map(name => ({ name }))).map(f => `
+          <li><span>${esc(f.name)}</span>${f.metri > 0
+            ? `<small>${String(f.w_cm).replace('.', ',')} × ${String(f.h_cm).replace('.', ',')} cm · ${f.pz} pz · <strong>${metri(f.metri)} m</strong></small>` : ''}</li>`).join('')}</ul>
       </div>
     </div>`;
   modal.classList.add('active');

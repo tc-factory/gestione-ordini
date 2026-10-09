@@ -1846,6 +1846,20 @@ function renderSettingsDialog() {
         </div>
 
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+          <div class="settings-static-head">${Icons.printer(14)} DTF: calcolo dei metri</div>
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
+            <div class="settings-section-hint" style="margin:0;">Usati per calcolare i metri dai file nel Conto terzi. Vale per tutti gli utenti.</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <label class="form-label" for="dtf-roll" style="margin:0;">Rotolo</label>
+              <input id="dtf-roll" class="form-input" inputmode="decimal" style="width:80px;" value="${String(DtfMisure.rollCm()).replace('.', ',')}"> <span>cm</span>
+              <label class="form-label" for="dtf-margin" style="margin:0 0 0 12px;">Margine tra i pezzi</label>
+              <input id="dtf-margin" class="form-input" inputmode="decimal" style="width:80px;" value="${String(DtfMisure.marginCm()).replace('.', ',')}"> <span>cm</span>
+              <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="saveDtfSettings()">Salva</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           <div class="settings-static-head">${Icons.calendarDays(14)} Scadenze automatiche</div>
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
             <div class="settings-section-hint" style="margin:0;">Per gli ordini senza deadline il Planner calcola la scadenza come data ordine + questi giorni. Vale per tutti gli utenti.</div>
@@ -1911,6 +1925,18 @@ function renderSettingsDialog() {
       </div>
     </div>
   `;
+}
+
+async function saveDtfSettings() {
+  const num = (id) => parseFloat(String(document.getElementById(id)?.value).replace(',', '.'));
+  const roll = num('dtf-roll'), margin = num('dtf-margin');
+  if (!(roll >= 10 && roll <= 500)) { showToast('Larghezza del rotolo non valida', 'error'); return; }
+  if (!(margin >= 0 && margin <= 10)) { showToast('Margine non valido (da 0 a 10 cm)', 'error'); return; }
+  try {
+    await TCFactory.setSetting('dtf_roll_cm', roll);
+    await TCFactory.setSetting('dtf_margin_cm', margin);
+    showToast(`DTF: rotolo ${String(roll).replace('.', ',')} cm, margine ${String(margin).replace('.', ',')} cm (vale per i file aggiunti o modificati da ora)`);
+  } catch { showToast('Salvataggio non riuscito', 'error'); }
 }
 
 async function saveAutoDeadlineDays() {
