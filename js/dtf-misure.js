@@ -4,8 +4,8 @@
  * non viene caricato da nessuna parte.
  *
  * • Pezzi: dal nome del file, "10pz", "10 pz" o "pz10" (se manca: 1).
- * • Misura di stampa in cm: PDF dalla pagina (punti tipografici), PNG e JPG da
- *   pixel e DPI scritti nel file. Se il DPI manca si usa 300 e lo si segnala.
+ * • Misura di stampa in cm: PDF dalla pagina (punti tipografici), TIFF, PNG e JPG
+ *   da pixel e DPI scritti nel file. Se il DPI manca si usa 300 e lo si segnala.
  * • Metri: pezzi affiancati sulla larghezza del rotolo, provando anche il file
  *   ruotato di 90°, con un margine tra i pezzi; vince il verso che consuma meno.
  */
@@ -51,6 +51,7 @@ const DtfMisure = {
     const name = file.name.toLowerCase();
     try {
       if (name.endsWith('.pdf') || file.type === 'application/pdf') return await this._pdf(file);
+      if (/\.tiff?$/.test(name) || file.type === 'image/tiff') return await this._tif(file);
       if (name.endsWith('.png') || file.type === 'image/png') return await this._png(file);
       if (/\.(jpe?g)$/.test(name) || file.type === 'image/jpeg') return await this._jpg(file);
     } catch (e) {
@@ -65,6 +66,43 @@ const DtfMisure = {
     const d = ipotizzato ? DTF_DEFAULT_DPI : dpi;
     const cm = (px) => Math.round(px / d * CM_PER_INCH * 10) / 10;
     return { w_cm: cm(wPx), h_cm: cm(hPx), fonte, dpi: Math.round(d), dpi_ipotizzato: ipotizzato };
+  },
+
+  // TIFF: legge solo intestazione e directory (anche se il file è molto grande)
+  async _tif(file) {
+    const read = async (from, len) => new DataView(await file.slice(from, from + len).arrayBuffer());
+    const head = await read(0, 16);
+    const le = head.getUint16(0) === 0x4949;                       // "II" little endian, "MM" big endian
+    if (!le && head.getUint16(0) !== 0x4d4d) throw new Error('TIFF non valido');
+    const u16 = (dv, o) => dv.getUint16(o, le), u32 = (dv, o) => dv.getUint32(o, le);
+    const u64 = (dv, o) => Number(dv.getBigUint64(o, le));
+    const big = u16(head, 2) === 43;                               // BigTIFF (file oltre 4 GB)
+    if (!big && u16(head, 2) !== 42) throw new Error('TIFF non valido');
+
+    const ifd = big ? u64(head, 8) : u32(head, 4);
+    const countDv = await read(ifd, big ? 8 : 2);
+    const n = big ? u64(countDv, 0) : u16(countDv, 0);
+    const size = big ? 20 : 12;
+    const dir = await read(ifd + (big ? 8 : 2), n * size);
+
+    const tags = {};
+    for (let i = 0; i < n; i++) {
+      const o = i * size, tag = u16(dir, o), type = u16(dir, o + 2), val = o + (big ? 12 : 8);
+      if (![256, 257, 282, 283, 296].includes(tag)) continue;
+      if (type === 3) tags[tag] = u16(dir, val);                                   // SHORT
+      else if (type === 4) tags[tag] = u32(dir, val);                              // LONG
+      else if (type === 16) tags[tag] = u64(dir, val);                             // LONG8
+      else if (type === 5) {                                                       // RATIONAL (fuori riga)
+        const r = await read(big ? u64(dir, val) : u32(dir, val), 8);
+        tags[tag] = u32(r, 4) ? u32(r, 0) / u32(r, 4) : 0;
+      }
+    }
+    const w = tags[256], h = tags[257];
+    if (!w || !h) throw new Error('dimensioni TIFF non trovate');
+    const unit = tags[296] ?? 2;                                   // 2 = pollici, 3 = centimetri, 1 = nessuna
+    let dpi = tags[282] || 0;
+    if (unit === 3) dpi *= CM_PER_INCH; else if (unit === 1) dpi = 0;
+    return this._fromPixels(w, h, dpi, 'tif');
   },
 
   async _png(file) {
