@@ -746,3 +746,10 @@ html.dark .dtf-save.saved { color: #4ADE80; }
   .dtf-day { grid-template-columns: 46px 104px minmax(0, 1fr); gap: 6px; }
   .dtf-calendar { max-height: none; }
 }
+
+/* Scheda cliente DTF: password e link per il cliente */
+.dtf-access { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; border-top: 1px solid var(--border-light); }
+.dtf-link-box { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.dtf-link-row { display: flex; gap: 8px; width: 100%; }
+.dtf-link-row .form-input { flex: 1; min-width: 0; font-size: 0.8rem; color: var(--text-secondary); }
+.dtf-link-box .btn-ghost { padding-left: 0; font-size: 0.78rem; color: var(--text-muted); }
