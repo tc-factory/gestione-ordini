@@ -1317,7 +1317,9 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
   // Urgente o normale: niente altre priorità nel form
   const isUrgent   = order ? isUrgentOrder(order) : false;
   AppState.formLavEsterna = !!order?.lavorazioneEsterna;
-  AppState.formLavInterna = isLavInterna(order);
+  AppState.formLavNeutro  = TCFactory.isNeutro(order);
+  AppState.formLavInterna = !AppState.formLavNeutro && isLavInterna(order);
+  if (AppState.formLavNeutro) AppState.formLavEsterna = false;
   AppState.formClientId   = order?.clientId || defaultClientId || null;
   const clientName = !order && defaultClientId ? TCFactory.clientName(TCFactory.getClient(defaultClientId)) : '';
 
@@ -1375,6 +1377,7 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
           <div class="segmented of-lav" role="group" aria-labelledby="of-lav-label">
             <button type="button" data-lav="interna" aria-pressed="${AppState.formLavInterna}" class="${AppState.formLavInterna ? 'active' : ''}" onclick="ofToggleLav('interna')">Interna</button>
             <button type="button" data-lav="esterna" aria-pressed="${AppState.formLavEsterna}" class="${AppState.formLavEsterna ? 'active' : ''}" onclick="ofToggleLav('esterna')">Esterna</button>
+            <button type="button" data-lav="neutro" aria-pressed="${AppState.formLavNeutro}" class="${AppState.formLavNeutro ? 'active' : ''}" onclick="ofToggleLav('neutro')" title="Nessuna lavorazione: l'ordine va direttamente in Evasione">Neutro</button>
           </div>
         </div>
 
@@ -1605,20 +1608,29 @@ function ofShowLinkedClient() {
 
 // Interna ed Esterna si possono spuntare entrambe (almeno una).
 // Con entrambe: le righe con una lavorazione esterna vanno in Lavorazioni esterne, il resto si fa in casa.
+// Neutro si sceglie solo da solo: esclude Interna ed Esterna (e viceversa).
 function ofToggleLav(which) {
+  if (which === 'neutro') {
+    AppState.formLavNeutro = !AppState.formLavNeutro;
+    if (AppState.formLavNeutro) { AppState.formLavInterna = false; AppState.formLavEsterna = false; }
+    else AppState.formLavInterna = true;
+    return ofRenderLav();
+  }
   const key = which === 'esterna' ? 'formLavEsterna' : 'formLavInterna';
   const other = which === 'esterna' ? 'formLavInterna' : 'formLavEsterna';
   AppState[key] = !AppState[key];
-  if (!AppState[key] && !AppState[other]) AppState[other] = true;   // mai nessuna delle due
+  if (AppState[key]) AppState.formLavNeutro = false;
+  if (!AppState[key] && !AppState[other] && !AppState.formLavNeutro) AppState[other] = true;   // mai nessuna
   ofRenderLav();
 }
 function ofSetLav(esterna) {
   if (esterna) AppState.formLavEsterna = true; else AppState.formLavInterna = true;
+  AppState.formLavNeutro = false;
   ofRenderLav();
 }
 function ofRenderLav() {
   document.querySelectorAll('.of-lav button').forEach(b => {
-    const on = b.dataset.lav === 'esterna' ? AppState.formLavEsterna : AppState.formLavInterna;
+    const on = { esterna: AppState.formLavEsterna, interna: AppState.formLavInterna, neutro: AppState.formLavNeutro }[b.dataset.lav];
     b.classList.toggle('active', !!on);
     b.setAttribute('aria-pressed', !!on);
   });
@@ -1775,6 +1787,7 @@ const orderDesc = (o) => String(o?.orderModule?.descrizione || '').trim();
 
 function isLavInterna(o) {
   if (!o) return true;
+  if (TCFactory.isNeutro(o)) return false;
   const v = o.orderModule?.interna;
   return typeof v === 'boolean' ? v : !o.lavorazioneEsterna;
 }
@@ -1872,7 +1885,7 @@ async function submitOrderForm() {
 
   const payload = {
     nome, dataOrdine, deadline, notes, priorityId,
-    lavorazioneEsterna: !!AppState.formLavEsterna,
+    lavorazioneEsterna: !!AppState.formLavEsterna && !AppState.formLavNeutro,
     tags: AppState.formTags,
     files: AppState.formFiles,
     invoiceFiles: AppState.formInvoiceFiles,
@@ -1881,7 +1894,7 @@ async function submitOrderForm() {
         const u = { ...r };
         ['catalogo', 'codice', 'descrizione', 'colore', 'tg'].forEach(k => { if (typeof u[k] === 'string') u[k] = ofUpper(u[k]); });
         return u;
-      }), acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna,
+      }), acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna && !AppState.formLavNeutro, neutro: !!AppState.formLavNeutro,
       descrizione: ofUpper((document.getElementById('of-descrizione')?.value || '').trim()) },
   };
   // Cliente collegato solo se il nome scritto è ancora quello del cliente scelto
