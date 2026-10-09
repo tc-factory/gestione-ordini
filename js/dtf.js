@@ -538,10 +538,15 @@ function dtfOpenDetail(date, target = null) {
           ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="dtfDropFiles(event)"
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('dtf-file-pick').click()}">
           ${Icons.paperclip(20)}
-          <strong>Trascina qui i file stampati, oppure clicca per sceglierli</strong>
-          <span>Misura e metri si calcolano sul tuo computer: i file non vengono caricati. Pezzi dal nome, es. "logo_10pz.tif"</span>
+          <strong>Trascina qui i file o le cartelle stampate, oppure clicca per scegliere i file</strong>
+          <span>Le cartelle si leggono con tutte le sottocartelle. Misura e metri si calcolano sul tuo computer: i file non vengono caricati. Pezzi dal nome, es. "logo_10pz.tif"</span>
           <input type="file" id="dtf-file-pick" multiple hidden onchange="dtfAddFiles([...this.files]);this.value=''">
         </label>
+        <div class="dtf-folder-row">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('dtf-folder-pick').click()">📁 Scegli una cartella</button>
+          <span>anche con sottocartelle: si prendono i PDF, TIFF, PNG e JPG che contiene</span>
+          <input type="file" id="dtf-folder-pick" webkitdirectory directory multiple hidden onchange="dtfAddFolderFiles([...this.files]);this.value=''">
+        </div>
         <form class="dtf-add-name" onsubmit="event.preventDefault();dtfAddTyped()">
           <input id="dtf-add-name" class="form-input" placeholder="Oppure scrivi un nome e premi Invio" maxlength="240">
           <button type="submit" class="btn btn-secondary btn-sm">${Icons.plus(14)} Aggiungi</button>
@@ -621,7 +626,7 @@ async function dtfAddFiles(items) {
   const fresh = [];
   let dup = 0;
   for (const it of items) {
-    const name = String(typeof it === 'string' ? it : it.name).trim();
+    const name = String(typeof it === 'string' ? it : it.name).trim();   // File o { file, name } da cartella
     if (!name) continue;
     if (seen.has(name)) { dup++; continue; }
     seen.add(name);
@@ -631,7 +636,11 @@ async function dtfAddFiles(items) {
 
   const files = fresh.filter(x => typeof x !== 'string');
   if (files.length) dtfRenderFileList(files.length);
-  const described = await Promise.all(fresh.map(x => typeof x === 'string' ? DtfMisure.fromName(x.trim()) : DtfMisure.describe(x)));
+  const described = await Promise.all(fresh.map(async x => {
+    if (typeof x === 'string') return DtfMisure.fromName(x.trim());
+    if (x.file) return { ...(await DtfMisure.describe(x.file)), name: x.name };   // pezzi dal nome del file, nome con il percorso
+    return DtfMisure.describe(x);
+  }));
   dtfSetFiles([...dtfDetailFiles(), ...described]);
 
   const daMisurare = described.filter(f => !(f.metri > 0)).length;
@@ -667,10 +676,61 @@ function dtfRemoveFile(index) {
   (btns[Math.min(index, btns.length - 1)] || document.getElementById('dtf-add-name'))?.focus();
 }
 
-function dtfDropFiles(e) {
+// ── Cartelle (anche con sottocartelle) ──
+const DTF_FILE_EXT = /\.(pdf|tiff?|png|jpe?g)$/i;
+const dtfHidden = (path) => path.split('/').some(p => p.startsWith('.') || p === '__MACOSX' || p === 'Thumbs.db');
+
+// Nome mostrato: percorso dentro la cartella scelta (senza la cartella stessa), così
+// due "fronte.png" in sottocartelle diverse restano distinti
+function dtfPathName(file, path) {
+  const parts = String(path || file.name).split('/').filter(Boolean);
+  return parts.length > 1 ? parts.slice(1).join('/') : parts[0] || file.name;
+}
+
+async function dtfAddFolderFiles(list, ignored = 0) {
+  const found = [];
+  for (const x of list) {
+    const file = x.file || x, path = x.path || file.webkitRelativePath || file.name;
+    if (dtfHidden(path)) continue;
+    if (!DTF_FILE_EXT.test(file.name)) { ignored++; continue; }
+    found.push({ file, name: dtfPathName(file, path) });
+  }
+  if (!found.length) { showToast(ignored ? `Nessun file DTF nella cartella (${ignored} di altro tipo)` : 'La cartella è vuota', 'error'); return; }
+  await dtfAddFiles(found);
+  if (ignored) showToast(`${ignored} ${ignored === 1 ? 'file ignorato' : 'file ignorati'}: non sono PDF, TIFF, PNG o JPG`);
+}
+
+// Legge una cartella trascinata, con tutte le sottocartelle
+async function dtfReadEntry(entry, out) {
+  if (entry.isFile) {
+    const file = await new Promise((res, rej) => entry.file(res, rej)).catch(() => null);
+    if (file) out.push({ file, path: entry.fullPath.replace(/^\//, '') });
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    for (;;) {   // readEntries restituisce i file a blocchi: si legge finché non torna vuoto
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej)).catch(() => []);
+      if (!batch.length) break;
+      for (const child of batch) await dtfReadEntry(child, out);
+    }
+  }
+}
+
+async function dtfDropFiles(e) {
   e.preventDefault();
   e.currentTarget.classList.remove('over');
-  dtfAddFiles([...(e.dataTransfer?.files || [])]);
+  // Le voci vanno prese subito: dopo il primo await il trascinamento non è più leggibile
+  const entries = [...(e.dataTransfer?.items || [])].map(i => i.kind === 'file' && i.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.some(en => en.isDirectory)) { dtfAddFiles([...(e.dataTransfer?.files || [])]); return; }
+
+  dtfRenderFileList(1);
+  const loose = [], fromFolders = [];
+  for (const en of entries) {
+    if (en.isDirectory) await dtfReadEntry(en, fromFolders);
+    else { const f = await new Promise(r => en.file(r, () => r(null))); if (f) loose.push(f); }
+  }
+  if (loose.length) await dtfAddFiles(loose);
+  if (fromFolders.length || !loose.length) await dtfAddFolderFiles(fromFolders);
+  else dtfRenderFileList();
 }
 
 function dtfCloseDetail() {

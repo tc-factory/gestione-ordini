@@ -1006,3 +1006,7 @@ html.dark .dtf-item.dtf-urgent .dtf-cols, html.dark .dtf-item.dtf-urgent .dtf-fi
 /* Form ordine e modulo d'ordine in MAIUSCOLO */
 #order-form-modal input:not([type]), #order-form-modal input[type=text], #order-form-modal textarea { text-transform: uppercase; }
 #order-form-modal input::placeholder, #order-form-modal textarea::placeholder { text-transform: none; }
+
+/* DTF: scegli una cartella */
+.dtf-folder-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dtf-folder-row span { font-size: 0.74rem; color: var(--text-muted); }
