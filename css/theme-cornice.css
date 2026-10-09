@@ -1002,3 +1002,7 @@ html.dark .dtf-item.dtf-urgent .dtf-cols, html.dark .dtf-item.dtf-urgent .dtf-fi
 .of-deadline-msg:empty { display: none; }
 .order-form .of-grid-3 { align-items: start; }
 .order-form .of-grid-3 .of-urgent { margin-top: 22px; }
+
+/* Form ordine e modulo d'ordine in MAIUSCOLO */
+#order-form-modal input:not([type]), #order-form-modal input[type=text], #order-form-modal textarea { text-transform: uppercase; }
+#order-form-modal input::placeholder, #order-form-modal textarea::placeholder { text-transform: none; }

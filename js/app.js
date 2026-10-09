@@ -1584,7 +1584,7 @@ function ofPickClient(id) {
   if (!c) return;
   AppState.formClientId = id;
   const input = document.getElementById('of-nome');
-  if (input) input.value = TCFactory.clientName(c);
+  if (input) input.value = ofUpper(TCFactory.clientName(c));
   ofCloseSuggest();
   ofShowLinkedClient();
 }
@@ -1623,6 +1623,19 @@ function ofRenderLav() {
     b.setAttribute('aria-pressed', !!on);
   });
 }
+
+// Ordini e modulo d'ordine: tutto in MAIUSCOLO, come con il blocco maiuscole attivo
+const ofUpper = (v) => String(v ?? '').toLocaleUpperCase('it-IT');
+const OF_UPPER_SEL = '#order-form-modal input:not([type]), #order-form-modal input[type=text], #order-form-modal input[type=search], #order-form-modal textarea';
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (!el.matches?.(OF_UPPER_SEL) || e.isComposing) return;
+  const up = ofUpper(el.value);
+  if (up === el.value) return;
+  const { selectionStart: a, selectionEnd: b } = el;
+  el.value = up;
+  try { el.setSelectionRange(a, b); } catch {}
+}, true);   // prima dei gestori dei campi, che così salvano già il maiuscolo
 
 // URGENTE spuntato → la deadline diventa obbligatoria
 function ofUrgentChange(on) {
@@ -1834,10 +1847,10 @@ function removeInvoiceFile(i) {
 // ── Submit ────────────────────────────────────
 
 async function submitOrderForm() {
-  const nome       = document.getElementById('of-nome')?.value?.trim();
+  const nome       = ofUpper(document.getElementById('of-nome')?.value?.trim());
   const dataOrdine = document.getElementById('of-data')?.value;
   const deadline   = document.getElementById('of-deadline')?.value || null;
-  const notes      = document.getElementById('of-notes')?.value || '';
+  const notes      = ofUpper(document.getElementById('of-notes')?.value || '');
   const urgent     = !!document.getElementById('of-urgent')?.checked;
   // Urgente o normale: chi non è urgente è normale. In modifica una priorità diversa resta com'è.
   const prevPri    = AppState.formEditOrder?.priorityId;
@@ -1864,8 +1877,12 @@ async function submitOrderForm() {
     files: AppState.formFiles,
     invoiceFiles: AppState.formInvoiceFiles,
     importo: parseFloat(document.getElementById('of-importo')?.value) || 0,
-    orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna,
-      descrizione: (document.getElementById('of-descrizione')?.value || '').trim() },
+    orderModule: { rows: AppState.formModuleRows.map(r => {
+        const u = { ...r };
+        ['catalogo', 'codice', 'descrizione', 'colore', 'tg'].forEach(k => { if (typeof u[k] === 'string') u[k] = ofUpper(u[k]); });
+        return u;
+      }), acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna,
+      descrizione: ofUpper((document.getElementById('of-descrizione')?.value || '').trim()) },
   };
   // Cliente collegato solo se il nome scritto è ancora quello del cliente scelto
   const linked = AppState.formClientId ? TCFactory.getClient(AppState.formClientId) : null;
