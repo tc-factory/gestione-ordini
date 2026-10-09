@@ -1359,11 +1359,12 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
             <input id="of-data" type="date" class="form-input" value="${order?.dataOrdine || TCFactory.getDefaultDate()}">
           </div>
           <div class="form-group">
-            <label class="form-label" for="of-deadline">Deadline</label>
-            <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}">
+            <label class="form-label" for="of-deadline">Deadline<span id="of-deadline-req" ${isUrgent ? '' : 'hidden'}> *</span></label>
+            <input id="of-deadline" type="date" class="form-input" value="${order?.deadline || ''}" ${isUrgent ? 'required aria-required="true"' : ''} oninput="ofCheckDeadline()" onblur="setTimeout(ofCheckDeadline, 0)">
+            <span class="of-deadline-msg" id="of-deadline-msg" role="alert"></span>
           </div>
           <label class="of-urgent">
-            <input type="checkbox" id="of-urgent" ${isUrgent ? 'checked' : ''}>
+            <input type="checkbox" id="of-urgent" ${isUrgent ? 'checked' : ''} onchange="ofUrgentChange(this.checked)">
             <span class="of-urgent-box" aria-hidden="true"></span>
             <span>URGENTE</span>
           </label>
@@ -1623,6 +1624,27 @@ function ofRenderLav() {
   });
 }
 
+// URGENTE spuntato → la deadline diventa obbligatoria
+function ofUrgentChange(on) {
+  const dl = document.getElementById('of-deadline');
+  if (!dl) return;
+  dl.required = on;
+  dl.setAttribute('aria-required', on);
+  document.getElementById('of-deadline-req').hidden = !on;
+  if (on && !dl.value) { dl.focus(); try { dl.showPicker?.(); } catch {} }
+  ofCheckDeadline();
+}
+function ofCheckDeadline(show = false) {
+  const dl = document.getElementById('of-deadline'), msg = document.getElementById('of-deadline-msg');
+  if (!dl || !msg) return true;
+  const missing = !!document.getElementById('of-urgent')?.checked && !dl.value;
+  const visible = missing && (show || dl.classList.contains('invalid') || document.activeElement !== dl);
+  dl.classList.toggle('invalid', visible);
+  dl.setAttribute('aria-invalid', visible);
+  msg.textContent = visible ? 'Obbligatoria per gli ordini urgenti' : '';
+  return !missing;
+}
+
 function ofUpdateSaldo() {
   const el = document.getElementById('of-saldo');
   if (!el) return;
@@ -1829,13 +1851,8 @@ async function submitOrderForm() {
 
   // La priorità (anche "Urgente") si sceglie solo a mano
   if (urgent && !deadline) {
-    const dlField = document.getElementById('of-deadline');
-    if (dlField) {
-      dlField.focus();
-      dlField.style.borderColor = 'var(--priority-urgent)';
-      dlField.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--priority-urgent) 25%, transparent)';
-      dlField.addEventListener('input', () => { dlField.style.borderColor = ''; dlField.style.boxShadow = ''; }, { once: true });
-    }
+    ofCheckDeadline(true);
+    document.getElementById('of-deadline')?.focus();
     showToast('Gli ordini urgenti richiedono una deadline', 'error');
     return;
   }

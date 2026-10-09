@@ -994,3 +994,11 @@ html.dark .dtf-item.dtf-urgent .dtf-cols, html.dark .dtf-item.dtf-urgent .dtf-fi
 .orc-desc { display: block; font-size: 0.74rem; font-weight: 500; color: var(--text-muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail-desc { font-size: 0.88rem; color: var(--text-muted); margin-top: 2px; }
 .orc-name:has(.orc-desc) { display: flex; flex-direction: column; align-items: stretch; justify-content: center; min-width: 0; }
+
+/* Deadline obbligatoria se URGENTE */
+#of-deadline-req { color: #DC2626; }
+#of-deadline.invalid { border-color: #DC2626; box-shadow: 0 0 0 3px color-mix(in srgb, #DC2626 22%, transparent); }
+.of-deadline-msg { display: block; min-height: 0; font-size: 0.74rem; font-weight: 600; color: #DC2626; margin-top: 4px; }
+.of-deadline-msg:empty { display: none; }
+.order-form .of-grid-3 { align-items: start; }
+.order-form .of-grid-3 .of-urgent { margin-top: 22px; }
