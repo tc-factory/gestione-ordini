@@ -8,8 +8,8 @@
 // ─────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
+  { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
   { id: 'dtf',          label: 'DTF',           subtitle: 'Stampa interna e conto terzi',  icon: () => Icons.printer(19) },
   { id: 'clienti',      label: 'Clienti',       subtitle: 'Anagrafica clienti',            icon: () => Icons.users(19) },
   { id: 'cassa',        label: 'Cassa',         subtitle: 'Incassi e pagamenti',           icon: () => Icons.wallet(19), allowed: () => TCAuth.canViewEconomics() },
@@ -195,7 +195,7 @@ function renderSidebar() {
 // SMARTPHONE: barra in basso + pannello "Altro"
 // ─────────────────────────────────────────────
 
-const BOTTOM_PRIMARY = ['planner', 'ordini', 'clienti', 'cassa'];
+const BOTTOM_PRIMARY = ['ordini', 'planner', 'clienti', 'cassa'];
 
 function renderBottomNav() {
   const root = document.getElementById('bottomnav-root');
