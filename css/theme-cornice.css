@@ -989,3 +989,8 @@ html.dark .dtf-item.dtf-urgent .dtf-cols, html.dark .dtf-item.dtf-urgent .dtf-fi
   .dtf-cols { margin-left: 0; flex: 1 1 auto; grid-auto-columns: minmax(0, 1fr); }
   .dtf-files-btn { width: auto; }
 }
+
+/* Descrizione ordine sotto il nome */
+.orc-desc { display: block; font-size: 0.74rem; font-weight: 500; color: var(--text-muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-desc { font-size: 0.88rem; color: var(--text-muted); margin-top: 2px; }
+.orc-name:has(.orc-desc) { display: flex; flex-direction: column; align-items: stretch; justify-content: center; min-width: 0; }

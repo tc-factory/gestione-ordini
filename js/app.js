@@ -278,7 +278,7 @@ function renderOrderList() {
 
   const q = AppState.searchQuery.trim().toLowerCase();
   let filtered = q
-    ? source.filter(o => o.nome.toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q))
+    ? source.filter(o => o.nome.toLowerCase().includes(q) || orderDesc(o).toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q))
         || (o.createdBy || '').toLowerCase().includes(q))
     : source;
 
@@ -526,7 +526,7 @@ function renderOrderRow(o) {
         onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
         <div class="order-row-bar" style="background:${color};"></div>
         <div class="order-row-grid order-row-grid--active">
-          <div class="orc-name">${escapeHtml(o.nome)}</div>
+          <div class="orc-name">${escapeHtml(o.nome)}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
           <div class="orc-tags">${tagPills}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           ${scadenzaCell}
@@ -561,7 +561,7 @@ function renderOrderRow(o) {
         onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
         <div class="order-row-bar" style="background:${color};"></div>
         <div class="order-row-grid">
-          <div class="orc-name">${escapeHtml(o.nome)}</div>
+          <div class="orc-name">${escapeHtml(o.nome)}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
           <div class="orc-tags">${tagPills}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           ${scadenzaCell}
@@ -607,7 +607,7 @@ function renderOrderRow(o) {
       onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-bar" style="background:${color};"></div>
       <div class="order-row-grid">
-        <div class="orc-name">${escapeHtml(o.nome)}</div>
+        <div class="orc-name">${escapeHtml(o.nome)}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
         <div class="orc-tags">${tagPills}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         ${scadenzaCell}
@@ -782,7 +782,8 @@ function previewOrderModule(orderId) {
 
 function downloadOrderModule(orderId) {
   const order   = orderId ? TCFactory.getOrderById(orderId) : null;
-  const nome    = order?.nome || document.getElementById('of-nome')?.value || 'Ordine';
+  const desc    = order ? orderDesc(order) : (document.getElementById('of-descrizione')?.value || '').trim();
+  const nome    = (order?.nome || document.getElementById('of-nome')?.value || 'Ordine') + (desc ? ` — ${desc}` : '');
   const rows    = order?.orderModule?.rows || AppState.formModuleRows || [];
   const acconto = parseFloat(order?.orderModule?.acconto || AppState.formModuleAcconto || 0);
   const notes   = order?.notes || document.getElementById('of-notes')?.value || '';
@@ -1178,6 +1179,7 @@ function renderOrderDetail() {
       <div class="modal-header">
         <div>
           <h2>${escapeHtml(order.nome)}</h2>
+          ${orderDesc(order) ? `<div class="detail-desc">${escapeHtml(orderDesc(order))}</div>` : ''}
           ${p ? `<div style="margin-top:4px;">${renderPriorityChip(p)}</div>` : ''}
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
@@ -1339,10 +1341,15 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
             <span class="of-client-linked" id="of-client-linked"></span>
           </div>
           <div class="form-group">
-            <span class="form-label" id="of-tag-label">Tipologia *</span>
-            <div class="chip-picker" id="of-tag-picker" role="group" aria-labelledby="of-tag-label">
-              ${tags.map(t => renderTagPickerChip(t)).join('')}
-            </div>
+            <label class="form-label" for="of-descrizione">Descrizione</label>
+            <input id="of-descrizione" class="form-input" maxlength="200" autocomplete="off" placeholder="Es. divise staff, felpe squadra…" value="${escapeHtml(orderDesc(order))}">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <span class="form-label" id="of-tag-label">Tipologia *</span>
+          <div class="chip-picker" id="of-tag-picker" role="group" aria-labelledby="of-tag-label">
+            ${tags.map(t => renderTagPickerChip(t)).join('')}
           </div>
         </div>
 
@@ -1728,6 +1735,9 @@ function addModRow() {
 // Lavorazione esterna della riga: id da Impostazioni → Lavorazioni esterne.
 // Le righe vecchie con la sola spunta valgono come "Da specificare".
 // Lavorazione interna: gli ordini vecchi senza la scelta sono interni se non sono esterni
+// Descrizione dell'ordine, a fianco del cliente (salvata nel modulo d'ordine)
+const orderDesc = (o) => String(o?.orderModule?.descrizione || '').trim();
+
 function isLavInterna(o) {
   if (!o) return true;
   const v = o.orderModule?.interna;
@@ -1837,7 +1847,8 @@ async function submitOrderForm() {
     files: AppState.formFiles,
     invoiceFiles: AppState.formInvoiceFiles,
     importo: parseFloat(document.getElementById('of-importo')?.value) || 0,
-    orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna },
+    orderModule: { rows: AppState.formModuleRows, acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna,
+      descrizione: (document.getElementById('of-descrizione')?.value || '').trim() },
   };
   // Cliente collegato solo se il nome scritto è ancora quello del cliente scelto
   const linked = AppState.formClientId ? TCFactory.getClient(AppState.formClientId) : null;
