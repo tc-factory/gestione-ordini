@@ -10,6 +10,7 @@
 const NAV_ITEMS = [
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
+  { id: 'dtf',          label: 'DTF',           subtitle: 'Stampa interna e conto terzi',  icon: () => Icons.printer(19) },
   { id: 'clienti',      label: 'Clienti',       subtitle: 'Anagrafica clienti',            icon: () => Icons.users(19) },
   { id: 'cassa',        label: 'Cassa',         subtitle: 'Incassi e pagamenti',           icon: () => Icons.wallet(19), allowed: () => TCAuth.canViewEconomics() },
   { id: 'staff',        label: 'Staff',         subtitle: 'Account e registro modifiche',  icon: () => Icons.idBadge(19), allowed: () => TCAuth.isAdmin() },
@@ -106,7 +107,9 @@ window.Nav = Nav;
 
 // Rende le sezioni che caricano dati propri solo quando vengono aperte
 function renderCurrentView() {
+  dtfFlushSaves();   // lasciando la pagina DTF non si perde quello che si stava scrivendo
   switch (Nav.current) {
+    case 'dtf':          openDtfPage(); break;
     case 'planner':      renderCalendarSection(); break;
     case 'clienti':      renderClientsPage(); break;
     case 'cassa':        renderCassaPage(); break;
