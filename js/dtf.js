@@ -7,11 +7,10 @@
  *   per riga (metri + nomi dei file stampati), totale del mese. Salvataggio automatico.
  */
 
-const DTF_SETTINGS_KEY = 'dtf_interno';        // { order: [id…], removed: [id…] } condiviso
+const DTF_SETTINGS_KEY = 'dtf_interno';        // { order: [id…], removed: [{ id, at }…] } condiviso
 const DTF_CLIENT_KEY   = 'tcf_dtf_client';     // cliente conto terzi selezionato (per browser)
-const DTF_SIDE_KEY     = 'tcf_dtf_side_open';
 const DTF_SAVE_DELAY   = 700;
-const DTF_STAMPATI_DAYS = 30;                  // nella colonna "Stampati" gli ultimi 30 giorni
+const DTF_STAMPATI_DAYS = 90;                  // in "Stampati" gli ultimi 90 giorni
 
 const DtfState = {
   clients: [],
@@ -20,8 +19,9 @@ const DtfState = {
   month: null,          // Date al primo del mese visualizzato
   loaded: false,
   error: null,
-  sideOpen: false,
   saveTimers: {},
+  orderTimers: {},      // salvataggio file degli ordini (interno)
+  detail: null,         // finestra file: { kind: 'day'|'order', key, title }
   saving: 0,
   lastSaved: null,
   detailDate: null,
@@ -38,9 +38,12 @@ const dtfLs = {
 // INTERNO
 // ═══════════════════════════════════════════════
 
+// { order: [id…], removed: [{ id, at }…] } condiviso tra tutti
 function dtfSettings() {
   const v = TCFactory._settings[DTF_SETTINGS_KEY];
-  return { order: Array.isArray(v?.order) ? v.order : [], removed: Array.isArray(v?.removed) ? v.removed : [] };
+  const removed = (Array.isArray(v?.removed) ? v.removed : [])
+    .map(r => (typeof r === 'string' ? { id: r, at: null } : r)).filter(r => r?.id);
+  return { order: Array.isArray(v?.order) ? v.order : [], removed };
 }
 
 async function dtfSaveSettings(patch) {
@@ -53,22 +56,46 @@ const dtfDone = (o) => !!o.stages?.dtfPronti?.done;
 
 function dtfLists() {
   const { order, removed } = dtfSettings();
-  const removedSet = new Set(removed);
+  const removedAt = new Map(removed.map(r => [r.id, r.at]));
   const internal = TCFactory.getOrders().filter(o => !o.deletedAt && !o.lavorazioneEsterna);
   const deadline = (o) => TCFactory.getEffectiveDeadline(o)?.date || '9999-12-31';
 
-  // Da stampare: ordini attivi interni, DTF non ancora fatto, non rimossi
+  // Da stampare: ordini attivi a lavorazione interna, DTF non ancora fatto, non rimossi
   const rank = (o) => { const i = order.indexOf(o.id); return i < 0 ? Infinity : i; };
   const todo = internal
-    .filter(o => !o.archived && !dtfDone(o) && !removedSet.has(o.id))
+    .filter(o => !o.archived && !dtfDone(o) && !removedAt.has(o.id))
     .sort((a, b) => rank(a) - rank(b) || deadline(a).localeCompare(deadline(b)));
 
   const limit = localISODate(new Date(Date.now() - DTF_STAMPATI_DAYS * 86400000));
   const printed = internal
     .filter(o => dtfDone(o) && (o.stages.dtfPronti.date || '') >= limit)
     .sort((a, b) => (b.stages.dtfPronti.date || '').localeCompare(a.stages.dtfPronti.date || ''));
-  const removedList = internal.filter(o => removedSet.has(o.id) && !dtfDone(o));
+  const removedList = internal
+    .filter(o => removedAt.has(o.id) && !dtfDone(o))
+    .map(o => ({ o, at: removedAt.get(o.id) }))
+    .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
   return { todo, printed, removedList };
+}
+
+// Metri, tempo e costo di un ordine dai suoi file
+function dtfOrderStats(o) {
+  const files = (Array.isArray(o.dtfItems) ? o.dtfItems : []).filter(f => f && f.name);
+  const metri = Math.round(files.reduce((s, f) => s + (f.metri > 0 ? f.metri : 0), 0) * 100) / 100;
+  const speed = DtfMisure.speedMh(), costo = DtfMisure.costInterno();
+  return {
+    files: files.length,
+    senzaMisura: files.filter(f => !(f.metri > 0)).length,
+    metri,
+    ore: speed > 0 ? metri / speed : null,
+    costo: costo > 0 ? metri * costo : null,
+  };
+}
+
+function dtfFmtTime(ore) {
+  if (ore == null) return '—';
+  const min = Math.round(ore * 60);
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
 }
 
 function renderDtfInterno() {
@@ -77,16 +104,20 @@ function renderDtfInterno() {
   const { todo, printed, removedList } = dtfLists();
   const today = localISODate(new Date());
   const fmt = (d) => TCFactory.formatDate(d, { day: '2-digit', month: '2-digit' });
+  const stats = todo.map(dtfOrderStats);
+  const tot = stats.reduce((t, x) => ({ metri: t.metri + x.metri, ore: t.ore + (x.ore || 0), costo: t.costo + (x.costo || 0) }), { metri: 0, ore: 0, costo: 0 });
+  const senzaFile = stats.filter(x => !x.files).length;
+  const costoAttivo = DtfMisure.costInterno() > 0;
 
   const card = (o, i) => {
     const dl = TCFactory.getEffectiveDeadline(o);
     const client = TCFactory.getClient(o.clientId);
-    const late = dl && dl.date < today;
+    const st = stats[i];
     return `
       <li class="dtf-item ${isUrgentOrder(o) ? 'dtf-urgent' : ''}" draggable="true" data-id="${o.id}"
           ondragstart="dtfDragStart(event,'${o.id}')" ondragend="dtfDragEnd()" ondragover="dtfDragOver(event)" ondrop="dtfDrop(event)">
         <span class="dtf-pos" aria-hidden="true">${i + 1}</span>
-        <div class="dtf-when ${late ? 'late' : ''}" title="${late ? 'Scadenza passata' : 'Scadenza'}">
+        <div class="dtf-when ${dl && dl.date < today ? 'late' : ''}" title="Scadenza">
           <strong>${dl ? fmt(dl.date) : '—'}</strong>
           <span>${dl ? new Date(dl.date + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short' }) : ''}</span>
         </div>
@@ -94,50 +125,85 @@ function renderDtfInterno() {
           <strong>${escapeHtml(o.nome)}</strong>
           <span>${[client ? escapeHtml(TCFactory.clientName(client)) : '', o.tags.map(escapeHtml).join(', ')].filter(Boolean).join(' · ')}</span>
         </button>
+        <button type="button" class="dtf-stats ${st.files ? '' : 'empty'}" onclick="dtfOpenOrderFiles('${o.id}')"
+          title="${st.files ? 'Vedi e modifica i file' : 'Aggiungi i file da stampare'}">
+          ${st.files ? `
+            <span><strong>${dtfMetri(st.metri)} m</strong><small>${st.files} file${st.senzaMisura ? ` · ${st.senzaMisura} senza misura` : ''}</small></span>
+            <span><strong>${dtfFmtTime(st.ore)}</strong><small>tempo</small></span>
+            ${costoAttivo ? `<span><strong>${euro(st.costo)}</strong><small>costo</small></span>` : ''}`
+          : `${Icons.paperclip(14)} Aggiungi file`}
+        </button>
         <button type="button" class="btn btn-sm dtf-done-btn" onclick="dtfMarkPrinted('${o.id}')">${Icons.checkCircle('currentColor', 15)} Stampato</button>
         <button type="button" class="btn-icon dtf-remove" onclick="dtfRemove('${o.id}')" aria-label="Togli ${escapeHtml(o.nome)} dalla lista DTF" title="Non serve il DTF: togli dalla lista">${Icons.x(14)}</button>
       </li>`;
   };
 
-  const sideRow = (o, action, label, meta) => `
-    <li class="dtf-side-row">
-      <div><strong>${escapeHtml(o.nome)}</strong><span>${meta}</span></div>
-      <button type="button" class="btn btn-secondary btn-sm" onclick="${action}('${o.id}')">${label}</button>
-    </li>`;
-
   root.innerHTML = `
     <div class="dtf-box-head">
-      <div><h2>Interno</h2><p>${todo.length} ${todo.length === 1 ? 'ordine' : 'ordini'} da stampare · per scadenza, trascina per riordinare</p></div>
-      <button type="button" class="btn btn-secondary btn-sm" onclick="dtfToggleSide()" aria-expanded="${DtfState.sideOpen}">
-        ${DtfState.sideOpen ? 'Nascondi' : 'Stampati e rimossi'} · ${printed.length + removedList.length}
-      </button>
+      <div><h2>Da stampare</h2><p>${todo.length} ${todo.length === 1 ? 'ordine' : 'ordini'} · per scadenza, trascina per dare priorità</p></div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="dtfOpenHistory()">Stampati e rimossi · ${printed.length + removedList.length}</button>
     </div>
-    <div class="dtf-interno ${DtfState.sideOpen ? 'side-open' : ''}">
-      ${todo.length
-        ? `<ol class="dtf-timeline" aria-label="Ordini da stampare">${todo.map(card).join('')}</ol>`
-        : `<div class="empty-list">Nessun ordine interno da stampare. 🎉</div>`}
-      ${DtfState.sideOpen ? `
-        <aside class="dtf-side" aria-label="Stampati e rimossi">
-          <h3>Stampati <small>ultimi ${DTF_STAMPATI_DAYS} giorni</small></h3>
-          ${printed.length ? `<ul>${printed.map(o => sideRow(o, 'dtfRestorePrinted', 'Ripristina', `stampato ${fmt(o.stages.dtfPronti.date)}`)).join('')}</ul>` : '<p class="dtf-side-empty">Nessuno.</p>'}
-          <h3>Rimossi</h3>
-          ${removedList.length ? `<ul>${removedList.map(o => sideRow(o, 'dtfRestoreRemoved', 'Ripristina', 'tolto dalla lista')).join('')}</ul>` : '<p class="dtf-side-empty">Nessuno.</p>'}
-        </aside>` : ''}
+    <div class="dtf-summary dtf-summary-interno">
+      <div class="dtf-kpi"><span>Metri da stampare</span><strong>${dtfMetri(tot.metri)} m</strong></div>
+      <div class="dtf-kpi"><span>Tempo di stampa</span><strong>${dtfFmtTime(tot.ore)}</strong></div>
+      ${costoAttivo
+        ? `<div class="dtf-kpi dtf-kpi-total"><span>Costo</span><strong>${euro(tot.costo)}</strong></div>`
+        : `<button type="button" class="dtf-kpi dtf-kpi-hint" onclick="Nav.go('impostazioni')"><span>Costo</span><strong>Imposta €/metro</strong></button>`}
+    </div>
+    ${senzaFile ? `<p class="dtf-note">${senzaFile} ${senzaFile === 1 ? 'ordine non ha' : 'ordini non hanno'} ancora file: metri e tempo li contano solo quando ci sono.</p>` : ''}
+    ${todo.length
+      ? `<ol class="dtf-timeline" aria-label="Ordini da stampare">${todo.map(card).join('')}</ol>`
+      : `<div class="empty-list">Nessun ordine da stampare. 🎉</div>`}`;
+}
+
+// ── Stampati e rimossi (finestra) ──
+
+function dtfOpenHistory() {
+  dtfRenderHistory();
+  const modal = document.getElementById('dtf-history-modal');
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('dtf-history-modal'); };
+}
+
+function dtfRenderHistory() {
+  const { printed, removedList } = dtfLists();
+  const fmt = (iso) => iso ? new Date(String(iso).length > 10 ? iso : iso + 'T00:00:00').toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' }) : 'data non registrata';
+  const row = (o, when, action) => `
+    <li class="dtf-side-row">
+      <div><strong>${escapeHtml(o.nome)}</strong><span>${when}</span></div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="${action}('${o.id}')">Ripristina</button>
+    </li>`;
+  document.getElementById('dtf-history-modal').innerHTML = `
+    <div class="modal" style="max-width:860px;" role="dialog" aria-modal="true" aria-labelledby="dtf-h-title">
+      <div class="modal-header">
+        <h2 id="dtf-h-title">Stampati e rimossi</h2>
+        <button class="btn-icon" onclick="closeModal('dtf-history-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body dtf-history">
+        <section>
+          <h3>Stampati <small>ultimi ${DTF_STAMPATI_DAYS} giorni · ${printed.length}</small></h3>
+          ${printed.length ? `<ul>${printed.map(o => row(o, `stampato il ${fmt(o.stages.dtfPronti.date)}`, 'dtfRestorePrinted')).join('')}</ul>` : '<p class="dtf-side-empty">Nessuno.</p>'}
+        </section>
+        <section>
+          <h3>Rimossi <small>${removedList.length}</small></h3>
+          ${removedList.length ? `<ul>${removedList.map(({ o, at }) => row(o, `tolto il ${fmt(at)}`, 'dtfRestoreRemoved')).join('')}</ul>` : '<p class="dtf-side-empty">Nessuno.</p>'}
+        </section>
+      </div>
     </div>`;
 }
 
-function dtfToggleSide() {
-  DtfState.sideOpen = !DtfState.sideOpen;
-  dtfLs.set(DTF_SIDE_KEY, DtfState.sideOpen ? '1' : '0');
+const dtfAfterHistoryChange = () => {
   renderDtfInterno();
-}
+  if (document.getElementById('dtf-history-modal')?.classList.contains('active')) dtfRenderHistory();
+};
 
 async function dtfMarkPrinted(id) {
   const o = TCFactory.getOrderById(id);
   try {
+    dtfFlushOrderSave(id);
     await TCFactory.setStage(id, 'dtfPronti', true);
     showToast(`"${o?.nome}": DTF stampato ✓`);
-    renderDtfInterno(); renderOrderList();
+    dtfAfterHistoryChange(); renderOrderList();
   } catch { showToast('Impossibile segnare come stampato', 'error'); }
 }
 
@@ -145,30 +211,32 @@ async function dtfRestorePrinted(id) {
   try {
     await TCFactory.setStage(id, 'dtfPronti', false);
     showToast('Riportato tra gli ordini da stampare');
-    renderDtfInterno(); renderOrderList();
+    dtfAfterHistoryChange(); renderOrderList();
   } catch { showToast('Impossibile ripristinare', 'error'); }
 }
 
 async function dtfRemove(id) {
   const { removed } = dtfSettings();
   try {
-    await dtfSaveSettings({ removed: [...new Set([...removed, id])] });
-    showToast('Tolto dalla lista DTF (ripristinabile da "Rimossi")');
-    renderDtfInterno();
+    await dtfSaveSettings({ removed: [...removed.filter(r => r.id !== id), { id, at: new Date().toISOString() }] });
+    showToast('Tolto dalla lista DTF (ripristinabile da "Stampati e rimossi")');
+    dtfAfterHistoryChange();
   } catch { showToast('Impossibile togliere l\'ordine', 'error'); }
 }
 
 async function dtfRestoreRemoved(id) {
   const { removed } = dtfSettings();
   try {
-    await dtfSaveSettings({ removed: removed.filter(x => x !== id) });
-    renderDtfInterno();
+    await dtfSaveSettings({ removed: removed.filter(r => r.id !== id) });
+    showToast('Riportato tra gli ordini da stampare');
+    dtfAfterHistoryChange();
   } catch { showToast('Impossibile ripristinare', 'error'); }
 }
 
-// ── Riordino a mano della timeline ──
+// ── Priorità manuale: trascina per riordinare ──
 
 function dtfDragStart(e, id) {
+  if (e.target.closest?.('button') && e.target.closest('button') !== e.currentTarget) { /* trascina dal riquadro */ }
   DtfState.dragId = id;
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', id);
@@ -389,6 +457,7 @@ function dtfOnMetri(date, value) {
 
 // Salva subito quello che è in attesa (cambio pagina, chiusura finestra)
 function dtfFlushSaves() {
+  Object.keys(DtfState.orderTimers).forEach(id => dtfFlushOrderSave(id));
   Object.entries(DtfState.saveTimers).forEach(([date, t]) => { clearTimeout(t); dtfSaveDay(date); });
   DtfState.saveTimers = {};
 }
@@ -405,13 +474,34 @@ function dtfFilesOf(date) {
 
 const dtfFmtCm = (v) => (v > 0 ? String(Math.round(v * 10) / 10).replace('.', ',') : '');
 
-function dtfOpenDetail(date) {
-  DtfState.detailDate = date;
+// Cosa stiamo modificando nella finestra dei file
+const dtfDetail = () => DtfState.detail || {};
+
+function dtfDetailFiles() {
+  const d = dtfDetail();
+  if (d.kind === 'order') {
+    const o = TCFactory.getOrderById(d.key);
+    return (Array.isArray(o?.dtfItems) ? o.dtfItems : []).filter(f => f && f.name).map(f => ({ ...f }));
+  }
+  return dtfFilesOf(d.key);
+}
+
+function dtfOpenOrderFiles(orderId) {
+  const o = TCFactory.getOrderById(orderId);
+  if (!o) return;
+  dtfOpenDetail(null, { kind: 'order', key: orderId, title: o.nome });
+}
+
+function dtfOpenDetail(date, target = null) {
+  DtfState.detail = target || { kind: 'day', key: date };
+  DtfState.detailDate = DtfState.detail.kind === 'day' ? date : null;
   const modal = document.getElementById('dtf-detail-modal');
   modal.innerHTML = `
     <div class="modal" style="max-width:720px;" role="dialog" aria-modal="true" aria-labelledby="dtf-d-title">
       <div class="modal-header">
-        <h2 id="dtf-d-title">${escapeHtml(dtfClient()?.nome || '')} · ${new Date(date + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}</h2>
+        <h2 id="dtf-d-title">${DtfState.detail.kind === 'order'
+          ? `${escapeHtml(DtfState.detail.title)} · file DTF`
+          : `${escapeHtml(dtfClient()?.nome || '')} · ${new Date(date + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}`}</h2>
         <button class="btn-icon" onclick="dtfCloseDetail()" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <div class="modal-body" style="gap:12px;">
@@ -439,7 +529,7 @@ function dtfOpenDetail(date) {
 function dtfRenderFileList(busy = 0) {
   const box = document.getElementById('dtf-file-list');
   if (!box) return;
-  const files = dtfFilesOf(DtfState.detailDate);
+  const files = dtfDetailFiles();
   const totale = files.reduce((s, f) => s + (f.metri || 0), 0);
   const senza = files.filter(f => !(f.metri > 0)).length;
 
@@ -484,6 +574,7 @@ function dtfRenderFileList(busy = 0) {
 
 // Salva l'elenco e aggiorna i metri del giorno con la somma dei file misurati
 function dtfSetFiles(files) {
+  if (dtfDetail().kind === 'order') { dtfSetOrderFiles(dtfDetail().key, files); dtfRenderFileList(); return; }
   const date = DtfState.detailDate;
   const prev = DtfState.entries[date] || { metri: 0 };
   const misurati = files.filter(f => f.metri > 0);
@@ -496,7 +587,7 @@ function dtfSetFiles(files) {
 
 // Aggiunge file (oggetti File da trascinamento/scelta) o nomi scritti; salta i doppioni
 async function dtfAddFiles(items) {
-  const current = dtfFilesOf(DtfState.detailDate);
+  const current = dtfDetailFiles();
   const seen = new Set(current.map(f => f.name));
   const fresh = [];
   let dup = 0;
@@ -512,7 +603,7 @@ async function dtfAddFiles(items) {
   const files = fresh.filter(x => typeof x !== 'string');
   if (files.length) dtfRenderFileList(files.length);
   const described = await Promise.all(fresh.map(x => typeof x === 'string' ? DtfMisure.fromName(x.trim()) : DtfMisure.describe(x)));
-  dtfSetFiles([...dtfFilesOf(DtfState.detailDate), ...described]);
+  dtfSetFiles([...dtfDetailFiles(), ...described]);
 
   const daMisurare = described.filter(f => !(f.metri > 0)).length;
   showToast(`${described.length} ${described.length === 1 ? 'file aggiunto' : 'file aggiunti'}`
@@ -528,7 +619,7 @@ function dtfAddTyped() {
 }
 
 function dtfEditFile(index, field, value) {
-  const files = dtfFilesOf(DtfState.detailDate);
+  const files = dtfDetailFiles();
   const f = files[index];
   if (!f) return;
   const n = parseFloat(String(value).replace(',', '.'));
@@ -539,7 +630,7 @@ function dtfEditFile(index, field, value) {
 }
 
 function dtfRemoveFile(index) {
-  const files = dtfFilesOf(DtfState.detailDate);
+  const files = dtfDetailFiles();
   const [removed] = files.splice(index, 1);
   dtfSetFiles(files);
   showToast(`Eliminato "${removed.name}"`);
@@ -554,11 +645,37 @@ function dtfDropFiles(e) {
 }
 
 function dtfCloseDetail() {
+  const d = dtfDetail();
+  if (d.kind === 'order') dtfFlushOrderSave(d.key);
   const date = DtfState.detailDate;
   if (date && DtfState.saveTimers[date]) { clearTimeout(DtfState.saveTimers[date]); delete DtfState.saveTimers[date]; dtfSaveDay(date); }
   closeModal('dtf-detail-modal');
   DtfState.detailDate = null;
-  renderDtfTerzi();
+  DtfState.detail = null;
+  if (d.kind === 'order') renderDtfInterno(); else renderDtfTerzi();
+}
+
+// File dell'ordine: aggiornati subito in pagina, salvati sull'ordine poco dopo
+function dtfSetOrderFiles(orderId, files) {
+  const o = TCFactory.getOrderById(orderId);
+  if (!o) return;
+  o.dtfItems = files;
+  clearTimeout(DtfState.orderTimers[orderId]);
+  DtfState.orderTimers[orderId] = setTimeout(() => dtfSaveOrderFiles(orderId), DTF_SAVE_DELAY);
+}
+
+async function dtfSaveOrderFiles(orderId) {
+  delete DtfState.orderTimers[orderId];
+  const o = TCFactory.getOrderById(orderId);
+  if (!o) return;
+  try { await TCFactory.updateOrder(orderId, { dtfItems: o.dtfItems || [] }); }
+  catch (e) { console.error('[dtf ordine]', e); showToast(`File di "${o.nome}" non salvati: riprova`, 'error'); }
+}
+
+function dtfFlushOrderSave(orderId) {
+  if (!DtfState.orderTimers[orderId]) return;
+  clearTimeout(DtfState.orderTimers[orderId]);
+  dtfSaveOrderFiles(orderId);
 }
 
 // ── Clienti conto terzi ──
@@ -703,7 +820,9 @@ async function dtfDeleteClient(id) {
 // ═══════════════════════════════════════════════
 
 async function openDtfPage() {
-  DtfState.sideOpen = dtfLs.get(DTF_SIDE_KEY) === '1';
+  const terzi = dtfSection() === 'terzi';
+  document.getElementById('dtf-interno-root').hidden = terzi;
+  document.getElementById('dtf-terzi-root').hidden = !terzi;
   if (!DtfState.month) DtfState.month = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   if (!DtfState.clientId) DtfState.clientId = dtfLs.get(DTF_CLIENT_KEY);
 

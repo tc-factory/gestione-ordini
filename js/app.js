@@ -1848,12 +1848,18 @@ function renderSettingsDialog() {
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           <div class="settings-static-head">${Icons.printer(14)} DTF: calcolo dei metri</div>
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
-            <div class="settings-section-hint" style="margin:0;">Usati per calcolare i metri dai file nel Conto terzi. Vale per tutti gli utenti.</div>
+            <div class="settings-section-hint" style="margin:0;">Usati per calcolare metri, tempo e costo dai file (Interno e Conto terzi). Vale per tutti gli utenti.</div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
               <label class="form-label" for="dtf-roll" style="margin:0;">Rotolo</label>
               <input id="dtf-roll" class="form-input" inputmode="decimal" style="width:80px;" value="${String(DtfMisure.rollCm()).replace('.', ',')}"> <span>cm</span>
               <label class="form-label" for="dtf-margin" style="margin:0 0 0 12px;">Margine tra i pezzi</label>
               <input id="dtf-margin" class="form-input" inputmode="decimal" style="width:80px;" value="${String(DtfMisure.marginCm()).replace('.', ',')}"> <span>cm</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <label class="form-label" for="dtf-speed" style="margin:0;">Velocità stampante</label>
+              <input id="dtf-speed" class="form-input" inputmode="decimal" style="width:80px;" value="${String(DtfMisure.speedMh()).replace('.', ',')}"> <span>m/ora</span>
+              <label class="form-label" for="dtf-cost" style="margin:0 0 0 12px;">Costo interno</label>
+              <input id="dtf-cost" class="form-input" inputmode="decimal" style="width:80px;" placeholder="es. 3,50" value="${DtfMisure.costInterno() ? String(DtfMisure.costInterno()).replace('.', ',') : ''}"> <span>€/metro</span>
               <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="saveDtfSettings()">Salva</button>
             </div>
           </div>
@@ -1929,12 +1935,18 @@ function renderSettingsDialog() {
 
 async function saveDtfSettings() {
   const num = (id) => parseFloat(String(document.getElementById(id)?.value).replace(',', '.'));
-  const roll = num('dtf-roll'), margin = num('dtf-margin');
+  const roll = num('dtf-roll'), margin = num('dtf-margin'), speed = num('dtf-speed');
+  const costRaw = String(document.getElementById('dtf-cost')?.value || '').trim();
+  const cost = costRaw ? num('dtf-cost') : 0;
   if (!(roll >= 10 && roll <= 500)) { showToast('Larghezza del rotolo non valida', 'error'); return; }
   if (!(margin >= 0 && margin <= 10)) { showToast('Margine non valido (da 0 a 10 cm)', 'error'); return; }
+  if (!(speed > 0 && speed <= 200)) { showToast('Velocità della stampante non valida', 'error'); return; }
+  if (!(cost >= 0 && cost <= 1000)) { showToast('Costo al metro non valido', 'error'); return; }
   try {
     await TCFactory.setSetting('dtf_roll_cm', roll);
     await TCFactory.setSetting('dtf_margin_cm', margin);
+    await TCFactory.setSetting('dtf_speed_mh', speed);
+    await TCFactory.setSetting('dtf_cost_m', cost);
     showToast(`DTF: rotolo ${String(roll).replace('.', ',')} cm, margine ${String(margin).replace('.', ',')} cm (vale per i file aggiunti o modificati da ora)`);
   } catch { showToast('Salvataggio non riuscito', 'error'); }
 }
