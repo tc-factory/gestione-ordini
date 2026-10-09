@@ -27,15 +27,20 @@ create trigger orders_created_by
   before insert or update on orders
   for each row execute function orders_set_created_by();
 
--- Ordini già presenti: autore dal registro modifiche (la voce più vecchia)
+-- Ordini già presenti: autore dalla voce "Ordine creato" del registro registrata
+-- entro un minuto dalla creazione dell'ordine. Il solo codice non basta: alcuni
+-- codici (es. ORD-0181) sono stati riusati dopo che l'ordine originale era
+-- stato eliminato, e la prima voce col quel codice appartiene a un altro ordine.
 alter table orders disable trigger orders_created_by;
 update orders o
-   set created_by = l.user_nickname
-  from (
-    select distinct on (order_id) order_id, user_nickname
-    from activity_log
-    where action = 'Ordine creato' and order_id is not null
-    order by order_id, created_at asc
-  ) l
- where l.order_id = o.id and o.created_by is null;
+   set created_by = (
+     select l.user_nickname
+       from activity_log l
+      where l.order_id = o.id
+        and l.action = 'Ordine creato'
+        and abs(extract(epoch from l.created_at - o.created_at)) <= 60
+      order by abs(extract(epoch from l.created_at - o.created_at))
+      limit 1
+   )
+ where true;
 alter table orders enable trigger orders_created_by;
