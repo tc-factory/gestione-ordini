@@ -396,9 +396,10 @@ window.addEventListener('beforeunload', dtfFlushSaves);
 
 // ── Dettaglio: nomi dei file stampati, uno per riga ──
 
+const dtfFilesOf = (date) => (DtfState.entries[date]?.dettaglio || '').split('\n').map(x => x.trim()).filter(Boolean);
+
 function dtfOpenDetail(date) {
   DtfState.detailDate = date;
-  const e = DtfState.entries[date] || { metri: 0, dettaglio: '' };
   const modal = document.getElementById('dtf-detail-modal');
   modal.innerHTML = `
     <div class="modal" style="max-width:560px;" role="dialog" aria-modal="true" aria-labelledby="dtf-d-title">
@@ -407,41 +408,81 @@ function dtfOpenDetail(date) {
         <button class="btn-icon" onclick="dtfCloseDetail()" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <div class="modal-body" style="gap:12px;">
-        <div class="dtf-drop" id="dtf-drop" tabindex="0"
-          ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="dtfDropFiles(event)">
+        <label class="dtf-drop" id="dtf-drop" tabindex="0"
+          ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="dtfDropFiles(event)"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('dtf-file-pick').click()}">
           ${Icons.paperclip(20)}
-          <strong>Trascina qui i file stampati</strong>
-          <span>Viene scritto solo il nome, uno per riga: i file non vengono caricati</span>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="dtf-detail-text">File stampati (uno per riga)</label>
-          <textarea id="dtf-detail-text" class="form-textarea" rows="10" oninput="dtfOnDetail(this.value)"
-            placeholder="logo_fronte.png&#10;logo_retro.png">${escapeHtml(e.dettaglio)}</textarea>
-        </div>
-        <p class="settings-section-hint" style="margin:0;" id="dtf-detail-status">Le modifiche si salvano da sole.</p>
+          <strong>Trascina qui i file stampati, oppure clicca per sceglierli</strong>
+          <span>Viene salvato solo il nome: i file non vengono caricati</span>
+          <input type="file" id="dtf-file-pick" multiple hidden onchange="dtfAddFiles([...this.files].map(f => f.name));this.value=''">
+        </label>
+        <form class="dtf-add-name" onsubmit="event.preventDefault();dtfAddTyped()">
+          <input id="dtf-add-name" class="form-input" placeholder="Oppure scrivi un nome e premi Invio" maxlength="240">
+          <button type="submit" class="btn btn-secondary btn-sm">${Icons.plus(14)} Aggiungi</button>
+        </form>
+        <div id="dtf-file-list"></div>
+        <p class="settings-section-hint" style="margin:0;">Le modifiche si salvano da sole.</p>
       </div>
     </div>`;
+  dtfRenderFileList();
   modal.classList.add('active');
   modal.onclick = (ev) => { if (ev.target === modal) dtfCloseDetail(); };
-  setTimeout(() => document.getElementById('dtf-detail-text')?.focus(), 50);
 }
 
-function dtfOnDetail(value) {
+function dtfRenderFileList() {
+  const box = document.getElementById('dtf-file-list');
+  if (!box) return;
+  const files = dtfFilesOf(DtfState.detailDate);
+  box.innerHTML = files.length ? `
+    <div class="dtf-files-head">${files.length} ${files.length === 1 ? 'file stampato' : 'file stampati'}</div>
+    <ul class="dtf-files">
+      ${files.map((f, i) => `
+        <li class="dtf-file">
+          <span class="dtf-file-icon" aria-hidden="true">${Icons.paperclip(14)}</span>
+          <span class="dtf-file-name" title="${escapeHtml(f)}">${escapeHtml(f)}</span>
+          <button type="button" class="btn-icon dtf-file-del" onclick="dtfRemoveFile(${i})" aria-label="Elimina ${escapeHtml(f)}" title="Elimina">${Icons.x(14)}</button>
+        </li>`).join('')}
+    </ul>` : '<p class="dtf-files-empty">Nessun file per questo giorno.</p>';
+}
+
+function dtfSetFiles(files) {
   const date = DtfState.detailDate;
-  DtfState.entries[date] = { ...(DtfState.entries[date] || { metri: 0 }), dettaglio: value };
+  DtfState.entries[date] = { ...(DtfState.entries[date] || { metri: 0 }), dettaglio: files.join('\n') };
   dtfQueueSave(date);
+  dtfRenderFileList();
+}
+
+// Aggiunge i nomi saltando quelli già presenti
+function dtfAddFiles(names) {
+  const current = dtfFilesOf(DtfState.detailDate);
+  const fresh = [...new Set(names.map(n => String(n).trim()).filter(Boolean))].filter(n => !current.includes(n));
+  const dup = names.length - fresh.length;
+  if (fresh.length) dtfSetFiles([...current, ...fresh]);
+  if (fresh.length) showToast(`${fresh.length} ${fresh.length === 1 ? 'file aggiunto' : 'file aggiunti'}${dup ? ` · ${dup} già ${dup === 1 ? 'presente' : 'presenti'}` : ''}`);
+  else if (dup) showToast('Già presenti nell\'elenco', 'error');
+}
+
+function dtfAddTyped() {
+  const input = document.getElementById('dtf-add-name');
+  dtfAddFiles([input.value]);
+  input.value = '';
+  input.focus();
+}
+
+function dtfRemoveFile(index) {
+  const files = dtfFilesOf(DtfState.detailDate);
+  const [removed] = files.splice(index, 1);
+  dtfSetFiles(files);
+  showToast(`Eliminato "${removed}"`);
+  // Il focus resta nell'elenco per eliminare di seguito da tastiera
+  const btns = document.querySelectorAll('.dtf-file-del');
+  (btns[Math.min(index, btns.length - 1)] || document.getElementById('dtf-add-name'))?.focus();
 }
 
 function dtfDropFiles(e) {
   e.preventDefault();
   e.currentTarget.classList.remove('over');
-  const names = [...(e.dataTransfer?.files || [])].map(f => f.name).filter(Boolean);
-  if (!names.length) return;
-  const ta = document.getElementById('dtf-detail-text');
-  const current = ta.value.replace(/\s+$/, '');
-  ta.value = (current ? current + '\n' : '') + names.join('\n');
-  dtfOnDetail(ta.value);
-  showToast(`${names.length} ${names.length === 1 ? 'nome aggiunto' : 'nomi aggiunti'}`);
+  dtfAddFiles([...(e.dataTransfer?.files || [])].map(f => f.name));
 }
 
 function dtfCloseDetail() {
