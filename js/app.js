@@ -1849,19 +1849,17 @@ function renderSettingsDialog() {
           <div class="settings-static-head">${Icons.printer(14)} DTF: calcolo dei metri</div>
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
             <div class="settings-section-hint" style="margin:0;">Usati per calcolare metri, tempo e costo dai file (Interno e Conto terzi). Vale per tutti gli utenti.</div>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <label class="form-label" for="dtf-roll" style="margin:0;">Rotolo</label>
-              <input id="dtf-roll" class="form-input" inputmode="decimal" style="width:80px;" value="${String(DtfMisure.rollCm()).replace('.', ',')}"> <span>cm</span>
-              <label class="form-label" for="dtf-margin" style="margin:0 0 0 12px;">Margine tra i pezzi</label>
-              <input id="dtf-margin" class="form-input" inputmode="decimal" style="width:80px;" value="${String(DtfMisure.marginCm()).replace('.', ',')}"> <span>cm</span>
+            <div class="settings-fields">
+              <label for="dtf-roll">Larghezza rotolo</label>
+              <span class="settings-field"><input id="dtf-roll" class="form-input" inputmode="decimal" value="${String(DtfMisure.rollCm()).replace('.', ',')}"><span>cm</span></span>
+              <label for="dtf-margin">Margine tra i pezzi</label>
+              <span class="settings-field"><input id="dtf-margin" class="form-input" inputmode="decimal" value="${String(DtfMisure.marginCm()).replace('.', ',')}"><span>cm</span></span>
+              <label for="dtf-speed">Velocità stampante</label>
+              <span class="settings-field"><input id="dtf-speed" class="form-input" inputmode="decimal" value="${String(DtfMisure.speedMh()).replace('.', ',')}"><span>m/ora</span></span>
+              <label for="dtf-cost">Costo interno</label>
+              <span class="settings-field"><input id="dtf-cost" class="form-input" inputmode="decimal" placeholder="es. 3,50" value="${DtfMisure.costInterno() ? String(DtfMisure.costInterno()).replace('.', ',') : ''}"><span>€/metro</span></span>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <label class="form-label" for="dtf-speed" style="margin:0;">Velocità stampante</label>
-              <input id="dtf-speed" class="form-input" inputmode="decimal" style="width:80px;" value="${String(DtfMisure.speedMh()).replace('.', ',')}"> <span>m/ora</span>
-              <label class="form-label" for="dtf-cost" style="margin:0 0 0 12px;">Costo interno</label>
-              <input id="dtf-cost" class="form-input" inputmode="decimal" style="width:80px;" placeholder="es. 3,50" value="${DtfMisure.costInterno() ? String(DtfMisure.costInterno()).replace('.', ',') : ''}"> <span>€/metro</span>
-              <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="saveDtfSettings()">Salva</button>
-            </div>
+            <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="saveDtfSettings()">Salva</button>
           </div>
         </div>
 
