@@ -962,7 +962,7 @@ function renderInterneDashboard() {
   const daStampare = dtfLists().todo.length;
   const info = {
     interno: `${daStampare} ${daStampare === 1 ? 'ordine' : 'ordini'} da stampare`,
-    terzi:   DtfState.loaded ? `${DtfState.clients.length} ${DtfState.clients.length === 1 ? 'cliente' : 'clienti'}` : '',
+    terzi:   DtfState.loaded || DtfState._dashClients ? `${DtfState.clients.length} ${DtfState.clients.length === 1 ? 'cliente' : 'clienti'}` : '',
   };
   root.innerHTML = INTERNE_SECTIONS.map(s => `
     <a href="#/dtf/${s.id}" class="glass-card interne-block ${s.ready ? '' : 'soon'}" onclick="event.preventDefault();Nav.go('dtf','${s.id}')">
@@ -975,11 +975,13 @@ function renderInterneDashboard() {
       <span class="interne-block-arrow" aria-hidden="true">${Icons.chevronRight(18)}</span>
     </a>`).join('');
 
-  // Numero di clienti conto terzi: si carica in sottofondo la prima volta
-  if (!DtfState.loaded && !DtfState._dashLoading) {
-    DtfState._dashLoading = true;
-    dtfLoadClients().then(() => { DtfState._dashLoading = false; if (Nav.current === 'dtf' && !dtfSection()) renderInterneDashboard(); })
-      .catch(() => { DtfState._dashLoading = false; });
+  // Numero di clienti conto terzi: si carica in sottofondo una volta sola
+  // (il flag va messo subito, altrimenti ogni ridisegno ripartirebbe il caricamento all'infinito)
+  if (!DtfState.loaded && !DtfState._dashClients) {
+    DtfState._dashClients = true;
+    dtfLoadClients()
+      .then(() => { if (Nav.current === 'dtf' && !dtfSection()) renderInterneDashboard(); })
+      .catch(() => {});
   }
 }
 
