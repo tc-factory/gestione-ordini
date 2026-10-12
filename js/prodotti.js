@@ -1,11 +1,12 @@
 /**
  * T&C Factory — Prodotti
- * Anagrafica articoli: codice, categoria, marca, fornitore, colori, taglie e prezzi.
+ * Anagrafica articoli: catalogo, codice, descrizione, categoria, colori, taglie, costo, prezzo, attivo.
+ * Le categorie si creano e si gestiscono da qui (pulsante "Categorie").
  */
 
 const ProductState = {
   search: '',
-  categoria: '',          // '' = tutte
+  categoria: '',          // '' = tutte, '-' = senza categoria, altrimenti id
   stato: 'attivi',        // 'attivi' | 'tutti' | 'disattivi'
 };
 
@@ -31,7 +32,7 @@ function renderProductsPage() {
       <div class="glass-card empty-state">
         <div class="empty-state-icon" aria-hidden="true">${Icons.shirt(28)}</div>
         <h2>Database prodotti da attivare</h2>
-        <p>Esegui lo script <strong>sql/prodotti-setup.sql</strong> nell'SQL Editor di Supabase, poi ricarica la pagina.</p>
+        <p>Esegui gli script <strong>sql/prodotti-setup.sql</strong> e <strong>sql/prodotti-categorie.sql</strong> nell'SQL Editor di Supabase, poi ricarica la pagina.</p>
       </div>`;
     return;
   }
@@ -52,29 +53,32 @@ function renderProductList() {
   const all = TCFactory.getProducts();
   const cats = TCFactory.getProductCategories();
   const showCost = TCAuth.canViewEconomics();
-  if (ProductState.categoria && !cats.includes(ProductState.categoria)) ProductState.categoria = '';
+  if (ProductState.categoria && ProductState.categoria !== '-' && !cats.some(c => c.id === ProductState.categoria)) ProductState.categoria = '';
 
   const list = all.filter(p => {
     if (ProductState.stato === 'attivi' && !p.attivo) return false;
     if (ProductState.stato === 'disattivi' && p.attivo) return false;
-    if (ProductState.categoria && p.categoria !== ProductState.categoria) return false;
+    if (ProductState.categoria === '-' && p.categoria_id) return false;
+    if (ProductState.categoria && ProductState.categoria !== '-' && p.categoria_id !== ProductState.categoria) return false;
     if (!q) return true;
-    return [p.nome, p.codice, p.categoria, p.marca, p.fornitore, p.colori, p.taglie]
+    return [p.catalogo, p.codice, p.descrizione, TCFactory.productCategoryName(p.categoria_id), p.colori, p.taglie]
       .some(v => (v || '').toLowerCase().includes(q));
   });
 
+  const cell = (v) => v ? escapeHtml(v) : '<span class="muted">—</span>';
   const rows = list.map(p => `
     <tr class="data-row ${p.attivo ? '' : 'row-muted'}" tabindex="0" onclick="openProductForm('${p.id}')" onkeydown="if(event.key==='Enter')openProductForm('${p.id}')">
-      <td>
-        <div class="cell-stack">
-          <strong>${escapeHtml(p.nome || 'Senza nome')}${p.attivo ? '' : ' <span class="chip chip-muted">disattivo</span>'}</strong>
-          <small>${[p.codice, p.categoria].filter(Boolean).map(escapeHtml).join(' · ') || '—'}</small>
-        </div>
-      </td>
-      <td class="hide-sm"><div class="cell-stack"><span>${escapeHtml(p.marca) || '—'}</span>${p.fornitore ? `<small>${escapeHtml(p.fornitore)}</small>` : ''}</div></td>
-      <td class="hide-sm"><div class="cell-stack"><span>${escapeHtml(p.colori) || '—'}</span>${p.taglie ? `<small>${escapeHtml(p.taglie)}</small>` : ''}</div></td>
+      <td data-label="Catalogo">${cell(p.catalogo)}</td>
+      <td data-label="Codice"><strong>${cell(p.codice)}</strong></td>
+      <td data-label="Descrizione">${cell(p.descrizione)}</td>
+      <td class="hide-sm">${cell(TCFactory.productCategoryName(p.categoria_id))}</td>
+      <td class="hide-sm">${cell(p.colori)}</td>
+      <td class="hide-sm">${cell(p.taglie)}</td>
       ${showCost ? `<td class="num" data-label="Costo">${p.costo !== null ? euro(p.costo) : '—'}</td>` : ''}
       <td class="num" data-label="Prezzo">${p.prezzo !== null ? euro(p.prezzo) : '—'}</td>
+      <td class="cell-action" data-label="Attivo" onclick="event.stopPropagation()">
+        <input type="checkbox" class="switch" ${p.attivo ? 'checked' : ''} aria-label="Prodotto attivo" onchange="toggleProductActive('${p.id}', this.checked)">
+      </td>
     </tr>`).join('');
 
   return `
@@ -82,13 +86,13 @@ function renderProductList() {
       <div class="table-toolbar">
         <div class="search-box">
           ${Icons.search()}
-          <input id="product-search" type="text" placeholder="Cerca nome, codice, marca, fornitore…" value="${escapeHtml(ProductState.search)}" oninput="setProductSearch(this.value)">
+          <input id="product-search" type="text" placeholder="Cerca catalogo, codice, descrizione…" value="${escapeHtml(ProductState.search)}" oninput="setProductSearch(this.value)">
         </div>
-        ${cats.length ? `
         <select class="form-select" style="width:auto;" aria-label="Categoria" onchange="setProductCategoria(this.value)">
           <option value="">Tutte le categorie</option>
-          ${cats.map(c => `<option value="${escapeHtml(c)}" ${ProductState.categoria === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
-        </select>` : ''}
+          ${cats.map(c => `<option value="${c.id}" ${ProductState.categoria === c.id ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`).join('')}
+          <option value="-" ${ProductState.categoria === '-' ? 'selected' : ''}>Senza categoria</option>
+        </select>
         <div class="segmented" role="tablist" aria-label="Stato prodotto">
           ${[['attivi','Attivi'],['disattivi','Disattivi'],['tutti','Tutti']].map(([id, l]) =>
             `<button role="tab" aria-selected="${ProductState.stato===id}" class="${ProductState.stato===id?'active':''}" onclick="setProductStato('${id}')">${l}</button>`).join('')}
@@ -103,13 +107,19 @@ function renderProductList() {
       <div class="table-scroll">
         <table class="data-table cards-sm">
           <thead><tr>
-            <th>Prodotto</th><th class="hide-sm">Marca / fornitore</th><th class="hide-sm">Colori / taglie</th>
-            ${showCost ? '<th class="num">Costo</th>' : ''}<th class="num">Prezzo</th>
+            <th>Catalogo</th><th>Codice</th><th>Descrizione</th><th class="hide-sm">Categoria</th>
+            <th class="hide-sm">Colori</th><th class="hide-sm">Taglie</th>
+            ${showCost ? '<th class="num">Costo</th>' : ''}<th class="num">Prezzo</th><th>Attivo</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>`}
     </div>`;
+}
+
+async function toggleProductActive(id, attivo) {
+  try { await TCFactory.saveProduct(id, { attivo }); }
+  catch (e) { showToast('Errore — riprova', 'error'); renderProductsPage(); }
 }
 
 // ─────────────────────────────────────────────
@@ -138,38 +148,23 @@ function openProductForm(id = null) {
         <h2 id="pf-title">${p ? 'Modifica prodotto' : 'Nuovo prodotto'}</h2>
         <button class="btn-icon" onclick="closeModal('product-form-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
-      <div class="modal-body" style="gap:18px;">
-        <fieldset class="form-section">
-          <legend>Dati principali</legend>
-          <div class="form-row">${input('nome', 'Nome *', 'maxlength="160"')}${input('codice', 'Codice', 'maxlength="60"')}</div>
-          <div class="form-row">
-            ${input('categoria', 'Categoria', 'maxlength="60" list="pf-cat-list" placeholder="es. T-shirt, Felpe…"')}
-            ${input('marca', 'Marca', 'maxlength="80"')}
-          </div>
-          <datalist id="pf-cat-list">${TCFactory.getProductCategories().map(c => `<option value="${escapeHtml(c)}">`).join('')}</datalist>
-          ${input('fornitore', 'Fornitore', 'maxlength="120"')}
-        </fieldset>
-
-        <fieldset class="form-section">
-          <legend>Varianti</legend>
-          <div class="form-row">
-            ${input('colori', 'Colori', 'maxlength="300" placeholder="es. Bianco, Nero, Navy"')}
-            ${input('taglie', 'Taglie', 'maxlength="200" placeholder="es. XS–3XL"')}
-          </div>
-        </fieldset>
-
-        <fieldset class="form-section">
-          <legend>Prezzi</legend>
-          <div class="form-row">${showCost ? price('costo', 'Costo di acquisto') : ''}${price('prezzo', 'Prezzo di vendita')}</div>
-        </fieldset>
-
+      <div class="modal-body" style="gap:14px;">
+        <div class="form-row">${input('catalogo', 'Catalogo', 'maxlength="80"')}${input('codice', 'Codice', 'maxlength="60"')}</div>
+        ${input('descrizione', 'Descrizione *', 'maxlength="200"')}
         <div class="form-group">
-          <label class="form-label" for="pf-note">Note</label>
-          <textarea id="pf-note" class="form-textarea" maxlength="2000">${v('note')}</textarea>
+          <label class="form-label" for="pf-categoria">Categoria</label>
+          <div style="display:flex;gap:8px;">
+            <select id="pf-categoria" class="form-select" style="flex:1;">${productCategoryOptions(p?.categoria_id)}</select>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="newCategoryFromForm()">${Icons.plus(13)} Nuova</button>
+          </div>
         </div>
-
+        <div class="form-row">
+          ${input('colori', 'Colori', 'maxlength="300" placeholder="es. Bianco, Nero, Navy"')}
+          ${input('taglie', 'Taglie', 'maxlength="200" placeholder="es. XS–3XL"')}
+        </div>
+        <div class="form-row">${showCost ? price('costo', 'Costo') : ''}${price('prezzo', 'Prezzo')}</div>
         <label class="switch-row">
-          <span><strong>Prodotto attivo</strong><small>I prodotti disattivi restano in archivio ma non compaiono nell'elenco principale</small></span>
+          <span><strong>Attivo</strong><small>I prodotti disattivi restano in archivio ma non compaiono nell'elenco principale</small></span>
           <input id="pf-attivo" type="checkbox" class="switch" ${p && !p.attivo ? '' : 'checked'}>
         </label>
       </div>
@@ -181,13 +176,30 @@ function openProductForm(id = null) {
     </div>`;
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('product-form-modal'); };
-  setTimeout(() => document.getElementById('pf-nome')?.focus(), 50);
+  setTimeout(() => document.getElementById('pf-catalogo')?.focus(), 50);
+}
+
+function productCategoryOptions(selectedId) {
+  return `<option value="">— Nessuna —</option>` +
+    TCFactory.getProductCategories().map(c => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`).join('');
+}
+
+async function newCategoryFromForm() {
+  const nome = prompt('Nome della nuova categoria:');
+  if (!nome?.trim()) return;
+  try {
+    const c = await TCFactory.saveProductCategory(null, nome);
+    const sel = document.getElementById('pf-categoria');
+    if (sel) sel.innerHTML = productCategoryOptions(c.id);
+    showToast(`Categoria "${c.nome}" creata`);
+  } catch (e) { showToast(e.message === 'Esiste già' ? 'Categoria già esistente' : 'Errore — riprova', 'error'); }
 }
 
 async function submitProductForm(id) {
   const get = (k) => document.getElementById('pf-' + k)?.value?.trim() || '';
   const fields = {};
   TCFactory.PRODUCT_TEXT_FIELDS.forEach(k => { fields[k] = get(k); });
+  fields.categoria_id = get('categoria') || null;
   fields.attivo = document.getElementById('pf-attivo')?.checked ?? true;
 
   const invalid = (k, msg) => {
@@ -197,7 +209,7 @@ async function submitProductForm(id) {
     el?.addEventListener('input', () => el.removeAttribute('aria-invalid'), { once: true });
     showToast(msg, 'error');
   };
-  if (!fields.nome) return invalid('nome', 'Inserisci il nome del prodotto');
+  if (!fields.descrizione) return invalid('descrizione', 'Inserisci la descrizione del prodotto');
   // Il costo si salva solo se è visibile a chi modifica
   for (const k of ['costo', 'prezzo']) {
     if (!document.getElementById('pf-' + k)) continue;
@@ -211,7 +223,7 @@ async function submitProductForm(id) {
   try {
     const saved = await TCFactory.saveProduct(id, fields);
     closeModal('product-form-modal');
-    showToast(id ? 'Prodotto aggiornato' : `Prodotto "${saved.nome}" creato`);
+    showToast(id ? 'Prodotto aggiornato' : `Prodotto "${TCFactory.productLabel(saved)}" creato`);
   } catch (e) {
     console.error('[prodotto]', e);
     showToast('Errore durante il salvataggio — riprova', 'error');
@@ -221,10 +233,69 @@ async function submitProductForm(id) {
 
 async function deleteProductConfirm(id) {
   const p = TCFactory.getProduct(id);
-  if (!confirm(`Eliminare "${p?.nome}"?\n\nSe vuoi solo nasconderlo, disattivalo.`)) return;
+  if (!confirm(`Eliminare "${TCFactory.productLabel(p)}"?\n\nSe vuoi solo nasconderlo, disattivalo.`)) return;
   try {
     await TCFactory.deleteProduct(id);
     closeModal('product-form-modal');
     showToast('Prodotto eliminato');
   } catch (e) { showToast('Errore eliminazione prodotto', 'error'); }
+}
+
+// ─────────────────────────────────────────────
+// CATEGORIE
+// ─────────────────────────────────────────────
+
+function openProductCategories() {
+  renderProductCategories();
+  const modal = document.getElementById('product-cat-modal');
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('product-cat-modal'); };
+  setTimeout(() => document.getElementById('new-product-cat')?.focus(), 50);
+}
+
+function renderProductCategories() {
+  const cats = TCFactory.getProductCategories();
+  const count = (id) => TCFactory._products.filter(p => p.categoria_id === id).length;
+  document.getElementById('product-cat-modal').innerHTML = `
+    <div class="modal" style="max-width:480px;" role="dialog" aria-modal="true" aria-labelledby="pc-title">
+      <div class="modal-header">
+        <h2 id="pc-title">Categorie prodotti</h2>
+        <button class="btn-icon" onclick="closeModal('product-cat-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:6px;">
+        ${cats.map(c => `
+          <div class="config-row">
+            <input class="form-input" value="${escapeHtml(c.nome)}" maxlength="60" aria-label="Nome categoria" onchange="renameProductCategory('${c.id}', this.value)">
+            <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">${count(c.id)} prod.</span>
+            <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteProductCategory('${c.id}')" aria-label="Elimina ${escapeHtml(c.nome)}">${Icons.trash(15)}</button>
+          </div>`).join('') || '<div class="settings-section-hint" style="margin:0;">Nessuna categoria: aggiungine una.</div>'}
+        <form class="config-add-row" onsubmit="event.preventDefault();addProductCategory()">
+          <input id="new-product-cat" class="form-input" placeholder="Nuova categoria, es. T-shirt" maxlength="60">
+          <button type="submit" class="btn btn-secondary btn-icon" aria-label="Aggiungi categoria">${Icons.plus()}</button>
+        </form>
+      </div>
+    </div>`;
+}
+
+async function addProductCategory() {
+  const nome = document.getElementById('new-product-cat')?.value || '';
+  if (!nome.trim()) return;
+  try {
+    await TCFactory.saveProductCategory(null, nome);
+    renderProductCategories();
+    document.getElementById('new-product-cat')?.focus();
+  } catch (e) { showToast(e.message === 'Esiste già' ? 'Categoria già esistente' : 'Errore — riprova', 'error'); }
+}
+
+async function renameProductCategory(id, nome) {
+  try { await TCFactory.saveProductCategory(id, nome); }
+  catch (e) { showToast(e.message === 'Esiste già' ? 'Categoria già esistente' : 'Nome non valido', 'error'); }
+  renderProductCategories();
+}
+
+async function deleteProductCategory(id) {
+  const n = TCFactory._products.filter(p => p.categoria_id === id).length;
+  if (!confirm(`Eliminare la categoria "${TCFactory.productCategoryName(id)}"?${n ? `\n\n${n} prodotti resteranno senza categoria.` : ''}`)) return;
+  try { await TCFactory.deleteProductCategory(id); renderProductCategories(); }
+  catch (e) { showToast('Errore eliminazione categoria', 'error'); }
 }

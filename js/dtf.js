@@ -370,20 +370,23 @@ function renderDtfTerzi() {
   const head = `
     <div class="dtf-box-head">
       <div><h2>DTF Conto terzi</h2><p id="dtf-save-status">${dtfSaveStatus()}</p></div>
+      ${c ? `<div class="dtf-client-actions">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="dtfCopyLink('${c.id}')" title="Copia il link di sola lettura per il cliente">${Icons.link(14)} Link cliente</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="dtfOpenClientForm('${c.id}')">${Icons.edit(14)} Modifica</button>
+      </div>` : ''}
     </div>
-    <div class="dtf-clients">
-      <select class="form-select" aria-label="Cliente conto terzi" onchange="dtfSelectClient(this.value)" ${DtfState.clients.length ? '' : 'disabled'}>
-        ${DtfState.clients.length
-          ? DtfState.clients.map(x => `<option value="${x.id}" ${x.id === DtfState.clientId ? 'selected' : ''}>${escapeHtml(x.nome)} · ${euro(x.costo_metro)}/m</option>`).join('')
-          : '<option>Nessun cliente</option>'}
-      </select>
-      ${c ? `<button type="button" class="btn-icon" onclick="dtfCopyLink('${c.id}')" aria-label="Copia il link per il cliente" title="Copia il link di sola lettura per il cliente">${Icons.link(16)}</button>
-      <button type="button" class="btn-icon" onclick="dtfOpenClientForm('${c.id}')" aria-label="Modifica cliente" title="Modifica cliente">${Icons.edit(16)}</button>` : ''}
-      <button type="button" class="btn btn-primary btn-icon dtf-add" onclick="dtfOpenClientForm()" aria-label="Aggiungi cliente" title="Aggiungi cliente">${Icons.plus(16)}</button>
+    <div class="dtf-client-grid" role="tablist" aria-label="Clienti conto terzi">
+      ${DtfState.clients.map(x => {
+        const on = x.id === DtfState.clientId;
+        return `<button type="button" role="tab" aria-selected="${on}" class="dtf-client-box ${on ? 'active' : ''}" onclick="dtfSelectClient('${x.id}')">
+          <strong>${escapeHtml(x.nome)}</strong><span>${euro(x.costo_metro)}/m</span>
+        </button>`;
+      }).join('')}
+      <button type="button" class="dtf-client-box dtf-client-add" onclick="dtfOpenClientForm()">${Icons.plus(16)} <span>Nuovo cliente</span></button>
     </div>`;
 
   if (!c) {
-    root.innerHTML = head + `<div class="empty-list">Aggiungi un cliente con il pulsante <strong>+</strong> per iniziare.</div>`;
+    root.innerHTML = head + `<div class="empty-list">Aggiungi un cliente con il box <strong>Nuovo cliente</strong> per iniziare.</div>`;
     return;
   }
 

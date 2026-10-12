@@ -2164,4 +2164,5 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 
 /* Prodotti */
 .data-table tr.row-muted td { color: var(--text-muted); }
+.data-table .muted { color: var(--text-muted); }
 .chip.chip-muted { background: var(--bg-secondary); color: var(--text-muted); font-size: 0.65rem; vertical-align: middle; }
