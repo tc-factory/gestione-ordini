@@ -1718,15 +1718,17 @@ function removeFormFile(i) {
 function renderModuleRows() {
   const tbody = document.getElementById('mod-rows-body');
   if (!tbody) return;
+  modProductDatalist();
   const rowHtml = (r, i) => {
     const tot = (parseFloat(r.qnt)||0) * (parseFloat(r.prezzo)||0);
+    const prod = modProductByCode(r.codice);
     return `<tr>
       <td><input class="mod-input" value="${escapeHtml(r.catalogo||'')}" oninput="storeMod(${i},'catalogo',this.value)"></td>
-      <td><input class="mod-input" value="${escapeHtml(r.codice||'')}" oninput="storeMod(${i},'codice',this.value)"></td>
+      <td><input id="mod-codice-${i}" class="mod-input" list="mod-prod-list" autocomplete="off" value="${escapeHtml(r.codice||'')}" oninput="modCodiceInput(${i},this.value)"></td>
       <td><input class="mod-input" value="${escapeHtml(r.descrizione||'')}" oninput="storeMod(${i},'descrizione',this.value)"></td>
-      <td><input class="mod-input" value="${escapeHtml(r.colore||'')}" oninput="storeMod(${i},'colore',this.value)"></td>
+      <td>${modVariantField(i, r, 'colore', prod && prod.colori)}</td>
       <td><input class="mod-input mod-num" type="number" min="0" value="${r.qnt||''}" oninput="storeMod(${i},'qnt',this.value);calcModRow(${i})"></td>
-      <td><input class="mod-input mod-sm" value="${escapeHtml(r.tg||'')}" oninput="storeMod(${i},'tg',this.value)"></td>
+      <td>${modVariantField(i, r, 'tg', prod && prod.taglie, 'mod-sm')}</td>
       <td><input class="mod-input mod-num" type="number" min="0" step="0.01" value="${r.prezzo||''}" oninput="storeMod(${i},'prezzo',this.value);calcModRow(${i})"></td>
       <td><span id="mod-tot-${i}" class="mod-calc">${tot>0 ? '€ '+tot.toFixed(2) : ''}</span></td>
       <td style="text-align:center;"><input type="checkbox" ${r.ordinato?'checked':''} onchange="storeMod(${i},'ordinato',this.checked)"></td>
@@ -1745,6 +1747,54 @@ function renderModuleRows() {
   const integHeaderRow = `<tr><td colspan="13" style="padding:8px 10px;background:var(--bg-secondary);font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Integrazioni</td></tr>`;
   tbody.innerHTML = base.map(x => rowHtml(x.r, x.i)).join('') + (integ.length ? integHeaderRow + integ.map(x => rowHtml(x.r, x.i)).join('') : '');
   updateModuleTotals();
+}
+
+// ── Prodotti nel modulo d'ordine ──
+// Il codice suggerisce i prodotti in anagrafica; scelto un prodotto si compilano
+// catalogo (fornitore), descrizione e prezzo, mentre colore e taglia diventano menu.
+const modProductByCode = (codice) => {
+  const c = String(codice || '').trim().toLowerCase();
+  return c ? TCFactory._products.find(p => (p.codice || '').trim().toLowerCase() === c) || null : null;
+};
+const modSplitList = (s) => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
+
+function modProductDatalist() {
+  let dl = document.getElementById('mod-prod-list');
+  if (!dl) { dl = document.createElement('datalist'); dl.id = 'mod-prod-list'; document.getElementById('order-form-modal')?.appendChild(dl); }
+  dl.innerHTML = TCFactory.getProducts().filter(p => p.attivo && p.codice).map(p =>
+    `<option value="${escapeHtml(p.codice)}" label="${escapeHtml([p.descrizione, TCFactory.supplierName(p.fornitore_id)].filter(Boolean).join(' · '))}"></option>`).join('');
+}
+
+// Colore / taglia: menu con le varianti del prodotto, altrimenti campo libero
+function modVariantField(i, r, field, list, cls = '') {
+  const opts = modSplitList(list);
+  const cur = r[field] || '';
+  if (!opts.length) return `<input class="mod-input ${cls}" value="${escapeHtml(cur)}" oninput="storeMod(${i},'${field}',this.value)">`;
+  const all = cur && !opts.some(o => o.toLowerCase() === cur.toLowerCase()) ? [cur, ...opts] : opts;
+  return `<select class="mod-input mod-variant ${cls}" aria-label="${field === 'tg' ? 'Taglia' : 'Colore'}" onchange="storeMod(${i},'${field}',this.value)">
+    <option value="">—</option>
+    ${all.map(o => `<option value="${escapeHtml(o)}" ${o.toLowerCase() === cur.toLowerCase() ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}
+  </select>`;
+}
+
+function modCodiceInput(i, value) {
+  const r = AppState.formModuleRows[i];
+  if (!r) return;
+  r.codice = value;
+  const p = modProductByCode(value);
+  if (!p || r.productId === p.id) { if (!p) r.productId = null; return; }
+  // Prodotto riconosciuto: compila tutto tranne colore, quantità e taglia
+  r.productId = p.id;
+  r.catalogo = TCFactory.supplierName(p.fornitore_id) || r.catalogo || '';
+  r.descrizione = p.descrizione || r.descrizione || '';
+  if (p.prezzo !== null && p.prezzo !== undefined) r.prezzo = p.prezzo;
+  const okColore = modSplitList(p.colori).some(c => c.toLowerCase() === String(r.colore || '').toLowerCase());
+  const okTg = modSplitList(p.taglie).some(t => t.toLowerCase() === String(r.tg || '').toLowerCase());
+  if (!okColore) r.colore = '';
+  if (!okTg) r.tg = '';
+  renderModuleRows();
+  const el = document.getElementById(`mod-codice-${i}`);
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
 }
 
 function copyModRow(i) {
