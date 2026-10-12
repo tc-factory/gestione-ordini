@@ -793,22 +793,30 @@ html.dark .dtf-tag { background: #3B2F14; color: #FCD34D; }
 html.dark .dtf-tag.warn { background: #3A1C1C; color: #FCA5A5; }
 .dtf-reading { font-size: 0.82rem; color: var(--accent-ink); text-align: center; padding: 6px 0; }
 
-/* ── DTF: sottosezioni nella navbar ── */
-.nav-sub { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 6px 30px; padding-left: 12px; }
-.nav-sub-item {
-  padding: 7px 12px; border-radius: 12px;
-  color: var(--frame-muted); font-size: 0.85rem; font-weight: 600;
-  transition: background-color var(--transition), color var(--transition);
+/* ── Interne: dashboard a blocchi, 2 per riga ── */
+.interne-dash { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-lg); }
+.interne-dash[hidden] { display: none; }
+@media (max-width: 700px) { .interne-dash { grid-template-columns: 1fr; } }
+.interne-block {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto;
+  column-gap: 16px; row-gap: 10px; align-items: center;
+  padding: 22px; min-height: 140px;
+  color: var(--text-primary); text-decoration: none;
+  transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
 }
-.nav-sub-item:hover { background: var(--frame-hover); color: var(--frame-fg); }
-.nav-sub-item.active { color: var(--frame-fg); background: var(--frame-raised); box-shadow: 0 1px 2px rgba(20, 20, 24, 0.06); }
-html.dark .nav-sub-item.active { box-shadow: none; }
-@media (min-width: 861px) { html.sidebar-collapsed .nav-sub { display: none; } }
-
-/* Selettore in alto: solo quando le sottosezioni non si vedono nella navbar */
-.dtf-tabs { display: none; }
-@media (max-width: 860px) { .dtf-tabs { display: inline-flex; } }
-@media (min-width: 861px) { html.sidebar-collapsed .dtf-tabs { display: inline-flex; } }
+.interne-block:hover { transform: translateY(-2px); box-shadow: var(--shadow-md, var(--shadow-sm)); border-color: color-mix(in srgb, var(--brand-gold) 45%, var(--border)); }
+.interne-block:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
+.interne-block-icon {
+  width: 52px; height: 52px; border-radius: 18px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--brand-gold); background: color-mix(in srgb, var(--brand-gold) 12%, transparent);
+}
+.interne-block-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.interne-block-text strong { font-size: 1.1rem; font-weight: 800; letter-spacing: -0.02em; }
+.interne-block-text small { font-size: 0.82rem; color: var(--text-secondary); }
+.interne-block-arrow { color: var(--text-muted); }
+.interne-block-info { grid-column: 2 / -1; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); min-height: 1.2em; }
+.interne-block.soon .interne-block-icon { color: var(--text-muted); background: var(--bg-secondary); }
 
 /* ── DTF Interno ── */
 .dtf-summary-interno { margin-bottom: 10px; }

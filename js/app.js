@@ -189,9 +189,10 @@ function renderApp() {
   // Sezioni che dipendono da ordini/clienti: si aggiornano anche in tempo reale
   if (Nav.current === 'cestino') renderCestinoPage();
   if (Nav.current === 'planner') renderCalendarSection();
-  if (Nav.current === 'dtf')     renderDtfInterno();
+  if (Nav.current === 'dtf')     dtfSection() ? renderDtfInterno() : renderInterneDashboard();
   if (Nav.current === 'esterne') renderEsternePage();
   if (Nav.current === 'clienti') renderClientsPage();
+  if (Nav.current === 'prodotti') renderProductsPage();
   if (Nav.current === 'cassa')   renderCassaPage();
 }
 
@@ -1607,7 +1608,7 @@ function ofShowLinkedClient() {
 }
 
 // Interna ed Esterna si possono spuntare entrambe (almeno una).
-// Con entrambe: le righe con una lavorazione esterna vanno in Lavorazioni esterne, il resto si fa in casa.
+// Con entrambe: le righe con una lavorazione esterna vanno in Esterne, il resto si fa in casa.
 // Neutro si sceglie solo da solo: esclude Interna ed Esterna (e viceversa).
 function ofToggleLav(which) {
   if (which === 'neutro') {
@@ -2014,7 +2015,7 @@ function renderSettingsDialog() {
   const priorities = TCFactory.getPriorities();
   const tags       = TCFactory.getTags();
   const root       = document.getElementById('settings-root');
-  if (!root) return;
+  if (!root || settingsSection() === 'staff') return;   // la scheda Staff ha un suo contenuto
 
   const sectionBtn = (label, icon, isOpen, fn) => `
     <button type="button" class="settings-section-btn" onclick="${fn}()" aria-expanded="${isOpen}"
@@ -2051,7 +2052,7 @@ function renderSettingsDialog() {
         <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
           <div class="settings-static-head">${Icons.truck(14)} Lavorazioni esterne</div>
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
-            <div class="settings-section-hint" style="margin:0 0 4px;">Compaiono nel menu "Esterna" del modulo d'ordine e raggruppano la sezione Lavorazioni esterne.</div>
+            <div class="settings-section-hint" style="margin:0 0 4px;">Compaiono nel menu "Esterna" del modulo d'ordine e raggruppano la sezione Esterne.</div>
             ${getLavEsterne().map(l => `
               <div class="config-row">
                 <input class="form-input" value="${escapeHtml(l.nome)}" maxlength="60" aria-label="Nome lavorazione" onchange="renameLavEsterna('${l.id}', this.value)">
@@ -2498,10 +2499,10 @@ async function loadLogEntries() {
     const hasMore = AppState.logOffset + entries.length < total;
     wrap.innerHTML = entries.length === 0
       ? '<div style="font-size:0.8rem;color:var(--text-muted);">Nessuna voce trovata.</div>'
-      : `<div style="display:flex;flex-direction:column;gap:3px;max-height:380px;overflow-y:auto;">
+      : `<div class="log-list">
           ${entries.map(e => {
             const dt = new Date(e.created_at).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
-            return `<div style="display:grid;grid-template-columns:105px 75px 1fr;gap:6px;padding:5px 8px;border-radius:4px;background:var(--bg-secondary);font-size:0.73rem;align-items:start;">
+            return `<div class="log-row">
               <span style="color:var(--text-muted);">${dt}</span>
               <span style="font-weight:700;color:var(--brand-gold);">${escapeHtml(e.user_nickname)}</span>
               <div><span style="font-weight:600;">${escapeHtml(e.action)}</span>${e.order_name ? `<span style="color:var(--text-muted);"> · ${escapeHtml(e.order_name)}</span>` : ''}</div>
@@ -2651,6 +2652,8 @@ const Icons = {
   eyeOff: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
   panelClose: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="16 15 13 12 16 9"/></svg>`,
   panelOpen: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="13 9 16 12 13 15"/></svg>`,
+  zap: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  image: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
   link: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
   // Logo provvisorio — da sostituire con quello ufficiale
   logoPlaceholder: (s=26) => `<span class="brand-logo-mark" style="font-size:${Math.round(s*0.56)}px;">T&amp;C</span>`,

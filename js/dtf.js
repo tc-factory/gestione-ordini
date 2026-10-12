@@ -361,7 +361,7 @@ function renderDtfTerzi() {
   if (!root) return;
 
   if (DtfState.error) {
-    root.innerHTML = `<div class="dtf-box-head"><div><h2>Conto terzi</h2></div></div>
+    root.innerHTML = `<div class="dtf-box-head"><div><h2>DTF Conto terzi</h2></div></div>
       <div class="empty-list">Impossibile caricare i dati DTF: ${escapeHtml(DtfState.error)}</div>`;
     return;
   }
@@ -369,7 +369,7 @@ function renderDtfTerzi() {
   const c = dtfClient();
   const head = `
     <div class="dtf-box-head">
-      <div><h2>Conto terzi</h2><p id="dtf-save-status">${dtfSaveStatus()}</p></div>
+      <div><h2>DTF Conto terzi</h2><p id="dtf-save-status">${dtfSaveStatus()}</p></div>
     </div>
     <div class="dtf-clients">
       <select class="form-select" aria-label="Cliente conto terzi" onchange="dtfSelectClient(this.value)" ${DtfState.clients.length ? '' : 'disabled'}>
@@ -908,16 +908,21 @@ async function dtfDeleteClient(id) {
 // PAGINA
 // ═══════════════════════════════════════════════
 
+// Pagina Interne: dashboard a blocchi oppure la scheda scelta
 async function openDtfPage() {
-  const terzi = dtfSection() === 'terzi';
-  document.getElementById('dtf-interno-root').hidden = terzi;
-  document.getElementById('dtf-terzi-root').hidden = !terzi;
+  const section = dtfSection();
+  document.getElementById('interne-dash-root').hidden = section !== null;
+  document.getElementById('interne-soon-root').hidden = !section || ['interno', 'terzi'].includes(section);
+  document.getElementById('dtf-interno-root').hidden = section !== 'interno';
+  document.getElementById('dtf-terzi-root').hidden = section !== 'terzi';
+  if (!section) { renderInterneDashboard(); return; }
+  if (!['interno', 'terzi'].includes(section)) { renderInterneSoon(section); return; }
   if (!DtfState.month) DtfState.month = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   if (!DtfState.clientId) DtfState.clientId = dtfLs.get(DTF_CLIENT_KEY);
 
   renderDtfInterno();
   if (!DtfState.loaded) document.getElementById('dtf-terzi-root').innerHTML =
-    '<div class="dtf-box-head"><div><h2>Conto terzi</h2></div></div><div class="empty-list">Caricamento…</div>';
+    '<div class="dtf-box-head"><div><h2>DTF Conto terzi</h2></div></div><div class="empty-list">Caricamento…</div>';
 
   try {
     await dtfLoadClients();
@@ -946,3 +951,47 @@ function dtfSubscribe() {
 }
 
 const dtfEditing = () => !!document.activeElement?.closest?.('#dtf-terzi-root, #dtf-detail-modal');
+
+// ─────────────────────────────────────────────
+// DASHBOARD INTERNE
+// ─────────────────────────────────────────────
+
+function renderInterneDashboard() {
+  const root = document.getElementById('interne-dash-root');
+  if (!root) return;
+  const daStampare = dtfLists().todo.length;
+  const info = {
+    interno: `${daStampare} ${daStampare === 1 ? 'ordine' : 'ordini'} da stampare`,
+    terzi:   DtfState.loaded ? `${DtfState.clients.length} ${DtfState.clients.length === 1 ? 'cliente' : 'clienti'}` : '',
+  };
+  root.innerHTML = INTERNE_SECTIONS.map(s => `
+    <a href="#/dtf/${s.id}" class="glass-card interne-block ${s.ready ? '' : 'soon'}" onclick="event.preventDefault();Nav.go('dtf','${s.id}')">
+      <span class="interne-block-icon" aria-hidden="true">${s.icon()}</span>
+      <span class="interne-block-text">
+        <strong>${s.label}</strong>
+        <small>${s.subtitle}</small>
+      </span>
+      <span class="interne-block-info">${s.ready ? escapeHtml(info[s.id] || '') : '<span class="chip chip-muted">In preparazione</span>'}</span>
+      <span class="interne-block-arrow" aria-hidden="true">${Icons.chevronRight(18)}</span>
+    </a>`).join('');
+
+  // Numero di clienti conto terzi: si carica in sottofondo la prima volta
+  if (!DtfState.loaded && !DtfState._dashLoading) {
+    DtfState._dashLoading = true;
+    dtfLoadClients().then(() => { DtfState._dashLoading = false; if (Nav.current === 'dtf' && !dtfSection()) renderInterneDashboard(); })
+      .catch(() => { DtfState._dashLoading = false; });
+  }
+}
+
+function renderInterneSoon(id) {
+  const root = document.getElementById('interne-soon-root');
+  const s = INTERNE_SECTIONS.find(x => x.id === id);
+  if (!root || !s) return;
+  root.innerHTML = `
+    <div class="glass-card empty-state">
+      <div class="empty-state-icon" aria-hidden="true">${s.icon()}</div>
+      <h2>${s.label}: scheda in preparazione</h2>
+      <p>Questa lavorazione interna non ha ancora una sua pagina.</p>
+      <button class="btn btn-secondary" onclick="Nav.go('dtf')">${Icons.chevronLeft(14)} Tutte le interne</button>
+    </div>`;
+}

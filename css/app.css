@@ -2129,3 +2129,31 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 /* Lista ordini: data di scadenza (impostata o automatica) */
 .orc-deadline { flex-direction: column; align-items: flex-start !important; justify-content: center; gap: 1px; text-align: left; }
 .deadline-date { font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Impostazioni → Staff: account a fianco, registro modifiche a tutta altezza (scorre con la pagina) */
+.staff-page {
+  display: grid;
+  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+  gap: var(--space-lg);
+  align-items: start;
+}
+@media (max-width: 1100px) { .staff-page { grid-template-columns: 1fr; } }
+.log-list { display: flex; flex-direction: column; gap: 3px; }
+.log-row {
+  display: grid;
+  grid-template-columns: 120px 100px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  font-size: 0.8rem;
+  align-items: start;
+}
+@media (max-width: 600px) {
+  .log-row { grid-template-columns: auto 1fr; }
+  .log-row > div { grid-column: 1 / -1; }
+}
+
+/* Prodotti */
+.data-table tr.row-muted td { color: var(--text-muted); }
+.chip.chip-muted { background: var(--bg-secondary); color: var(--text-muted); font-size: 0.65rem; vertical-align: middle; }
