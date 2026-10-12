@@ -316,7 +316,7 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .settings-block-head:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: -2px; }
 .settings-block-chevron { color: var(--text-muted); transition: transform 0.2s; }
 .settings-block.open .settings-block-chevron { transform: rotate(180deg); }
-.settings-block:not(.open) > :not(.settings-block-head) { display: none; }
+.settings-block:not(.open) > :not(.settings-block-head) { display: none !important; }   /* vince sugli stili inline dei contenuti */
 .settings-block-body { padding: 12px 14px; }
 
 .switch-row {
