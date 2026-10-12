@@ -130,7 +130,7 @@ async function toggleProductActive(id, attivo) {
 function openProductForm(id = null, prefill = null) {
   const p = id ? TCFactory.getProduct(id) : prefill;
   const showCost = TCAuth.canViewEconomics();
-  const v = (k) => escapeHtml(p?.[k] ?? '');
+  const v = (k) => escapeHtml(ofUpper(p?.[k] ?? ''));
   const input = (k, label, attrs = '') => `
     <div class="form-group">
       <label class="form-label" for="pf-${k}">${label}</label>
