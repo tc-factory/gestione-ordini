@@ -861,7 +861,8 @@ const TCFactory = {
 
   async saveProduct(id, fields) {
     const payload = {};
-    this.PRODUCT_TEXT_FIELDS.forEach(k => { if (fields[k] !== undefined) payload[k] = String(fields[k] ?? '').trim(); });
+    // Prodotti sempre in MAIUSCOLO (anche quelli importati da link)
+    this.PRODUCT_TEXT_FIELDS.forEach(k => { if (fields[k] !== undefined) payload[k] = String(fields[k] ?? '').trim().toLocaleUpperCase('it-IT'); });
     ['costo', 'prezzo'].forEach(k => { if (fields[k] !== undefined) payload[k] = fields[k]; });
     if (fields.categoria_id !== undefined) payload.categoria_id = fields.categoria_id || null;
     if (fields.attivo !== undefined) payload.attivo = !!fields.attivo;
@@ -898,7 +899,7 @@ const TCFactory = {
   productCategoryName(id) { return this._productCategories.find(c => c.id === id)?.nome || ''; },
 
   async saveProductCategory(id, nome) {
-    nome = String(nome || '').trim();
+    nome = String(nome || '').trim().toLocaleUpperCase('it-IT');
     if (!nome) throw new Error('Nome vuoto');
     if (this._productCategories.some(c => c.id !== id && c.nome.toLowerCase() === nome.toLowerCase())) throw new Error('Esiste già');
     const res = id
