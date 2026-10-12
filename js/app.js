@@ -713,15 +713,16 @@ function previewOrderModule(orderId) {
       <td style="padding:7px 10px;text-align:right;">${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.ordinato ? '✓' : ''}</td>
+      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:0.8rem;font-weight:600;">${escapeHtml(modRowInterna(r))}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:0.8rem;font-weight:600;">${escapeHtml(modRowEsterna(r))}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.neutro ? '✓' : ''}</td>
     </tr>`;
   };
-  const integHeaderRow = `<tr><td colspan="11" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>`;
+  const integHeaderRow = `<tr><td colspan="12" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>`;
   const { base: modBase, integ: modInteg } = splitModuleRows(rows);
   const rowsHtml = rows.length
     ? modBase.map(renderModRow).join('') + (modInteg.length ? integHeaderRow + modInteg.map(renderModRow).join('') : '')
-    : `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
+    : `<tr><td colspan="12" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
 
   modal.innerHTML = `
     <div class="modal" style="max-width:820px;">
@@ -748,6 +749,7 @@ function previewOrderModule(orderId) {
               <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Prezzo</th>
               <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Totale</th>
               <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Ord.</th>
+              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Lav. int.</th>
               <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Lav. est.</th>
               <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Neutro</th>
             </tr>
@@ -827,7 +829,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
     const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
     return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
       r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
-      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : '', modRowEsterna(r, 'SI'), r.neutro ? 'SI' : ''];
+      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : '', modRowInterna(r), modRowEsterna(r, 'SI'), r.neutro ? 'SI' : ''];
   };
   const autoTableStyle = {
     styles: { fontSize: 9, cellPadding: 2 },
@@ -837,7 +839,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
   };
   doc.autoTable({
     startY: y + 3,
-    head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lav. est.','Neutro']],
+    head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lav. int.','Lav. est.','Neutro']],
     body: pdfBase.length ? pdfBase.map(rowToArr) : [['','','','','','','','','','','']],
     ...autoTableStyle,
   });
@@ -849,7 +851,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
     doc.text('INTEGRAZIONI', 15, fy); fy += 5;
     doc.autoTable({
       startY: fy,
-      head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lav. est.','Neutro']],
+      head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lav. int.','Lav. est.','Neutro']],
       body: pdfInteg.map(rowToArr),
       ...autoTableStyle,
     });
@@ -907,12 +909,12 @@ tbody td{padding:7px 10px;border-bottom:1px solid #dbeafe}
 ${dlHtml ? `<br><strong>Deadline:</strong> ${dlHtml}` : ''}
 ${tagsHtml ? `<br><strong>Tipologia:</strong> ${tagsHtml}` : ''}</div></div>
 ${isUrgent ? `<div class="urg">⚠️ URGENTE</div>` : ''}</div>
-<table><thead><tr><th>Catalogo</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th><th style="text-align:center">Lav. est.</th><th style="text-align:center">Neutro</th></tr></thead><tbody>
+<table><thead><tr><th>Catalogo</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th><th style="text-align:center">Lav. int.</th><th style="text-align:center">Lav. est.</th><th style="text-align:center">Neutro</th></tr></thead><tbody>
 ${(() => {
-    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td><td style="text-align:center;color:#16a34a">${escapeHtml(modRowEsterna(r))}</td><td style="text-align:center;color:#16a34a">${r.neutro?'✓':''}</td></tr>`; };
-    const integHeaderHtml = '<tr><td colspan="11" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>';
+    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td><td style="text-align:center;color:#16a34a">${escapeHtml(modRowInterna(r))}</td><td style="text-align:center;color:#16a34a">${escapeHtml(modRowEsterna(r))}</td><td style="text-align:center;color:#16a34a">${r.neutro?'✓':''}</td></tr>`; };
+    const integHeaderHtml = '<tr><td colspan="12" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>';
     const { base, integ } = splitModuleRows(rows);
-    return rows.length ? base.map(rowHtml).join('') + (integ.length ? integHeaderHtml + integ.map(rowHtml).join('') : '') : '<tr><td colspan="11" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
+    return rows.length ? base.map(rowHtml).join('') + (integ.length ? integHeaderHtml + integ.map(rowHtml).join('') : '') : '<tr><td colspan="12" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
   })()}
 </tbody></table>
 <div class="tots"><div class="tr"><span class="tl">Totale ordine</span><span class="tv" style="color:#1e40af">€ ${total.toFixed(2)}</span></div><div class="tr"><span class="tl">Acconto</span><span class="tv">€ ${acconto.toFixed(2)}</span></div><div class="tr"><span class="tl">Saldo</span><span class="tv" style="color:#dc2626">€ ${saldo.toFixed(2)}</span></div></div>
@@ -1396,18 +1398,19 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
               <table class="mod-table" style="width:100%;table-layout:fixed;">
                 <thead>
                   <tr>
-                    <th style="width:12%;">CATALOGO</th>
-                    <th style="width:9%;">CODICE</th>
-                    <th style="width:13%;">DESCRIZIONE</th>
-                    <th style="width:9%;">COLORE</th>
+                    <th style="width:10%;">CATALOGO</th>
+                    <th style="width:8%;">CODICE</th>
+                    <th style="width:12%;">DESCRIZIONE</th>
+                    <th style="width:8%;">COLORE</th>
                     <th style="width:6%;">QNT</th>
                     <th style="width:5%;">TG</th>
                     <th style="width:8%;">PREZZO</th>
                     <th style="width:8%;">TOTALE</th>
                     <th style="width:5%;text-align:center;">ORD.</th>
-                    <th style="width:12%;" title="Lavorazione esterna">ESTERNA</th>
-                    <th style="width:6%;text-align:center;">NEUTRO</th>
-                    <th style="width:7%;"></th>
+                    <th style="width:10%;" title="Lavorazione interna">INTERNA</th>
+                    <th style="width:10%;" title="Lavorazione esterna">ESTERNA</th>
+                    <th style="width:5%;text-align:center;">NEUTRO</th>
+                    <th style="width:5%;"></th>
                   </tr>
                 </thead>
                 <tbody id="mod-rows-body"></tbody>
@@ -1725,6 +1728,7 @@ function renderModuleRows() {
       <td><input class="mod-input mod-num" type="number" min="0" step="0.01" value="${r.prezzo||''}" oninput="storeMod(${i},'prezzo',this.value);calcModRow(${i})"></td>
       <td><span id="mod-tot-${i}" class="mod-calc">${tot>0 ? '€ '+tot.toFixed(2) : ''}</span></td>
       <td style="text-align:center;"><input type="checkbox" ${r.ordinato?'checked':''} onchange="storeMod(${i},'ordinato',this.checked)"></td>
+      <td><select class="mod-input mod-esterna" aria-label="Lavorazione interna" onchange="storeModInterna(${i},this.value)">${modInternaOptions(r)}</select></td>
       <td><select class="mod-input mod-esterna" aria-label="Lavorazione esterna" onchange="storeModEsterna(${i},this.value)">${modEsternaOptions(r)}</select></td>
       <td style="text-align:center;"><input type="checkbox" title="Neutro" ${r.neutro?'checked':''} onchange="storeMod(${i},'neutro',this.checked)"></td>
       <td style="display:flex;gap:3px;">
@@ -1736,7 +1740,7 @@ function renderModuleRows() {
   const indexed = AppState.formModuleRows.map((r, i) => ({ r, i }));
   const base  = indexed.filter(x => !x.r.integrazione);
   const integ = indexed.filter(x => x.r.integrazione);
-  const integHeaderRow = `<tr><td colspan="12" style="padding:8px 10px;background:var(--bg-secondary);font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Integrazioni</td></tr>`;
+  const integHeaderRow = `<tr><td colspan="13" style="padding:8px 10px;background:var(--bg-secondary);font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Integrazioni</td></tr>`;
   tbody.innerHTML = base.map(x => rowHtml(x.r, x.i)).join('') + (integ.length ? integHeaderRow + integ.map(x => rowHtml(x.r, x.i)).join('') : '');
   updateModuleTotals();
 }
@@ -1775,10 +1779,10 @@ function updateModuleTotals() {
   ofUpdateSaldo();
 }
 function addModRow() {
-  AppState.formModuleRows.push({ catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false, esterna:'', lavEsterna:false, neutro:false });
+  AppState.formModuleRows.push({ catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false, interna:'', esterna:'', lavEsterna:false, neutro:false });
   renderModuleRows();
 }
-// Lavorazione esterna della riga: id da Impostazioni → Lavorazioni esterne.
+// Lavorazione interna/esterna della riga: id da Impostazioni → Lavorazioni.
 // Le righe vecchie con la sola spunta valgono come "Da specificare".
 // Lavorazione interna: gli ordini vecchi senza la scelta sono interni se non sono esterni
 // Descrizione dell'ordine, a fianco del cliente (salvata nel modulo d'ordine)
@@ -1802,6 +1806,22 @@ function modEsternaOptions(r) {
     + list.map(l => `<option value="${escapeHtml(l.id)}" ${l.id === r.esterna ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')
     + (r.esterna && !known ? `<option value="${escapeHtml(r.esterna)}" selected>(eliminata)</option>` : '')
     + (!r.esterna && r.lavEsterna ? `<option value="__legacy" selected>Da specificare</option>` : '');
+}
+function modRowInterna(r) {
+  return r?.interna ? (lavName('interne', r.interna) || 'Interna') : '';
+}
+function modInternaOptions(r) {
+  const list = getLavInterne();
+  return `<option value="">—</option>`
+    + list.map(l => `<option value="${escapeHtml(l.id)}" ${l.id === r.interna ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')
+    + (r.interna && !list.some(l => l.id === r.interna) ? `<option value="${escapeHtml(r.interna)}" selected>(eliminata)</option>` : '');
+}
+function storeModInterna(i, value) {
+  const r = AppState.formModuleRows[i];
+  if (!r) return;
+  r.interna = value;
+  // Una riga interna rende interno l'ordine
+  if (value && !AppState.formLavInterna) ofSetLav(false);
 }
 function storeModEsterna(i, value) {
   const r = AppState.formModuleRows[i];
@@ -2058,19 +2078,11 @@ function renderSettingsDialog() {
           </div>
         </div>
 
-        <div class="settings-block ${settingsOpen('esterne')}">
-          ${settingsHead('esterne', `${Icons.truck(14)} Lavorazioni esterne`)}
-          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
-            <div class="settings-section-hint" style="margin:0 0 4px;">Compaiono nel menu "Esterna" del modulo d'ordine e raggruppano la sezione Esterne.</div>
-            ${getLavEsterne().map(l => `
-              <div class="config-row">
-                <input class="form-input" value="${escapeHtml(l.nome)}" maxlength="60" aria-label="Nome lavorazione" onchange="renameLavEsterna('${l.id}', this.value)">
-                <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteLavEsterna('${l.id}')" aria-label="Elimina ${escapeHtml(l.nome)}">${Icons.trash(15)}</button>
-              </div>`).join('') || '<div class="settings-section-hint" style="margin:0;">Nessuna lavorazione esterna: aggiungine una.</div>'}
-            <form class="config-add-row" onsubmit="event.preventDefault();addLavEsterna()">
-              <input id="new-lav-esterna" class="form-input" placeholder="es. Ricamo, Serigrafia…" maxlength="60">
-              <button type="submit" class="btn btn-secondary btn-icon" aria-label="Aggiungi lavorazione esterna">${Icons.plus()}</button>
-            </form>
+        <div class="settings-block ${settingsOpen('lavorazioni')}">
+          ${settingsHead('lavorazioni', `${Icons.truck(14)} Lavorazioni`)}
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:16px;">
+            ${lavSettingsList('interne', 'Interne', 'Compaiono nel menu "Interna" del modulo d\'ordine.', 'es. DTF, UV, Laser…')}
+            ${lavSettingsList('esterne', 'Esterne', 'Compaiono nel menu "Esterna" del modulo d\'ordine e raggruppano la sezione Esterne.', 'es. Ricamo, Serigrafia…')}
           </div>
         </div>
 
@@ -2177,39 +2189,67 @@ function loadSettingsBlock(id) {
   if (id === 'registro') renderLogSection(document.getElementById('log-section-body'));
 }
 
-// ── Lavorazioni esterne (impostazioni condivise) ──
-function getLavEsterne() {
-  const v = TCFactory._settings.lavorazioni_esterne;
-  return Array.isArray(v) ? v.filter(l => l && l.id && l.nome) : [];
+// ── Lavorazioni interne ed esterne (impostazioni condivise) ──
+// Le interne partono dalle schede della pagina Interne finché non si modificano.
+const LAV_KINDS = {
+  interne: { key: 'lavorazioni_interne', prefix: 'li-', field: 'interna', defaults: [
+    { id: 'li-dtf', nome: 'DTF' }, { id: 'li-uv', nome: 'UV' }, { id: 'li-laser', nome: 'Laser' }, { id: 'li-stampa', nome: 'Stampa' },
+  ] },
+  esterne: { key: 'lavorazioni_esterne', prefix: 'le-', field: 'esterna', defaults: [] },
+};
+function getLav(kind) {
+  const v = TCFactory._settings[LAV_KINDS[kind].key];
+  return Array.isArray(v) ? v.filter(l => l && l.id && l.nome) : LAV_KINDS[kind].defaults;
 }
-const lavEsternaName = (id) => getLavEsterne().find(l => l.id === id)?.nome || '';
+const getLavEsterne = () => getLav('esterne');
+const getLavInterne = () => getLav('interne');
+const lavName = (kind, id) => getLav(kind).find(l => l.id === id)?.nome || '';
+const lavEsternaName = (id) => lavName('esterne', id);
 
-async function saveLavEsterne(list, msg) {
-  try { await TCFactory.setSetting('lavorazioni_esterne', list); if (msg) showToast(msg); }
+function lavSettingsList(kind, title, hint, placeholder) {
+  return `
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <div style="font-size:0.8rem;font-weight:700;">${title}</div>
+      <div class="settings-section-hint" style="margin:0 0 4px;">${hint}</div>
+      ${getLav(kind).map(l => `
+        <div class="config-row">
+          <input class="form-input" value="${escapeHtml(l.nome)}" maxlength="60" aria-label="Nome lavorazione" onchange="renameLav('${kind}', '${l.id}', this.value)">
+          <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteLav('${kind}', '${l.id}')" aria-label="Elimina ${escapeHtml(l.nome)}">${Icons.trash(15)}</button>
+        </div>`).join('') || `<div class="settings-section-hint" style="margin:0;">Nessuna lavorazione ${kind === 'interne' ? 'interna' : 'esterna'}: aggiungine una.</div>`}
+      <form class="config-add-row" onsubmit="event.preventDefault();addLav('${kind}')">
+        <input id="new-lav-${kind}" class="form-input" placeholder="${placeholder}" maxlength="60">
+        <button type="submit" class="btn btn-secondary btn-icon" aria-label="Aggiungi lavorazione ${kind === 'interne' ? 'interna' : 'esterna'}">${Icons.plus()}</button>
+      </form>
+    </div>`;
+}
+
+async function saveLav(kind, list, msg) {
+  try { await TCFactory.setSetting(LAV_KINDS[kind].key, list); if (msg) showToast(msg); }
   catch { showToast('Salvataggio non riuscito', 'error'); }
   renderSettingsDialog();
 }
 
-function addLavEsterna() {
-  const input = document.getElementById('new-lav-esterna');
+function addLav(kind) {
+  const input = document.getElementById('new-lav-' + kind);
   const nome = input.value.trim();
   if (!nome) return;
-  const list = getLavEsterne();
+  const list = getLav(kind);
   if (list.some(l => l.nome.toLowerCase() === nome.toLowerCase())) { showToast('Esiste già', 'error'); return; }
-  saveLavEsterne([...list, { id: 'le-' + Date.now().toString(36), nome }], `Aggiunta "${nome}"`);
+  saveLav(kind, [...list, { id: LAV_KINDS[kind].prefix + Date.now().toString(36), nome }], `Aggiunta "${nome}"`);
 }
 
-function renameLavEsterna(id, nome) {
+function renameLav(kind, id, nome) {
   nome = nome.trim();
   if (!nome) { renderSettingsDialog(); return; }
-  saveLavEsterne(getLavEsterne().map(l => l.id === id ? { ...l, nome } : l));
+  saveLav(kind, getLav(kind).map(l => l.id === id ? { ...l, nome } : l));
 }
 
-function deleteLavEsterna(id) {
-  const l = getLavEsterne().find(x => x.id === id);
-  const used = TCFactory.getOrders().filter(o => !o.deletedAt && (o.orderModule?.rows || []).some(r => r.esterna === id)).length;
-  if (!confirm(`Eliminare "${l?.nome}"?${used ? `\n\nÈ usata in ${used} ordini: le righe resteranno segnate come esterne, senza tipo.` : ''}`)) return;
-  saveLavEsterne(getLavEsterne().filter(x => x.id !== id), 'Lavorazione eliminata');
+function deleteLav(kind, id) {
+  const l = getLav(kind).find(x => x.id === id);
+  const field = LAV_KINDS[kind].field;
+  const used = TCFactory.getOrders().filter(o => !o.deletedAt && (o.orderModule?.rows || []).some(r => r[field] === id)).length;
+  if (!confirm(`Eliminare "${l?.nome}"?${used ? `\n\nÈ usata in ${used} ordini: le righe resteranno segnate come ${kind}, senza tipo.` : ''}`)) return;
+  saveLav(kind, getLav(kind).filter(x => x.id !== id), 'Lavorazione eliminata');
 }
 
 async function saveDtfSettings() {
