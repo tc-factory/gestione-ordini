@@ -187,7 +187,12 @@ function renderApp() {
   // Sezioni che dipendono da ordini/clienti: si aggiornano anche in tempo reale
   if (Nav.current === 'cestino') renderCestinoPage();
   if (Nav.current === 'planner') renderCalendarSection();
-  if (Nav.current === 'dtf')     dtfSection() ? renderDtfInterno() : renderInterneDashboard();
+  if (Nav.current === 'dtf') {
+    const sec = dtfSection();
+    if (!sec) renderInterneDashboard();
+    else if (['uv', 'laser', 'stampa'].includes(sec)) renderInterneLav(sec);
+    else renderDtfInterno();
+  }
   if (Nav.current === 'esterne') renderEsternePage();
   if (Nav.current === 'clienti') renderClientsPage();
   if (Nav.current === 'prodotti') renderProductsPage();

@@ -257,13 +257,14 @@ function openMoreSheet() {
 }
 
 // Lavorazioni interne: la pagina Interne (#/dtf) è una dashboard a blocchi,
-// ogni blocco apre la sua scheda (#/dtf/<id>). "ready: false" = scheda in preparazione.
+// ogni blocco apre la sua scheda (#/dtf/<id>). "lav": lavorazione interna (Impostazioni → Lavorazioni)
+// scelta nella colonna INTERNA del modulo d'ordine: gli ordini con quelle righe finiscono nella scheda.
 const INTERNE_SECTIONS = [
-  { id: 'interno', label: 'DTF interno',     subtitle: 'Ordini da stampare: file, metri, tempo e costo', icon: () => Icons.printer(22), ready: true },
+  { id: 'interno', label: 'DTF interno',     subtitle: 'Ordini da stampare: file, metri, tempo e costo', icon: () => Icons.printer(22), ready: true, lav: { id: 'li-dtf', nome: 'DTF' } },
   { id: 'terzi',   label: 'DTF Conto terzi', subtitle: 'Stampe per clienti esterni',                   icon: () => Icons.users(22),   ready: true },
-  { id: 'uv',      label: 'UV',              subtitle: 'Stampa UV',                                    icon: () => Icons.sun(22) },
-  { id: 'laser',   label: 'Laser',           subtitle: 'Incisione e taglio laser',                     icon: () => Icons.zap(22) },
-  { id: 'stampa',  label: 'Stampa',          subtitle: 'Stampa tradizionale',                          icon: () => Icons.image(22) },
+  { id: 'uv',      label: 'UV',              subtitle: 'Ordini con lavorazione interna UV',            icon: () => Icons.sun(22),   ready: true, lav: { id: 'li-uv',     nome: 'UV' } },
+  { id: 'laser',   label: 'Laser',           subtitle: 'Ordini con lavorazione interna Laser',         icon: () => Icons.zap(22),   ready: true, lav: { id: 'li-laser',  nome: 'LASER' } },
+  { id: 'stampa',  label: 'Stampa',          subtitle: 'Ordini con lavorazione interna Stampa',        icon: () => Icons.image(22), ready: true, lav: { id: 'li-stampa', nome: 'STAMPA' } },
 ];
 const dtfSection = () => INTERNE_SECTIONS.find(s => s.id === Nav.param)?.id || null;   // null = dashboard
 
