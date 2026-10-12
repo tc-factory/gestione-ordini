@@ -33,8 +33,6 @@ const AppState = {
   formModuleOpen: false,
   integrationOrderId: null,
   integrationRows: [],
-  settingsPrioOpen: false,
-  settingsTagOpen: false,
 };
 
 
@@ -2011,18 +2009,29 @@ let _newTagColor  = '#10b981';
 
 function openSettings() { Nav.go('impostazioni'); }
 
+// Impostazioni: ogni sezione si apre e si chiude toccando la sua intestazione.
+// Aprendo la pagina Impostazioni sono tutte chiuse (vedi renderSettingsPage).
+const SettingsOpen = new Set();
+const settingsOpen = (id) => SettingsOpen.has(id) ? 'open' : '';
+const settingsHead = (id, title) => `
+  <button type="button" class="settings-block-head" aria-expanded="${SettingsOpen.has(id)}" onclick="toggleSettingsBlock('${id}', this)">
+    <span>${title}</span>
+    <svg class="settings-block-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+  </button>`;
+
+function toggleSettingsBlock(id, btn) {
+  const open = !SettingsOpen.has(id);
+  if (open) SettingsOpen.add(id); else SettingsOpen.delete(id);
+  btn.setAttribute('aria-expanded', open);
+  btn.closest('.settings-block')?.classList.toggle('open', open);
+  if (open) loadSettingsBlock(id);
+}
+
 function renderSettingsDialog() {
   const priorities = TCFactory.getPriorities();
   const tags       = TCFactory.getTags();
   const root       = document.getElementById('settings-root');
-  if (!root || settingsSection() === 'staff') return;   // la scheda Staff ha un suo contenuto
-
-  const sectionBtn = (label, icon, isOpen, fn) => `
-    <button type="button" class="settings-section-btn" onclick="${fn}()" aria-expanded="${isOpen}"
-      style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border:none;cursor:pointer;color:var(--text-primary);font-family:var(--font-body);font-weight:700;font-size:0.88rem;border-radius:${isOpen ? `var(--radius-md) var(--radius-md) 0 0` : 'var(--radius-md)'};margin-bottom:${isOpen ? 0 : 6}px;">
-      <div style="display:flex;align-items:center;gap:8px;">${icon} ${label}</div>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${isOpen ? 180 : 0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
-    </button>`;
+  if (!root) return;
 
   const switchRow = (label, hint, checked, onchange) => `
     <label class="switch-row">
@@ -2034,8 +2043,8 @@ function renderSettingsDialog() {
     <div class="glass-card page-card page-narrow">
       <div class="page-card-body settings-grid">
 
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          <div class="settings-static-head">${Icons.sun(14)} Aspetto</div>
+        <div class="settings-block ${settingsOpen('aspetto')}">
+          ${settingsHead('aspetto', `${Icons.sun(14)} Aspetto`)}
           <div style="padding:4px 14px 10px;">
             <div class="switch-row" style="cursor:default;">
               <span><strong>Tema</strong><small>Automatico segue l'impostazione del computer o del telefono</small></span>
@@ -2049,8 +2058,8 @@ function renderSettingsDialog() {
           </div>
         </div>
 
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          <div class="settings-static-head">${Icons.truck(14)} Lavorazioni esterne</div>
+        <div class="settings-block ${settingsOpen('esterne')}">
+          ${settingsHead('esterne', `${Icons.truck(14)} Lavorazioni esterne`)}
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
             <div class="settings-section-hint" style="margin:0 0 4px;">Compaiono nel menu "Esterna" del modulo d'ordine e raggruppano la sezione Esterne.</div>
             ${getLavEsterne().map(l => `
@@ -2065,8 +2074,8 @@ function renderSettingsDialog() {
           </div>
         </div>
 
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          <div class="settings-static-head">${Icons.printer(14)} DTF: calcolo dei metri</div>
+        <div class="settings-block ${settingsOpen('dtf')}">
+          ${settingsHead('dtf', `${Icons.printer(14)} DTF: calcolo dei metri`)}
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
             <div class="settings-section-hint" style="margin:0;">Usati per calcolare metri, tempo e costo dai file (Interno e Conto terzi). Vale per tutti gli utenti.</div>
             <div class="settings-fields">
@@ -2083,8 +2092,8 @@ function renderSettingsDialog() {
           </div>
         </div>
 
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          <div class="settings-static-head">${Icons.calendarDays(14)} Scadenze automatiche</div>
+        <div class="settings-block ${settingsOpen('scadenze')}">
+          ${settingsHead('scadenze', `${Icons.calendarDays(14)} Scadenze automatiche`)}
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
             <div class="settings-section-hint" style="margin:0;">Per gli ordini senza deadline il Planner calcola la scadenza come data ordine + questi giorni. Vale per tutti gli utenti.</div>
             <div style="display:flex;align-items:center;gap:8px;">
@@ -2096,9 +2105,9 @@ function renderSettingsDialog() {
           </div>
         </div>
 
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          ${sectionBtn('Priorità', Icons.flag(14), AppState.settingsPrioOpen, 'toggleSettingsPrio')}
-          ${AppState.settingsPrioOpen ? `<div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
+        <div class="settings-block ${settingsOpen('priorita')}">
+          ${settingsHead('priorita', `${Icons.flag(14)} Priorità`)}
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
             <div class="settings-section-hint">L'ordine in alto determina la priorità più alta.</div>
             ${priorities.map((p, idx) => `
               <div class="config-row">
@@ -2120,12 +2129,12 @@ function renderSettingsDialog() {
               <input id="new-prio-input" class="form-input" placeholder="Nuova priorità" maxlength="40" onkeydown="if(event.key==='Enter'){addNewPriority();}">
               <button class="btn btn-secondary btn-icon" onclick="addNewPriority()">${Icons.plus()}</button>
             </div>
-          </div>` : ''}
+          </div>
         </div>
 
-        <div style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-          ${sectionBtn('Tag', Icons.tag(14), AppState.settingsTagOpen, 'toggleSettingsTag')}
-          ${AppState.settingsTagOpen ? `<div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
+        <div class="settings-block ${settingsOpen('tag')}">
+          ${settingsHead('tag', `${Icons.tag(14)} Tag`)}
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:6px;">
             ${tags.map(t => `
               <div class="config-row">
                 <div class="color-dot-picker" style="background:${t.color};">
@@ -2142,13 +2151,30 @@ function renderSettingsDialog() {
               <input id="new-tag-input" class="form-input" placeholder="Nuovo tag" maxlength="40" onkeydown="if(event.key==='Enter'){addNewTagSetting();}">
               <button class="btn btn-secondary btn-icon" onclick="addNewTagSetting()">${Icons.plus()}</button>
             </div>
-          </div>` : ''}
+          </div>
         </div>
 
+        ${TCAuth.isAdmin() ? `
+        <div class="settings-block ${settingsOpen('account')}">
+          ${settingsHead('account', `${Icons.users(14)} Account`)}
+          <div id="users-section-body" class="settings-block-body"></div>
+        </div>
+
+        <div class="settings-block ${settingsOpen('registro')}">
+          ${settingsHead('registro', `${Icons.clock(14)} Registro modifiche`)}
+          <div id="log-section-body" class="settings-block-body"></div>
+        </div>` : ''}
 
       </div>
     </div>
   `;
+  ['account', 'registro'].forEach(id => { if (SettingsOpen.has(id)) loadSettingsBlock(id); });
+}
+
+// Account e registro modifiche (solo admin) si caricano quando si apre la loro sezione
+function loadSettingsBlock(id) {
+  if (id === 'account')  renderUsersSection(document.getElementById('users-section-body'));
+  if (id === 'registro') renderLogSection(document.getElementById('log-section-body'));
 }
 
 // ── Lavorazioni esterne (impostazioni condivise) ──
@@ -2215,8 +2241,6 @@ async function saveAutoDeadlineDays() {
   }
 }
 
-function toggleSettingsPrio()  { AppState.settingsPrioOpen  = !AppState.settingsPrioOpen;  renderSettingsDialog(); }
-function toggleSettingsTag()   { AppState.settingsTagOpen   = !AppState.settingsTagOpen;   renderSettingsDialog(); }
 
 async function renderCestinoSection(container) {
   const trashed = TCFactory.getTrashedOrders();

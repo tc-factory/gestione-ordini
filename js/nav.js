@@ -27,7 +27,7 @@ const NAV_FOOTER_ITEMS = [
 const DEFAULT_VIEW = 'ordini';
 
 // Vecchi indirizzi → nuova posizione (Staff ora è dentro Impostazioni)
-const NAV_ALIASES = { staff: ['impostazioni', 'staff'] };
+const NAV_ALIASES = { staff: ['impostazioni', null] };
 
 // Navbar ridotta a sole icone (solo computer); la scelta resta salvata nel browser
 const SidebarCollapse = {
@@ -83,7 +83,7 @@ const Nav = {
   show(id, param = null) {
     if (NAV_ALIASES[id]) [id, param] = NAV_ALIASES[id];
     if (!this.isAllowed(id)) { id = DEFAULT_VIEW; param = null; }
-    if (id === 'impostazioni' && param !== settingsSection(param)) param = null;
+    if (id === 'impostazioni') param = null;
     const changed = this.current !== id || this.param !== param;
     this.current = id;
     this.param = param;
@@ -283,9 +283,6 @@ function renderHeader() {
     ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
     : Nav.current === 'prodotti' && TCFactory.isProductsAvailable()
     ? `<button class="btn btn-primary" onclick="openProductForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo prodotto</span></button>`
-    : Nav.current === 'impostazioni' && settingsTabs().length > 1
-    ? `<div class="segmented" role="tablist" aria-label="Sezioni impostazioni">${settingsTabs().map(s =>
-        `<button role="tab" aria-selected="${settingsSection() === s.id}" class="${settingsSection() === s.id ? 'active' : ''}" onclick="Nav.go('impostazioni'${s.id === 'generali' ? '' : `,'${s.id}'`})">${s.label}</button>`).join('')}</div>`
     : '';
 
   const sub = Nav.current === 'dtf' ? INTERNE_SECTIONS.find(x => x.id === dtfSection()) : null;
@@ -391,34 +388,9 @@ async function submitPasswordDialog() {
 // PAGINE
 // ─────────────────────────────────────────────
 
-// Impostazioni: "Generali" per tutti, "Staff" (account e registro modifiche) solo admin
-const settingsTabs = () => [
-  { id: 'generali', label: 'Generali' },
-  ...(TCAuth.isAdmin() ? [{ id: 'staff', label: 'Staff' }] : []),
-];
-const settingsSection = (param = Nav.param) => (settingsTabs().some(s => s.id === param) ? param : 'generali');
-
 function renderSettingsPage() {
-  const root = document.getElementById('settings-root');
-  if (!root) return;
-  if (settingsSection() === 'staff') renderStaffPage(root);
-  else renderSettingsDialog();
-}
-
-function renderStaffPage(root) {
-  root.innerHTML = `
-    <div class="staff-page">
-      <div class="glass-card page-card">
-        <div class="page-card-head">${Icons.users(16)} <h2>Account</h2></div>
-        <div id="users-section-body" class="page-card-body"></div>
-      </div>
-      <div class="glass-card page-card">
-        <div class="page-card-head">${Icons.clock(16)} <h2>Registro modifiche</h2></div>
-        <div id="log-section-body" class="page-card-body"></div>
-      </div>
-    </div>`;
-  renderUsersSection(document.getElementById('users-section-body'));
-  renderLogSection(document.getElementById('log-section-body'));
+  SettingsOpen.clear();   // ogni volta che si apre Impostazioni le sezioni partono chiuse
+  renderSettingsDialog();
 }
 
 function renderCestinoPage() {
