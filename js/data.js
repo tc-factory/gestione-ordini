@@ -26,6 +26,8 @@ const TCFactory = {
   _tags: [],
   _clients: [],
   _clientsAvailable: false,   // false finché non è stato eseguito sql/clienti-setup.sql
+  _products: [],
+  _productsAvailable: false,  // false finché non è stato eseguito sql/prodotti-setup.sql
   _settings: {},
   _listeners: [],
   _channel: null,
@@ -51,8 +53,8 @@ const TCFactory = {
       this._priorities = prioritiesRes.data || [];
       this._tags = tagsRes.data || [];
 
-      // Tabelle aggiunte dopo (clienti, impostazioni): se mancano l'app funziona lo stesso
-      await Promise.all([this.loadClients(), this.loadSettings()]);
+      // Tabelle aggiunte dopo (clienti, prodotti, impostazioni): se mancano l'app funziona lo stesso
+      await Promise.all([this.loadClients(), this.loadProducts(), this.loadSettings()]);
 
       this._isOnline = true;
       this._updateStatusBadge(true);
@@ -75,6 +77,7 @@ const TCFactory = {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'priorities' }, (p) => this._handleRealtimeSimple(p, '_priorities', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tags' },       (p) => this._handleRealtimeSimple(p, '_tags', 'name'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' },    (p) => this._handleRealtimeSimple(p, '_clients', 'id'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' },   (p) => this._handleRealtimeSimple(p, '_products', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, (p) => {
         if (p.new?.key) this._settings[p.new.key] = p.new.value;
         this._notify();
@@ -115,7 +118,7 @@ const TCFactory = {
   // Logout: svuota i dati in memoria e chiude il canale realtime
   reset() {
     if (this._channel) { try { supabaseClient.removeChannel(this._channel); } catch {} this._channel = null; }
-    Object.assign(this, { _orders: [], _priorities: [], _tags: [], _clients: [], _calEvents: [], _settings: {}, _clientsAvailable: false });
+    Object.assign(this, { _orders: [], _priorities: [], _tags: [], _clients: [], _products: [], _calEvents: [], _settings: {}, _clientsAvailable: false, _productsAvailable: false });
   },
 
   onUpdate(fn) { this._listeners.push(fn); },
@@ -824,6 +827,64 @@ const TCFactory = {
     const updated = await this.updateOrder(orderId, { clientId: clientId || null });
     this._notify();
     return updated;
+  },
+
+  // ─────────────────────────────────────────────
+  // PRODOTTI
+  // ─────────────────────────────────────────────
+
+  PRODUCT_TEXT_FIELDS: ['codice','nome','categoria','marca','fornitore','colori','taglie','note'],
+
+  async loadProducts() {
+    const { data, error } = await supabaseClient.from('products').select('*');
+    this._productsAvailable = !error;
+    this._products = error ? [] : (data || []);
+    return this._products;
+  },
+
+  isProductsAvailable() { return this._productsAvailable; },
+
+  getProducts() {
+    return [...this._products].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'it'));
+  },
+
+  getProduct(id) { return this._products.find(p => p.id === id) || null; },
+
+  // Categorie già usate, per i suggerimenti del modulo e il filtro
+  getProductCategories() {
+    return [...new Set(this._products.map(p => (p.categoria || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'it'));
+  },
+
+  async saveProduct(id, fields) {
+    const payload = {};
+    this.PRODUCT_TEXT_FIELDS.forEach(k => { if (fields[k] !== undefined) payload[k] = String(fields[k] ?? '').trim(); });
+    ['costo', 'prezzo'].forEach(k => { if (fields[k] !== undefined) payload[k] = fields[k]; });
+    if (fields.attivo !== undefined) payload.attivo = !!fields.attivo;
+    payload.updated_at = new Date().toISOString();
+
+    let res;
+    if (id) {
+      res = await supabaseClient.from('products').update(payload).eq('id', id).select().single();
+    } else {
+      payload.created_by = window.TCAuth?.getNickname() || 'sistema';
+      res = await supabaseClient.from('products').insert(payload).select().single();
+    }
+    if (res.error) throw res.error;
+    const row = res.data;
+    this._products = [...this._products.filter(p => p.id !== row.id), row];
+    this._log(id ? 'Prodotto modificato' : 'Prodotto creato', null, row.nome, { productId: row.id });
+    this._notify();
+    return row;
+  },
+
+  async deleteProduct(id) {
+    const name = this.getProduct(id)?.nome || '';
+    const { error } = await supabaseClient.from('products').delete().eq('id', id);
+    if (error) throw error;
+    this._products = this._products.filter(p => p.id !== id);
+    this._log('Prodotto eliminato', null, name, { productId: id });
+    this._notify();
   },
 
   // ─────────────────────────────────────────────

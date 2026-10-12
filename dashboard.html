@@ -34,6 +34,8 @@
       </section>
 
       <section class="view" id="view-dtf" data-view="dtf" hidden>
+        <div class="interne-dash" id="interne-dash-root"></div>
+        <div id="interne-soon-root" hidden></div>
         <div class="glass-card page-card dtf-box" id="dtf-interno-root"></div>
         <div class="glass-card page-card dtf-box" id="dtf-terzi-root" hidden></div>
       </section>
@@ -42,16 +44,16 @@
         <div id="esterne-root" class="est-page"></div>
       </section>
 
+      <section class="view" id="view-prodotti" data-view="prodotti" hidden>
+        <div id="prodotti-root"></div>
+      </section>
+
       <section class="view" id="view-clienti" data-view="clienti" hidden>
         <div id="clienti-root"></div>
       </section>
 
       <section class="view" id="view-cassa" data-view="cassa" hidden>
         <div id="economic-root"></div>
-      </section>
-
-      <section class="view" id="view-staff" data-view="staff" hidden>
-        <div id="staff-root"></div>
       </section>
 
       <section class="view" id="view-impostazioni" data-view="impostazioni" hidden>
@@ -75,6 +77,7 @@
   <div id="cal-event-modal" class="modal-overlay"></div>
   <div id="client-form-modal" class="modal-overlay"></div>
   <div id="client-link-modal" class="modal-overlay"></div>
+  <div id="product-form-modal" class="modal-overlay"></div>
   <div id="more-sheet" class="modal-overlay"></div>
   <div id="pwd-modal" class="modal-overlay"></div>
   <div id="dtf-detail-modal" class="modal-overlay"></div>
@@ -93,6 +96,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.6.0/jspdf.plugin.autotable.min.js"></script>
   <script src="js/app.js"></script>
   <script src="js/clienti.js"></script>
+  <script src="js/prodotti.js"></script>
   <script src="js/cassa.js"></script>
   <script src="js/supporto.js"></script>
   <script src="js/dtf-misure.js"></script>

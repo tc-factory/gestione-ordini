@@ -10,12 +10,12 @@
 const NAV_ITEMS = [
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
-  { id: 'dtf',          label: 'DTF',           subtitle: 'Stampa interna e conto terzi',  icon: () => Icons.printer(19) },
-  { id: 'esterne',      label: 'Lavorazioni esterne', subtitle: 'Ordini con lavorazione esterna, per tipo', icon: () => Icons.truck(19) },
+  { id: 'dtf',          label: 'Interne',       subtitle: 'Lavorazioni fatte in casa',     icon: () => Icons.printer(19) },
+  { id: 'esterne',      label: 'Esterne',       subtitle: 'Ordini con lavorazione esterna, per tipo', icon: () => Icons.truck(19) },
+  { id: 'prodotti',     label: 'Prodotti',      subtitle: 'Anagrafica articoli e prezzi',  icon: () => Icons.shirt(19) },
   { id: 'clienti',      label: 'Clienti',       subtitle: 'Anagrafica clienti',            icon: () => Icons.users(19) },
   { id: 'cassa',        label: 'Cassa',         subtitle: 'Incassi e pagamenti',           icon: () => Icons.wallet(19), allowed: () => TCAuth.canViewEconomics() },
-  { id: 'staff',        label: 'Staff',         subtitle: 'Account e registro modifiche',  icon: () => Icons.idBadge(19), allowed: () => TCAuth.isAdmin() },
-  { id: 'impostazioni', label: 'Impostazioni',  subtitle: 'Priorità, tag e preferenze',    icon: () => Icons.settings(19) },
+  { id: 'impostazioni', label: 'Impostazioni',  subtitle: 'Preferenze, priorità, tag e staff', icon: () => Icons.settings(19) },
 ];
 
 // Voci in fondo alla navbar, una a fianco all'altra
@@ -25,6 +25,9 @@ const NAV_FOOTER_ITEMS = [
 ];
 
 const DEFAULT_VIEW = 'ordini';
+
+// Vecchi indirizzi → nuova posizione (Staff ora è dentro Impostazioni)
+const NAV_ALIASES = { staff: ['impostazioni', 'staff'] };
 
 // Navbar ridotta a sole icone (solo computer); la scelta resta salvata nel browser
 const SidebarCollapse = {
@@ -78,7 +81,9 @@ const Nav = {
   },
 
   show(id, param = null) {
+    if (NAV_ALIASES[id]) [id, param] = NAV_ALIASES[id];
     if (!this.isAllowed(id)) { id = DEFAULT_VIEW; param = null; }
+    if (id === 'impostazioni' && param !== settingsSection(param)) param = null;
     const changed = this.current !== id || this.param !== param;
     this.current = id;
     this.param = param;
@@ -113,10 +118,10 @@ function renderCurrentView() {
     case 'dtf':          openDtfPage(); break;
     case 'planner':      renderCalendarSection(); break;
     case 'esterne':      renderEsternePage(); break;
+    case 'prodotti':     renderProductsPage(); break;
     case 'clienti':      renderClientsPage(); break;
     case 'cassa':        renderCassaPage(); break;
-    case 'staff':        renderStaffPage(); break;
-    case 'impostazioni': renderSettingsDialog(); break;
+    case 'impostazioni': renderSettingsPage(); break;
     case 'cestino':      renderCestinoPage(); break;
     case 'supporto':     openSupportPage(); break;
   }
@@ -174,7 +179,7 @@ function renderSidebar() {
     </div>
 
     <nav class="sidebar-nav">
-      ${visible.map(i => navLink(i) + (i.id === 'dtf' && Nav.current === 'dtf' ? dtfSubNav() : '')).join('')}
+      ${visible.map(navLink).join('')}
     </nav>
 
     <div class="sidebar-footer">
@@ -251,22 +256,16 @@ function openMoreSheet() {
   sheet.onclick = (e) => { if (e.target === sheet) closeModal('more-sheet'); };
 }
 
-// Sottosezioni di DTF (compaiono aprendo DTF)
-const DTF_SECTIONS = [
-  { id: 'interno', label: 'Interno' },
-  { id: 'terzi',   label: 'Conto terzi' },
+// Lavorazioni interne: la pagina Interne (#/dtf) è una dashboard a blocchi,
+// ogni blocco apre la sua scheda (#/dtf/<id>). "ready: false" = scheda in preparazione.
+const INTERNE_SECTIONS = [
+  { id: 'interno', label: 'DTF interno',     subtitle: 'Ordini da stampare: file, metri, tempo e costo', icon: () => Icons.printer(22), ready: true },
+  { id: 'terzi',   label: 'DTF Conto terzi', subtitle: 'Stampe per clienti esterni',                   icon: () => Icons.users(22),   ready: true },
+  { id: 'uv',      label: 'UV',              subtitle: 'Stampa UV',                                    icon: () => Icons.sun(22) },
+  { id: 'laser',   label: 'Laser',           subtitle: 'Incisione e taglio laser',                     icon: () => Icons.zap(22) },
+  { id: 'stampa',  label: 'Stampa',          subtitle: 'Stampa tradizionale',                          icon: () => Icons.image(22) },
 ];
-const dtfSection = () => (DTF_SECTIONS.some(s => s.id === Nav.param) ? Nav.param : 'interno');
-
-function dtfSubNav() {
-  return `<div class="nav-sub" role="group" aria-label="Sezioni DTF">
-    ${DTF_SECTIONS.map(s => {
-      const active = dtfSection() === s.id;
-      return `<a href="#/dtf/${s.id}" class="nav-sub-item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}
-        onclick="event.preventDefault();Nav.go('dtf','${s.id}')">${s.label}</a>`;
-    }).join('')}
-  </div>`;
-}
+const dtfSection = () => INTERNE_SECTIONS.find(s => s.id === Nav.param)?.id || null;   // null = dashboard
 
 // Barra in alto: titolo della sezione + azioni contestuali
 function renderHeader() {
@@ -278,19 +277,23 @@ function renderHeader() {
     ? `<button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>`
     : Nav.current === 'planner'
     ? `<button class="btn btn-primary" onclick="openCalEventDialog(null,null)">${Icons.plus()} <span class="new-order-btn-text">Nuovo evento</span></button>`
-    : Nav.current === 'dtf'
-    ? `<div class="segmented dtf-tabs" role="tablist" aria-label="Sezioni DTF">${DTF_SECTIONS.map(s =>
-        `<button role="tab" aria-selected="${dtfSection() === s.id}" class="${dtfSection() === s.id ? 'active' : ''}" onclick="Nav.go('dtf','${s.id}')">${s.label}</button>`).join('')}</div>`
+    : Nav.current === 'dtf' && dtfSection()
+    ? `<button class="btn btn-ghost btn-sm" onclick="Nav.go('dtf')">${Icons.chevronLeft(14)} <span class="new-order-btn-text">Tutte le interne</span></button>`
     : Nav.current === 'clienti' && !Nav.param && TCFactory.isClientsAvailable()
     ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
+    : Nav.current === 'prodotti' && TCFactory.isProductsAvailable()
+    ? `<button class="btn btn-primary" onclick="openProductForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo prodotto</span></button>`
+    : Nav.current === 'impostazioni' && settingsTabs().length > 1
+    ? `<div class="segmented" role="tablist" aria-label="Sezioni impostazioni">${settingsTabs().map(s =>
+        `<button role="tab" aria-selected="${settingsSection() === s.id}" class="${settingsSection() === s.id ? 'active' : ''}" onclick="Nav.go('impostazioni'${s.id === 'generali' ? '' : `,'${s.id}'`})">${s.label}</button>`).join('')}</div>`
     : '';
 
-  const sub = Nav.current === 'dtf' ? DTF_SECTIONS.find(x => x.id === dtfSection()) : null;
+  const sub = Nav.current === 'dtf' ? INTERNE_SECTIONS.find(x => x.id === dtfSection()) : null;
   root.innerHTML = `
     <button class="btn-icon menu-toggle" onclick="Nav.openDrawer()" aria-label="Apri menu">${Icons.menu()}</button>
     <div class="toolbar-title">
-      <h1 id="toolbar-title" tabindex="-1">${sub ? `DTF · ${sub.label}` : item.label}</h1>
-      <p>${sub ? (sub.id === 'interno' ? 'Ordini da stampare: file, metri, tempo e costo' : 'Stampe per clienti esterni') : item.subtitle}</p>
+      <h1 id="toolbar-title" tabindex="-1">${sub ? sub.label : item.label}</h1>
+      <p>${sub ? sub.subtitle : item.subtitle}</p>
     </div>
     <div class="app-header-actions">
       ${actions}
@@ -388,11 +391,23 @@ async function submitPasswordDialog() {
 // PAGINE
 // ─────────────────────────────────────────────
 
-function renderStaffPage() {
-  const root = document.getElementById('staff-root');
+// Impostazioni: "Generali" per tutti, "Staff" (account e registro modifiche) solo admin
+const settingsTabs = () => [
+  { id: 'generali', label: 'Generali' },
+  ...(TCAuth.isAdmin() ? [{ id: 'staff', label: 'Staff' }] : []),
+];
+const settingsSection = (param = Nav.param) => (settingsTabs().some(s => s.id === param) ? param : 'generali');
+
+function renderSettingsPage() {
+  const root = document.getElementById('settings-root');
   if (!root) return;
+  if (settingsSection() === 'staff') renderStaffPage(root);
+  else renderSettingsDialog();
+}
+
+function renderStaffPage(root) {
   root.innerHTML = `
-    <div class="page-grid">
+    <div class="staff-page">
       <div class="glass-card page-card">
         <div class="page-card-head">${Icons.users(16)} <h2>Account</h2></div>
         <div id="users-section-body" class="page-card-body"></div>
