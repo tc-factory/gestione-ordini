@@ -273,6 +273,9 @@ async function submitProductForm(id) {
     showToast(msg, 'error');
   };
   if (!fields.descrizione) return invalid('descrizione', 'Inserisci la descrizione del prodotto');
+  // Il codice è unico: niente due prodotti con lo stesso codice
+  const doppio = fields.codice && TCFactory._products.find(x => x.id !== id && (x.codice || '').trim().toLowerCase() === fields.codice.toLowerCase());
+  if (doppio) return invalid('codice', `Il codice ${fields.codice} è già usato da "${doppio.descrizione}"`);
   // Il costo si salva solo se è visibile a chi modifica
   for (const k of ['costo', 'prezzo']) {
     if (!document.getElementById('pf-' + k)) continue;
@@ -292,7 +295,7 @@ async function submitProductForm(id) {
     showToast(id ? 'Prodotto aggiornato' : `Prodotto "${TCFactory.productLabel(saved)}" creato`);
   } catch (e) {
     console.error('[prodotto]', e);
-    showToast('Errore durante il salvataggio — riprova', 'error');
+    showToast(e?.code === '23505' ? 'Esiste già un prodotto con questo codice' : 'Errore durante il salvataggio — riprova', 'error');
     if (btn) { btn.disabled = false; btn.textContent = id ? 'Salva modifiche' : 'Crea prodotto'; }
   }
 }
