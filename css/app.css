@@ -236,7 +236,8 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .page-card { overflow: hidden; }
 .page-narrow { width: 100%; }
 /* Impostazioni: sezioni affiancate quando c'è spazio */
-.settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 8px; align-items: start; }
+/* Impostazioni: una sezione per riga, ognuna richiudibile */
+.settings-grid { display: flex; flex-direction: column; gap: 8px; }
 .page-card-head {
   display: flex;
   align-items: center;
@@ -292,17 +293,31 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .stat-card-btn:focus-visible { box-shadow: var(--focus-ring); }
 
 /* Impostazioni */
-.settings-static-head {
+.settings-block { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+.settings-block-head {
+  width: 100%;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 12px 14px;
   background: var(--bg-secondary);
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: var(--font-body);
   font-weight: 700;
-  font-size: 0.88rem;
+  font-size: 0.9rem;
+  text-align: left;
+  transition: background-color var(--transition);
 }
-.settings-section-btn { transition: background-color var(--transition); }
-.settings-section-btn:hover { background: color-mix(in srgb, var(--bg-secondary) 80%, var(--text-muted) 12%) !important; }
+.settings-block-head > span { display: flex; align-items: center; gap: 8px; }
+.settings-block-head:hover { background: color-mix(in srgb, var(--bg-secondary) 80%, var(--text-muted) 12%); }
+.settings-block-head:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: -2px; }
+.settings-block-chevron { color: var(--text-muted); transition: transform 0.2s; }
+.settings-block.open .settings-block-chevron { transform: rotate(180deg); }
+.settings-block:not(.open) > :not(.settings-block-head) { display: none; }
+.settings-block-body { padding: 12px 14px; }
 
 .switch-row {
   display: flex;
@@ -2130,14 +2145,7 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .orc-deadline { flex-direction: column; align-items: flex-start !important; justify-content: center; gap: 1px; text-align: left; }
 .deadline-date { font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 
-/* Impostazioni → Staff: account a fianco, registro modifiche a tutta altezza (scorre con la pagina) */
-.staff-page {
-  display: grid;
-  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
-  gap: var(--space-lg);
-  align-items: start;
-}
-@media (max-width: 1100px) { .staff-page { grid-template-columns: 1fr; } }
+/* Impostazioni → Staff: registro modifiche a tutta altezza (scorre con la pagina) */
 .log-list { display: flex; flex-direction: column; gap: 3px; }
 .log-row {
   display: grid;
