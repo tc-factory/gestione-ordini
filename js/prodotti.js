@@ -87,6 +87,9 @@ function renderProductList() {
       <td class="cell-action" data-label="Attivo" onclick="event.stopPropagation()">
         <input type="checkbox" class="switch" ${p.attivo ? 'checked' : ''} aria-label="Prodotto attivo" onchange="toggleProductActive('${p.id}', this.checked)">
       </td>
+      <td class="cell-action" onclick="event.stopPropagation()">
+        <button type="button" class="btn-icon" onclick="duplicateProduct('${p.id}')" aria-label="Duplica ${escapeHtml(TCFactory.productLabel(p))}" title="Duplica">${Icons.copy(15)}</button>
+      </td>
     </tr>`).join('');
 
   return `
@@ -122,7 +125,7 @@ function renderProductList() {
           <thead><tr>
             <th>Fornitore</th><th>Codice</th><th>Descrizione</th><th class="hide-sm">Categoria</th>
             <th class="hide-sm">Colori</th><th class="hide-sm">Taglie</th>
-            ${showCost ? '<th class="num">Costo</th>' : ''}<th class="num">Prezzo</th><th>Attivo</th>
+            ${showCost ? '<th class="num">Costo</th>' : ''}<th class="num">Prezzo</th><th>Attivo</th><th><span class="sr-only">Duplica</span></th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -162,7 +165,7 @@ function openProductForm(id = null, prefill = null) {
   modal.innerHTML = `
     <div class="modal" style="max-width:680px;" role="dialog" aria-modal="true" aria-labelledby="pf-title">
       <div class="modal-header">
-        <h2 id="pf-title">${id ? 'Modifica prodotto' : prefill ? 'Nuovo prodotto da link' : 'Nuovo prodotto'}</h2>
+        <h2 id="pf-title">${id ? 'Modifica prodotto' : prefill ? (prefill._titolo || 'Nuovo prodotto da link') : 'Nuovo prodotto'}</h2>
         <button class="btn-icon" onclick="closeModal('product-form-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <div class="modal-body" style="gap:14px;">
@@ -196,7 +199,8 @@ function openProductForm(id = null, prefill = null) {
         </label>
       </div>
       <div class="modal-footer">
-        ${id ? `<button class="btn btn-ghost" style="color:var(--priority-urgent);margin-right:auto;" onclick="deleteProductConfirm('${id}')">${Icons.trash(14)} Elimina</button>` : ''}
+        ${id ? `<button class="btn btn-ghost" style="color:var(--priority-urgent);margin-right:auto;" onclick="deleteProductConfirm('${id}')">${Icons.trash(14)} Elimina</button>
+        <button class="btn btn-secondary" onclick="duplicateProduct('${id}')">${Icons.copy(14)} Duplica</button>` : ''}
         <button class="btn btn-secondary" onclick="closeModal('product-form-modal')">Annulla</button>
         <button class="btn btn-primary" id="pf-save" onclick="submitProductForm(${id ? `'${id}'` : 'null'})">${id ? 'Salva modifiche' : 'Crea prodotto'}</button>
       </div>
@@ -239,6 +243,18 @@ async function newCategoryFromForm() {
     if (sel) sel.innerHTML = productCategoryOptions(c.id);
     showToast(`Categoria "${c.nome}" creata`);
   } catch (e) { showToast(e.message === 'Esiste già' ? 'Categoria già esistente' : 'Errore — riprova', 'error'); }
+}
+
+// Duplica: apre la scheda di un nuovo prodotto con gli stessi dati, da modificare prima di salvare
+function duplicateProduct(id) {
+  const p = TCFactory.getProduct(id);
+  if (!p) return;
+  const { id: _id, created_at, updated_at, created_by, ...copy } = p;
+  openProductForm(null, {
+    ...copy,
+    _titolo: 'Duplica prodotto',
+    _note: `Copia di <strong>${escapeHtml(TCFactory.productLabel(p))}</strong>: modifica quello che serve (ad esempio il codice) e salva.`,
+  });
 }
 
 async function submitProductForm(id) {
