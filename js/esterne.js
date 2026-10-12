@@ -2,7 +2,7 @@
  * T&C Factory — Lavorazioni esterne
  * Ordini con lavorazione ESTERNA, divisi per tipo di lavorazione
  * (righe del modulo d'ordine con il menu "Esterna" compilato).
- * Le lavorazioni si creano in Impostazioni → Lavorazioni esterne.
+ * Le lavorazioni si creano in Impostazioni → Lavorazioni.
  * "Completata" usa la fase lavorazioneEsterna dell'ordine, la stessa della pill "Esterna" nella lista.
  */
 
@@ -97,7 +97,7 @@ function renderEsternePage() {
         </div>
       </div>
       ${noTypes ? `<p class="est-hint">Non ci sono ancora tipi di lavorazione: creali in
-        <a href="#/impostazioni" onclick="event.preventDefault();Nav.go('impostazioni')">Impostazioni → Lavorazioni esterne</a>,
+        <a href="#/impostazioni" onclick="event.preventDefault();Nav.go('impostazioni')">Impostazioni → Lavorazioni</a>,
         poi sceglili nel modulo d'ordine (colonna ESTERNA).</p>` : ''}
       ${all.length > 1 ? `<nav class="est-jump" aria-label="Vai alla lavorazione">${all.map(g => {
         const n = count(g, done);
