@@ -20,7 +20,30 @@ const DtfMisure = {
   marginCm() { const v = parseFloat(TCFactory._settings.dtf_margin_cm); return v >= 0 ? v : 0.5; },
   // Interno: velocità della stampante (m/ora) e costo al metro (0 = non impostato)
   speedMh()     { const v = parseFloat(TCFactory._settings.dtf_speed_mh); return v > 0 ? v : 8; },
-  costInterno() { const v = parseFloat(TCFactory._settings.dtf_cost_m);   return v > 0 ? v : 0; },
+
+  // Costi dei materiali (Impostazioni → DTF): rotolo di supporto da 100 m,
+  // inchiostro White e CMYK con i metri che si stampano con un inchiostro
+  SUPPORTO_M: 100,
+  costi() {
+    const n = (k) => { const v = parseFloat(TCFactory._settings[k]); return v > 0 ? v : 0; };
+    return {
+      supporto: n('dtf_supporto_eur'),
+      whiteEur: n('dtf_ink_white_eur'), whiteM: n('dtf_ink_white_m'),
+      cmykEur:  n('dtf_ink_cmyk_eur'),  cmykM:  n('dtf_ink_cmyk_m'),
+    };
+  },
+  costoAlMetro(c = this.costi()) {
+    return c.supporto / this.SUPPORTO_M
+      + (c.whiteM ? c.whiteEur / c.whiteM : 0)
+      + (c.cmykM  ? c.cmykEur  / c.cmykM  : 0);
+  },
+  // Costo al metro dai materiali; se non sono ancora inseriti vale il vecchio €/metro fisso
+  costInterno() {
+    const m = this.costoAlMetro();
+    if (m > 0) return m;
+    const v = parseFloat(TCFactory._settings.dtf_cost_m);
+    return v > 0 ? v : 0;
+  },
 
   // "logo_10pz.png", "logo 10 pz.pdf", "pz10_logo.png" → 10
   parsePz(name) {

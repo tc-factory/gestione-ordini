@@ -176,7 +176,7 @@ function renderDtfInterno() {
       <div class="dtf-kpi"><span>Tempo di stampa</span><strong>${dtfFmtTime(tot.ore)}</strong></div>
       ${costoAttivo
         ? `<div class="dtf-kpi dtf-kpi-total"><span>Costo</span><strong>${euro(tot.costo)}</strong></div>`
-        : `<button type="button" class="dtf-kpi dtf-kpi-hint" onclick="Nav.go('impostazioni')"><span>Costo</span><strong>Imposta €/metro</strong></button>`}
+        : `<button type="button" class="dtf-kpi dtf-kpi-hint" onclick="Nav.go('impostazioni')"><span>Costo</span><strong>Imposta i costi</strong></button>`}
     </div>
     ${senzaFile ? `<p class="dtf-note">${senzaFile} ${senzaFile === 1 ? 'ordine non ha' : 'ordini non hanno'} ancora file: metri e tempo li contano solo quando ci sono.</p>` : ''}
     ${todo.length
