@@ -82,15 +82,18 @@ function imgGuess(path, colori) {
 const ImgState = { productId: null, images: [], urls: {}, busy: '' };
 const IMG_MAX_MB = 15;
 
+// Sezione Immagini dentro la scheda del prodotto (#pf-images)
 async function openProductImages(productId) {
-  const p = TCFactory.getProduct(productId);
-  if (!p) return;
-  Object.assign(ImgState, { productId, images: [], urls: {}, busy: 'Caricamento…' });
-  const modal = document.getElementById('product-img-modal');
-  modal.classList.add('active');
-  modal.onclick = (e) => { if (e.target === modal) closeModal('product-img-modal'); };
+  if (!TCFactory.getProduct(productId)) return;
+  Object.assign(ImgState, { productId, images: [], urls: {}, busy: 'Caricamento immagini…' });
   renderProductImages();
   await reloadProductImages();
+}
+
+// Dall'elenco: apre la scheda del prodotto e porta alle immagini
+function showProductImages(productId) {
+  openProductForm(productId);
+  setTimeout(() => document.getElementById('pf-images')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
 }
 
 async function reloadProductImages() {
@@ -107,8 +110,8 @@ async function reloadProductImages() {
 
 function renderProductImages() {
   const p = TCFactory.getProduct(ImgState.productId);
-  const modal = document.getElementById('product-img-modal');
-  if (!p || !modal) return;
+  const box = document.getElementById('pf-images');
+  if (!p || !box || box.dataset.product !== p.id) return;   // scheda chiusa o di un altro prodotto
   const colori = modSplitList(p.colori);
   const known = new Set(colori.map(c => c.toLowerCase()));
   const groups = [...colori, ''].map(c => ({
@@ -136,13 +139,8 @@ function renderProductImages() {
       </figcaption>
     </figure>`;
 
-  modal.innerHTML = `
-    <div class="modal" style="max-width:920px;" role="dialog" aria-modal="true" aria-labelledby="pi2-title">
-      <div class="modal-header">
-        <h2 id="pi2-title">Immagini · ${escapeHtml(TCFactory.productLabel(p))}</h2>
-        <button class="btn-icon" onclick="closeModal('product-img-modal')" aria-label="Chiudi">${Icons.x()}</button>
-      </div>
-      <div class="modal-body" style="gap:14px;">
+  box.innerHTML = `
+      <h3 class="pf-section-title">${Icons.image(15)} Immagini</h3>
         <div class="pimg-drop" role="button" tabindex="0" aria-label="Aggiungi immagini: clicca per sceglierle o trascinale qui"
           onclick="document.getElementById('pimg-files').click()"
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('pimg-files').click()}"
@@ -156,14 +154,12 @@ function renderProductImages() {
         <input type="file" id="pimg-files" accept="image/*" multiple hidden onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.name })));this.value=''">
         <input type="file" id="pimg-folder" webkitdirectory directory multiple hidden onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name })));this.value=''">
         ${ImgState.busy ? `<div class="settings-section-hint" style="margin:0;" role="status">${escapeHtml(ImgState.busy)}</div>` : ''}
-        ${!colori.length ? `<div class="import-note">Questo prodotto non ha colori: le immagini restano "da assegnare". Aggiungi i colori nella scheda del prodotto per abbinarle.</div>` : ''}
+        ${!colori.length ? `<div class="import-note">Questo prodotto non ha colori: le immagini restano "da assegnare". Aggiungi i colori qui sopra e salva per abbinarle.</div>` : ''}
         ${groups.map(g => `
           <section class="pimg-group">
             <h3>${g.colore ? escapeHtml(g.colore) : 'Da assegnare'} <small>${g.imgs.length || 'nessuna immagine'}</small></h3>
             ${g.imgs.length ? `<div class="pimg-grid">${[...g.imgs].sort((a, b) => order[a.vista] - order[b.vista]).map(thumb).join('')}</div>` : ''}
-          </section>`).join('')}
-      </div>
-    </div>`;
+          </section>`).join('')}`;
 }
 
 async function productImagesDrop(e) {

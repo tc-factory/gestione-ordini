@@ -88,7 +88,7 @@ function renderProductList() {
         <input type="checkbox" class="switch" ${p.attivo ? 'checked' : ''} aria-label="Prodotto attivo" onchange="toggleProductActive('${p.id}', this.checked)">
       </td>
       <td class="cell-action" onclick="event.stopPropagation()">
-        <button type="button" class="btn-icon" onclick="openProductImages('${p.id}')" aria-label="Immagini di ${escapeHtml(TCFactory.productLabel(p))}" title="Immagini">${Icons.image(15)}</button>
+        <button type="button" class="btn-icon" onclick="showProductImages('${p.id}')" aria-label="Immagini di ${escapeHtml(TCFactory.productLabel(p))}" title="Immagini">${Icons.image(15)}</button>
         <button type="button" class="btn-icon" onclick="duplicateProduct('${p.id}')" aria-label="Duplica ${escapeHtml(TCFactory.productLabel(p))}" title="Duplica">${Icons.copy(15)}</button>
       </td>
     </tr>`).join('');
@@ -164,7 +164,7 @@ function openProductForm(id = null, prefill = null) {
 
   const modal = document.getElementById('product-form-modal');
   modal.innerHTML = `
-    <div class="modal" style="max-width:680px;" role="dialog" aria-modal="true" aria-labelledby="pf-title">
+    <div class="modal" style="max-width:${id ? 860 : 680}px;" role="dialog" aria-modal="true" aria-labelledby="pf-title">
       <div class="modal-header">
         <h2 id="pf-title">${id ? 'Modifica prodotto' : prefill ? (prefill._titolo || 'Nuovo prodotto da link') : 'Nuovo prodotto'}</h2>
         <button class="btn-icon" onclick="closeModal('product-form-modal')" aria-label="Chiudi">${Icons.x()}</button>
@@ -198,11 +198,13 @@ function openProductForm(id = null, prefill = null) {
           <span><strong>Attivo</strong><small>I prodotti disattivi restano in archivio ma non compaiono nell'elenco principale</small></span>
           <input id="pf-attivo" type="checkbox" class="switch" ${p && !p.attivo ? '' : 'checked'}>
         </label>
+        ${id ? `<section id="pf-images" class="pf-images" data-product="${id}"></section>`
+             : `<section class="pf-images"><h3 class="pf-section-title">${Icons.image(15)} Immagini</h3>
+                  <div class="settings-section-hint" style="margin:0;">Salva il prodotto: poi, riaprendolo, qui potrai aggiungere le immagini per ogni colore.</div></section>`}
       </div>
       <div class="modal-footer">
         ${id ? `<button class="btn btn-ghost" style="color:var(--priority-urgent);margin-right:auto;" onclick="deleteProductConfirm('${id}')">${Icons.trash(14)} Elimina</button>
-        <button class="btn btn-secondary" onclick="duplicateProduct('${id}')">${Icons.copy(14)} Duplica</button>
-        <button class="btn btn-secondary" onclick="openProductImages('${id}')">${Icons.image(14)} Immagini</button>` : ''}
+        <button class="btn btn-secondary" onclick="duplicateProduct('${id}')">${Icons.copy(14)} Duplica</button>` : ''}
         <button class="btn btn-secondary" onclick="closeModal('product-form-modal')">Annulla</button>
         <button class="btn btn-primary" id="pf-save" onclick="submitProductForm(${id ? `'${id}'` : 'null'})">${id ? 'Salva modifiche' : 'Crea prodotto'}</button>
       </div>
@@ -210,6 +212,7 @@ function openProductForm(id = null, prefill = null) {
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('product-form-modal'); };
   setTimeout(() => document.getElementById('pf-codice')?.focus(), 50);
+  if (id) openProductImages(id);
 }
 
 // nuovoNome: fornitore letto da un link e non ancora in anagrafica (si crea al salvataggio)
