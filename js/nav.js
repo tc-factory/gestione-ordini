@@ -281,18 +281,23 @@ function renderHeader() {
     ? `<button class="btn btn-ghost btn-sm" onclick="Nav.go('dtf')">${Icons.chevronLeft(14)} <span class="new-order-btn-text">Tutte le interne</span></button>`
     : Nav.current === 'clienti' && !Nav.param && TCFactory.isClientsAvailable()
     ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
+    : Nav.current === 'prodotti' && Nav.param === 'fornitori' && TCFactory.isProductsAvailable()
+    ? `<button class="btn btn-ghost btn-sm" onclick="Nav.go('prodotti')">${Icons.chevronLeft(14)} <span class="new-order-btn-text">Prodotti</span></button>
+       <button class="btn btn-primary" onclick="openSupplierForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo fornitore</span></button>`
     : Nav.current === 'prodotti' && TCFactory.isProductsAvailable()
-    ? `<button class="btn btn-secondary" onclick="openProductCategories()">${Icons.tag(15)} <span class="new-order-btn-text">Categorie</span></button>
+    ? `<button class="btn btn-secondary" onclick="Nav.go('prodotti','fornitori')">${Icons.truck(15)} <span class="new-order-btn-text">Fornitori</span></button>
+       <button class="btn btn-secondary" onclick="openProductCategories()">${Icons.tag(15)} <span class="new-order-btn-text">Categorie</span></button>
        <button class="btn btn-secondary" onclick="openProductImport()">${Icons.link(15)} <span class="new-order-btn-text">Importa da link</span></button>
        <button class="btn btn-primary" onclick="openProductForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo prodotto</span></button>`
     : '';
 
   const sub = Nav.current === 'dtf' ? INTERNE_SECTIONS.find(x => x.id === dtfSection()) : null;
+  const fornitoriPage = Nav.current === 'prodotti' && Nav.param === 'fornitori';
   root.innerHTML = `
     <button class="btn-icon menu-toggle" onclick="Nav.openDrawer()" aria-label="Apri menu">${Icons.menu()}</button>
     <div class="toolbar-title">
-      <h1 id="toolbar-title" tabindex="-1">${sub ? sub.label : item.label}</h1>
-      <p>${sub ? sub.subtitle : item.subtitle}</p>
+      <h1 id="toolbar-title" tabindex="-1">${sub ? sub.label : fornitoriPage ? 'Fornitori' : item.label}</h1>
+      <p>${sub ? sub.subtitle : fornitoriPage ? 'Anagrafica fornitori dei prodotti' : item.subtitle}</p>
     </div>
     <div class="app-header-actions">
       ${actions}
