@@ -195,17 +195,6 @@ html.dark .nav-item.active {
   box-shadow: 0 1px 2px rgba(20, 20, 24, 0.06);
 }
 html.dark .nav-item.active { box-shadow: none; }
-/* Tacca chiara sul bordo, come nel riferimento */
-.sidebar-nav .nav-item.active::before {
-  content: '';
-  position: absolute;
-  left: -14px;
-  top: 50%;
-  width: 5px; height: 22px;
-  transform: translateY(-50%);
-  border-radius: 0 6px 6px 0;
-  background: var(--frame-notch);
-}
 .nav-item.active .nav-item-icon,
 html.dark .nav-item.active .nav-item-icon { color: var(--frame-fg); }
 
@@ -219,9 +208,54 @@ html.dark .nav-item.active .nav-item-icon { color: var(--frame-fg); }
 @media (min-width: 861px) {
   html.sidebar-collapsed { --sidebar-width: 78px; }
   html.sidebar-collapsed .sidebar { padding: 24px 12px 18px; }
-  html.sidebar-collapsed .sidebar-nav .nav-item.active::before { left: -12px; }
   html.sidebar-collapsed .sidebar .nav-item .nav-item-badge { box-shadow: 0 0 0 2px var(--frame); color: #1C1C1E; background: var(--accent); }
   html.sidebar-collapsed .sidebar .nav-item[href="#/supporto"] .nav-item-badge { background: #EF4444; color: #fff; }
+}
+
+/* Computer: la voce attiva prende il colore del pannello e ci si fonde,
+   con gli angoli concavi sopra e sotto (effetto "linguetta").
+   La navbar si allarga fino al pannello (+1px per coprirne il bordo) così la voce può raggiungerlo. */
+@media (min-width: 861px) {
+  .sidebar {
+    --sb-pad: 14px;
+    --sb-reach: calc(var(--frame-gap) + 1px);
+    --tab-r: 16px;
+    width: calc(var(--sidebar-width) + var(--sb-reach));
+    padding-right: calc(var(--sb-pad) + var(--sb-reach));
+  }
+  html.sidebar-collapsed .sidebar { --sb-pad: 12px; padding-right: calc(var(--sb-pad) + var(--sb-reach)); }
+
+  .sidebar-nav .nav-item.active,
+  html.dark .sidebar-nav .nav-item.active {
+    margin-right: calc(-1 * (var(--sb-pad) + var(--sb-reach)));
+    padding-right: calc(14px + var(--sb-pad) + var(--sb-reach));
+    border-radius: 14px 0 0 14px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    box-shadow: none;
+    overflow: visible;
+  }
+  html.sidebar-collapsed .sidebar-nav .nav-item.active { padding-right: calc(var(--sb-pad) + var(--sb-reach)); }
+  .sidebar-nav .nav-item.active .nav-item-icon { color: var(--text-primary); }
+
+  .sidebar-nav .nav-item.active::before,
+  .sidebar-nav .nav-item.active::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    width: var(--tab-r); height: var(--tab-r);
+    pointer-events: none;
+  }
+  .sidebar-nav .nav-item.active::before {
+    bottom: 100%;
+    background: radial-gradient(circle at 0 0, transparent calc(var(--tab-r) - 0.5px), var(--bg-primary) var(--tab-r));
+  }
+  .sidebar-nav .nav-item.active::after {
+    top: 100%;
+    background: radial-gradient(circle at 0 100%, transparent calc(var(--tab-r) - 0.5px), var(--bg-primary) var(--tab-r));
+  }
+  /* Spazio per gli angoli concavi tra la voce attiva e le vicine */
+  .sidebar-nav { gap: 6px; }
 }
 
 /* Tablet: la navbar a scomparsa resta scura */
