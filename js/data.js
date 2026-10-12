@@ -897,6 +897,25 @@ const TCFactory = {
     this._notify();
   },
 
+  // Import da file: righe già pronte ({ id? , campi }), salvate in blocco
+  // (nuovi con insert, esistenti con update per id) e una sola voce nel registro
+  async importProducts(nuovi, aggiornati) {
+    const now = new Date().toISOString();
+    const by = window.TCAuth?.getNickname() || 'sistema';
+    if (nuovi.length) {
+      const { error } = await supabaseClient.from('products').insert(nuovi.map(r => ({ ...r, created_by: by, updated_at: now })));
+      if (error) throw error;
+    }
+    for (const r of aggiornati) {
+      const { id, ...fields } = r;
+      const { error } = await supabaseClient.from('products').update({ ...fields, updated_at: now }).eq('id', id);
+      if (error) throw error;
+    }
+    await this.loadProducts();
+    this._log('Prodotti importati da file', null, `${nuovi.length} nuovi, ${aggiornati.length} aggiornati`);
+    this._notify();
+  },
+
   // Fornitori dei prodotti (Prodotti → Fornitori)
   SUPPLIER_FIELDS: ['nome','referente','email','telefono','sito','note'],
 

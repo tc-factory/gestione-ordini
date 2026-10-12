@@ -374,6 +374,213 @@ async function runProductImport() {
 }
 
 // ─────────────────────────────────────────────
+// EXCEL: esporta, modello vuoto, importa
+// ─────────────────────────────────────────────
+
+const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+let _xlsxLib = null;
+function loadXlsx() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  _xlsxLib = _xlsxLib || new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = XLSX_URL;
+    sc.onload = () => resolve(window.XLSX);
+    sc.onerror = () => { _xlsxLib = null; reject(new Error('Lettore Excel non disponibile: controlla la connessione')); };
+    document.head.appendChild(sc);
+  });
+  return _xlsxLib;
+}
+
+// Colonne del file, nell'ordine dei prodotti. "alias": intestazioni accettate in import.
+const PRODUCT_XL_COLS = [
+  { key: 'fornitore',   head: 'Fornitore',   w: 22, alias: ['fornitore', 'catalogo', 'marca', 'brand'] },
+  { key: 'codice',      head: 'Codice',      w: 14, alias: ['codice', 'cod', 'sku', 'codice articolo'] },
+  { key: 'descrizione', head: 'Descrizione', w: 32, alias: ['descrizione', 'nome', 'prodotto', 'articolo'] },
+  { key: 'categoria',   head: 'Categoria',   w: 18, alias: ['categoria'] },
+  { key: 'colori',      head: 'Colori',      w: 40, alias: ['colori', 'colore', 'colors'] },
+  { key: 'taglie',      head: 'Taglie',      w: 30, alias: ['taglie', 'taglia', 'tg', 'taglie/misure', 'misure'] },
+  { key: 'costo',       head: 'Costo',       w: 10, alias: ['costo', 'costo acquisto'], cost: true },
+  { key: 'prezzo',      head: 'Prezzo',      w: 10, alias: ['prezzo', 'prezzo vendita'] },
+  { key: 'attivo',      head: 'Attivo',      w: 8,  alias: ['attivo'] },
+];
+const productXlCols = () => PRODUCT_XL_COLS.filter(c => !c.cost || TCAuth.canViewEconomics());
+const xlDate = () => localISODate(new Date());
+
+function openProductExcel() {
+  const n = TCFactory._products.length;
+  const modal = document.getElementById('product-cat-modal');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:520px;" role="dialog" aria-modal="true" aria-labelledby="px-title">
+      <div class="modal-header">
+        <h2 id="px-title">Esporta e importa prodotti</h2>
+        <button class="btn-icon" onclick="closeModal('product-cat-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:10px;">
+        <button type="button" class="xl-option" onclick="exportProducts(false)" ${n ? '' : 'disabled'}>
+          <strong>Esporta tutti i prodotti</strong><small>${n} prodotti in un file Excel</small>
+        </button>
+        <button type="button" class="xl-option" onclick="exportProducts(true)">
+          <strong>Scarica modello vuoto</strong><small>Solo le intestazioni delle colonne, da compilare</small>
+        </button>
+        <label class="xl-option">
+          <strong>Importa da file</strong><small>Excel (.xlsx) o CSV. I prodotti con un codice già esistente vengono aggiornati, gli altri creati.</small>
+          <input type="file" accept=".xlsx,.xls,.csv" class="sr-only" onchange="importProductsFile(this.files[0])">
+        </label>
+      </div>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('product-cat-modal'); };
+}
+
+async function exportProducts(vuoto) {
+  try {
+    const X = await loadXlsx();
+    const cols = productXlCols();
+    const rows = vuoto ? [] : TCFactory.getProducts().map(p => cols.map(c => ({
+      fornitore: TCFactory.supplierName(p.fornitore_id), codice: p.codice, descrizione: p.descrizione,
+      categoria: TCFactory.productCategoryName(p.categoria_id), colori: p.colori, taglie: p.taglie,
+      costo: p.costo ?? '', prezzo: p.prezzo ?? '', attivo: p.attivo ? 'SI' : 'NO',
+    })[c.key] ?? ''));
+    const ws = X.utils.aoa_to_sheet([cols.map(c => c.head), ...rows]);
+    ws['!cols'] = cols.map(c => ({ wch: c.w }));
+    const wb = X.utils.book_new();
+    X.utils.book_append_sheet(wb, ws, 'Prodotti');
+    if (vuoto) {
+      const help = X.utils.aoa_to_sheet([
+        ['Come compilare'],
+        ['Una riga per prodotto. Obbligatoria solo la Descrizione.'],
+        ['Codice: unico. Se esiste già un prodotto con lo stesso codice, viene aggiornato con le celle compilate.'],
+        ['Fornitore e Categoria: se non esistono vengono creati.'],
+        ['Colori e Taglie: separati da virgola, es. BIANCO, NERO, NAVY  -  XS, S, M, L, XL'],
+        ['Costo e Prezzo: numeri, es. 4,50'],
+        ['Attivo: SI o NO (vuoto = SI per i nuovi prodotti)'],
+      ]);
+      help['!cols'] = [{ wch: 100 }];
+      X.utils.book_append_sheet(wb, help, 'Istruzioni');
+    }
+    X.writeFile(wb, vuoto ? 'modello-prodotti.xlsx' : `prodotti-${xlDate()}.xlsx`);
+    closeModal('product-cat-modal');
+  } catch (e) { showToast(e.message || 'Esportazione non riuscita', 'error'); }
+}
+
+let _productImport = null;   // anteprima in attesa di conferma
+
+async function importProductsFile(file) {
+  if (!file) return;
+  try {
+    const X = await loadXlsx();
+    const wb = X.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+    const grid = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: true });
+    const norm = (h) => String(h ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const headIdx = grid.findIndex(r => r.some(h => ['codice', 'descrizione'].includes(norm(h))));
+    if (headIdx < 0) throw new Error('Non trovo le intestazioni: serve almeno la colonna Codice o Descrizione');
+    const colOf = {};
+    grid[headIdx].forEach((h, i) => {
+      const c = productXlCols().find(c => c.alias.includes(norm(h)));
+      if (c && colOf[c.key] === undefined) colOf[c.key] = i;
+    });
+
+    const text = (v) => ofUpper(String(v ?? '').replace(/\s+/g, ' ').trim());
+    const bool = (v) => { const t = norm(v); return !t ? undefined : !['no', 'n', '0', 'false', 'falso', 'disattivo'].includes(t); };
+    const byCode = new Map(TCFactory._products.filter(p => p.codice).map(p => [p.codice.trim().toLowerCase(), p]));
+    const seen = new Set();
+    const nuovi = [], aggiornati = [], errori = [];
+    const fornitoriNuovi = new Set(), categorieNuove = new Set();
+
+    grid.slice(headIdx + 1).forEach((row, k) => {
+      const riga = headIdx + k + 2;
+      const cell = (key) => colOf[key] === undefined ? '' : row[colOf[key]];
+      if (!row.some(v => String(v ?? '').trim())) return;
+      const r = {
+        fornitore: text(cell('fornitore')), codice: text(cell('codice')), descrizione: text(cell('descrizione')),
+        categoria: text(cell('categoria')), colori: text(cell('colori')), taglie: text(cell('taglie')),
+      };
+      const codeKey = r.codice.toLowerCase();
+      if (codeKey && seen.has(codeKey)) { errori.push(`Riga ${riga}: codice ${r.codice} ripetuto nel file`); return; }
+      if (codeKey) seen.add(codeKey);
+      const esistente = codeKey ? byCode.get(codeKey) : null;
+      if (!esistente && !r.descrizione) { errori.push(`Riga ${riga}: manca la descrizione`); return; }
+
+      const prezzi = {};
+      for (const k of ['costo', 'prezzo']) {
+        if (colOf[k] === undefined || String(cell(k)).trim() === '') continue;
+        const n = typeof cell(k) === 'number' ? Math.round(cell(k) * 100) / 100 : parsePrice(cell(k));
+        if (Number.isNaN(n) || n === null) { errori.push(`Riga ${riga}: ${k} non valido (${cell(k)})`); return; }
+        prezzi[k] = n;
+      }
+      if (r.fornitore && !TCFactory.findSupplierByName(r.fornitore)) fornitoriNuovi.add(r.fornitore);
+      if (r.categoria && !TCFactory.getProductCategories().some(c => c.nome.toLowerCase() === r.categoria.toLowerCase())) categorieNuove.add(r.categoria);
+
+      // Per i prodotti esistenti si aggiornano solo le celle compilate
+      const out = { ...prezzi, _fornitore: r.fornitore, _categoria: r.categoria };
+      ['codice', 'descrizione', 'colori', 'taglie'].forEach(k => { if (r[k] || !esistente) out[k] = r[k]; });
+      const att = bool(cell('attivo'));
+      if (att !== undefined) out.attivo = att; else if (!esistente) out.attivo = true;
+      if (esistente) aggiornati.push({ id: esistente.id, ...out }); else nuovi.push(out);
+    });
+
+    _productImport = { nuovi, aggiornati, fornitoriNuovi: [...fornitoriNuovi], categorieNuove: [...categorieNuove], file: file.name };
+    renderProductImportPreview(errori);
+  } catch (e) { showToast(e.message || 'File non leggibile', 'error'); }
+}
+
+function renderProductImportPreview(errori) {
+  const d = _productImport;
+  const li = (arr) => arr.map(x => `<li>${escapeHtml(x)}</li>`).join('');
+  document.getElementById('product-cat-modal').innerHTML = `
+    <div class="modal" style="max-width:560px;" role="dialog" aria-modal="true" aria-labelledby="pp-title">
+      <div class="modal-header">
+        <h2 id="pp-title">Importa ${escapeHtml(d.file)}</h2>
+        <button class="btn-icon" onclick="closeModal('product-cat-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:10px;font-size:0.88rem;">
+        <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin:0;">
+          <div class="glass-card kpi"><span>Nuovi</span><strong>${d.nuovi.length}</strong></div>
+          <div class="glass-card kpi"><span>Da aggiornare</span><strong>${d.aggiornati.length}</strong></div>
+          <div class="glass-card kpi"><span>Righe scartate</span><strong style="color:${errori.length ? '#ef4444' : 'inherit'};">${errori.length}</strong></div>
+        </div>
+        ${d.fornitoriNuovi.length ? `<div><strong>Fornitori da creare:</strong> ${escapeHtml(d.fornitoriNuovi.join(', '))}</div>` : ''}
+        ${d.categorieNuove.length ? `<div><strong>Categorie da creare:</strong> ${escapeHtml(d.categorieNuove.join(', '))}</div>` : ''}
+        ${errori.length ? `<details><summary style="cursor:pointer;color:#ef4444;">Righe scartate</summary><ul style="margin:6px 0 0 18px;">${li(errori.slice(0, 50))}${errori.length > 50 ? `<li>… e altre ${errori.length - 50}</li>` : ''}</ul></details>` : ''}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('product-cat-modal')">Annulla</button>
+        <button class="btn btn-primary" id="pp-go" ${d.nuovi.length + d.aggiornati.length ? '' : 'disabled'} onclick="confirmProductImport()">Importa ${d.nuovi.length + d.aggiornati.length} prodotti</button>
+      </div>
+    </div>`;
+  const modal = document.getElementById('product-cat-modal');
+  modal.classList.add('active');
+}
+
+async function confirmProductImport() {
+  const d = _productImport;
+  if (!d) return;
+  const btn = document.getElementById('pp-go');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importazione…'; }
+  try {
+    for (const nome of d.fornitoriNuovi) if (!TCFactory.findSupplierByName(nome)) await TCFactory.saveSupplier(null, { nome });
+    for (const nome of d.categorieNuove) {
+      if (!TCFactory.getProductCategories().some(c => c.nome.toLowerCase() === nome.toLowerCase())) await TCFactory.saveProductCategory(null, nome);
+    }
+    const catId = (nome) => TCFactory.getProductCategories().find(c => c.nome.toLowerCase() === nome.toLowerCase())?.id || null;
+    const finale = (r) => {
+      const { _fornitore, _categoria, ...rest } = r;
+      if (_fornitore) rest.fornitore_id = TCFactory.findSupplierByName(_fornitore)?.id || null;
+      if (_categoria) rest.categoria_id = catId(_categoria);
+      return rest;
+    };
+    await TCFactory.importProducts(d.nuovi.map(finale), d.aggiornati.map(finale));
+    closeModal('product-cat-modal');
+    showToast(`Importati ${d.nuovi.length} nuovi prodotti, aggiornati ${d.aggiornati.length}`);
+    _productImport = null;
+  } catch (e) {
+    console.error('[import prodotti]', e);
+    showToast(e?.code === '23505' ? 'Importazione annullata: un codice è già usato da un altro prodotto' : 'Importazione non riuscita — riprova', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Riprova'; }
+  }
+}
+
+// ─────────────────────────────────────────────
 // FORNITORI (#/prodotti/fornitori)
 // ─────────────────────────────────────────────
 

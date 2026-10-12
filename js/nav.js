@@ -286,6 +286,7 @@ function renderHeader() {
        <button class="btn btn-primary" onclick="openSupplierForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo fornitore</span></button>`
     : Nav.current === 'prodotti' && TCFactory.isProductsAvailable()
     ? `<button class="btn btn-secondary" onclick="Nav.go('prodotti','fornitori')">${Icons.truck(15)} <span class="new-order-btn-text">Fornitori</span></button>
+       <button class="btn btn-secondary" onclick="openProductExcel()">${Icons.archive(15)} <span class="new-order-btn-text">Excel</span></button>
        <button class="btn btn-secondary" onclick="openProductCategories()">${Icons.tag(15)} <span class="new-order-btn-text">Categorie</span></button>
        <button class="btn btn-secondary" onclick="openProductImport()">${Icons.link(15)} <span class="new-order-btn-text">Importa da link</span></button>
        <button class="btn btn-primary" onclick="openProductForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo prodotto</span></button>`
