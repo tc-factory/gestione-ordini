@@ -126,8 +126,9 @@ async function toggleProductActive(id, attivo) {
 // MODULO PRODOTTO
 // ─────────────────────────────────────────────
 
-function openProductForm(id = null) {
-  const p = id ? TCFactory.getProduct(id) : null;
+// prefill: campi già compilati per un prodotto nuovo (es. importato da un link)
+function openProductForm(id = null, prefill = null) {
+  const p = id ? TCFactory.getProduct(id) : prefill;
   const showCost = TCAuth.canViewEconomics();
   const v = (k) => escapeHtml(p?.[k] ?? '');
   const input = (k, label, attrs = '') => `
@@ -145,10 +146,11 @@ function openProductForm(id = null) {
   modal.innerHTML = `
     <div class="modal" style="max-width:680px;" role="dialog" aria-modal="true" aria-labelledby="pf-title">
       <div class="modal-header">
-        <h2 id="pf-title">${p ? 'Modifica prodotto' : 'Nuovo prodotto'}</h2>
+        <h2 id="pf-title">${id ? 'Modifica prodotto' : prefill ? 'Nuovo prodotto da link' : 'Nuovo prodotto'}</h2>
         <button class="btn-icon" onclick="closeModal('product-form-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <div class="modal-body" style="gap:14px;">
+        ${prefill?._note ? `<div class="import-note">${prefill._note}</div>` : ''}
         <div class="form-row">${input('catalogo', 'Catalogo', 'maxlength="80"')}${input('codice', 'Codice', 'maxlength="60"')}</div>
         ${input('descrizione', 'Descrizione *', 'maxlength="200"')}
         <div class="form-group">
@@ -169,9 +171,9 @@ function openProductForm(id = null) {
         </label>
       </div>
       <div class="modal-footer">
-        ${p ? `<button class="btn btn-ghost" style="color:var(--priority-urgent);margin-right:auto;" onclick="deleteProductConfirm('${p.id}')">${Icons.trash(14)} Elimina</button>` : ''}
+        ${id ? `<button class="btn btn-ghost" style="color:var(--priority-urgent);margin-right:auto;" onclick="deleteProductConfirm('${id}')">${Icons.trash(14)} Elimina</button>` : ''}
         <button class="btn btn-secondary" onclick="closeModal('product-form-modal')">Annulla</button>
-        <button class="btn btn-primary" id="pf-save" onclick="submitProductForm(${p ? `'${p.id}'` : 'null'})">${p ? 'Salva modifiche' : 'Crea prodotto'}</button>
+        <button class="btn btn-primary" id="pf-save" onclick="submitProductForm(${id ? `'${id}'` : 'null'})">${id ? 'Salva modifiche' : 'Crea prodotto'}</button>
       </div>
     </div>`;
   modal.classList.add('active');
@@ -239,6 +241,67 @@ async function deleteProductConfirm(id) {
     closeModal('product-form-modal');
     showToast('Prodotto eliminato');
   } catch (e) { showToast('Errore eliminazione prodotto', 'error'); }
+}
+
+// ─────────────────────────────────────────────
+// IMPORTA DA LINK (funzione product-import su Supabase)
+// ─────────────────────────────────────────────
+
+function openProductImport() {
+  const modal = document.getElementById('product-cat-modal');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:560px;" role="dialog" aria-modal="true" aria-labelledby="pi-title">
+      <div class="modal-header">
+        <h2 id="pi-title">Importa prodotto da link</h2>
+        <button class="btn-icon" onclick="closeModal('product-cat-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <form class="modal-body" style="gap:10px;" onsubmit="event.preventDefault();runProductImport()">
+        <label class="form-label" for="pi-url">Link della pagina del prodotto</label>
+        <input id="pi-url" class="form-input" type="url" required placeholder="https://…" autocomplete="off">
+        <div class="settings-section-hint" style="margin:0;">Leggo dalla pagina catalogo, codice, descrizione, colori, taglie e prezzo: prima di salvare puoi controllare e correggere.</div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('product-cat-modal')">Annulla</button>
+          <button type="submit" class="btn btn-primary" id="pi-go">${Icons.link(14)} Importa</button>
+        </div>
+      </form>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('product-cat-modal'); };
+  setTimeout(() => document.getElementById('pi-url')?.focus(), 50);
+}
+
+async function runProductImport() {
+  const url = document.getElementById('pi-url')?.value.trim();
+  const btn = document.getElementById('pi-go');
+  if (!url) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Lettura della pagina…'; }
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('product-import', { body: { url } });
+    if (error || !data?.success) {
+      let msg = data?.error;
+      if (!msg && error?.context?.json) { try { msg = (await error.context.json()).error; } catch {} }
+      throw new Error(msg || 'Importazione non riuscita');
+    }
+    const d = data.prodotto;
+    const trovati = ['catalogo', 'codice', 'descrizione', 'colori', 'taglie'].filter(k => d[k]).length + (d.prezzo ? 1 : 0);
+    if (!trovati) throw new Error('Nessuna informazione trovata su questa pagina');
+
+    // Il prezzo del sito (fornitore) va nel costo; se il costo non è visibile, nel prezzo
+    const costVisible = TCAuth.canViewEconomics();
+    const prezzoTxt = d.prezzo ? `${euro(d.prezzo)}${d.valuta && d.valuta !== 'EUR' ? ' (' + escapeHtml(d.valuta) + ')' : ''}` : '';
+    const host = (() => { try { return new URL(data.url).hostname.replace(/^www\./, ''); } catch { return ''; } })();
+    closeModal('product-cat-modal');
+    openProductForm(null, {
+      catalogo: d.catalogo, codice: d.codice, descrizione: d.descrizione, colori: d.colori, taglie: d.taglie,
+      costo: costVisible ? d.prezzo : null, prezzo: costVisible ? null : d.prezzo, attivo: true,
+      _note: `Importato da <strong>${escapeHtml(host)}</strong>: ${trovati} ${trovati === 1 ? 'campo trovato' : 'campi trovati'}.`
+        + (prezzoTxt ? ` Prezzo del sito ${prezzoTxt} inserito come ${costVisible ? 'costo' : 'prezzo'}.` : '')
+        + ' Controlla prima di salvare.',
+    });
+  } catch (e) {
+    showToast(e.message || 'Importazione non riuscita', 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = `${Icons.link(14)} Importa`; }
+  }
 }
 
 // ─────────────────────────────────────────────
