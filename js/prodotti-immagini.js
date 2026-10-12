@@ -143,20 +143,18 @@ function renderProductImages() {
         <button class="btn-icon" onclick="closeModal('product-img-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <div class="modal-body" style="gap:14px;">
-        <div class="pimg-drop" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="productImagesDrop(event)">
-          <div>
-            <strong>Trascina qui immagini o cartelle</strong>
-            <small>Colore e vista (fronte, retro, lato) si riconoscono dal nome del file o della cartella, es. <em>REGENT_NERO_FRONTE.jpg</em> o <em>NERO/back.png</em></small>
-          </div>
-          <div class="pimg-drop-actions">
-            <label class="btn btn-secondary btn-sm">${Icons.plus(13)} Immagini
-              <input type="file" accept="image/*" multiple class="sr-only" onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.name })));this.value=''">
-            </label>
-            <label class="btn btn-secondary btn-sm">${Icons.archive(13)} Cartella
-              <input type="file" webkitdirectory directory multiple class="sr-only" onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name })));this.value=''">
-            </label>
-          </div>
+        <div class="pimg-drop" role="button" tabindex="0" aria-label="Aggiungi immagini: clicca per sceglierle o trascinale qui"
+          onclick="document.getElementById('pimg-files').click()"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('pimg-files').click()}"
+          ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="productImagesDrop(event)">
+          <span class="pimg-drop-icon" aria-hidden="true">${Icons.image(26)}</span>
+          <strong>Trascina qui immagini o cartelle, oppure clicca per sceglierle</strong>
+          <small>Colore e vista (fronte, retro, lato) si riconoscono dal nome del file o della cartella, es. <em>REGENT_NERO_FRONTE.jpg</em> o <em>NERO/back.png</em></small>
+          <button type="button" class="pimg-folder-link" onclick="event.stopPropagation();document.getElementById('pimg-folder').click()">oppure scegli una cartella intera</button>
         </div>
+        <!-- Fuori dal riquadro: il clic simulato non deve risalire e riaprire la scelta -->
+        <input type="file" id="pimg-files" accept="image/*" multiple hidden onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.name })));this.value=''">
+        <input type="file" id="pimg-folder" webkitdirectory directory multiple hidden onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name })));this.value=''">
         ${ImgState.busy ? `<div class="settings-section-hint" style="margin:0;" role="status">${escapeHtml(ImgState.busy)}</div>` : ''}
         ${!colori.length ? `<div class="import-note">Questo prodotto non ha colori: le immagini restano "da assegnare". Aggiungi i colori nella scheda del prodotto per abbinarle.</div>` : ''}
         ${groups.map(g => `
