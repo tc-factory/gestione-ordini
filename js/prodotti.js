@@ -1,11 +1,12 @@
 /**
  * T&C Factory — Prodotti
- * Anagrafica articoli: catalogo, codice, descrizione, categoria, colori, taglie, costo, prezzo, attivo.
+ * Anagrafica articoli: fornitore (campo catalogo), codice, descrizione, categoria, colori, taglie, costo, prezzo, attivo.
  * Le categorie si creano e si gestiscono da qui (pulsante "Categorie").
  */
 
 const ProductState = {
   search: '',
+  fornitore: '',          // '' = tutti (campo catalogo)
   categoria: '',          // '' = tutte, '-' = senza categoria, altrimenti id
   stato: 'attivi',        // 'attivi' | 'tutti' | 'disattivi'
 };
@@ -45,6 +46,7 @@ function setProductSearch(v) {
   const el = document.getElementById('product-search');
   if (el) { el.focus(); el.setSelectionRange(v.length, v.length); }
 }
+function setProductFornitore(f) { ProductState.fornitore = f; renderProductsPage(); }
 function setProductCategoria(c) { ProductState.categoria = c; renderProductsPage(); }
 function setProductStato(s) { ProductState.stato = s; renderProductsPage(); }
 
@@ -54,10 +56,13 @@ function renderProductList() {
   const cats = TCFactory.getProductCategories();
   const showCost = TCAuth.canViewEconomics();
   if (ProductState.categoria && ProductState.categoria !== '-' && !cats.some(c => c.id === ProductState.categoria)) ProductState.categoria = '';
+  const fornitori = [...new Set(all.map(p => p.catalogo).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it'));
+  if (ProductState.fornitore && !fornitori.includes(ProductState.fornitore)) ProductState.fornitore = '';
 
   const list = all.filter(p => {
     if (ProductState.stato === 'attivi' && !p.attivo) return false;
     if (ProductState.stato === 'disattivi' && p.attivo) return false;
+    if (ProductState.fornitore && p.catalogo !== ProductState.fornitore) return false;
     if (ProductState.categoria === '-' && p.categoria_id) return false;
     if (ProductState.categoria && ProductState.categoria !== '-' && p.categoria_id !== ProductState.categoria) return false;
     if (!q) return true;
@@ -68,7 +73,7 @@ function renderProductList() {
   const cell = (v) => v ? escapeHtml(v) : '<span class="muted">—</span>';
   const rows = list.map(p => `
     <tr class="data-row ${p.attivo ? '' : 'row-muted'}" tabindex="0" onclick="openProductForm('${p.id}')" onkeydown="if(event.key==='Enter')openProductForm('${p.id}')">
-      <td data-label="Catalogo">${cell(p.catalogo)}</td>
+      <td data-label="Fornitore">${cell(p.catalogo)}</td>
       <td data-label="Codice"><strong>${cell(p.codice)}</strong></td>
       <td data-label="Descrizione">${cell(p.descrizione)}</td>
       <td class="hide-sm">${cell(TCFactory.productCategoryName(p.categoria_id))}</td>
@@ -86,8 +91,12 @@ function renderProductList() {
       <div class="table-toolbar">
         <div class="search-box">
           ${Icons.search()}
-          <input id="product-search" type="text" placeholder="Cerca catalogo, codice, descrizione…" value="${escapeHtml(ProductState.search)}" oninput="setProductSearch(this.value)">
+          <input id="product-search" type="text" placeholder="Cerca fornitore, codice, descrizione…" value="${escapeHtml(ProductState.search)}" oninput="setProductSearch(this.value)">
         </div>
+        <select class="form-select" style="width:auto;" aria-label="Fornitore" onchange="setProductFornitore(this.value)">
+          <option value="">Tutti i fornitori</option>
+          ${fornitori.map(f => `<option value="${escapeHtml(f)}" ${ProductState.fornitore === f ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('')}
+        </select>
         <select class="form-select" style="width:auto;" aria-label="Categoria" onchange="setProductCategoria(this.value)">
           <option value="">Tutte le categorie</option>
           ${cats.map(c => `<option value="${c.id}" ${ProductState.categoria === c.id ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`).join('')}
@@ -107,7 +116,7 @@ function renderProductList() {
       <div class="table-scroll">
         <table class="data-table cards-sm">
           <thead><tr>
-            <th>Catalogo</th><th>Codice</th><th>Descrizione</th><th class="hide-sm">Categoria</th>
+            <th>Fornitore</th><th>Codice</th><th>Descrizione</th><th class="hide-sm">Categoria</th>
             <th class="hide-sm">Colori</th><th class="hide-sm">Taglie</th>
             ${showCost ? '<th class="num">Costo</th>' : ''}<th class="num">Prezzo</th><th>Attivo</th>
           </tr></thead>
@@ -151,7 +160,7 @@ function openProductForm(id = null, prefill = null) {
       </div>
       <div class="modal-body" style="gap:14px;">
         ${prefill?._note ? `<div class="import-note">${prefill._note}</div>` : ''}
-        <div class="form-row">${input('catalogo', 'Catalogo', 'maxlength="80"')}${input('codice', 'Codice', 'maxlength="60"')}</div>
+        <div class="form-row">${input('catalogo', 'Fornitore', 'maxlength="80"')}${input('codice', 'Codice', 'maxlength="60"')}</div>
         ${input('descrizione', 'Descrizione *', 'maxlength="200"')}
         <div class="form-group">
           <label class="form-label" for="pf-categoria">Categoria</label>
@@ -258,7 +267,7 @@ function openProductImport() {
       <form class="modal-body" style="gap:10px;" onsubmit="event.preventDefault();runProductImport()">
         <label class="form-label" for="pi-url">Link della pagina del prodotto</label>
         <input id="pi-url" class="form-input" type="url" required placeholder="https://…" autocomplete="off">
-        <div class="settings-section-hint" style="margin:0;">Leggo dalla pagina catalogo, codice, descrizione, colori, taglie e prezzo: prima di salvare puoi controllare e correggere.</div>
+        <div class="settings-section-hint" style="margin:0;">Leggo dalla pagina fornitore (marca), codice, descrizione, colori, taglie e prezzo: prima di salvare puoi controllare e correggere.</div>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
           <button type="button" class="btn btn-secondary" onclick="closeModal('product-cat-modal')">Annulla</button>
           <button type="submit" class="btn btn-primary" id="pi-go">${Icons.link(14)} Importa</button>
