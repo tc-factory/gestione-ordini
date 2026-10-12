@@ -59,7 +59,10 @@ const dtfDone = (o) => !!o.stages?.dtfPronti?.done;
 function dtfLists() {
   const { order, removed } = dtfSettings();
   const removedAt = new Map(removed.map(r => [r.id, r.at]));
-  const internal = TCFactory.getOrders().filter(o => !o.deletedAt && isLavInterna(o));
+  // Ordini interni con righe DTF, più quelli senza nessuna lavorazione interna indicata (ordini vecchi)
+  const dtfLav = interneLavId('interno');
+  const internal = TCFactory.getOrders().filter(o => !o.deletedAt && isLavInterna(o) &&
+    (!interneRows(o).length || interneRows(o).some(r => r.interna === dtfLav)));
   const deadline = (o) => TCFactory.getEffectiveDeadline(o)?.date || '9999-12-31';
 
   // Da stampare: ordini attivi a lavorazione interna, DTF non ancora fatto, non rimossi
@@ -915,11 +918,11 @@ async function dtfDeleteClient(id) {
 async function openDtfPage() {
   const section = dtfSection();
   document.getElementById('interne-dash-root').hidden = section !== null;
-  document.getElementById('interne-soon-root').hidden = !section || ['interno', 'terzi'].includes(section);
+  document.getElementById('interne-lav-root').hidden = !section || ['interno', 'terzi'].includes(section);
   document.getElementById('dtf-interno-root').hidden = section !== 'interno';
   document.getElementById('dtf-terzi-root').hidden = section !== 'terzi';
   if (!section) { renderInterneDashboard(); return; }
-  if (!['interno', 'terzi'].includes(section)) { renderInterneSoon(section); return; }
+  if (!['interno', 'terzi'].includes(section)) { renderInterneLav(section); return; }
   if (!DtfState.month) DtfState.month = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   if (!DtfState.clientId) DtfState.clientId = dtfLs.get(DTF_CLIENT_KEY);
 
@@ -967,6 +970,10 @@ function renderInterneDashboard() {
     interno: `${daStampare} ${daStampare === 1 ? 'ordine' : 'ordini'} da stampare`,
     terzi:   DtfState.loaded || DtfState._dashClients ? `${DtfState.clients.length} ${DtfState.clients.length === 1 ? 'cliente' : 'clienti'}` : '',
   };
+  ['uv', 'laser', 'stampa'].forEach(id => {
+    const n = interneOrders(id).filter(x => !interneDone(x.order, id)).length;
+    info[id] = `${n} ${n === 1 ? 'ordine' : 'ordini'} da fare`;
+  });
   root.innerHTML = INTERNE_SECTIONS.map(s => `
     <a href="#/dtf/${s.id}" class="glass-card interne-block ${s.ready ? '' : 'soon'}" onclick="event.preventDefault();Nav.go('dtf','${s.id}')">
       <span class="interne-block-icon" aria-hidden="true">${s.icon()}</span>
@@ -988,15 +995,99 @@ function renderInterneDashboard() {
   }
 }
 
-function renderInterneSoon(id) {
-  const root = document.getElementById('interne-soon-root');
-  const s = INTERNE_SECTIONS.find(x => x.id === id);
+// ─────────────────────────────────────────────
+// SCHEDE UV / LASER / STAMPA
+// Ordini con righe del modulo segnate con quella lavorazione INTERNA.
+// "Completata" si salva nel modulo d'ordine: orderModule.interneFatte[<id lavorazione>] = data
+// ─────────────────────────────────────────────
+
+const InterneLavState = { tab: 'todo' };
+
+// Id della lavorazione interna di una scheda (per id, oppure per nome se rinominata/ricreata)
+function interneLavId(section) {
+  const lav = INTERNE_SECTIONS.find(s => s.id === section)?.lav;
+  if (!lav) return null;
+  const list = getLavInterne();
+  return (list.find(l => l.id === lav.id) || list.find(l => l.nome.toLowerCase() === lav.nome.toLowerCase()))?.id || lav.id;
+}
+const interneRows = (o) => (o.orderModule?.rows || []).filter(r => r.interna);
+const interneDone = (o, section) => !!o.orderModule?.interneFatte?.[interneLavId(section)];
+
+function interneOrders(section) {
+  const lavId = interneLavId(section);
+  return TCFactory.getOrders()
+    .filter(o => !o.deletedAt && !o.archived && !TCFactory.isNeutro(o))
+    .map(o => ({ order: o, rows: interneRows(o).filter(r => r.interna === lavId) }))
+    .filter(x => x.rows.length);
+}
+
+function renderInterneLav(section) {
+  const root = document.getElementById('interne-lav-root');
+  const s = INTERNE_SECTIONS.find(x => x.id === section);
   if (!root || !s) return;
+  const done = InterneLavState.tab === 'done';
+  const today = localISODate(new Date());
+  const fmt = (d) => TCFactory.formatDate(d, { day: '2-digit', month: '2-digit' });
+  const all = interneOrders(section);
+  const nTodo = all.filter(x => !interneDone(x.order, section)).length;
+  const items = all.filter(x => interneDone(x.order, section) === done).sort((a, b) => {
+    const da = TCFactory.getEffectiveDeadline(a.order)?.date || '9999', db = TCFactory.getEffectiveDeadline(b.order)?.date || '9999';
+    return (isUrgentOrder(b.order) - isUrgentOrder(a.order)) || da.localeCompare(db);
+  });
+  const rowsText = (rows) => rows.map(r => [r.qnt ? `${r.qnt}×` : '', r.descrizione || r.codice || r.catalogo || '', r.colore || '', r.tg || '']
+    .filter(Boolean).join(' ')).filter(Boolean);
+
+  const item = ({ order: o, rows }) => {
+    const dl = TCFactory.getEffectiveDeadline(o);
+    const client = TCFactory.getClient(o.clientId);
+    const fatta = o.orderModule?.interneFatte?.[interneLavId(section)];
+    const lines = rowsText(rows);
+    return `
+      <li class="dtf-item est-item ${isUrgentOrder(o) ? 'dtf-urgent' : ''}">
+        <div class="dtf-when ${!done && dl && dl.date < today ? 'late' : ''}" title="Scadenza">
+          <strong>${dl ? fmt(dl.date) : '—'}</strong>
+          <span>${dl ? new Date(dl.date + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short' }) : ''}</span>
+        </div>
+        <button type="button" class="dtf-main" onclick="openOrderDetail('${o.id}')">
+          <strong>${escapeHtml(o.nome)}${isUrgentOrder(o) ? ' <em class="est-urgent">Urgente</em>' : ''}</strong>
+          <span>${[orderDesc(o) ? escapeHtml(orderDesc(o)) : '', client && TCFactory.clientName(client) !== o.nome ? escapeHtml(TCFactory.clientName(client)) : '', o.tags.map(escapeHtml).join(', ')].filter(Boolean).join(' · ') || '&nbsp;'}</span>
+        </button>
+        <div class="est-rows" title="${escapeHtml(lines.join('\n'))}">
+          ${lines.length ? lines.slice(0, 2).map(l => `<span>${escapeHtml(l)}</span>`).join('') + (lines.length > 2 ? `<small>+${lines.length - 2} righe</small>` : '') : '<small>Righe senza dettagli</small>'}
+        </div>
+        ${done
+          ? `<span class="est-done-date">${typeof fatta === 'string' ? 'Completata ' + fmt(fatta) : 'Completata'}</span>
+             <button type="button" class="btn btn-ghost btn-sm" onclick="interneToggle('${o.id}', '${section}', false)">Riapri</button>`
+          : `<button type="button" class="btn btn-sm dtf-done-btn" onclick="interneToggle('${o.id}', '${section}', true)">${Icons.checkCircle('currentColor', 15)} Completata</button>`}
+      </li>`;
+  };
+
   root.innerHTML = `
-    <div class="glass-card empty-state">
-      <div class="empty-state-icon" aria-hidden="true">${s.icon()}</div>
-      <h2>${s.label}: scheda in preparazione</h2>
-      <p>Questa lavorazione interna non ha ancora una sua pagina.</p>
-      <button class="btn btn-secondary" onclick="Nav.go('dtf')">${Icons.chevronLeft(14)} Tutte le interne</button>
+    <div class="glass-card page-card dtf-box">
+      <div class="dtf-box-head">
+        <div><h2>${s.label}</h2><p>Ordini con righe segnate <strong>${escapeHtml(getLavInterne().find(l => l.id === interneLavId(section))?.nome || s.lav.nome)}</strong> nella colonna INTERNA del modulo d'ordine</p></div>
+      </div>
+      <div class="est-bar">
+        <div class="segmented" role="tablist" aria-label="Stato">
+          <button role="tab" type="button" aria-selected="${!done}" class="${!done ? 'active' : ''}" onclick="InterneLavState.tab='todo';renderInterneLav('${section}')">Da fare · ${nTodo}</button>
+          <button role="tab" type="button" aria-selected="${done}" class="${done ? 'active' : ''}" onclick="InterneLavState.tab='done';renderInterneLav('${section}')">Completate · ${all.length - nTodo}</button>
+        </div>
+      </div>
+      ${items.length ? `<ol class="dtf-timeline">${items.map(item).join('')}</ol>`
+        : `<div class="empty-list">${done ? 'Nessun ordine completato' : `Nessun ordine da fare. Gli ordini compaiono qui quando una riga del modulo d'ordine ha INTERNA = ${escapeHtml(s.lav.nome)}.`}</div>`}
     </div>`;
+}
+
+async function interneToggle(orderId, section, done) {
+  const o = TCFactory.getOrderById(orderId);
+  if (!o) return;
+  const lavId = interneLavId(section);
+  const fatte = { ...(o.orderModule?.interneFatte || {}) };
+  if (done) fatte[lavId] = localISODate(new Date()); else delete fatte[lavId];
+  try {
+    await TCFactory.updateOrder(orderId, { orderModule: { ...(o.orderModule || {}), interneFatte: fatte } });
+    TCFactory._log(done ? `✓ ${INTERNE_SECTIONS.find(s => s.id === section)?.label}` : `☐ ${INTERNE_SECTIONS.find(s => s.id === section)?.label}`, orderId, o.nome, { interna: lavId, done });
+    TCFactory._notify();
+  } catch (e) { showToast('Errore — riprova', 'error'); }
+  renderInterneLav(section);
 }
