@@ -1,12 +1,13 @@
 /**
  * T&C Factory — Prodotti
- * Anagrafica articoli: fornitore (campo catalogo), codice, descrizione, categoria, colori, taglie, costo, prezzo, attivo.
- * Le categorie si creano e si gestiscono da qui (pulsante "Categorie").
+ * Anagrafica articoli: fornitore, codice, descrizione, categoria, colori, taglie, costo, prezzo, attivo.
+ * Le categorie si creano e si gestiscono da qui (pulsante "Categorie"),
+ * i fornitori nella sottopagina #/prodotti/fornitori.
  */
 
 const ProductState = {
   search: '',
-  fornitore: '',          // '' = tutti (campo catalogo)
+  fornitore: '',          // '' = tutti, '-' = senza fornitore, altrimenti id
   categoria: '',          // '' = tutte, '-' = senza categoria, altrimenti id
   stato: 'attivi',        // 'attivi' | 'tutti' | 'disattivi'
 };
@@ -27,13 +28,14 @@ const priceInput = (n) => (n === null || n === undefined) ? '' : String(n).repla
 function renderProductsPage() {
   const root = document.getElementById('prodotti-root');
   if (!root) return;
+  if (Nav.param === 'fornitori' && TCFactory.isProductsAvailable()) { root.innerHTML = renderSuppliersPage(); return; }
 
   if (!TCFactory.isProductsAvailable()) {
     root.innerHTML = `
       <div class="glass-card empty-state">
         <div class="empty-state-icon" aria-hidden="true">${Icons.shirt(28)}</div>
         <h2>Database prodotti da attivare</h2>
-        <p>Esegui gli script <strong>sql/prodotti-setup.sql</strong> e <strong>sql/prodotti-categorie.sql</strong> nell'SQL Editor di Supabase, poi ricarica la pagina.</p>
+        <p>Esegui gli script <strong>sql/prodotti-setup.sql</strong>, <strong>sql/prodotti-categorie.sql</strong> e <strong>sql/fornitori.sql</strong> nell'SQL Editor di Supabase, poi ricarica la pagina.</p>
       </div>`;
     return;
   }
@@ -56,24 +58,25 @@ function renderProductList() {
   const cats = TCFactory.getProductCategories();
   const showCost = TCAuth.canViewEconomics();
   if (ProductState.categoria && ProductState.categoria !== '-' && !cats.some(c => c.id === ProductState.categoria)) ProductState.categoria = '';
-  const fornitori = [...new Set(all.map(p => p.catalogo).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it'));
-  if (ProductState.fornitore && !fornitori.includes(ProductState.fornitore)) ProductState.fornitore = '';
+  const fornitori = TCFactory.getSuppliers();
+  if (ProductState.fornitore && ProductState.fornitore !== '-' && !fornitori.some(f => f.id === ProductState.fornitore)) ProductState.fornitore = '';
 
   const list = all.filter(p => {
     if (ProductState.stato === 'attivi' && !p.attivo) return false;
     if (ProductState.stato === 'disattivi' && p.attivo) return false;
-    if (ProductState.fornitore && p.catalogo !== ProductState.fornitore) return false;
+    if (ProductState.fornitore === '-' && p.fornitore_id) return false;
+    if (ProductState.fornitore && ProductState.fornitore !== '-' && p.fornitore_id !== ProductState.fornitore) return false;
     if (ProductState.categoria === '-' && p.categoria_id) return false;
     if (ProductState.categoria && ProductState.categoria !== '-' && p.categoria_id !== ProductState.categoria) return false;
     if (!q) return true;
-    return [p.catalogo, p.codice, p.descrizione, TCFactory.productCategoryName(p.categoria_id), p.colori, p.taglie]
+    return [TCFactory.supplierName(p.fornitore_id), p.codice, p.descrizione, TCFactory.productCategoryName(p.categoria_id), p.colori, p.taglie]
       .some(v => (v || '').toLowerCase().includes(q));
   });
 
   const cell = (v) => v ? escapeHtml(v) : '<span class="muted">—</span>';
   const rows = list.map(p => `
     <tr class="data-row ${p.attivo ? '' : 'row-muted'}" tabindex="0" onclick="openProductForm('${p.id}')" onkeydown="if(event.key==='Enter')openProductForm('${p.id}')">
-      <td data-label="Fornitore">${cell(p.catalogo)}</td>
+      <td data-label="Fornitore">${cell(TCFactory.supplierName(p.fornitore_id))}</td>
       <td data-label="Codice"><strong>${cell(p.codice)}</strong></td>
       <td data-label="Descrizione">${cell(p.descrizione)}</td>
       <td class="hide-sm">${cell(TCFactory.productCategoryName(p.categoria_id))}</td>
@@ -95,7 +98,8 @@ function renderProductList() {
         </div>
         <select class="form-select" style="width:auto;" aria-label="Fornitore" onchange="setProductFornitore(this.value)">
           <option value="">Tutti i fornitori</option>
-          ${fornitori.map(f => `<option value="${escapeHtml(f)}" ${ProductState.fornitore === f ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('')}
+          ${fornitori.map(f => `<option value="${f.id}" ${ProductState.fornitore === f.id ? 'selected' : ''}>${escapeHtml(f.nome)}</option>`).join('')}
+          <option value="-" ${ProductState.fornitore === '-' ? 'selected' : ''}>Senza fornitore</option>
         </select>
         <select class="form-select" style="width:auto;" aria-label="Categoria" onchange="setProductCategoria(this.value)">
           <option value="">Tutte le categorie</option>
@@ -135,9 +139,12 @@ async function toggleProductActive(id, attivo) {
 // MODULO PRODOTTO
 // ─────────────────────────────────────────────
 
+let _pfNewSupplier = '';   // fornitore da creare al salvataggio (import da link)
+
 // prefill: campi già compilati per un prodotto nuovo (es. importato da un link)
 function openProductForm(id = null, prefill = null) {
   const p = id ? TCFactory.getProduct(id) : prefill;
+  _pfNewSupplier = (!id && prefill?._fornitoreNuovo) || '';
   const showCost = TCAuth.canViewEconomics();
   const v = (k) => escapeHtml(ofUpper(p?.[k] ?? ''));
   const input = (k, label, attrs = '') => `
@@ -160,7 +167,16 @@ function openProductForm(id = null, prefill = null) {
       </div>
       <div class="modal-body" style="gap:14px;">
         ${prefill?._note ? `<div class="import-note">${prefill._note}</div>` : ''}
-        <div class="form-row">${input('catalogo', 'Fornitore', 'maxlength="80"')}${input('codice', 'Codice', 'maxlength="60"')}</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="pf-fornitore">Fornitore</label>
+            <div style="display:flex;gap:8px;">
+              <select id="pf-fornitore" class="form-select" style="flex:1;min-width:0;">${productSupplierOptions(p?.fornitore_id, prefill?._fornitoreNuovo)}</select>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="newSupplierFromForm()" title="Nuovo fornitore">${Icons.plus(13)}</button>
+            </div>
+          </div>
+          ${input('codice', 'Codice', 'maxlength="60"')}
+        </div>
         ${input('descrizione', 'Descrizione *', 'maxlength="200"')}
         <div class="form-group">
           <label class="form-label" for="pf-categoria">Categoria</label>
@@ -187,7 +203,26 @@ function openProductForm(id = null, prefill = null) {
     </div>`;
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('product-form-modal'); };
-  setTimeout(() => document.getElementById('pf-catalogo')?.focus(), 50);
+  setTimeout(() => document.getElementById('pf-codice')?.focus(), 50);
+}
+
+// nuovoNome: fornitore letto da un link e non ancora in anagrafica (si crea al salvataggio)
+function productSupplierOptions(selectedId, nuovoNome = '') {
+  return `<option value="">— Nessuno —</option>` +
+    (nuovoNome ? `<option value="__new" selected>+ Nuovo: ${escapeHtml(ofUpper(nuovoNome))}</option>` : '') +
+    TCFactory.getSuppliers().map(s => `<option value="${s.id}" ${!nuovoNome && s.id === selectedId ? 'selected' : ''}>${escapeHtml(s.nome)}</option>`).join('');
+}
+
+async function newSupplierFromForm() {
+  const nome = prompt('Nome del nuovo fornitore:');
+  if (!nome?.trim()) return;
+  try {
+    const f = await TCFactory.saveSupplier(null, { nome });
+    const sel = document.getElementById('pf-fornitore');
+    if (sel) sel.innerHTML = productSupplierOptions(f.id);
+    _pfNewSupplier = '';
+    showToast(`Fornitore "${f.nome}" creato`);
+  } catch (e) { showToast(e.message === 'Esiste già' ? 'Fornitore già esistente' : 'Errore — riprova', 'error'); }
 }
 
 function productCategoryOptions(selectedId) {
@@ -211,6 +246,7 @@ async function submitProductForm(id) {
   const fields = {};
   TCFactory.PRODUCT_TEXT_FIELDS.forEach(k => { fields[k] = get(k); });
   fields.categoria_id = get('categoria') || null;
+  fields.fornitore_id = get('fornitore') || null;
   fields.attivo = document.getElementById('pf-attivo')?.checked ?? true;
 
   const invalid = (k, msg) => {
@@ -232,6 +268,9 @@ async function submitProductForm(id) {
   const btn = document.getElementById('pf-save');
   if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio…'; }
   try {
+    if (fields.fornitore_id === '__new') {
+      fields.fornitore_id = (TCFactory.findSupplierByName(_pfNewSupplier) || await TCFactory.saveSupplier(null, { nome: _pfNewSupplier })).id;
+    }
     const saved = await TCFactory.saveProduct(id, fields);
     closeModal('product-form-modal');
     showToast(id ? 'Prodotto aggiornato' : `Prodotto "${TCFactory.productLabel(saved)}" creato`);
@@ -301,7 +340,9 @@ async function runProductImport() {
     const host = (() => { try { return new URL(data.url).hostname.replace(/^www\./, ''); } catch { return ''; } })();
     closeModal('product-cat-modal');
     openProductForm(null, {
-      catalogo: d.catalogo, codice: d.codice, descrizione: d.descrizione, colori: d.colori, taglie: d.taglie,
+      fornitore_id: TCFactory.findSupplierByName(d.catalogo)?.id || null,
+      _fornitoreNuovo: d.catalogo && !TCFactory.findSupplierByName(d.catalogo) ? d.catalogo : '',
+      codice: d.codice, descrizione: d.descrizione, colori: d.colori, taglie: d.taglie,
       costo: costVisible ? d.prezzo : null, prezzo: costVisible ? null : d.prezzo, attivo: true,
       _note: `Importato da <strong>${escapeHtml(host)}</strong>: ${trovati} ${trovati === 1 ? 'campo trovato' : 'campi trovati'}.`
         + (prezzoTxt ? ` Prezzo del sito ${prezzoTxt} inserito come ${costVisible ? 'costo' : 'prezzo'}.` : '')
@@ -311,6 +352,111 @@ async function runProductImport() {
     showToast(e.message || 'Importazione non riuscita', 'error');
     if (btn) { btn.disabled = false; btn.innerHTML = `${Icons.link(14)} Importa`; }
   }
+}
+
+// ─────────────────────────────────────────────
+// FORNITORI (#/prodotti/fornitori)
+// ─────────────────────────────────────────────
+
+function renderSuppliersPage() {
+  const list = TCFactory.getSuppliers();
+  const count = (id) => TCFactory._products.filter(p => p.fornitore_id === id).length;
+  const rows = list.map(f => `
+    <tr class="data-row" tabindex="0" onclick="openSupplierForm('${f.id}')" onkeydown="if(event.key==='Enter')openSupplierForm('${f.id}')">
+      <td data-label="Fornitore"><strong>${escapeHtml(f.nome)}</strong>${f.referente ? `<small>${escapeHtml(f.referente)}</small>` : ''}</td>
+      <td class="hide-sm"><div class="cell-stack">${f.email ? `<span>${escapeHtml(f.email)}</span>` : ''}${f.telefono ? `<small>${escapeHtml(f.telefono)}</small>` : ''}${!f.email && !f.telefono ? '<span class="muted">—</span>' : ''}</div></td>
+      <td class="hide-sm">${f.sito ? `<a href="${escapeHtml(/^https?:\/\//i.test(f.sito) ? f.sito : 'https://' + f.sito)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${escapeHtml(f.sito.replace(/^https?:\/\//i, ''))}</a>` : '<span class="muted">—</span>'}</td>
+      <td class="num" data-label="Prodotti">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showSupplierProducts('${f.id}')" title="Vedi i prodotti">${count(f.id)}</button>
+      </td>
+    </tr>`).join('');
+  return `
+    <div class="glass-card page-card list-shell">
+      <div class="table-toolbar">
+        <span class="table-count">${list.length} ${list.length === 1 ? 'fornitore' : 'fornitori'}</span>
+      </div>
+      ${list.length === 0 ? `
+        <div class="empty-list">
+          Nessun fornitore ancora.<br><br>
+          <button class="btn btn-primary" onclick="openSupplierForm()">${Icons.plus()} Crea il primo fornitore</button>
+        </div>` : `
+      <div class="table-scroll">
+        <table class="data-table cards-sm">
+          <thead><tr><th>Fornitore</th><th class="hide-sm">Contatti</th><th class="hide-sm">Sito</th><th class="num">Prodotti</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`}
+    </div>`;
+}
+
+function showSupplierProducts(id) {
+  ProductState.fornitore = id;
+  ProductState.stato = 'tutti';
+  Nav.go('prodotti');
+}
+
+function openSupplierForm(id = null) {
+  const f = id ? TCFactory.getSupplier(id) : null;
+  const v = (k) => escapeHtml(f?.[k] ?? '');
+  const input = (k, label, attrs = '') => `
+    <div class="form-group">
+      <label class="form-label" for="sf-${k}">${label}</label>
+      <input id="sf-${k}" class="form-input" value="${v(k)}" ${attrs}>
+    </div>`;
+  const n = id ? TCFactory._products.filter(p => p.fornitore_id === id).length : 0;
+  const modal = document.getElementById('supplier-form-modal');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:600px;" role="dialog" aria-modal="true" aria-labelledby="sf-title">
+      <div class="modal-header">
+        <h2 id="sf-title">${f ? 'Modifica fornitore' : 'Nuovo fornitore'}</h2>
+        <button class="btn-icon" onclick="closeModal('supplier-form-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:14px;">
+        <div class="form-row">${input('nome', 'Nome *', 'maxlength="120"')}${input('referente', 'Referente', 'maxlength="120"')}</div>
+        <div class="form-row">${input('email', 'Email', 'type="email" maxlength="160"')}${input('telefono', 'Telefono', 'type="tel" maxlength="40"')}</div>
+        ${input('sito', 'Sito web', 'type="url" maxlength="300" placeholder="es. www.fornitore.it"')}
+        <div class="form-group">
+          <label class="form-label" for="sf-note">Note</label>
+          <textarea id="sf-note" class="form-textarea" maxlength="2000">${v('note')}</textarea>
+        </div>
+        ${f ? `<div class="settings-section-hint" style="margin:0;">${n} ${n === 1 ? 'prodotto collegato' : 'prodotti collegati'}.</div>` : ''}
+      </div>
+      <div class="modal-footer">
+        ${f ? `<button class="btn btn-ghost" style="color:var(--priority-urgent);margin-right:auto;" onclick="deleteSupplierConfirm('${f.id}')">${Icons.trash(14)} Elimina</button>` : ''}
+        <button class="btn btn-secondary" onclick="closeModal('supplier-form-modal')">Annulla</button>
+        <button class="btn btn-primary" id="sf-save" onclick="submitSupplierForm(${f ? `'${f.id}'` : 'null'})">${f ? 'Salva modifiche' : 'Crea fornitore'}</button>
+      </div>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('supplier-form-modal'); };
+  setTimeout(() => document.getElementById('sf-nome')?.focus(), 50);
+}
+
+async function submitSupplierForm(id) {
+  const get = (k) => document.getElementById('sf-' + k)?.value?.trim() || '';
+  const fields = Object.fromEntries(TCFactory.SUPPLIER_FIELDS.map(k => [k, get(k)]));
+  if (!fields.nome) { document.getElementById('sf-nome')?.focus(); showToast('Inserisci il nome del fornitore', 'error'); return; }
+  if (fields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) { document.getElementById('sf-email')?.focus(); showToast('Email non valida', 'error'); return; }
+  const btn = document.getElementById('sf-save');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio…'; }
+  try {
+    const saved = await TCFactory.saveSupplier(id, fields);
+    closeModal('supplier-form-modal');
+    showToast(id ? 'Fornitore aggiornato' : `Fornitore "${saved.nome}" creato`);
+  } catch (e) {
+    showToast(e.message === 'Esiste già' ? 'Esiste già un fornitore con questo nome' : 'Errore durante il salvataggio — riprova', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = id ? 'Salva modifiche' : 'Crea fornitore'; }
+  }
+}
+
+async function deleteSupplierConfirm(id) {
+  const n = TCFactory._products.filter(p => p.fornitore_id === id).length;
+  if (!confirm(`Eliminare il fornitore "${TCFactory.supplierName(id)}"?${n ? `\n\n${n} prodotti resteranno senza fornitore.` : ''}`)) return;
+  try {
+    await TCFactory.deleteSupplier(id);
+    closeModal('supplier-form-modal');
+    showToast('Fornitore eliminato');
+  } catch (e) { showToast('Errore eliminazione fornitore', 'error'); }
 }
 
 // ─────────────────────────────────────────────

@@ -1641,7 +1641,7 @@ function ofRenderLav() {
 // Ordini e modulo d'ordine: tutto in MAIUSCOLO, come con il blocco maiuscole attivo
 const ofUpper = (v) => String(v ?? '').toLocaleUpperCase('it-IT');
 // Anche prodotti e categorie prodotti si scrivono in MAIUSCOLO
-const OF_UPPER_SEL = ['#order-form-modal', '#product-form-modal', '#product-cat-modal']
+const OF_UPPER_SEL = ['#order-form-modal', '#product-form-modal', '#product-cat-modal', '#supplier-form-modal']
   .map(m => `${m} input:not([type]), ${m} input[type=text], ${m} input[type=search], ${m} textarea`).join(', ');
 document.addEventListener('input', (e) => {
   const el = e.target;
