@@ -283,6 +283,7 @@ function renderHeader() {
     ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
     : Nav.current === 'prodotti' && TCFactory.isProductsAvailable()
     ? `<button class="btn btn-secondary" onclick="openProductCategories()">${Icons.tag(15)} <span class="new-order-btn-text">Categorie</span></button>
+       <button class="btn btn-secondary" onclick="openProductImport()">${Icons.link(15)} <span class="new-order-btn-text">Importa da link</span></button>
        <button class="btn btn-primary" onclick="openProductForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo prodotto</span></button>`
     : '';
 
