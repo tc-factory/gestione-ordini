@@ -2176,12 +2176,19 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 
 /* Prodotti → Immagini per colore */
 #product-img-modal .modal { width: 100%; }
-.pimg-drop { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 16px; border: 1.5px dashed var(--border); border-radius: var(--radius-md); background: var(--bg-secondary); }
-.pimg-drop.over { border-color: var(--brand-gold); background: color-mix(in srgb, var(--brand-gold) 8%, var(--bg-secondary)); }
-.pimg-drop strong { display: block; font-size: 0.9rem; }
-.pimg-drop small { font-size: 0.76rem; color: var(--text-muted); }
-.pimg-drop-actions { display: flex; gap: 6px; }
-.pimg-drop-actions label { cursor: pointer; }
+.pimg-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 170px; padding: 24px 16px; text-align: center; cursor: pointer;
+  border: 2px dashed var(--border); border-radius: var(--radius-lg, 16px); background: var(--bg-secondary);
+  transition: border-color var(--transition), background-color var(--transition);
+}
+.pimg-drop:hover, .pimg-drop.over { border-color: var(--brand-gold); background: color-mix(in srgb, var(--brand-gold) 8%, var(--bg-secondary)); }
+.pimg-drop:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
+.pimg-drop-icon { color: var(--brand-gold); margin-bottom: 4px; }
+.pimg-drop strong { font-size: 0.95rem; }
+.pimg-drop small { font-size: 0.76rem; color: var(--text-muted); max-width: 520px; }
+.pimg-folder-link { margin-top: 4px; background: none; border: none; padding: 2px 4px; cursor: pointer; font-family: var(--font-body); font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); text-decoration: underline; }
+.pimg-folder-link:hover { color: var(--text-primary); }
 .pimg-group h3 { font-size: 0.85rem; font-weight: 800; margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; }
 .pimg-group h3 small { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
 .pimg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
