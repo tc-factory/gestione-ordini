@@ -88,6 +88,7 @@ function renderProductList() {
         <input type="checkbox" class="switch" ${p.attivo ? 'checked' : ''} aria-label="Prodotto attivo" onchange="toggleProductActive('${p.id}', this.checked)">
       </td>
       <td class="cell-action" onclick="event.stopPropagation()">
+        <button type="button" class="btn-icon" onclick="openProductImages('${p.id}')" aria-label="Immagini di ${escapeHtml(TCFactory.productLabel(p))}" title="Immagini">${Icons.image(15)}</button>
         <button type="button" class="btn-icon" onclick="duplicateProduct('${p.id}')" aria-label="Duplica ${escapeHtml(TCFactory.productLabel(p))}" title="Duplica">${Icons.copy(15)}</button>
       </td>
     </tr>`).join('');
@@ -125,7 +126,7 @@ function renderProductList() {
           <thead><tr>
             <th>Fornitore</th><th>Codice</th><th>Descrizione</th><th class="hide-sm">Categoria</th>
             <th class="hide-sm">Colori</th><th class="hide-sm">Taglie</th>
-            ${showCost ? '<th class="num">Costo</th>' : ''}<th class="num">Prezzo</th><th>Attivo</th><th><span class="sr-only">Duplica</span></th>
+            ${showCost ? '<th class="num">Costo</th>' : ''}<th class="num">Prezzo</th><th>Attivo</th><th><span class="sr-only">Azioni</span></th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -200,7 +201,8 @@ function openProductForm(id = null, prefill = null) {
       </div>
       <div class="modal-footer">
         ${id ? `<button class="btn btn-ghost" style="color:var(--priority-urgent);margin-right:auto;" onclick="deleteProductConfirm('${id}')">${Icons.trash(14)} Elimina</button>
-        <button class="btn btn-secondary" onclick="duplicateProduct('${id}')">${Icons.copy(14)} Duplica</button>` : ''}
+        <button class="btn btn-secondary" onclick="duplicateProduct('${id}')">${Icons.copy(14)} Duplica</button>
+        <button class="btn btn-secondary" onclick="openProductImages('${id}')">${Icons.image(14)} Immagini</button>` : ''}
         <button class="btn btn-secondary" onclick="closeModal('product-form-modal')">Annulla</button>
         <button class="btn btn-primary" id="pf-save" onclick="submitProductForm(${id ? `'${id}'` : 'null'})">${id ? 'Salva modifiche' : 'Crea prodotto'}</button>
       </div>

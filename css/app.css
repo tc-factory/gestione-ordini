@@ -2173,3 +2173,23 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .xl-option:focus-within, .xl-option:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
 .xl-option[disabled] { opacity: 0.5; cursor: default; }
 .xl-option small { font-size: 0.78rem; color: var(--text-muted); }
+
+/* Prodotti → Immagini per colore */
+#product-img-modal .modal { width: 100%; }
+.pimg-drop { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 16px; border: 1.5px dashed var(--border); border-radius: var(--radius-md); background: var(--bg-secondary); }
+.pimg-drop.over { border-color: var(--brand-gold); background: color-mix(in srgb, var(--brand-gold) 8%, var(--bg-secondary)); }
+.pimg-drop strong { display: block; font-size: 0.9rem; }
+.pimg-drop small { font-size: 0.76rem; color: var(--text-muted); }
+.pimg-drop-actions { display: flex; gap: 6px; }
+.pimg-drop-actions label { cursor: pointer; }
+.pimg-group h3 { font-size: 0.85rem; font-weight: 800; margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; }
+.pimg-group h3 small { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
+.pimg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.pimg { margin: 0; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-card); display: flex; flex-direction: column; }
+.pimg a { display: block; aspect-ratio: 1; background: var(--bg-secondary); }
+.pimg img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pimg figcaption { padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.pimg .form-select { font-size: 0.75rem; padding: 4px 6px; }
+.pimg-row { display: flex; gap: 4px; align-items: center; }
+.pimg-row .form-select { flex: 1; min-width: 0; }
+.data-table td.cell-action { white-space: nowrap; }
