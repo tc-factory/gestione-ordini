@@ -699,9 +699,24 @@ html.dark .dtf-done-btn { background: #163222; color: #4ADE80; }
 .dtf-save.saved { color: #15803D; }
 html.dark .dtf-save.saved { color: #4ADE80; }
 
-.dtf-clients { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
-.dtf-clients .form-select { flex: 1; min-width: 0; }
-.dtf-add { width: 40px; height: 40px; padding: 0; border-radius: 50% !important; justify-content: center; }
+/* Conto terzi: clienti come box in alto */
+.dtf-client-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.dtf-client-box {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 12px 14px; border-radius: 16px; text-align: left; cursor: pointer;
+  background: var(--bg-primary); border: 1.5px solid transparent; color: var(--text-primary);
+  font-family: var(--font-body);
+  transition: border-color var(--transition), background-color var(--transition), transform var(--dur-fast) var(--ease-out);
+}
+.dtf-client-box strong { font-size: 0.92rem; font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtf-client-box span { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.dtf-client-box:hover { border-color: var(--border); }
+.dtf-client-box:active { transform: scale(0.98); }
+.dtf-client-box:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
+.dtf-client-box.active { border-color: var(--brand-gold); background: color-mix(in srgb, var(--brand-gold) 10%, var(--bg-primary)); }
+.dtf-client-add { flex-direction: row; align-items: center; justify-content: center; gap: 6px; color: var(--text-secondary); border: 1.5px dashed var(--border); background: transparent; }
+.dtf-client-add span { font-size: 0.85rem; font-weight: 600; color: inherit; }
+.dtf-client-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
 .dtf-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
 .dtf-kpi { background: var(--bg-primary); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }

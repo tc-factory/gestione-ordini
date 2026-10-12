@@ -282,7 +282,8 @@ function renderHeader() {
     : Nav.current === 'clienti' && !Nav.param && TCFactory.isClientsAvailable()
     ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
     : Nav.current === 'prodotti' && TCFactory.isProductsAvailable()
-    ? `<button class="btn btn-primary" onclick="openProductForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo prodotto</span></button>`
+    ? `<button class="btn btn-secondary" onclick="openProductCategories()">${Icons.tag(15)} <span class="new-order-btn-text">Categorie</span></button>
+       <button class="btn btn-primary" onclick="openProductForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo prodotto</span></button>`
     : '';
 
   const sub = Nav.current === 'dtf' ? INTERNE_SECTIONS.find(x => x.id === dtfSection()) : null;
