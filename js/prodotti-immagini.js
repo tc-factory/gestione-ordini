@@ -77,20 +77,13 @@ function imgGuess(path, colori) {
 
 // ─────────────────────────────────────────────
 // ELABORAZIONE AL CARICAMENTO
-// Sfondo rimosso (modello AI nel browser), ritaglio sul soggetto,
-// 900×1200 px a 150 dpi, file di massimo 2 MB.
+// Immagine intera (niente scontorno né ritaglio) adattata in 900×1200 px,
+// 150 dpi, file di massimo 2 MB. Lo spazio attorno prende il colore del bordo della foto.
 // ─────────────────────────────────────────────
 
 const IMG_OUT = { w: 900, h: 1200, dpi: 150, maxBytes: 2 * 1024 * 1024 };
-const BG_LIB_URL = 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm';
-let _bgLib = null;
-const loadBgLib = () => (_bgLib = _bgLib || import(BG_LIB_URL).catch(e => { _bgLib = null; throw e; }));
 
-const IMG_BG_KEY = 'tcf_img_rimuovi_sfondo';
-const imgRemoveBg = () => { try { return localStorage.getItem(IMG_BG_KEY) !== '0'; } catch { return true; } };
-const setImgRemoveBg = (on) => { try { localStorage.setItem(IMG_BG_KEY, on ? '1' : '0'); } catch {} };
-
-// Colore dello sfondo originale: mediana dei pixel sul bordo dell'immagine
+// Colore del bordo della foto: mediana dei pixel sul contorno
 function imgBorderColor(data, w, h) {
   const rs = [], gs = [], bs = [];
   const take = (x, y) => { const i = (y * w + x) * 4; rs.push(data[i]); gs.push(data[i + 1]); bs.push(data[i + 2]); };
@@ -99,58 +92,6 @@ function imgBorderColor(data, w, h) {
   for (let y = 0; y < h; y += step) { take(0, y); take(w - 1, y); }
   const med = (a) => a.sort((p, q) => p - q)[a.length >> 1];
   return [med(rs), med(gs), med(bs)];
-}
-
-// Pulisce il ritaglio del modello:
-// 1. residui di sfondo attaccati al bordo (semi-trasparenti e del colore dello sfondo) → trasparenti
-// 2. trasparenze incerte: quasi invisibile → 0, quasi pieno → pieno
-// 3. alone sui bordi: si toglie il colore dello sfondo mescolato nei pixel semi-trasparenti
-function refineCutout(orig, cut, w, h) {
-  const bg = imgBorderColor(orig, w, h);
-  const dist = (i) => Math.abs(orig[i] - bg[0]) + Math.abs(orig[i + 1] - bg[1]) + Math.abs(orig[i + 2] - bg[2]);
-  const n = w * h;
-  const seen = new Uint8Array(n);
-  const stack = [];
-  const push = (p) => { if (!seen[p]) { seen[p] = 1; stack.push(p); } };
-  for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
-  for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
-  while (stack.length) {
-    const p = stack.pop(), i = p * 4;
-    if (cut[i + 3] >= 235 || dist(i) > 60) continue;   // soggetto: ci si ferma
-    cut[i + 3] = 0;
-    const x = p % w;
-    if (x > 0) push(p - 1); if (x < w - 1) push(p + 1);
-    if (p >= w) push(p - w); if (p < n - w) push(p + w);
-  }
-  for (let i = 0; i < cut.length; i += 4) {
-    let a = cut[i + 3];
-    a = a < 40 ? 0 : a > 215 ? 255 : Math.round((a - 40) * 255 / 175);
-    if (a > 0 && a < 255) {
-      const f = a / 255;
-      for (let k = 0; k < 3; k++) cut[i + k] = Math.max(0, Math.min(255, Math.round((orig[i + k] - bg[k] * (1 - f)) / f)));
-    }
-    cut[i + 3] = a;
-  }
-}
-
-// Riquadro del soggetto: pixel ben visibili (o diversi dal colore dello sfondo se non c'è trasparenza).
-// Righe e colonne con pochissimi pixel (granelli isolati) non contano.
-function imgContentBox(data, w, h) {
-  let hasAlpha = false;
-  for (let i = 3; i < data.length; i += 4 * 97) if (data[i] < 250) { hasAlpha = true; break; }
-  const bg = imgBorderColor(data, w, h);
-  const isContent = hasAlpha
-    ? (i) => data[i + 3] >= 128
-    : (i) => Math.abs(data[i] - bg[0]) + Math.abs(data[i + 1] - bg[1]) + Math.abs(data[i + 2] - bg[2]) > 36;
-  const rows = new Uint32Array(h), cols = new Uint32Array(w);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (isContent((y * w + x) * 4)) { rows[y]++; cols[x]++; }
-  const minR = Math.max(2, Math.round(w * 0.004)), minC = Math.max(2, Math.round(h * 0.004));
-  let y0 = 0, y1 = h - 1, x0 = 0, x1 = w - 1;
-  while (y0 < h && rows[y0] < minR) y0++;
-  while (y1 > y0 && rows[y1] < minR) y1--;
-  while (x0 < w && cols[x0] < minC) x0++;
-  while (x1 > x0 && cols[x1] < minC) x1--;
-  return y0 >= h || x0 >= w ? { x: 0, y: 0, w, h, hasAlpha } : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, hasAlpha };
 }
 
 // PNG: aggiunge il blocco pHYs con la risoluzione (dpi → pixel per metro), subito dopo IHDR
@@ -171,42 +112,24 @@ async function pngWithDpi(blob, dpi) {
   return new Blob([out], { type: 'image/png' });
 }
 
-async function processProductImage(file, removeBg, onStep = () => {}) {
-  let src = file, bgRemoved = false;
-  if (removeBg) {
-    try {
-      onStep('bg');
-      const lib = await loadBgLib();
-      src = await lib.removeBackground(file, { model: 'isnet_fp16', output: { format: 'image/png' } });
-      bgRemoved = true;
-    } catch (e) { console.warn('[immagini] sfondo non rimosso', file.name, e); }
-  }
-  onStep('resize');
-  const bmp = await createImageBitmap(src);
-  const work = new OffscreenCanvas(bmp.width, bmp.height);
-  const wctx = work.getContext('2d', { willReadFrequently: true });
-  wctx.drawImage(bmp, 0, 0);
-  if (bgRemoved) {
-    // Confronto con l'originale per togliere residui e alone di sfondo
-    const ob = await createImageBitmap(file);
-    const oc = new OffscreenCanvas(bmp.width, bmp.height);
-    const octx = oc.getContext('2d', { willReadFrequently: true });
-    octx.drawImage(ob, 0, 0, bmp.width, bmp.height);
-    const cut = wctx.getImageData(0, 0, bmp.width, bmp.height);
-    refineCutout(octx.getImageData(0, 0, bmp.width, bmp.height).data, cut.data, bmp.width, bmp.height);
-    wctx.putImageData(cut, 0, 0);
-  }
-  const box = imgContentBox(wctx.getImageData(0, 0, bmp.width, bmp.height).data, bmp.width, bmp.height);
+async function processProductImage(file) {
+  const bmp = await createImageBitmap(file);
+  const probe = new OffscreenCanvas(bmp.width, bmp.height);
+  const pctx = probe.getContext('2d', { willReadFrequently: true });
+  pctx.drawImage(bmp, 0, 0);
+  const data = pctx.getImageData(0, 0, bmp.width, bmp.height).data;
+  let hasAlpha = false;
+  for (let i = 3; i < data.length; i += 4 * 97) if (data[i] < 250) { hasAlpha = true; break; }
 
-  // Soggetto adattato dentro 900×1200 e centrato; trasparente attorno se c'è trasparenza, altrimenti bianco
+  // Foto intera adattata dentro 900×1200 e centrata
   const out = new OffscreenCanvas(IMG_OUT.w, IMG_OUT.h);
   const ctx = out.getContext('2d');
-  if (!box.hasAlpha) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, IMG_OUT.w, IMG_OUT.h); }
-  const scale = Math.min(IMG_OUT.w / box.w, IMG_OUT.h / box.h);
-  const dw = Math.round(box.w * scale), dh = Math.round(box.h * scale);
+  if (!hasAlpha) { const [r, g, b] = imgBorderColor(data, bmp.width, bmp.height); ctx.fillStyle = `rgb(${r},${g},${b})`; ctx.fillRect(0, 0, IMG_OUT.w, IMG_OUT.h); }
+  const scale = Math.min(IMG_OUT.w / bmp.width, IMG_OUT.h / bmp.height);
+  const dw = Math.round(bmp.width * scale), dh = Math.round(bmp.height * scale);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(work, box.x, box.y, box.w, box.h, Math.round((IMG_OUT.w - dw) / 2), Math.round((IMG_OUT.h - dh) / 2), dw, dh);
+  ctx.drawImage(bmp, Math.round((IMG_OUT.w - dw) / 2), Math.round((IMG_OUT.h - dh) / 2), dw, dh);
 
   // PNG a 150 dpi; se supera 2 MB si passa a WebP (mantiene la trasparenza) abbassando la qualità
   let blob = await pngWithDpi(await out.convertToBlob({ type: 'image/png' }), IMG_OUT.dpi);
@@ -216,7 +139,7 @@ async function processProductImage(file, removeBg, onStep = () => {}) {
     ext = 'webp';
   }
   const name = file.name.replace(/\.[a-z0-9]{2,5}$/i, '') + '.' + ext;
-  return { file: new File([blob], name, { type: blob.type }), bgRemoved };
+  return new File([blob], name, { type: blob.type });
 }
 
 // ─────────────────────────────────────────────
@@ -294,10 +217,7 @@ function renderProductImages() {
           <small>Colore e vista (fronte, retro, lato) si riconoscono dal nome del file o della cartella, es. <em>REGENT_NERO_FRONTE.jpg</em> o <em>NERO/back.png</em></small>
           <button type="button" class="pimg-folder-link" onclick="event.stopPropagation();document.getElementById('pimg-folder').click()">oppure scegli una cartella intera</button>
         </div>
-        <label class="pimg-option">
-          <input type="checkbox" ${imgRemoveBg() ? 'checked' : ''} onchange="setImgRemoveBg(this.checked)">
-          <span>Rimuovi lo sfondo · ritaglio sul soggetto, ${IMG_OUT.w}×${IMG_OUT.h} px, ${IMG_OUT.dpi} dpi, max 2 MB</span>
-        </label>
+        <div class="settings-section-hint" style="margin:0;">Le immagini vengono adattate a ${IMG_OUT.w}×${IMG_OUT.h} px, ${IMG_OUT.dpi} dpi, massimo 2 MB.</div>
         <!-- Fuori dal riquadro: il clic simulato non deve risalire e riaprire la scelta -->
         <input type="file" id="pimg-files" accept="image/*" multiple hidden onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.name })));this.value=''">
         <input type="file" id="pimg-folder" webkitdirectory directory multiple hidden onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name })));this.value=''">
@@ -331,21 +251,13 @@ async function addProductImages(items) {
   const ok = imgs.filter(x => x.file.size <= IMG_MAX_MB * 1024 * 1024);
   if (!ok.length) { showToast(grandi.length ? `Immagini troppo grandi (max ${IMG_MAX_MB} MB)` : 'Nessuna immagine trovata', 'error'); return; }
 
-  let caricate = 0, abbinate = 0, errori = 0, conSfondo = 0;
-  const removeBg = imgRemoveBg();
+  let caricate = 0, abbinate = 0, errori = 0;
   for (const [n, x] of ok.entries()) {
     const g = imgGuess(x.path, colori);
-    const step = (k) => {
-      ImgState.busy = `Immagine ${n + 1} di ${ok.length}: ` + (k === 'bg'
-        ? (_bgLib ? 'rimozione dello sfondo…' : 'preparo la rimozione dello sfondo (la prima volta scarica circa 80 MB)…')
-        : k === 'up' ? 'caricamento…' : 'ritaglio e ridimensionamento…');
-      renderProductImages();
-    };
+    ImgState.busy = `Caricamento immagine ${n + 1} di ${ok.length}…`;
+    renderProductImages();
     try {
-      const done = await processProductImage(x.file, removeBg, step);
-      if (removeBg && !done.bgRemoved) conSfondo++;
-      step('up');
-      await TCFactory.uploadProductImage(p.id, done.file, g.colore, g.vista);
+      await TCFactory.uploadProductImage(p.id, await processProductImage(x.file), g.colore, g.vista);
       caricate++;
       if (g.colore) abbinate++;
     } catch (e) { console.error('[immagini]', x.path, e); errori++; }
@@ -354,7 +266,6 @@ async function addProductImages(items) {
   const extra = [
     caricate - abbinate ? `${caricate - abbinate} da assegnare` : '',
     errori ? `${errori} non caricate` : '',
-    conSfondo ? `${conSfondo} senza rimozione dello sfondo` : '',
     grandi.length ? `${grandi.length} troppo grandi` : '',
     ignorati ? `${ignorati} non immagini ignorate` : '',
   ].filter(Boolean).join(', ');
