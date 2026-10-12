@@ -2103,16 +2103,14 @@ function renderSettingsDialog() {
             </div>
 
             <div style="font-size:0.8rem;font-weight:700;margin-top:6px;">Costo al metro</div>
-            <div class="settings-section-hint" style="margin:0;">Calcolato dai materiali: supporto + inchiostro White + inchiostro CMYK.</div>
+            <div class="settings-section-hint" style="margin:0;">Per ogni materiale: prezzo e metri che si stampano. CMYK sono 4 inchiostri, quindi il loro costo al metro conta × 4.</div>
             <div class="settings-fields" oninput="dtfCostPreview()">
-              <label for="dtf-supporto">Supporto (rotolo da ${DtfMisure.SUPPORTO_M} m)</label>
-              <span class="settings-field"><input id="dtf-supporto" class="form-input" inputmode="decimal" placeholder="0,00" value="${dtfSetVal(dtfCosti.supporto)}"><span>€</span></span>
-              <label for="dtf-white-eur">Ink White</label>
-              <span class="settings-field"><input id="dtf-white-eur" class="form-input" inputmode="decimal" placeholder="0,00" value="${dtfSetVal(dtfCosti.whiteEur)}"><span>€ · con 1 inchiostro</span>
-                <input id="dtf-white-m" class="form-input" inputmode="decimal" placeholder="0" aria-label="Metri stampati con 1 inchiostro White" value="${dtfSetVal(dtfCosti.whiteM)}"><span>m</span></span>
-              <label for="dtf-cmyk-eur">Ink CMYK</label>
-              <span class="settings-field"><input id="dtf-cmyk-eur" class="form-input" inputmode="decimal" placeholder="0,00" value="${dtfSetVal(dtfCosti.cmykEur)}"><span>€ · con 1 inchiostro</span>
-                <input id="dtf-cmyk-m" class="form-input" inputmode="decimal" placeholder="0" aria-label="Metri stampati con 1 inchiostro CMYK" value="${dtfSetVal(dtfCosti.cmykM)}"><span>m</span></span>
+              ${DtfMisure.MATERIALI.map(x => `
+              <label for="dtf-${x.id}-eur">${x.label}${x.molt ? ` <small style="font-weight:500;color:var(--text-muted);">× ${x.molt}</small>` : ''}</label>
+              <span class="settings-field dtf-mat">
+                <input id="dtf-${x.id}-eur" class="form-input" inputmode="decimal" placeholder="0,00" value="${dtfSetVal(dtfCosti[x.id].eur)}"><span>€ a ${x.per} ·</span>
+                <input id="dtf-${x.id}-m" class="form-input" inputmode="decimal" placeholder="0" aria-label="Metri stampati con 1 ${x.per} (${x.label})" value="${dtfSetVal(dtfCosti[x.id].m)}"><span>m con 1 ${x.per}</span>
+              </span>`).join('')}
               <span style="font-size:0.82rem;font-weight:600;color:var(--text-secondary);">Costo al metro</span>
               <strong id="dtf-cost-preview" style="font-size:0.95rem;">${DtfMisure.costoAlMetro() ? euro(DtfMisure.costoAlMetro()) : '—'}</strong>
             </div>
@@ -2275,17 +2273,13 @@ function dtfCostiFromForm() {
     const raw = String(document.getElementById(id)?.value || '').trim().replace(/\s|€/g, '').replace(',', '.');
     return raw ? Number(raw) : 0;
   };
-  return {
-    supporto: val('dtf-supporto'),
-    whiteEur: val('dtf-white-eur'), whiteM: val('dtf-white-m'),
-    cmykEur:  val('dtf-cmyk-eur'),  cmykM:  val('dtf-cmyk-m'),
-  };
+  return Object.fromEntries(DtfMisure.MATERIALI.map(x => [x.id, { eur: val(`dtf-${x.id}-eur`), m: val(`dtf-${x.id}-m`) }]));
 }
 function dtfCostPreview() {
   const el = document.getElementById('dtf-cost-preview');
   if (!el) return;
   const c = dtfCostiFromForm();
-  const m = Object.values(c).every(Number.isFinite) ? DtfMisure.costoAlMetro(c) : NaN;
+  const m = Object.values(c).every(v => Number.isFinite(v.eur) && Number.isFinite(v.m)) ? DtfMisure.costoAlMetro(c) : NaN;
   el.textContent = m > 0 ? euro(m) : '—';
 }
 
@@ -2296,17 +2290,17 @@ async function saveDtfSettings() {
   if (!(roll >= 10 && roll <= 500)) { showToast('Larghezza del rotolo non valida', 'error'); return; }
   if (!(margin >= 0 && margin <= 10)) { showToast('Margine non valido (da 0 a 10 cm)', 'error'); return; }
   if (!(speed > 0 && speed <= 200)) { showToast('Velocità della stampante non valida', 'error'); return; }
-  if (Object.values(costi).some(v => !(v >= 0 && v <= 100000))) { showToast('Costi dei materiali non validi', 'error'); return; }
-  if ((costi.whiteEur && !costi.whiteM) || (costi.cmykEur && !costi.cmykM)) { showToast('Indica quanti metri si stampano con 1 inchiostro', 'error'); return; }
+  if (Object.values(costi).some(v => !(v.eur >= 0 && v.eur <= 100000 && v.m >= 0 && v.m <= 1000000))) { showToast('Costi dei materiali non validi', 'error'); return; }
+  const senzaMetri = DtfMisure.MATERIALI.find(x => costi[x.id].eur && !costi[x.id].m);
+  if (senzaMetri) { showToast(`${senzaMetri.label}: indica quanti metri si stampano`, 'error'); document.getElementById(`dtf-${senzaMetri.id}-m`)?.focus(); return; }
   try {
     await TCFactory.setSetting('dtf_roll_cm', roll);
     await TCFactory.setSetting('dtf_margin_cm', margin);
     await TCFactory.setSetting('dtf_speed_mh', speed);
-    await TCFactory.setSetting('dtf_supporto_eur', costi.supporto);
-    await TCFactory.setSetting('dtf_ink_white_eur', costi.whiteEur);
-    await TCFactory.setSetting('dtf_ink_white_m', costi.whiteM);
-    await TCFactory.setSetting('dtf_ink_cmyk_eur', costi.cmykEur);
-    await TCFactory.setSetting('dtf_ink_cmyk_m', costi.cmykM);
+    for (const x of DtfMisure.MATERIALI) {
+      await TCFactory.setSetting(x.eurKey, costi[x.id].eur);
+      await TCFactory.setSetting(x.mKey, costi[x.id].m);
+    }
     const m = DtfMisure.costoAlMetro();
     showToast(`DTF salvato${m ? ` · costo al metro ${euro(m)}` : ''} (rotolo e margine valgono per i file aggiunti o modificati da ora)`);
   } catch { showToast('Salvataggio non riuscito', 'error'); }

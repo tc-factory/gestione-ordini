@@ -21,21 +21,23 @@ const DtfMisure = {
   // Interno: velocità della stampante (m/ora) e costo al metro (0 = non impostato)
   speedMh()     { const v = parseFloat(TCFactory._settings.dtf_speed_mh); return v > 0 ? v : 8; },
 
-  // Costi dei materiali (Impostazioni → DTF): rotolo di supporto da 100 m,
-  // inchiostro White e CMYK con i metri che si stampano con un inchiostro
-  SUPPORTO_M: 100,
+  // Costi dei materiali (Impostazioni → DTF): per ognuno il prezzo e i metri che ci si stampano.
+  // CMYK sono 4 inchiostri: il costo al metro di un inchiostro va moltiplicato per 4.
+  MATERIALI: [
+    { id: 'supporto', label: 'Supporto', eurKey: 'dtf_supporto_eur', mKey: 'dtf_supporto_m',   per: 'rotolo',      mDefault: 100 },
+    { id: 'white',    label: 'Ink White', eurKey: 'dtf_ink_white_eur', mKey: 'dtf_ink_white_m', per: 'inchiostro' },
+    { id: 'cmyk',     label: 'Ink CMYK',  eurKey: 'dtf_ink_cmyk_eur',  mKey: 'dtf_ink_cmyk_m',  per: 'inchiostro', molt: 4 },
+    { id: 'colla',    label: 'Colla',     eurKey: 'dtf_colla_eur',     mKey: 'dtf_colla_m',     per: 'confezione' },
+  ],
   costi() {
     const n = (k) => { const v = parseFloat(TCFactory._settings[k]); return v > 0 ? v : 0; };
-    return {
-      supporto: n('dtf_supporto_eur'),
-      whiteEur: n('dtf_ink_white_eur'), whiteM: n('dtf_ink_white_m'),
-      cmykEur:  n('dtf_ink_cmyk_eur'),  cmykM:  n('dtf_ink_cmyk_m'),
-    };
+    return Object.fromEntries(this.MATERIALI.map(x => [x.id, { eur: n(x.eurKey), m: n(x.mKey) || x.mDefault || 0 }]));
   },
   costoAlMetro(c = this.costi()) {
-    return c.supporto / this.SUPPORTO_M
-      + (c.whiteM ? c.whiteEur / c.whiteM : 0)
-      + (c.cmykM  ? c.cmykEur  / c.cmykM  : 0);
+    return this.MATERIALI.reduce((tot, x) => {
+      const v = c[x.id];
+      return tot + (v && v.m > 0 ? (x.molt || 1) * v.eur / v.m : 0);
+    }, 0);
   },
   // Costo al metro dai materiali; se non sono ancora inseriti vale il vecchio €/metro fisso
   costInterno() {

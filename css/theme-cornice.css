@@ -1067,3 +1067,7 @@ html.dark .dtf-item.dtf-urgent .dtf-cols, html.dark .dtf-item.dtf-urgent .dtf-fi
 /* DTF: scegli una cartella */
 .dtf-folder-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .dtf-folder-row span { font-size: 0.74rem; color: var(--text-muted); }
+
+/* Impostazioni DTF: materiali con prezzo e metri allineati in colonna */
+.settings-field.dtf-mat { display: grid; grid-template-columns: 110px 8.5em 110px auto; gap: 8px; }
+@media (max-width: 640px) { .settings-field.dtf-mat { grid-template-columns: 90px auto; } }
