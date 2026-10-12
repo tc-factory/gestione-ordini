@@ -90,24 +90,67 @@ const IMG_BG_KEY = 'tcf_img_rimuovi_sfondo';
 const imgRemoveBg = () => { try { return localStorage.getItem(IMG_BG_KEY) !== '0'; } catch { return true; } };
 const setImgRemoveBg = (on) => { try { localStorage.setItem(IMG_BG_KEY, on ? '1' : '0'); } catch {} };
 
-// Riquadro del soggetto: pixel non trasparenti, oppure diversi dal colore dell'angolo
+// Colore dello sfondo originale: mediana dei pixel sul bordo dell'immagine
+function imgBorderColor(data, w, h) {
+  const rs = [], gs = [], bs = [];
+  const take = (x, y) => { const i = (y * w + x) * 4; rs.push(data[i]); gs.push(data[i + 1]); bs.push(data[i + 2]); };
+  const step = Math.max(1, Math.floor((w + h) / 400));
+  for (let x = 0; x < w; x += step) { take(x, 0); take(x, h - 1); }
+  for (let y = 0; y < h; y += step) { take(0, y); take(w - 1, y); }
+  const med = (a) => a.sort((p, q) => p - q)[a.length >> 1];
+  return [med(rs), med(gs), med(bs)];
+}
+
+// Pulisce il ritaglio del modello:
+// 1. residui di sfondo attaccati al bordo (semi-trasparenti e del colore dello sfondo) → trasparenti
+// 2. trasparenze incerte: quasi invisibile → 0, quasi pieno → pieno
+// 3. alone sui bordi: si toglie il colore dello sfondo mescolato nei pixel semi-trasparenti
+function refineCutout(orig, cut, w, h) {
+  const bg = imgBorderColor(orig, w, h);
+  const dist = (i) => Math.abs(orig[i] - bg[0]) + Math.abs(orig[i + 1] - bg[1]) + Math.abs(orig[i + 2] - bg[2]);
+  const n = w * h;
+  const seen = new Uint8Array(n);
+  const stack = [];
+  const push = (p) => { if (!seen[p]) { seen[p] = 1; stack.push(p); } };
+  for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+  while (stack.length) {
+    const p = stack.pop(), i = p * 4;
+    if (cut[i + 3] >= 235 || dist(i) > 60) continue;   // soggetto: ci si ferma
+    cut[i + 3] = 0;
+    const x = p % w;
+    if (x > 0) push(p - 1); if (x < w - 1) push(p + 1);
+    if (p >= w) push(p - w); if (p < n - w) push(p + w);
+  }
+  for (let i = 0; i < cut.length; i += 4) {
+    let a = cut[i + 3];
+    a = a < 40 ? 0 : a > 215 ? 255 : Math.round((a - 40) * 255 / 175);
+    if (a > 0 && a < 255) {
+      const f = a / 255;
+      for (let k = 0; k < 3; k++) cut[i + k] = Math.max(0, Math.min(255, Math.round((orig[i + k] - bg[k] * (1 - f)) / f)));
+    }
+    cut[i + 3] = a;
+  }
+}
+
+// Riquadro del soggetto: pixel ben visibili (o diversi dal colore dello sfondo se non c'è trasparenza).
+// Righe e colonne con pochissimi pixel (granelli isolati) non contano.
 function imgContentBox(data, w, h) {
   let hasAlpha = false;
   for (let i = 3; i < data.length; i += 4 * 97) if (data[i] < 250) { hasAlpha = true; break; }
-  const [r0, g0, b0] = data;
+  const bg = imgBorderColor(data, w, h);
   const isContent = hasAlpha
-    ? (i) => data[i + 3] > 12
-    : (i) => Math.abs(data[i] - r0) + Math.abs(data[i + 1] - g0) + Math.abs(data[i + 2] - b0) > 36;
-  let x0 = w, y0 = h, x1 = -1, y1 = -1;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (isContent((y * w + x) * 4)) {
-        if (x < x0) x0 = x; if (x > x1) x1 = x;
-        if (y < y0) y0 = y; if (y > y1) y1 = y;
-      }
-    }
-  }
-  return x1 < 0 ? { x: 0, y: 0, w, h, hasAlpha } : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, hasAlpha };
+    ? (i) => data[i + 3] >= 128
+    : (i) => Math.abs(data[i] - bg[0]) + Math.abs(data[i + 1] - bg[1]) + Math.abs(data[i + 2] - bg[2]) > 36;
+  const rows = new Uint32Array(h), cols = new Uint32Array(w);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (isContent((y * w + x) * 4)) { rows[y]++; cols[x]++; }
+  const minR = Math.max(2, Math.round(w * 0.004)), minC = Math.max(2, Math.round(h * 0.004));
+  let y0 = 0, y1 = h - 1, x0 = 0, x1 = w - 1;
+  while (y0 < h && rows[y0] < minR) y0++;
+  while (y1 > y0 && rows[y1] < minR) y1--;
+  while (x0 < w && cols[x0] < minC) x0++;
+  while (x1 > x0 && cols[x1] < minC) x1--;
+  return y0 >= h || x0 >= w ? { x: 0, y: 0, w, h, hasAlpha } : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, hasAlpha };
 }
 
 // PNG: aggiunge il blocco pHYs con la risoluzione (dpi → pixel per metro), subito dopo IHDR
@@ -134,7 +177,7 @@ async function processProductImage(file, removeBg, onStep = () => {}) {
     try {
       onStep('bg');
       const lib = await loadBgLib();
-      src = await lib.removeBackground(file, { model: 'isnet_quint8', output: { format: 'image/png' } });
+      src = await lib.removeBackground(file, { model: 'isnet_fp16', output: { format: 'image/png' } });
       bgRemoved = true;
     } catch (e) { console.warn('[immagini] sfondo non rimosso', file.name, e); }
   }
@@ -143,6 +186,16 @@ async function processProductImage(file, removeBg, onStep = () => {}) {
   const work = new OffscreenCanvas(bmp.width, bmp.height);
   const wctx = work.getContext('2d', { willReadFrequently: true });
   wctx.drawImage(bmp, 0, 0);
+  if (bgRemoved) {
+    // Confronto con l'originale per togliere residui e alone di sfondo
+    const ob = await createImageBitmap(file);
+    const oc = new OffscreenCanvas(bmp.width, bmp.height);
+    const octx = oc.getContext('2d', { willReadFrequently: true });
+    octx.drawImage(ob, 0, 0, bmp.width, bmp.height);
+    const cut = wctx.getImageData(0, 0, bmp.width, bmp.height);
+    refineCutout(octx.getImageData(0, 0, bmp.width, bmp.height).data, cut.data, bmp.width, bmp.height);
+    wctx.putImageData(cut, 0, 0);
+  }
   const box = imgContentBox(wctx.getImageData(0, 0, bmp.width, bmp.height).data, bmp.width, bmp.height);
 
   // Soggetto adattato dentro 900×1200 e centrato; trasparente attorno se c'è trasparenza, altrimenti bianco
@@ -284,7 +337,7 @@ async function addProductImages(items) {
     const g = imgGuess(x.path, colori);
     const step = (k) => {
       ImgState.busy = `Immagine ${n + 1} di ${ok.length}: ` + (k === 'bg'
-        ? (_bgLib ? 'rimozione dello sfondo…' : 'preparo la rimozione dello sfondo (la prima volta scarica circa 40 MB)…')
+        ? (_bgLib ? 'rimozione dello sfondo…' : 'preparo la rimozione dello sfondo (la prima volta scarica circa 80 MB)…')
         : k === 'up' ? 'caricamento…' : 'ritaglio e ridimensionamento…');
       renderProductImages();
     };
