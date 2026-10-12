@@ -2201,3 +2201,5 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .pimg-row { display: flex; gap: 4px; align-items: center; }
 .pimg-row .form-select { flex: 1; min-width: 0; }
 .data-table td.cell-action { white-space: nowrap; }
+.pimg-option { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-secondary); cursor: pointer; }
+.pimg img { background: repeating-conic-gradient(color-mix(in srgb, var(--text-muted) 14%, transparent) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }

@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────
 
 // "Regent_Rosa-Chiaro FRONT.jpg" → "regent rosa chiaro front jpg"
-const imgNorm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+const imgNorm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .replace(/[^a-z0-9]+/g, ' ').trim();
 
 // Colori equivalenti (italiano / inglese / varianti di scrittura)
@@ -76,11 +76,102 @@ function imgGuess(path, colori) {
 }
 
 // ─────────────────────────────────────────────
+// ELABORAZIONE AL CARICAMENTO
+// Sfondo rimosso (modello AI nel browser), ritaglio sul soggetto,
+// 900×1200 px a 150 dpi, file di massimo 2 MB.
+// ─────────────────────────────────────────────
+
+const IMG_OUT = { w: 900, h: 1200, dpi: 150, maxBytes: 2 * 1024 * 1024 };
+const BG_LIB_URL = 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm';
+let _bgLib = null;
+const loadBgLib = () => (_bgLib = _bgLib || import(BG_LIB_URL).catch(e => { _bgLib = null; throw e; }));
+
+const IMG_BG_KEY = 'tcf_img_rimuovi_sfondo';
+const imgRemoveBg = () => { try { return localStorage.getItem(IMG_BG_KEY) !== '0'; } catch { return true; } };
+const setImgRemoveBg = (on) => { try { localStorage.setItem(IMG_BG_KEY, on ? '1' : '0'); } catch {} };
+
+// Riquadro del soggetto: pixel non trasparenti, oppure diversi dal colore dell'angolo
+function imgContentBox(data, w, h) {
+  let hasAlpha = false;
+  for (let i = 3; i < data.length; i += 4 * 97) if (data[i] < 250) { hasAlpha = true; break; }
+  const [r0, g0, b0] = data;
+  const isContent = hasAlpha
+    ? (i) => data[i + 3] > 12
+    : (i) => Math.abs(data[i] - r0) + Math.abs(data[i + 1] - g0) + Math.abs(data[i + 2] - b0) > 36;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (isContent((y * w + x) * 4)) {
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+  }
+  return x1 < 0 ? { x: 0, y: 0, w, h, hasAlpha } : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, hasAlpha };
+}
+
+// PNG: aggiunge il blocco pHYs con la risoluzione (dpi → pixel per metro), subito dopo IHDR
+const _crcTable = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const _crc32 = (bytes) => { let c = 0xFFFFFFFF; for (const b of bytes) c = _crcTable[(c ^ b) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+async function pngWithDpi(blob, dpi) {
+  const src = new Uint8Array(await blob.arrayBuffer());
+  const ppm = Math.round(dpi / 0.0254);
+  const chunk = new Uint8Array(21);
+  const dv = new DataView(chunk.buffer);
+  dv.setUint32(0, 9);
+  chunk.set([0x70, 0x48, 0x59, 0x73], 4);           // "pHYs"
+  dv.setUint32(8, ppm); dv.setUint32(12, ppm); chunk[16] = 1;   // unità: metro
+  dv.setUint32(17, _crc32(chunk.subarray(4, 17)));
+  const at = 8 + 25;                                 // firma + IHDR
+  const out = new Uint8Array(src.length + 21);
+  out.set(src.subarray(0, at)); out.set(chunk, at); out.set(src.subarray(at), at + 21);
+  return new Blob([out], { type: 'image/png' });
+}
+
+async function processProductImage(file, removeBg, onStep = () => {}) {
+  let src = file, bgRemoved = false;
+  if (removeBg) {
+    try {
+      onStep('bg');
+      const lib = await loadBgLib();
+      src = await lib.removeBackground(file, { model: 'isnet_quint8', output: { format: 'image/png' } });
+      bgRemoved = true;
+    } catch (e) { console.warn('[immagini] sfondo non rimosso', file.name, e); }
+  }
+  onStep('resize');
+  const bmp = await createImageBitmap(src);
+  const work = new OffscreenCanvas(bmp.width, bmp.height);
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+  wctx.drawImage(bmp, 0, 0);
+  const box = imgContentBox(wctx.getImageData(0, 0, bmp.width, bmp.height).data, bmp.width, bmp.height);
+
+  // Soggetto adattato dentro 900×1200 e centrato; trasparente attorno se c'è trasparenza, altrimenti bianco
+  const out = new OffscreenCanvas(IMG_OUT.w, IMG_OUT.h);
+  const ctx = out.getContext('2d');
+  if (!box.hasAlpha) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, IMG_OUT.w, IMG_OUT.h); }
+  const scale = Math.min(IMG_OUT.w / box.w, IMG_OUT.h / box.h);
+  const dw = Math.round(box.w * scale), dh = Math.round(box.h * scale);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(work, box.x, box.y, box.w, box.h, Math.round((IMG_OUT.w - dw) / 2), Math.round((IMG_OUT.h - dh) / 2), dw, dh);
+
+  // PNG a 150 dpi; se supera 2 MB si passa a WebP (mantiene la trasparenza) abbassando la qualità
+  let blob = await pngWithDpi(await out.convertToBlob({ type: 'image/png' }), IMG_OUT.dpi);
+  let ext = 'png';
+  for (let q = 0.92; blob.size > IMG_OUT.maxBytes && q >= 0.5; q -= 0.1) {
+    blob = await out.convertToBlob({ type: 'image/webp', quality: q });
+    ext = 'webp';
+  }
+  const name = file.name.replace(/\.[a-z0-9]{2,5}$/i, '') + '.' + ext;
+  return { file: new File([blob], name, { type: blob.type }), bgRemoved };
+}
+
+// ─────────────────────────────────────────────
 // FINESTRA IMMAGINI
 // ─────────────────────────────────────────────
 
 const ImgState = { productId: null, images: [], urls: {}, busy: '' };
-const IMG_MAX_MB = 15;
+const IMG_MAX_MB = 40;   // file originale: viene comunque ridotto a 900×1200 e max 2 MB
 
 // Sezione Immagini dentro la scheda del prodotto (#pf-images)
 async function openProductImages(productId) {
@@ -150,6 +241,10 @@ function renderProductImages() {
           <small>Colore e vista (fronte, retro, lato) si riconoscono dal nome del file o della cartella, es. <em>REGENT_NERO_FRONTE.jpg</em> o <em>NERO/back.png</em></small>
           <button type="button" class="pimg-folder-link" onclick="event.stopPropagation();document.getElementById('pimg-folder').click()">oppure scegli una cartella intera</button>
         </div>
+        <label class="pimg-option">
+          <input type="checkbox" ${imgRemoveBg() ? 'checked' : ''} onchange="setImgRemoveBg(this.checked)">
+          <span>Rimuovi lo sfondo · ritaglio sul soggetto, ${IMG_OUT.w}×${IMG_OUT.h} px, ${IMG_OUT.dpi} dpi, max 2 MB</span>
+        </label>
         <!-- Fuori dal riquadro: il clic simulato non deve risalire e riaprire la scelta -->
         <input type="file" id="pimg-files" accept="image/*" multiple hidden onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.name })));this.value=''">
         <input type="file" id="pimg-folder" webkitdirectory directory multiple hidden onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name })));this.value=''">
@@ -183,13 +278,21 @@ async function addProductImages(items) {
   const ok = imgs.filter(x => x.file.size <= IMG_MAX_MB * 1024 * 1024);
   if (!ok.length) { showToast(grandi.length ? `Immagini troppo grandi (max ${IMG_MAX_MB} MB)` : 'Nessuna immagine trovata', 'error'); return; }
 
-  let caricate = 0, abbinate = 0, errori = 0;
+  let caricate = 0, abbinate = 0, errori = 0, conSfondo = 0;
+  const removeBg = imgRemoveBg();
   for (const [n, x] of ok.entries()) {
-    ImgState.busy = `Caricamento ${n + 1} di ${ok.length}…`;
-    renderProductImages();
     const g = imgGuess(x.path, colori);
+    const step = (k) => {
+      ImgState.busy = `Immagine ${n + 1} di ${ok.length}: ` + (k === 'bg'
+        ? (_bgLib ? 'rimozione dello sfondo…' : 'preparo la rimozione dello sfondo (la prima volta scarica circa 40 MB)…')
+        : k === 'up' ? 'caricamento…' : 'ritaglio e ridimensionamento…');
+      renderProductImages();
+    };
     try {
-      await TCFactory.uploadProductImage(p.id, x.file, g.colore, g.vista);
+      const done = await processProductImage(x.file, removeBg, step);
+      if (removeBg && !done.bgRemoved) conSfondo++;
+      step('up');
+      await TCFactory.uploadProductImage(p.id, done.file, g.colore, g.vista);
       caricate++;
       if (g.colore) abbinate++;
     } catch (e) { console.error('[immagini]', x.path, e); errori++; }
@@ -198,6 +301,7 @@ async function addProductImages(items) {
   const extra = [
     caricate - abbinate ? `${caricate - abbinate} da assegnare` : '',
     errori ? `${errori} non caricate` : '',
+    conSfondo ? `${conSfondo} senza rimozione dello sfondo` : '',
     grandi.length ? `${grandi.length} troppo grandi` : '',
     ignorati ? `${ignorati} non immagini ignorate` : '',
   ].filter(Boolean).join(', ');
