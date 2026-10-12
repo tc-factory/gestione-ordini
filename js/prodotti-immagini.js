@@ -78,10 +78,10 @@ function imgGuess(path, colori) {
 // ─────────────────────────────────────────────
 // ELABORAZIONE AL CARICAMENTO
 // Immagine intera (niente scontorno né ritaglio) adattata in 900×1200 px,
-// 150 dpi, file di massimo 2 MB. Lo spazio attorno prende il colore del bordo della foto.
+// 150 dpi, file di massimo 1 MB. Lo spazio attorno prende il colore del bordo della foto.
 // ─────────────────────────────────────────────
 
-const IMG_OUT = { w: 900, h: 1200, dpi: 150, maxBytes: 2 * 1024 * 1024 };
+const IMG_OUT = { w: 900, h: 1200, dpi: 150, maxBytes: 1 * 1024 * 1024 };
 
 // Colore del bordo della foto: mediana dei pixel sul contorno
 function imgBorderColor(data, w, h) {
@@ -131,10 +131,10 @@ async function processProductImage(file) {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(bmp, Math.round((IMG_OUT.w - dw) / 2), Math.round((IMG_OUT.h - dh) / 2), dw, dh);
 
-  // PNG a 150 dpi; se supera 2 MB si passa a WebP (mantiene la trasparenza) abbassando la qualità
+  // PNG a 150 dpi; se supera 1 MB si passa a WebP (mantiene la trasparenza) abbassando la qualità
   let blob = await pngWithDpi(await out.convertToBlob({ type: 'image/png' }), IMG_OUT.dpi);
   let ext = 'png';
-  for (let q = 0.92; blob.size > IMG_OUT.maxBytes && q >= 0.5; q -= 0.1) {
+  for (let q = 0.92; blob.size > IMG_OUT.maxBytes && q >= 0.3; q -= 0.1) {
     blob = await out.convertToBlob({ type: 'image/webp', quality: q });
     ext = 'webp';
   }
@@ -147,7 +147,7 @@ async function processProductImage(file) {
 // ─────────────────────────────────────────────
 
 const ImgState = { productId: null, images: [], urls: {}, busy: '' };
-const IMG_MAX_MB = 40;   // file originale: viene comunque ridotto a 900×1200 e max 2 MB
+const IMG_MAX_MB = 40;   // file originale: viene comunque ridotto a 900×1200 e max 1 MB
 
 // Sezione Immagini dentro la scheda del prodotto (#pf-images)
 async function openProductImages(productId) {
@@ -217,7 +217,7 @@ function renderProductImages() {
           <small>Colore e vista (fronte, retro, lato) si riconoscono dal nome del file o della cartella, es. <em>REGENT_NERO_FRONTE.jpg</em> o <em>NERO/back.png</em></small>
           <button type="button" class="pimg-folder-link" onclick="event.stopPropagation();document.getElementById('pimg-folder').click()">oppure scegli una cartella intera</button>
         </div>
-        <div class="settings-section-hint" style="margin:0;">Le immagini vengono adattate a ${IMG_OUT.w}×${IMG_OUT.h} px, ${IMG_OUT.dpi} dpi, massimo 2 MB.</div>
+        <div class="settings-section-hint" style="margin:0;">Le immagini vengono adattate a ${IMG_OUT.w}×${IMG_OUT.h} px, ${IMG_OUT.dpi} dpi, massimo 1 MB.</div>
         <!-- Fuori dal riquadro: il clic simulato non deve risalire e riaprire la scelta -->
         <input type="file" id="pimg-files" accept="image/*" multiple hidden onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.name })));this.value=''">
         <input type="file" id="pimg-folder" webkitdirectory directory multiple hidden onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name })));this.value=''">
