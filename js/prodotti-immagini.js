@@ -1,0 +1,230 @@
+/**
+ * T&C Factory — Immagini dei prodotti
+ * Una o più immagini per colore, con vista fronte / retro / lato.
+ * Si caricano più file o un'intera cartella (anche trascinandola): colore e vista
+ * si riconoscono dal nome del file e delle cartelle, il resto si assegna a mano.
+ */
+
+// ─────────────────────────────────────────────
+// RICONOSCIMENTO DAL NOME DEL FILE
+// ─────────────────────────────────────────────
+
+// "Regent_Rosa-Chiaro FRONT.jpg" → "regent rosa chiaro front jpg"
+const imgNorm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/[^a-z0-9]+/g, ' ').trim();
+
+// Colori equivalenti (italiano / inglese / varianti di scrittura)
+const IMG_COLOR_GROUPS = [
+  ['nero', 'nera', 'black', 'noir'],
+  ['bianco', 'bianca', 'white', 'blanc', 'blank white'],
+  ['grigio', 'grey', 'gray'],
+  ['grigio scuro', 'dark grey', 'dark gray', 'antracite', 'anthracite', 'charcoal'],
+  ['grigio chiaro', 'light grey', 'light gray'],
+  ['grigio melange', 'grey melange', 'gray melange', 'heather grey', 'sport grey', 'melange'],
+  ['blu', 'blue'],
+  ['navy', 'blu navy', 'navy blue', 'blu notte', 'light navy'],
+  ['royal', 'blu royal', 'royal blue', 'blu reale'],
+  ['azzurro', 'celeste', 'light blue', 'sky blue', 'sky'],
+  ['rosso', 'rossa', 'red'],
+  ['bordeaux', 'bordo', 'burgundy', 'maroon', 'wine'],
+  ['verde', 'green'],
+  ['verde militare', 'army', 'military green', 'army green'],
+  ['oliva', 'olive', 'verde oliva'],
+  ['verde bottiglia', 'bottle green', 'forest green'],
+  ['giallo', 'gialla', 'yellow'],
+  ['arancione', 'arancio', 'orange'],
+  ['rosa', 'pink'],
+  ['fucsia', 'fuchsia'],
+  ['viola', 'purple'],
+  ['lilla', 'lilac', 'liliac', 'lavanda', 'lavender'],
+  ['marrone', 'brown', 'chocolate', 'cioccolato'],
+  ['beige', 'sand', 'sabbia'],
+  ['kaki', 'khaki'],
+  ['panna', 'off white', 'ecru', 'natural', 'naturale', 'crema', 'cream'],
+  ['turchese', 'turquoise'],
+];
+
+// Tutti i modi in cui un colore del prodotto può comparire nel nome del file
+function imgColorNames(colore) {
+  const n = imgNorm(colore);
+  const names = new Set([n]);
+  for (const g of IMG_COLOR_GROUPS) if (g.includes(n)) g.forEach(x => names.add(x));
+  return [...names].filter(Boolean);
+}
+
+const IMG_VIEWS = {
+  fronte: ['fronte', 'front', 'frontale', 'davanti', 'avanti', 'anteriore', 'fr'],
+  retro:  ['retro', 'back', 'dietro', 'posteriore', 'rear', 'bk'],
+  lato:   ['lato', 'side', 'laterale', 'fianco', 'profilo', 'left', 'right', 'sx', 'dx'],
+};
+const IMG_VIEW_LABEL = { fronte: 'Fronte', retro: 'Retro', lato: 'Lato', '': 'Altra' };
+
+// Colore (tra quelli del prodotto) e vista dal percorso del file.
+// Prima il nome del file, poi le cartelle (dalla più vicina); vince la corrispondenza più lunga.
+function imgGuess(path, colori) {
+  const parts = path.replace(/\.[a-z0-9]{2,5}$/i, '').split('/').reverse().map(p => ` ${imgNorm(p)} `);
+  const find = (test) => { for (const t of parts) { const r = test(t); if (r) return r; } return ''; };
+  const colore = find(text => {
+    let hit = '', best = 0;
+    for (const c of colori) for (const name of imgColorNames(c)) {
+      if (name.length > best && text.includes(` ${name} `)) { hit = c; best = name.length; }
+    }
+    return hit;
+  });
+  const vista = find(text => Object.keys(IMG_VIEWS).find(v => IMG_VIEWS[v].some(w => text.includes(` ${w} `))));
+  return { colore, vista };
+}
+
+// ─────────────────────────────────────────────
+// FINESTRA IMMAGINI
+// ─────────────────────────────────────────────
+
+const ImgState = { productId: null, images: [], urls: {}, busy: '' };
+const IMG_MAX_MB = 15;
+
+async function openProductImages(productId) {
+  const p = TCFactory.getProduct(productId);
+  if (!p) return;
+  Object.assign(ImgState, { productId, images: [], urls: {}, busy: 'Caricamento…' });
+  const modal = document.getElementById('product-img-modal');
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('product-img-modal'); };
+  renderProductImages();
+  await reloadProductImages();
+}
+
+async function reloadProductImages() {
+  try {
+    ImgState.images = await TCFactory.getProductImages(ImgState.productId);
+    ImgState.urls = ImgState.images.length ? await TCFactory.productImageUrls(ImgState.images.map(i => i.path)) : {};
+    ImgState.busy = '';
+  } catch (e) {
+    console.error('[immagini]', e);
+    ImgState.busy = 'Impossibile caricare le immagini';
+  }
+  renderProductImages();
+}
+
+function renderProductImages() {
+  const p = TCFactory.getProduct(ImgState.productId);
+  const modal = document.getElementById('product-img-modal');
+  if (!p || !modal) return;
+  const colori = modSplitList(p.colori);
+  const known = new Set(colori.map(c => c.toLowerCase()));
+  const groups = [...colori, ''].map(c => ({
+    colore: c,
+    imgs: ImgState.images.filter(i => c ? i.colore.toLowerCase() === c.toLowerCase() : !known.has(i.colore.toLowerCase())),
+  })).filter(g => g.colore || g.imgs.length);
+  const order = { fronte: 0, retro: 1, lato: 2, '': 3 };
+
+  const thumb = (img) => `
+    <figure class="pimg">
+      <a href="${escapeHtml(ImgState.urls[img.path] || '#')}" target="_blank" rel="noopener" title="${escapeHtml(img.nome_file)}">
+        <img src="${escapeHtml(ImgState.urls[img.path] || '')}" alt="${escapeHtml(`${img.colore || 'Senza colore'} · ${IMG_VIEW_LABEL[img.vista]}`)}" loading="lazy">
+      </a>
+      <figcaption>
+        <select class="form-select" aria-label="Colore" onchange="setProductImage('${img.id}', { colore: this.value })">
+          <option value="">— Da assegnare —</option>
+          ${colori.map(c => `<option value="${escapeHtml(c)}" ${c.toLowerCase() === img.colore.toLowerCase() ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+        </select>
+        <div class="pimg-row">
+          <select class="form-select" aria-label="Vista" onchange="setProductImage('${img.id}', { vista: this.value })">
+            ${Object.entries(IMG_VIEW_LABEL).map(([v, l]) => `<option value="${v}" ${v === img.vista ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="removeProductImage('${img.id}')" aria-label="Elimina immagine" title="Elimina">${Icons.trash(14)}</button>
+        </div>
+      </figcaption>
+    </figure>`;
+
+  modal.innerHTML = `
+    <div class="modal" style="max-width:920px;" role="dialog" aria-modal="true" aria-labelledby="pi2-title">
+      <div class="modal-header">
+        <h2 id="pi2-title">Immagini · ${escapeHtml(TCFactory.productLabel(p))}</h2>
+        <button class="btn-icon" onclick="closeModal('product-img-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:14px;">
+        <div class="pimg-drop" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="productImagesDrop(event)">
+          <div>
+            <strong>Trascina qui immagini o cartelle</strong>
+            <small>Colore e vista (fronte, retro, lato) si riconoscono dal nome del file o della cartella, es. <em>REGENT_NERO_FRONTE.jpg</em> o <em>NERO/back.png</em></small>
+          </div>
+          <div class="pimg-drop-actions">
+            <label class="btn btn-secondary btn-sm">${Icons.plus(13)} Immagini
+              <input type="file" accept="image/*" multiple class="sr-only" onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.name })));this.value=''">
+            </label>
+            <label class="btn btn-secondary btn-sm">${Icons.archive(13)} Cartella
+              <input type="file" webkitdirectory directory multiple class="sr-only" onchange="addProductImages([...this.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name })));this.value=''">
+            </label>
+          </div>
+        </div>
+        ${ImgState.busy ? `<div class="settings-section-hint" style="margin:0;" role="status">${escapeHtml(ImgState.busy)}</div>` : ''}
+        ${!colori.length ? `<div class="import-note">Questo prodotto non ha colori: le immagini restano "da assegnare". Aggiungi i colori nella scheda del prodotto per abbinarle.</div>` : ''}
+        ${groups.map(g => `
+          <section class="pimg-group">
+            <h3>${g.colore ? escapeHtml(g.colore) : 'Da assegnare'} <small>${g.imgs.length || 'nessuna immagine'}</small></h3>
+            ${g.imgs.length ? `<div class="pimg-grid">${[...g.imgs].sort((a, b) => order[a.vista] - order[b.vista]).map(thumb).join('')}</div>` : ''}
+          </section>`).join('')}
+      </div>
+    </div>`;
+}
+
+async function productImagesDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('over');
+  // Le voci vanno prese subito: dopo il primo await il trascinamento non è più leggibile
+  const entries = [...(e.dataTransfer?.items || [])].map(i => i.kind === 'file' && i.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.length) return addProductImages([...(e.dataTransfer?.files || [])].map(f => ({ file: f, path: f.name })));
+  const out = [];
+  for (const en of entries) await dtfReadEntry(en, out);   // legge anche le sottocartelle
+  addProductImages(out);
+}
+
+async function addProductImages(items) {
+  const p = TCFactory.getProduct(ImgState.productId);
+  if (!p || !items.length) return;
+  const colori = modSplitList(p.colori);
+  const imgs = items.filter(x => /^image\//.test(x.file.type) || /\.(jpe?g|png|webp|gif|avif|heic)$/i.test(x.file.name));
+  const ignorati = items.length - imgs.length;
+  const grandi = imgs.filter(x => x.file.size > IMG_MAX_MB * 1024 * 1024);
+  const ok = imgs.filter(x => x.file.size <= IMG_MAX_MB * 1024 * 1024);
+  if (!ok.length) { showToast(grandi.length ? `Immagini troppo grandi (max ${IMG_MAX_MB} MB)` : 'Nessuna immagine trovata', 'error'); return; }
+
+  let caricate = 0, abbinate = 0, errori = 0;
+  for (const [n, x] of ok.entries()) {
+    ImgState.busy = `Caricamento ${n + 1} di ${ok.length}…`;
+    renderProductImages();
+    const g = imgGuess(x.path, colori);
+    try {
+      await TCFactory.uploadProductImage(p.id, x.file, g.colore, g.vista);
+      caricate++;
+      if (g.colore) abbinate++;
+    } catch (e) { console.error('[immagini]', x.path, e); errori++; }
+  }
+  await reloadProductImages();
+  const extra = [
+    caricate - abbinate ? `${caricate - abbinate} da assegnare` : '',
+    errori ? `${errori} non caricate` : '',
+    grandi.length ? `${grandi.length} troppo grandi` : '',
+    ignorati ? `${ignorati} non immagini ignorate` : '',
+  ].filter(Boolean).join(', ');
+  showToast(`${caricate} ${caricate === 1 ? 'immagine caricata' : 'immagini caricate'}, ${abbinate} abbinate a un colore${extra ? ` · ${extra}` : ''}`, errori ? 'error' : 'success');
+}
+
+async function setProductImage(id, fields) {
+  try {
+    await TCFactory.updateProductImage(id, fields);
+    const img = ImgState.images.find(i => i.id === id);
+    if (img) Object.assign(img, fields);
+    renderProductImages();
+  } catch (e) { showToast('Errore — riprova', 'error'); }
+}
+
+async function removeProductImage(id) {
+  const img = ImgState.images.find(i => i.id === id);
+  if (!img || !confirm('Eliminare questa immagine?')) return;
+  try {
+    await TCFactory.deleteProductImage(img);
+    ImgState.images = ImgState.images.filter(i => i.id !== id);
+    renderProductImages();
+  } catch (e) { showToast('Errore eliminazione immagine', 'error'); }
+}

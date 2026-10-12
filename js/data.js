@@ -916,6 +916,56 @@ const TCFactory = {
     this._notify();
   },
 
+  // Immagini dei prodotti (una o più per colore, con vista fronte/retro/lato).
+  // File nel bucket privato "prodotti", aperti con link temporanei.
+  _imgUrls: new Map(),   // path → { url, until }
+
+  async getProductImages(productId) {
+    const { data, error } = await supabaseClient.from('product_images').select('*').eq('product_id', productId).order('created_at');
+    if (error) throw error;
+    return data || [];
+  },
+
+  async uploadProductImage(productId, file, colore = '', vista = '') {
+    const ext = (file.name.match(/\.([a-z0-9]{2,5})$/i)?.[1] || 'jpg').toLowerCase();
+    const path = `${productId}/${crypto.randomUUID()}.${ext}`;
+    const up = await supabaseClient.storage.from('prodotti').upload(path, file, { contentType: file.type || undefined });
+    if (up.error) throw up.error;
+    const { data, error } = await supabaseClient.from('product_images').insert({
+      product_id: productId, colore, vista, path, nome_file: file.name.slice(0, 200),
+      created_by: window.TCAuth?.getNickname() || 'sistema',
+    }).select().single();
+    if (error) { await supabaseClient.storage.from('prodotti').remove([path]); throw error; }
+    return data;
+  },
+
+  async updateProductImage(id, fields) {
+    const patch = {};
+    if (fields.colore !== undefined) patch.colore = fields.colore;
+    if (fields.vista !== undefined) patch.vista = fields.vista;
+    const { error } = await supabaseClient.from('product_images').update(patch).eq('id', id);
+    if (error) throw error;
+  },
+
+  async deleteProductImage(img) {
+    const { error } = await supabaseClient.from('product_images').delete().eq('id', img.id);
+    if (error) throw error;
+    await supabaseClient.storage.from('prodotti').remove([img.path]);
+    this._imgUrls.delete(img.path);
+  },
+
+  // Link temporanei per più immagini insieme (valgono un'ora, riusati finché validi)
+  async productImageUrls(paths) {
+    const now = Date.now();
+    const missing = paths.filter(p => !(this._imgUrls.get(p)?.until > now + 60000));
+    if (missing.length) {
+      const { data, error } = await supabaseClient.storage.from('prodotti').createSignedUrls(missing, 3600);
+      if (error) throw error;
+      (data || []).forEach(d => { if (d.signedUrl) this._imgUrls.set(d.path, { url: d.signedUrl, until: now + 3600 * 1000 }); });
+    }
+    return Object.fromEntries(paths.map(p => [p, this._imgUrls.get(p)?.url || '']));
+  },
+
   // Fornitori dei prodotti (Prodotti → Fornitori)
   SUPPLIER_FIELDS: ['nome','referente','email','telefono','sito','note'],
 
