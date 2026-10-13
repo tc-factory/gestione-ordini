@@ -964,6 +964,17 @@ html.dark .dtf-item.dtf-urgent .dtf-stats { background: rgba(0, 0, 0, 0.2); }
 
 .of-lav { display: inline-flex; }
 .of-lav button { min-width: 110px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 0.78rem; }
+.of-lav-tipi { display: flex; flex-direction: column; gap: 8px; }
+.of-lav-tipi:not(:empty) { margin-top: 10px; }
+.of-lav-tipi-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.of-lav-tipi-label { min-width: 64px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.of-lav-tipi-empty { font-size: 0.78rem; color: var(--text-muted); }
+.of-lav-tipo { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); font-size: 0.8rem; font-weight: 600; cursor: pointer; user-select: none; transition: background var(--transition), color var(--transition); }
+.of-lav-tipo input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.of-lav-tipo::before { content: ''; width: 12px; height: 12px; border-radius: 4px; border: 1.5px solid currentColor; opacity: 0.6; }
+.of-lav-tipo:has(input:checked) { background: var(--brand-gold); border-color: var(--brand-gold); color: #fff; }
+.of-lav-tipo:has(input:checked)::before { opacity: 1; background: #fff; box-shadow: inset 0 0 0 2px var(--brand-gold); }
+.of-lav-tipo:has(input:focus-visible) { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
 
 .mod-input.mod-esterna { padding-right: 2px; font-size: 0.78rem; }
 

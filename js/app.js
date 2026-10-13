@@ -1326,6 +1326,8 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
   AppState.formLavNeutro  = TCFactory.isNeutro(order);
   AppState.formLavInterna = !AppState.formLavNeutro && isLavInterna(order);
   if (AppState.formLavNeutro) AppState.formLavEsterna = false;
+  // Tipi di lavorazione scelti per l'ordine (anche senza modulo d'ordine compilato)
+  AppState.formLavTipi = { interne: [...(mod.lavInterne || [])], esterne: [...(mod.lavEsterne || [])] };
   AppState.formClientId   = order?.clientId || defaultClientId || null;
   const clientName = !order && defaultClientId ? TCFactory.clientName(TCFactory.getClient(defaultClientId)) : '';
 
@@ -1385,6 +1387,7 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
             <button type="button" data-lav="esterna" aria-pressed="${AppState.formLavEsterna}" class="${AppState.formLavEsterna ? 'active' : ''}" onclick="ofToggleLav('esterna')">Esterna</button>
             <button type="button" data-lav="neutro" aria-pressed="${AppState.formLavNeutro}" class="${AppState.formLavNeutro ? 'active' : ''}" onclick="ofToggleLav('neutro')" title="Nessuna lavorazione: l'ordine va direttamente in Evasione">Neutro</button>
           </div>
+          <div class="of-lav-tipi" id="of-lav-tipi">${ofLavTipiHtml()}</div>
         </div>
 
         <!-- MODULO D'ORDINE -->
@@ -1641,6 +1644,41 @@ function ofRenderLav() {
     b.classList.toggle('active', !!on);
     b.setAttribute('aria-pressed', !!on);
   });
+  const tipi = document.getElementById('of-lav-tipi');
+  if (tipi) tipi.innerHTML = ofLavTipiHtml();
+}
+
+// Tipi di lavorazione dell'ordine: si spuntano sotto Interna / Esterna e smistano l'ordine
+// nelle schede (Interne → UV, Laser, Stampa, DTF; Esterne → per tipo) anche senza modulo d'ordine.
+function ofLavTipiHtml() {
+  const group = (kind, label) => {
+    const list = getLav(kind), sel = AppState.formLavTipi?.[kind] || [];
+    const gone = sel.filter(id => !list.some(l => l.id === id)).map(id => ({ id, nome: '(eliminata)' }));
+    return `
+      <div class="of-lav-tipi-row" role="group" aria-label="Tipi di lavorazione ${label.toLowerCase()}">
+        <span class="of-lav-tipi-label">${label}</span>
+        ${[...list, ...gone].map(l => `
+          <label class="of-lav-tipo">
+            <input type="checkbox" ${sel.includes(l.id) ? 'checked' : ''} onchange="ofToggleLavTipo('${kind}', '${escapeHtml(l.id)}', this.checked)">
+            <span>${escapeHtml(l.nome)}</span>
+          </label>`).join('')
+        || `<span class="of-lav-tipi-empty">Nessun tipo: aggiungili in Impostazioni → Lavorazioni</span>`}
+      </div>`;
+  };
+  return (AppState.formLavInterna && !AppState.formLavNeutro ? group('interne', 'Interna') : '')
+       + (AppState.formLavEsterna && !AppState.formLavNeutro ? group('esterne', 'Esterna') : '');
+}
+function ofToggleLavTipo(kind, id, on) {
+  const sel = AppState.formLavTipi[kind];
+  const i = sel.indexOf(id);
+  if (on && i < 0) sel.push(id);
+  if (!on && i >= 0) sel.splice(i, 1);
+}
+// Una riga del modulo con un tipo di lavorazione spunta anche quel tipo per l'ordine
+function ofAddLavTipo(kind, id) {
+  if (!id || AppState.formLavTipi[kind].includes(id)) return;
+  AppState.formLavTipi[kind].push(id);
+  ofRenderLav();
 }
 
 // Ordini e modulo d'ordine: tutto in MAIUSCOLO, come con il blocco maiuscole attivo
@@ -1851,6 +1889,9 @@ function isLavInterna(o) {
   const v = o.orderModule?.interna;
   return typeof v === 'boolean' ? v : !o.lavorazioneEsterna;
 }
+// Tipi di lavorazione spuntati nel form (Interna / Esterna), validi solo se l'ordine lo è
+const orderLavInterne = (o) => isLavInterna(o) ? (o?.orderModule?.lavInterne || []) : [];
+const orderLavEsterne = (o) => o?.lavorazioneEsterna && !TCFactory.isNeutro(o) ? (o?.orderModule?.lavEsterne || []) : [];
 
 function modRowEsterna(r, legacy = '✓') {
   if (r?.esterna) return lavEsternaName(r.esterna) || 'Esterna';
@@ -1879,6 +1920,7 @@ function storeModInterna(i, value) {
   r.interna = value;
   // Una riga interna rende interno l'ordine
   if (value && !AppState.formLavInterna) ofSetLav(false);
+  ofAddLavTipo('interne', value);
 }
 function storeModEsterna(i, value) {
   const r = AppState.formModuleRows[i];
@@ -1888,6 +1930,7 @@ function storeModEsterna(i, value) {
   r.lavEsterna = !!value;
   // Una riga esterna rende esterno l'ordine
   if (value && !AppState.formLavEsterna) ofSetLav(true);
+  ofAddLavTipo('esterne', value);
 }
 
 function removeModRow(i) {
@@ -1971,7 +2014,9 @@ async function submitOrderForm() {
         ['catalogo', 'codice', 'descrizione', 'colore', 'tg'].forEach(k => { if (typeof u[k] === 'string') u[k] = ofUpper(u[k]); });
         return u;
       }), acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna && !AppState.formLavNeutro, neutro: !!AppState.formLavNeutro,
-      descrizione: ofUpper((document.getElementById('of-descrizione')?.value || '').trim()) },
+      descrizione: ofUpper((document.getElementById('of-descrizione')?.value || '').trim()),
+      lavInterne: AppState.formLavInterna && !AppState.formLavNeutro ? [...AppState.formLavTipi.interne] : [],
+      lavEsterne: AppState.formLavEsterna && !AppState.formLavNeutro ? [...AppState.formLavTipi.esterne] : [] },
   };
   // Cliente collegato solo se il nome scritto è ancora quello del cliente scelto
   const linked = AppState.formClientId ? TCFactory.getClient(AppState.formClientId) : null;
