@@ -59,10 +59,10 @@ const dtfDone = (o) => !!o.stages?.dtfPronti?.done;
 function dtfLists() {
   const { order, removed } = dtfSettings();
   const removedAt = new Map(removed.map(r => [r.id, r.at]));
-  // Ordini interni con righe DTF, più quelli senza nessuna lavorazione interna indicata (ordini vecchi)
+  // Ordini interni con DTF (righe o tipo spuntato), più quelli senza nessuna lavorazione interna indicata (ordini vecchi)
   const dtfLav = interneLavId('interno');
   const internal = TCFactory.getOrders().filter(o => !o.deletedAt && isLavInterna(o) &&
-    (!interneRows(o).length || interneRows(o).some(r => r.interna === dtfLav)));
+    ((!interneRows(o).length && !orderLavInterne(o).length) || orderLavInterne(o).includes(dtfLav) || interneRows(o).some(r => r.interna === dtfLav)));
   const deadline = (o) => TCFactory.getEffectiveDeadline(o)?.date || '9999-12-31';
 
   // Da stampare: ordini attivi a lavorazione interna, DTF non ancora fatto, non rimossi
@@ -1017,8 +1017,8 @@ function interneOrders(section) {
   const lavId = interneLavId(section);
   return TCFactory.getOrders()
     .filter(o => !o.deletedAt && !o.archived && !TCFactory.isNeutro(o))
-    .map(o => ({ order: o, rows: interneRows(o).filter(r => r.interna === lavId) }))
-    .filter(x => x.rows.length);
+    .map(o => ({ order: o, rows: interneRows(o).filter(r => r.interna === lavId), tipo: orderLavInterne(o).includes(lavId) }))
+    .filter(x => x.rows.length || x.tipo);
 }
 
 function renderInterneLav(section) {
@@ -1053,7 +1053,7 @@ function renderInterneLav(section) {
           <span>${[orderDesc(o) ? escapeHtml(orderDesc(o)) : '', client && TCFactory.clientName(client) !== o.nome ? escapeHtml(TCFactory.clientName(client)) : '', o.tags.map(escapeHtml).join(', ')].filter(Boolean).join(' · ') || '&nbsp;'}</span>
         </button>
         <div class="est-rows" title="${escapeHtml(lines.join('\n'))}">
-          ${lines.length ? lines.slice(0, 2).map(l => `<span>${escapeHtml(l)}</span>`).join('') + (lines.length > 2 ? `<small>+${lines.length - 2} righe</small>` : '') : '<small>Righe senza dettagli</small>'}
+          ${lines.length ? lines.slice(0, 2).map(l => `<span>${escapeHtml(l)}</span>`).join('') + (lines.length > 2 ? `<small>+${lines.length - 2} righe</small>` : '') : `<small>${rows.length ? 'Righe senza dettagli' : 'Nessuna riga nel modulo'}</small>`}
         </div>
         ${done
           ? `<span class="est-done-date">${typeof fatta === 'string' ? 'Completata ' + fmt(fatta) : 'Completata'}</span>
@@ -1065,7 +1065,7 @@ function renderInterneLav(section) {
   root.innerHTML = `
     <div class="glass-card page-card dtf-box">
       <div class="dtf-box-head">
-        <div><h2>${s.label}</h2><p>Ordini con righe segnate <strong>${escapeHtml(getLavInterne().find(l => l.id === interneLavId(section))?.nome || s.lav.nome)}</strong> nella colonna INTERNA del modulo d'ordine</p></div>
+        <div><h2>${s.label}</h2><p>Ordini con lavorazione interna <strong>${escapeHtml(getLavInterne().find(l => l.id === interneLavId(section))?.nome || s.lav.nome)}</strong>, spuntata nell'ordine o nella colonna INTERNA del modulo d'ordine</p></div>
       </div>
       <div class="est-bar">
         <div class="segmented" role="tablist" aria-label="Stato">
@@ -1074,7 +1074,7 @@ function renderInterneLav(section) {
         </div>
       </div>
       ${items.length ? `<ol class="dtf-timeline">${items.map(item).join('')}</ol>`
-        : `<div class="empty-list">${done ? 'Nessun ordine completato' : `Nessun ordine da fare. Gli ordini compaiono qui quando una riga del modulo d'ordine ha INTERNA = ${escapeHtml(s.lav.nome)}.`}</div>`}
+        : `<div class="empty-list">${done ? 'Nessun ordine completato' : `Nessun ordine da fare. Gli ordini compaiono qui quando hanno la lavorazione interna ${escapeHtml(s.lav.nome)}.`}</div>`}
     </div>`;
 }
 

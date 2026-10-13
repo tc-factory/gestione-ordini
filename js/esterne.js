@@ -1,7 +1,7 @@
 /**
  * T&C Factory — Lavorazioni esterne
  * Ordini con lavorazione ESTERNA, divisi per tipo di lavorazione
- * (righe del modulo d'ordine con il menu "Esterna" compilato).
+ * (righe del modulo d'ordine con il menu "Esterna" compilato, o tipi spuntati nel form dell'ordine).
  * Le lavorazioni si creano in Impostazioni → Lavorazioni.
  * "Completata" usa la fase lavorazioneEsterna dell'ordine, la stessa della pill "Esterna" nella lista.
  */
@@ -26,6 +26,8 @@ function esterneGroups() {
       if (!byType.has(id)) byType.set(id, []);
       byType.get(id).push(r);
     });
+    // Tipi spuntati nel form dell'ordine (anche senza righe nel modulo)
+    orderLavEsterne(o).forEach(id => { if (!byType.has(id)) byType.set(id, []); });
     if (!byType.size && o.lavorazioneEsterna) byType.set(DA_SPECIFICARE, []);
     byType.forEach((rs, id) => add(id, id === DA_SPECIFICARE ? 'Da specificare' : (lavEsternaName(id) || 'Lavorazione eliminata'), o, rs));
   });
