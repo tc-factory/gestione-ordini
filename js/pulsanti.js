@@ -11,6 +11,8 @@
  *  - abilita:      cliccabile solo se { se: <condizione, vedi PULSANTI_ABILITA>, pulsante: <id> }
  *                  (vale solo per spuntare: togliere la spunta è sempre possibile)
  *  - attivo:       false = nascosto ovunque
+ *  - eliminato:    true = tolto dalle Impostazioni (resta salvato solo per non far ricomparire
+ *                  il pulsante automatico della sua lavorazione)
  * Etichette (app_settings.pulsanti_etichette): le colonne della lista ordini che raccolgono
  * i pulsanti, ognuna con le schede in cui compare (Attivi, Parziali, Evasione…).
  * Le lavorazioni interne/esterne delle Impostazioni hanno un pulsante automatico
@@ -108,8 +110,8 @@ const Pulsanti = {
   },
   // Tutti i pulsanti: quelli salvati + uno automatico per ogni lavorazione non ancora collegata
   all() {
-    const conf = this.config();
-    const linked = new Set(conf.map(p => this.linkKey(p)).filter(Boolean));
+    const conf = this.config().filter(p => !p.eliminato);
+    const linked = new Set(this.config().map(p => this.linkKey(p)).filter(Boolean));
     const dtf = this.dtfLavId();
     const auto = ['interne', 'esterne'].flatMap(kind => getLav(kind)
       .filter(l => !(kind === 'interne' && l.id === dtf) && !linked.has(`${kind}:${l.id}`))
@@ -117,6 +119,11 @@ const Pulsanti = {
     return [...conf, ...auto];
   },
   get(id) { return this.all().find(p => p.id === id) || null; },
+  // Elenco da salvare: i pulsanti + quelli eliminati (che restano come segnaposto)
+  salvabili(list) {
+    const ids = new Set(list.map(p => p.id));
+    return [...list.map(({ auto, ...p }) => p), ...this.config().filter(p => p.eliminato && !ids.has(p.id))];
+  },
   nome(p) {
     if (p.nome) return p.nome;
     const l = this.link(p);
@@ -283,7 +290,6 @@ function pulsantiSettingsHtml() {
 
   const card = (p, i, list) => {
     // Si eliminano quelli creati a mano o rimasti senza lavorazione; gli altri si disattivano
-    const removable = !PULSANTI_FISSI.has(p.id) && !p.auto && (p.id.startsWith('p-') || Pulsanti.orfano(p));
     const open = PulsantiOpen.has(p.id);
     const pid = escapeHtml(p.id);
     const sommario = [PULSANTI_RUOLI[p.ruolo || 'nessuno']?.label, p.collegamento ? 'collegato' : '', p.mostra && p.mostra !== 'sempre' ? 'condizionale' : '', p.abilita?.se ? 'con condizione' : '']
@@ -305,7 +311,7 @@ function pulsantiSettingsHtml() {
           <svg class="settings-block-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
         <label class="check-inline" title="Mostra il pulsante"><input type="checkbox" ${p.attivo !== false ? 'checked' : ''} onchange="pulsantiSet('${escapeHtml(p.id)}','attivo',this.checked)"> Attivo</label>
-        ${removable ? `<button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="pulsantiDelete('${escapeHtml(p.id)}')" aria-label="Elimina pulsante">${Icons.trash(15)}</button>` : ''}
+        <button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="pulsantiDelete('${escapeHtml(p.id)}')" aria-label="Elimina pulsante ${escapeHtml(Pulsanti.nome(p))}" title="Elimina pulsante">${Icons.trash(15)}</button>
       </div>
       ${Pulsanti.orfano(p) ? `<div class="settings-section-hint" style="margin:0;color:var(--priority-urgent);">La lavorazione collegata è stata eliminata: il pulsante non compare.</div>` : ''}
       <div class="pulsante-cfg-grid" id="pcfg-${pid}" ${open ? '' : 'hidden'}>
@@ -366,6 +372,10 @@ function pulsantiSettingsHtml() {
         <small>Compare in:</small>
         ${Object.entries(PULSANTI_SCHEDE).map(([v, l]) => `<label class="check-inline"><input type="checkbox" ${schede.includes(v) ? 'checked' : ''} onchange="etichetteScheda('${gid}','${v}',this.checked)"> ${l}</label>`).join('')}
       </div>
+      <form class="config-add-row" style="margin:0;" onsubmit="event.preventDefault();pulsantiAdd('${gid}')">
+        <input id="new-pulsante-${gid}" class="form-input" placeholder="Nuovo pulsante in ${escapeHtml(g.nome)}…" maxlength="30" aria-label="Nuovo pulsante in ${escapeHtml(g.nome)}">
+        <button type="submit" class="btn btn-secondary btn-icon" aria-label="Aggiungi pulsante in ${escapeHtml(g.nome)}">${Icons.plus()}</button>
+      </form>
       ${preview ? `<div class="pulsanti-preview" aria-label="Ordine nella lista ordini"><small>Nella lista ordini:</small>${preview}</div>` : ''}
       ${list.map((p, i) => card(p, i, list)).join('') || '<div class="settings-section-hint pulsanti-etichetta-vuota">Nessun pulsante: trascinane uno qui o sceglila come Etichetta di un pulsante.</div>'}
     </section>`;
@@ -378,13 +388,6 @@ function pulsantiSettingsHtml() {
       <input id="new-etichetta" class="form-input" placeholder="Nuova etichetta (es. Grafica, Controllo)" maxlength="30">
       <button type="submit" class="btn btn-secondary btn-icon" aria-label="Aggiungi etichetta">${Icons.plus()}</button>
     </form>
-    <form class="config-add-row" onsubmit="event.preventDefault();pulsantiAdd()">
-      <input id="new-pulsante" class="form-input" placeholder="Nuovo pulsante (es. Controllo qualità)" maxlength="30">
-      <select id="new-pulsante-col" class="form-select" aria-label="Etichetta" style="max-width:170px;">
-        ${gruppi.map(g => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.nome)}</option>`).join('')}
-      </select>
-      <button type="submit" class="btn btn-secondary btn-icon" aria-label="Aggiungi pulsante">${Icons.plus()}</button>
-    </form>
     <button type="button" class="btn btn-ghost btn-sm" style="align-self:flex-start;" onclick="pulsantiReset()">Ripristina pulsanti predefiniti</button>`;
 }
 
@@ -396,8 +399,8 @@ function pulsantiToggleOpen(id) {
 }
 
 // Salva l'elenco completo (i pulsanti automatici diventano normali alla prima modifica)
-async function pulsantiSave(list, msg) {
-  const clean = list.map(({ auto, ...p }) => p);
+async function pulsantiSave(list, msg, { reset = false } = {}) {
+  const clean = reset ? list : Pulsanti.salvabili(list);
   try { await TCFactory.setSetting(PULSANTI_KEY, clean); if (msg) showToast(msg); }
   catch { showToast('Salvataggio non riuscito', 'error'); }
   renderSettingsDialog();
@@ -518,7 +521,7 @@ async function etichetteDelete(id) {
   if (!confirm(`Eliminare l'etichetta "${g.nome}"?${n ? `\n\nI suoi ${n} pulsanti passano sotto "${rest[0].nome}".` : ''}`)) return;
   // I pulsanti dell'etichetta passano alla prima rimasta
   if (n) {
-    try { await TCFactory.setSetting(PULSANTI_KEY, Pulsanti.all().map(({ auto, ...p }) => Pulsanti.gruppoDi(p) === id ? { ...p, colonna: rest[0].id } : p)); }
+    try { await TCFactory.setSetting(PULSANTI_KEY, Pulsanti.salvabili(Pulsanti.all().map(p => Pulsanti.gruppoDi(p) === id ? { ...p, colonna: rest[0].id } : p))); }
     catch { showToast('Salvataggio non riuscito', 'error'); return; }
   }
   etichetteSave(rest, 'Etichetta eliminata');
@@ -534,20 +537,24 @@ function pulsantiMove(id, dir) {
   [list[i], list[j]] = [list[j], list[i]];
   pulsantiSave(list);
 }
-function pulsantiAdd() {
-  const nome = document.getElementById('new-pulsante')?.value.trim();
+// Nuovo pulsante dal campo in cima alla sua etichetta
+function pulsantiAdd(colonna) {
+  const nome = document.getElementById('new-pulsante-' + colonna)?.value.trim();
   if (!nome) return;
-  const colonna = document.getElementById('new-pulsante-col')?.value || Pulsanti.gruppi()[0].id;
   const id = 'p-' + Date.now().toString(36);
   PulsantiOpen.add(id);   // il pulsante appena creato si apre per sceglierne le regole
   pulsantiSave([...Pulsanti.all(), { id, nome, colonna, ruolo: 'nessuno', collegamento: '', mostra: 'sempre' }], `Aggiunto "${nome}"`);
 }
 function pulsantiDelete(id) {
   const p = Pulsanti.get(id);
-  if (!p || !confirm(`Eliminare il pulsante "${Pulsanti.nome(p)}"?\n\nLe spunte già date restano salvate negli ordini.`)) return;
-  pulsantiSave(Pulsanti.all().filter(x => x.id !== id).map(x => x.alt?.seNon === id ? { ...x, alt: null } : x), 'Pulsante eliminato');
+  if (!p) return;
+  const ruolo = p.ruolo && p.ruolo !== 'nessuno' ? `\n\nAttenzione: fa "${PULSANTI_RUOLI[p.ruolo]?.label}", senza di lui cambiano le schede in cui finiscono gli ordini.` : '';
+  if (!confirm(`Eliminare il pulsante "${Pulsanti.nome(p)}"?\n\nLe spunte già date restano salvate negli ordini; si può riavere con "Ripristina pulsanti predefiniti".${ruolo}`)) return;
+  // Pulsanti di base e delle lavorazioni restano come "eliminati", così il pulsante automatico non ricompare
+  const segnaposto = PULSANTI_FISSI.has(id) || Pulsanti.link(p) ? [{ ...p, eliminato: true }] : [];
+  pulsantiSave([...Pulsanti.all().filter(x => x.id !== id).map(x => x.alt?.seNon === id || x.abilita?.pulsante === id ? { ...x, alt: x.alt?.seNon === id ? null : x.alt, abilita: x.abilita?.pulsante === id ? null : x.abilita } : x), ...segnaposto], 'Pulsante eliminato');
 }
 function pulsantiReset() {
-  if (!confirm('Ripristinare i pulsanti predefiniti (Merce, DTF, Pronto, Esterna, Parziale, Evaso)?\n\nI pulsanti creati a mano verranno tolti; le spunte negli ordini restano.')) return;
-  pulsantiSave(PULSANTI_DEFAULT(), 'Pulsanti ripristinati');
+  if (!confirm('Ripristinare i pulsanti predefiniti (Merce, DTF, Pronto, Esterna, Parziale, Evaso)?\n\nI pulsanti creati a mano verranno tolti e quelli eliminati torneranno; le spunte negli ordini restano.')) return;
+  pulsantiSave(PULSANTI_DEFAULT(), 'Pulsanti ripristinati', { reset: true });
 }
