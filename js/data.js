@@ -231,13 +231,15 @@ const TCFactory = {
   isNeutro(o)               { return !!o?.orderModule?.neutro; },
   // Le schede dipendono dal ruolo dei pulsanti (Impostazioni → Pulsanti, js/pulsanti.js):
   // "Chiude la lavorazione" (Pronto), "Obbligatorio per l'evasione" (Merce), "Evade l'ordine" (Evaso)
-  getActiveOrders()         { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && !Pulsanti.chiusa(o)); },
+  // Attivi: lavorazione non chiusa, oppure chiusa ma manca un pulsante obbligatorio (es. Pronto senza Merce)
+  getActiveOrders()         { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && !Pulsanti.isEvaso(o)
+                                && (!Pulsanti.chiusa(o) || !Pulsanti.obbligatoriOk(o))); },
   // Parziali: lavorazione chiusa ma manca un pulsante obbligatorio (es. merce non completa).
-  // Non è più una scheda: questi ordini stanno in Evasione.
+  // Non è più una scheda: questi ordini restano in Attivi.
   getParziali()             { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && Pulsanti.chiusa(o) && !Pulsanti.obbligatoriOk(o) && !Pulsanti.isEvaso(o)); },
-  // Evasione: lavorazione chiusa (anche se manca un obbligatorio, es. merce parziale), non ancora evasi
+  // Evasione: lavorazione chiusa con tutti gli obbligatori, non ancora evasi
   getEvasioneOrders()       { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !Pulsanti.isEvaso(o)
-                                && (this.isNeutro(o) || Pulsanti.chiusa(o))); },
+                                && (this.isNeutro(o) || (Pulsanti.chiusa(o) && Pulsanti.obbligatoriOk(o)))); },
   // Compat (non più usato come tab)
   getPartialOrders()        { return this.getOrders().filter(o => !o.archived && o.stages?.speditoParzialmente?.done && !o.stages?.spedito?.done); },
   // Da riscuotere: evasi ma NON ancora pagati (il promemoria "hai spedito senza farti pagare")
