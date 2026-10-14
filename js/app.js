@@ -375,7 +375,7 @@ function renderOrderList() {
         <div class="orc-tags orc-hdr">Tipologia</div>
         ${sortHdr('data', 'Data creazione', 'orc-date')}
         ${sortHdr('scadenza', 'Scadenza', 'orc-deadline')}
-        <div class="orc-lav orc-hdr">${isEvasione ? 'Pronto' : 'Lavorazione'}</div>
+        <div class="orc-lav orc-hdr">${isEvasione ? escapeHtml(Pulsanti.nomeChiusura()) : 'Lavorazione'}</div>
         <div class="orc-eva orc-hdr">${isEvasione ? 'Evasione' : 'Spedizione'}</div>
         <div class="orc-files orc-hdr">Ordine</div>
         <div class="orc-payment orc-hdr">Pagamento</div>
@@ -495,51 +495,12 @@ function renderOrderRow(o) {
     : '<span style="color:var(--text-muted);">—</span>'}</div>`;
   const ordineCell   = `<div class="orc-files">${filesBtns}${filesExtra}${moduleBtn}</div>`;
 
-  // Etichette dei tipi di lavorazione (spuntati nel form o nelle righe del modulo)
-  const lavTipi = orderLavTipi(o);
-  // Pulsanti per tipo: si spuntano come le altre fasi (interne → schede UV/Laser/Stampa, esterne → Esterne).
-  // Il DTF interno ha già la sua pill "DTF".
-  const dtfLavId = typeof interneLavId === 'function' ? interneLavId('interno') : null;
-  const lavTipiTags = lavTipi.filter(t => !(t.kind === 'interne' && t.id === dtfLavId)).map(t => {
-    const date = lavTipoDone(o, t.kind, t.id);
-    return `<div class="stage-cell">
-      <button class="stage-pill lav-tipo ${t.kind} ${date ? 'done' : ''}" onclick="event.stopPropagation();toggleLavTipoInline('${o.id}','${t.kind}','${escapeHtml(t.id)}',${!date})"
-        title="Lavorazione ${t.kind === 'interne' ? 'interna' : 'esterna'} ${escapeHtml(t.nome)}${date ? ' completata' : ''}">${escapeHtml(t.nome)}</button>
-      <span class="pill-date">${typeof date === 'string' ? TCFactory.formatDate(date,{day:'2-digit',month:'2-digit'}) : ''}</span>
-    </div>`;
-  }).join('');
-
-  // Pill "Esterna" — visibile in tutti i tab se lavorazioneEsterna=true
-  const buildExternaPill = () => {
-    if (!o.lavorazioneEsterna || lavTipi.some(t => t.kind === 'esterne')) return '';
-    const externaStage = o.stages?.lavorazioneEsterna || { done: false };
-    return `<div class="stage-cell">
-      <button class="stage-pill ${externaStage.done?'done':''}"
-        onclick="event.stopPropagation();toggleStageInline('${o.id}','lavorazioneEsterna',${!externaStage.done})"
-        title="Lavorazione esterna completata">Esterna</button>
-      <span class="pill-date">${externaStage.done&&externaStage.date ? TCFactory.formatDate(externaStage.date,{day:'2-digit',month:'2-digit'}) : ''}</span>
-    </div>`;
-  };
+  // Pulsanti di avanzamento: configurati in Impostazioni → Pulsanti (js/pulsanti.js)
+  const lavPills = pulsantiPills(o, 'lavorazione');
+  const evaPills = pulsantiPills(o, 'spedizione');
 
   // ── ATTIVI: solo Lavorazione, nessuna Spedizione ──────────────────────
   if (view === 'active') {
-    const isMerceDone = !!o.stages?.merceCompleta?.done;
-    const lavPills = LAVORAZIONE_DEFS.map(s => {
-      const done  = o.stages?.[s.id]?.done;
-      const stage = o.stages?.[s.id];
-      // Se merce NON completa, "Pronto" diventa "Parziale"
-      const label = (s.id === 'ordineStampato' && !isMerceDone) ? 'Parziale' : s.shortLabel;
-      const stDate = (s.id === 'ordineStampato' && done && stage?.date)
-        ? TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'}) : '';
-      return `<div class="stage-cell">
-        <button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${label}</button>
-        <span class="pill-date">${stDate||''}</span>
-      </div>`;
-    }).join('');
-
-    // Pill "Esterna" condizionale (solo se lavorazioneEsterna=true sull'ordine)
-    const externaPill = buildExternaPill();
-
     return `
       <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
         onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
@@ -549,31 +510,18 @@ function renderOrderRow(o) {
           <div class="orc-tags">${tagPills}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           ${scadenzaCell}
-          <div class="orc-lav orc-pills">${lavPills}${externaPill}${lavTipiTags}</div>
+          <div class="orc-lav orc-pills">${lavPills}</div>
           ${ordineCell}
           ${paymentCell}
         </div>
       </div>`;
   }
 
-  // ── EVASIONE: Data stampato + Parziale/Evaso pills con date ─────────
+  // ── EVASIONE: data di chiusura lavorazione + pulsanti "solo spunta" + Spedizione ─────────
   if (view === 'evasione') {
-    const stampatoDate = o.stages?.ordineStampato?.date
-      ? TCFactory.formatDate(o.stages.ordineStampato.date, {day:'2-digit',month:'long'})
-      : '—';
-
-    const evaPills = EVASIONE_DEFS.map(s => {
-      const done      = o.stages?.[s.id]?.done;
-      const stageDate = done && o.stages?.[s.id]?.date
-        ? TCFactory.formatDate(o.stages[s.id].date, {day:'2-digit',month:'2-digit'})
-        : '';
-      return `<div class="stage-cell">
-        <button class="stage-pill evasione ${done?'done':''}"
-          onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
-          title="${s.label}">${s.shortLabel}</button>
-        <span class="pill-date">${stageDate||''}</span>
-      </div>`;
-    }).join('');
+    const chiusa = Pulsanti.dataChiusura(o);
+    const chiusaDate = chiusa ? TCFactory.formatDate(chiusa, {day:'2-digit',month:'long'}) : '—';
+    const altriLav = pulsantiPills(o, 'lavorazione', p => (p.ruolo || 'nessuno') === 'nessuno');
 
     return `
       <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
@@ -584,11 +532,10 @@ function renderOrderRow(o) {
           <div class="orc-tags">${tagPills}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           ${scadenzaCell}
-          <div class="orc-lav" style="flex-direction:column;gap:1px;">
-            <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);">Pronto</span>
-            <span style="font-size:0.78rem;font-weight:700;color:#22c55e;">${stampatoDate}</span>
-            ${buildExternaPill()}
-            ${lavTipiTags ? `<div class="orc-pills">${lavTipiTags}</div>` : ''}
+          <div class="orc-lav" style="flex-direction:column;gap:1px;align-items:flex-start;">
+            <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;">${escapeHtml(Pulsanti.nomeChiusura())}</span>
+            <span style="font-size:0.78rem;font-weight:700;color:#22c55e;">${chiusaDate}</span>
+            ${altriLav ? `<div class="orc-pills" style="margin:4px 0 12px;">${altriLav}</div>` : ''}
           </div>
           <div class="orc-eva orc-pills">${evaPills}</div>
           ${ordineCell}
@@ -598,30 +545,6 @@ function renderOrderRow(o) {
   }
 
   // ── DA RISCUOTERE / ARCHIVIO / ALTRI: layout completo con date ───────
-  const lavPills = LAVORAZIONE_DEFS.map(s => {
-    const done  = o.stages?.[s.id]?.done;
-    const stage = o.stages?.[s.id];
-    const stDate = (s.id === 'ordineStampato' && done && stage?.date)
-      ? TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'}) : '';
-    return `<div class="stage-cell">
-      <button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>
-      <span class="pill-date">${stDate||''}</span>
-    </div>`;
-  }).join('');
-
-  const evaPills = EVASIONE_DEFS.map(s => {
-    const done      = o.stages?.[s.id]?.done;
-    const stageDate = done && o.stages?.[s.id]?.date
-      ? TCFactory.formatDate(o.stages[s.id].date, {day:'2-digit',month:'2-digit'})
-      : '';
-    return `<div class="stage-cell">
-      <button class="stage-pill evasione ${done?'done':''}"
-        onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
-        title="${s.label}">${s.shortLabel}</button>
-      <span class="pill-date">${stageDate||''}</span>
-    </div>`;
-  }).join('');
-
   return `
     <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
       onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
@@ -631,7 +554,7 @@ function renderOrderRow(o) {
         <div class="orc-tags">${tagPills}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         ${scadenzaCell}
-        <div class="orc-lav orc-pills">${lavPills}${buildExternaPill()}${lavTipiTags}</div>
+        <div class="orc-lav orc-pills">${lavPills}</div>
         <div class="orc-eva orc-pills">${evaPills}</div>
         ${ordineCell}
         ${paymentCell}
@@ -656,7 +579,7 @@ async function togglePayment(orderId, done) {
   try {
     // Leggi stato PRIMA dell'aggiornamento (cache locale è aggiornata)
     const order   = TCFactory.getOrderById(orderId);
-    const isEvaso = !!order?.stages?.spedito?.done;
+    const isEvaso = !!order && Pulsanti.isEvaso(order);
     const today   = new Date().toISOString().slice(0, 10);
 
     await TCFactory.updateOrder(orderId, {
@@ -1073,77 +996,23 @@ async function quickToggleArchive(orderId, isCurrentlyArchived) {
   } catch(e) { showToast('Errore', 'error'); }
 }
 
+// Spunta di una fase per id (es. "lavorazioneEsterna" dalla pagina Esterne): passa dal suo pulsante
 async function toggleStageInline(orderId, stageId, done) {
-  try {
-    // Leggi stato PRIMA del setStage (cache locale aggiornata immediatamente dopo)
-    const orderBefore = TCFactory.getOrderById(orderId);
-    const isPaidBefore  = !!orderBefore?.paymentDone;
-
-    await TCFactory.setStage(orderId, stageId, done);
-
-    if (stageId === 'spedito') {
-      if (done) {
-        // Evaso = true
-        if (isPaidBefore) {
-          await TCFactory.setArchived(orderId, true);   // ENTRAMBI → Archivio
-        }
-        // solo Evaso senza € → Da riscuotere (non archivia)
-      } else {
-        // De-evaso → reset pagamento e unarchive
-        await TCFactory.updateOrder(orderId, { paymentDone: false, paymentDate: null });
-        await TCFactory.setArchived(orderId, false);
-      }
-    }
-
-    if (stageId === 'speditoParzialmente' && !done) {
-      const cur = TCFactory.getOrderById(orderId);
-      if (cur?.stages?.spedito?.done) {
-        await TCFactory.setStage(orderId, 'spedito', false);
-        await TCFactory.setArchived(orderId, false);
-      }
-    }
-
-    renderApp();
-  } catch(e) { showToast('Errore aggiornamento fase', 'error'); console.error(e); }
-}
-
-async function toggleStageDetail(orderId, stageId, done) {
-  try {
-    const orderBefore = TCFactory.getOrderById(orderId);
-    const isPaidBefore = !!orderBefore?.paymentDone;
-
-    await TCFactory.setStage(orderId, stageId, done);
-
-    if (stageId === 'spedito') {
-      if (done) {
-        if (isPaidBefore) await TCFactory.setArchived(orderId, true);
-      } else {
-        await TCFactory.updateOrder(orderId, { paymentDone: false, paymentDate: null });
-        await TCFactory.setArchived(orderId, false);
-      }
-    }
-    if (stageId === 'speditoParzialmente' && !done) {
-      const cur = TCFactory.getOrderById(orderId);
-      if (cur?.stages?.spedito?.done) {
-        await TCFactory.setStage(orderId, 'spedito', false);
-        await TCFactory.setArchived(orderId, false);
-      }
-    }
-
-    AppState.selectedOrder = TCFactory.getOrderById(orderId);
-    renderOrderDetail();
-    renderApp();
-  } catch(e) { showToast('Errore aggiornando la fase', 'error'); console.error(e); }
+  const p = Pulsanti.byStage(stageId);
+  if (p) return pulsanteToggle(orderId, p.id, done);
+  try { await TCFactory.setStage(orderId, stageId, done); }
+  catch (e) { showToast('Errore aggiornamento fase', 'error'); console.error(e); }
+  renderApp();
 }
 
 async function moveOrderTo(id, target) {
   try {
-    await TCFactory.setStage(id, 'speditoParzialmente', false);
-    await TCFactory.setStage(id, 'spedito', false);
+    await Pulsanti.setRuolo(id, 'parziale', false);
+    await Pulsanti.setRuolo(id, 'evade', false);
     await TCFactory.updateOrder(id, { paymentDone: false, paymentDate: null });
     await TCFactory.setArchived(id, false);
-    if (target === 'partial')      await TCFactory.setStage(id, 'speditoParzialmente', true);
-    if (target === 'dariscuotere') { await TCFactory.setStage(id, 'speditoParzialmente', true); await TCFactory.setStage(id, 'spedito', true); }
+    if (target === 'partial')      await Pulsanti.setRuolo(id, 'parziale', true);
+    if (target === 'dariscuotere') { await Pulsanti.setRuolo(id, 'parziale', true); await Pulsanti.setRuolo(id, 'evade', true); }
     AppState.selectedOrder = TCFactory.getOrderById(id);
     renderOrderDetail();
     renderApp();
@@ -1177,18 +1046,18 @@ function renderOrderDetail() {
   const prog = TCFactory.stageProgress(order);
   const { lavDone, lavTotal, allLavDone, isSpeditoP, isSpedito } = prog;
 
-  const renderStageSection = (defs, title) => `
+  const renderStageSection = (colonna, title) => `
     <div class="progress-box">
       <div style="font-weight:700;font-size:0.85rem;margin-bottom:8px;">${title}</div>
       <div class="stage-list">
-        ${defs.map(s => {
-          const state = order.stages?.[s.id] || {};
+        ${Pulsanti.visibili(order, colonna).map(s => {
+          const state = Pulsanti.stato(order, s);
           return `
             <label class="stage-item">
               <input type="checkbox" class="stage-checkbox" ${state.done ? 'checked' : ''}
-                onchange="toggleStageDetail('${order.id}','${s.id}',this.checked)">
+                onchange="pulsanteToggle('${order.id}','${escapeHtml(s.id)}',this.checked)">
               <span class="stage-label ${state.done ? 'done' : ''}">
-                <span>${s.label}</span>
+                <span>${escapeHtml(Pulsanti.nome(s))}</span>
                 ${state.done && state.date ? `<span class="stage-date">${TCFactory.formatDate(state.date)}</span>` : ''}
               </span>
             </label>`;
@@ -1226,14 +1095,14 @@ function renderOrderDetail() {
 
         ${order.notes ? `<div class="detail-notes">${escapeHtml(order.notes)}</div>` : ''}
 
-        ${renderStageSection(LAVORAZIONE_DEFS, 'Lavorazione')}
-        ${renderStageSection(EVASIONE_DEFS, 'Evasione')}
+        ${renderStageSection('lavorazione', 'Lavorazione')}
+        ${renderStageSection('spedizione', 'Evasione')}
 
         <div style="display:flex;flex-wrap:wrap;gap:6px;padding-top:4px;">
           ${order.archived ? `
             <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','active')">${Icons.archiveRestore(13)} → Attivi</button>
             <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','partial')">${Icons.truck(13)} → Sped. parz.</button>
-          ` : order.stages?.speditoParzialmente?.done ? `
+          ` : Pulsanti._ruolo(order, 'parziale').some(p => Pulsanti.stato(order, p).done) ? `
             <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','active')">${Icons.archiveRestore(13)} → Attivi</button>
             <button class="btn btn-secondary btn-sm" onclick="moveOrderTo('${order.id}','archived')">${Icons.archive(13)} → Archivio</button>
           ` : `
@@ -1927,6 +1796,11 @@ function lavTipoDone(o, kind, id) {
   return m.esterneFatte?.[id] || (o.stages?.lavorazioneEsterna?.done ? (o.stages.lavorazioneEsterna.date || true) : null);
 }
 async function toggleLavTipoInline(orderId, kind, id, done) {
+  try { await setLavTipo(orderId, kind, id, done); }
+  catch (e) { showToast('Errore — riprova', 'error'); }
+  renderApp();
+}
+async function setLavTipo(orderId, kind, id, done) {
   const o = TCFactory.getOrderById(orderId);
   if (!o) return;
   const today = localISODate(new Date());
@@ -1947,12 +1821,8 @@ async function toggleLavTipoInline(orderId, kind, id, done) {
     if (allDone !== !!o.stages?.lavorazioneEsterna?.done)
       changes.stages = { ...o.stages, lavorazioneEsterna: allDone ? { done: true, date: today } : { done: false } };
   }
-  try {
-    await TCFactory.updateOrder(orderId, changes);
-    TCFactory._log(`${done ? '✓' : '☐'} ${lavName(kind, id) || id}`, orderId, o.nome, { [kind === 'interne' ? 'interna' : 'esterna']: id, done });
-    TCFactory._notify();
-  } catch (e) { showToast('Errore — riprova', 'error'); }
-  renderOrderList();
+  await TCFactory.updateOrder(orderId, changes);
+  TCFactory._log(`${done ? '✓' : '☐'} ${lavName(kind, id) || id}`, orderId, o.nome, { [kind === 'interne' ? 'interna' : 'esterna']: id, done });
 }
 
 function modRowEsterna(r, legacy = '✓') {
@@ -2248,6 +2118,13 @@ function renderSettingsDialog() {
           <div style="padding:12px 14px;display:flex;flex-direction:column;gap:16px;">
             ${lavSettingsList('interne', 'Interne', 'Compaiono nel menu "Interna" del modulo d\'ordine.', 'es. DTF, UV, Laser…')}
             ${lavSettingsList('esterne', 'Esterne', 'Compaiono nel menu "Esterna" del modulo d\'ordine e raggruppano la sezione Esterne.', 'es. Ricamo, Serigrafia…')}
+          </div>
+        </div>
+
+        <div class="settings-block ${settingsOpen('pulsanti')}">
+          ${settingsHead('pulsanti', `${Icons.checkCircle('currentColor', 14)} Pulsanti ordine`)}
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:10px;">
+            ${pulsantiSettingsHtml()}
           </div>
         </div>
 
