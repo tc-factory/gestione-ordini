@@ -9,6 +9,7 @@
 
 const DTF_SETTINGS_KEY = 'dtf_interno';        // { order: [id…], removed: [{ id, at }…] } condiviso
 const DTF_CLIENT_KEY   = 'tcf_dtf_client';     // cliente conto terzi selezionato (per browser)
+const DTF_CLIENT_ORDER_KEY = 'dtf_clienti_ordine'; // [id…] ordine dei clienti conto terzi, condiviso
 const DTF_TAG_KEY      = 'tcf_dtf_tag';        // filtro tipologia dell'Interno (per browser)
 const DTF_SAVE_DELAY   = 700;
 const DTF_STAMPATI_DAYS = 90;                  // in "Stampati" gli ultimi 90 giorni
@@ -28,6 +29,8 @@ const DtfState = {
   detailDate: null,
   channel: null,
   dragId: null,
+  clientDragId: null,
+  clientOrderSeen: '',  // ordine clienti già applicato (per gli aggiornamenti in diretta)
   tag: null,            // filtro tipologia dell'Interno
 };
 
@@ -322,7 +325,7 @@ const dtfMetri = (n) => (Number(n) || 0).toLocaleString('it-IT', { maximumFracti
 async function dtfLoadClients() {
   const { data, error } = await supabaseClient.from('dtf_clients').select('*').order('nome');
   if (error) throw error;
-  DtfState.clients = data || [];
+  DtfState.clients = dtfSortClients(data || []);
   if (!dtfClient()) DtfState.clientId = DtfState.clients[0]?.id || null;
 }
 
@@ -359,6 +362,31 @@ function dtfSummaryHtml() {
     <div class="dtf-kpi dtf-kpi-total"><span>Totale</span><strong>${euro(metri * costo)}</strong></div>`;
 }
 
+// Ordine scelto a mano (trascinando i box); i clienti nuovi vanno in fondo, in ordine alfabetico
+const dtfClientOrder = () => { const v = TCFactory._settings[DTF_CLIENT_ORDER_KEY]; return Array.isArray(v) ? v : []; };
+
+function dtfSortClients(list) {
+  const order = dtfClientOrder();
+  DtfState.clientOrderSeen = JSON.stringify(order);
+  const rank = (c) => { const i = order.indexOf(c.id); return i < 0 ? Infinity : i; };
+  return [...list].sort((a, b) => rank(a) - rank(b) || a.nome.localeCompare(b.nome, 'it'));
+}
+
+function dtfClientGridHtml() {
+  return `
+    <div class="dtf-client-grid" id="dtf-client-grid" role="tablist" aria-label="Clienti conto terzi">
+      ${DtfState.clients.map(x => {
+        const on = x.id === DtfState.clientId;
+        return `<button type="button" role="tab" aria-selected="${on}" class="dtf-client-box ${on ? 'active' : ''}" onclick="dtfSelectClient('${x.id}')"
+          draggable="true" data-id="${x.id}" title="Trascina per cambiare l'ordine"
+          ondragstart="dtfClientDragStart(event,'${x.id}')" ondragend="dtfClientDragEnd()" ondragover="dtfClientDragOver(event)" ondrop="dtfClientDrop(event)">
+          <strong>${escapeHtml(x.nome)}</strong><span>${euro(x.costo_metro)}/m</span>
+        </button>`;
+      }).join('')}
+      <button type="button" class="dtf-client-box dtf-client-add" onclick="dtfOpenClientForm()">${Icons.plus(16)} <span>Nuovo cliente</span></button>
+    </div>`;
+}
+
 function renderDtfTerzi() {
   const root = document.getElementById('dtf-terzi-root');
   if (!root) return;
@@ -378,15 +406,7 @@ function renderDtfTerzi() {
         <button type="button" class="btn btn-secondary btn-sm" onclick="dtfOpenClientForm('${c.id}')">${Icons.edit(14)} Modifica</button>
       </div>` : ''}
     </div>
-    <div class="dtf-client-grid" role="tablist" aria-label="Clienti conto terzi">
-      ${DtfState.clients.map(x => {
-        const on = x.id === DtfState.clientId;
-        return `<button type="button" role="tab" aria-selected="${on}" class="dtf-client-box ${on ? 'active' : ''}" onclick="dtfSelectClient('${x.id}')">
-          <strong>${escapeHtml(x.nome)}</strong><span>${euro(x.costo_metro)}/m</span>
-        </button>`;
-      }).join('')}
-      <button type="button" class="dtf-client-box dtf-client-add" onclick="dtfOpenClientForm()">${Icons.plus(16)} <span>Nuovo cliente</span></button>
-    </div>`;
+    ${dtfClientGridHtml()}`;
 
   if (!c) {
     root.innerHTML = head + `<div class="empty-list">Aggiungi un cliente con il box <strong>Nuovo cliente</strong> per iniziare.</div>`;
@@ -454,6 +474,67 @@ function dtfMonth(delta) {
   const m = DtfState.month;
   DtfState.month = delta === 0 ? new Date(new Date().getFullYear(), new Date().getMonth(), 1) : new Date(m.getFullYear(), m.getMonth() + delta, 1);
   dtfReloadTerzi(delta === 0 || localISODate(DtfState.month).slice(0, 7) === localISODate(new Date()).slice(0, 7));
+}
+
+// ── Ordine dei clienti: trascina i box ──
+
+function dtfClientDragStart(e, id) {
+  DtfState.clientDragId = id;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', id);
+  const el = e.currentTarget;
+  requestAnimationFrame(() => el.classList.add('dragging'));
+}
+
+function dtfClientDragEnd() {
+  DtfState.clientDragId = null;
+  document.querySelectorAll('.dtf-client-box.dragging, .dtf-client-box.drop-before, .dtf-client-box.drop-after')
+    .forEach(el => el.classList.remove('dragging', 'drop-before', 'drop-after'));
+}
+
+function dtfClientDragOver(e) {
+  if (!DtfState.clientDragId) return;
+  e.preventDefault();
+  const box = e.currentTarget;
+  document.querySelectorAll('.dtf-client-box.drop-before, .dtf-client-box.drop-after').forEach(el => el.classList.remove('drop-before', 'drop-after'));
+  if (box.dataset.id === DtfState.clientDragId) return;
+  const r = box.getBoundingClientRect();
+  box.classList.add(e.clientX < r.left + r.width / 2 ? 'drop-before' : 'drop-after');
+}
+
+async function dtfClientDrop(e) {
+  e.preventDefault();
+  const id = DtfState.clientDragId, target = e.currentTarget;
+  if (!id || target.dataset.id === id) { dtfClientDragEnd(); return; }
+  const before = target.classList.contains('drop-before');
+  dtfClientDragEnd();
+
+  const ids = DtfState.clients.map(c => c.id).filter(x => x !== id);
+  ids.splice(ids.indexOf(target.dataset.id) + (before ? 0 : 1), 0, id);
+  const prev = TCFactory._settings[DTF_CLIENT_ORDER_KEY];
+  TCFactory._settings[DTF_CLIENT_ORDER_KEY] = ids;
+  DtfState.clients = dtfSortClients(DtfState.clients);
+  dtfRenderClientGrid();
+  try {
+    await TCFactory.setSetting(DTF_CLIENT_ORDER_KEY, ids);
+  } catch {
+    TCFactory._settings[DTF_CLIENT_ORDER_KEY] = prev;
+    DtfState.clients = dtfSortClients(DtfState.clients);
+    dtfRenderClientGrid();
+    showToast('Impossibile salvare l\'ordine dei clienti', 'error');
+  }
+}
+
+function dtfRenderClientGrid() {
+  const grid = document.getElementById('dtf-client-grid');
+  if (grid) grid.outerHTML = dtfClientGridHtml();
+}
+
+// Ordine cambiato da un altro PC: si ridisegnano solo i box
+function dtfSyncClientOrder() {
+  if (!DtfState.loaded || DtfState.clientDragId || JSON.stringify(dtfClientOrder()) === DtfState.clientOrderSeen) return;
+  DtfState.clients = dtfSortClients(DtfState.clients);
+  dtfRenderClientGrid();
 }
 
 // ── Salvataggio automatico (per giorno, con un breve ritardo mentre si scrive) ──

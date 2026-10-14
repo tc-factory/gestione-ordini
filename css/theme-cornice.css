@@ -714,6 +714,15 @@ html.dark .dtf-save.saved { color: #4ADE80; }
 .dtf-client-box:active { transform: scale(0.98); }
 .dtf-client-box:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
 .dtf-client-box.active { border-color: var(--brand-gold); background: color-mix(in srgb, var(--brand-gold) 10%, var(--bg-primary)); }
+.dtf-client-box[draggable="true"] { position: relative; }
+.dtf-client-box.dragging { opacity: 0.35; }
+.dtf-client-box.drop-before::before,
+.dtf-client-box.drop-after::after {
+  content: ''; position: absolute; top: 8px; bottom: 8px; width: 3px; border-radius: 3px;
+  background: var(--accent); pointer-events: none;
+}
+.dtf-client-box.drop-before::before { left: -6px; }
+.dtf-client-box.drop-after::after { right: -6px; }
 .dtf-client-add { flex-direction: row; align-items: center; justify-content: center; gap: 6px; color: var(--text-secondary); border: 1.5px dashed var(--border); background: transparent; }
 .dtf-client-add span { font-size: 0.85rem; font-weight: 600; color: inherit; }
 .dtf-client-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
