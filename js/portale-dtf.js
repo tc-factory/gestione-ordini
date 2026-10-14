@@ -13,6 +13,7 @@ const Portal = {
   month: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   cliente: null,
   entries: {},
+  dal: null,          // 'YYYY-MM-DD': prima di questo giorno lo staff non mostra dati
 };
 
 // Tema come il sistema del cliente
@@ -26,6 +27,17 @@ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const euro = (n) => '€ ' + (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const metri = (n) => (Number(n) || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 });
 const root = () => document.getElementById('portal-root');
+
+// Costo di un giorno: i file con tariffa diversa al loro prezzo, il resto al costo del cliente
+const hasRate = (f) => !!f?.tariffa_diversa && Number.isFinite(f.tariffa) && f.metri > 0;
+function dayCosto(e, costo) {
+  const special = (e?.files || []).filter(hasRate);
+  const metriSpeciali = special.reduce((s, f) => s + f.metri, 0);
+  const standard = Math.max(0, (Number(e?.metri) || 0) - metriSpeciali);
+  return { euro: standard * costo + special.reduce((s, f) => s + f.metri * f.tariffa, 0), metriSpeciali };
+}
+// Si può tornare indietro solo fino al mese da cui i dati sono visibili
+const canGoBack = () => !Portal.dal || iso(Portal.month).slice(0, 7) > Portal.dal.slice(0, 7);
 
 const brand = `
   <div class="portal-brand">
@@ -79,9 +91,14 @@ async function doPortalLogin() {
   const btn = document.getElementById('portal-login-btn');
   btn.disabled = true; btn.textContent = 'Accesso…';
   try {
-    const data = await fetchMonth(pwd);
+    let data = await fetchMonth(pwd);
     Portal.password = pwd;
     applyData(data);
+    if (Portal.dal && iso(Portal.month) < Portal.dal) {   // mese corrente prima dei dati visibili
+      Portal.month = new Date(Portal.dal + 'T00:00:00');
+      Portal.month.setDate(1);
+      applyData(await fetchMonth(pwd));
+    }
     renderTable(true);
   } catch (e) {
     renderLogin(e.message);
@@ -90,11 +107,13 @@ async function doPortalLogin() {
 
 function applyData(data) {
   Portal.cliente = data.cliente;
+  Portal.dal = data.visibile_dal || null;
   Portal.entries = {};
   (data.entries || []).forEach(e => { Portal.entries[e.giorno] = { metri: Number(e.metri) || 0, dettaglio: e.dettaglio || '', files: Array.isArray(e.files) ? e.files : [] }; });
 }
 
 async function changeMonth(delta) {
+  if (delta < 0 && !canGoBack()) return;
   Portal.month = delta === 0
     ? new Date(new Date().getFullYear(), new Date().getMonth(), 1)
     : new Date(Portal.month.getFullYear(), Portal.month.getMonth() + delta, 1);
@@ -122,6 +141,9 @@ function renderTable(scrollToday = false) {
   const today = iso(new Date());
   const totMetri = Object.values(Portal.entries).reduce((s, e) => s + e.metri, 0);
   const costo = Number(Portal.cliente.costo_metro) || 0;
+  const costi = Object.values(Portal.entries).map(e => dayCosto(e, costo));
+  const totEuro = costi.reduce((s, x) => s + x.euro, 0);
+  const speciali = costi.reduce((s, x) => s + x.metriSpeciali, 0);
 
   const rows = [];
   for (let d = 1; d <= last; d++) {
@@ -130,12 +152,13 @@ function renderTable(scrollToday = false) {
     const e = Portal.entries[key];
     const files = (e?.dettaglio || '').split('\n').map(s => s.trim()).filter(Boolean);
     const has = e && (e.metri > 0 || files.length);
+    const special = (e?.files || []).some(hasRate);
     rows.push(`
       <li class="portal-day ${key === today ? 'today' : ''} ${has ? 'has-data' : ''}" ${key === today ? 'id="portal-today"' : ''}>
         <div class="portal-day-date"><strong>${d}</strong><span>${date.toLocaleDateString('it-IT', { weekday: 'short' })}</span></div>
         <div class="portal-day-metri">${e?.metri ? `${metri(e.metri)} m` : '<span>—</span>'}</div>
         ${files.length
-          ? `<button type="button" class="portal-day-files" onclick="showDetail('${key}')">${files.length} ${files.length === 1 ? 'file' : 'file'} · <span>${esc(files[0])}${files.length > 1 ? '…' : ''}</span></button>`
+          ? `<button type="button" class="portal-day-files ${special ? 'has-rate' : ''}" onclick="showDetail('${key}')">${special ? '<em class="dtf-rate-badge">€ diversa</em> ' : ''}${files.length} ${files.length === 1 ? 'file' : 'file'} · <span>${esc(files[0])}${files.length > 1 ? '…' : ''}</span></button>`
           : '<div class="portal-day-files empty">Nessun file</div>'}
       </li>`);
   }
@@ -153,10 +176,11 @@ function renderTable(scrollToday = false) {
       <div class="dtf-summary">
         <div class="dtf-kpi"><span>Metri del mese</span><strong>${metri(totMetri)} m</strong></div>
         <div class="dtf-kpi"><span>Costo al metro</span><strong>${euro(costo)}</strong></div>
-        <div class="dtf-kpi dtf-kpi-total"><span>Totale del mese</span><strong>${euro(totMetri * costo)}</strong></div>
+        <div class="dtf-kpi dtf-kpi-total"><span>Totale del mese</span><strong>${euro(totEuro)}</strong>
+          ${speciali ? `<small class="dtf-rate-note">di cui ${metri(speciali)} m a tariffa diversa</small>` : ''}</div>
       </div>
       <div class="dtf-month-nav">
-        <button class="btn-icon" onclick="changeMonth(-1)" aria-label="Mese precedente">‹</button>
+        <button class="btn-icon" onclick="changeMonth(-1)" aria-label="Mese precedente" ${canGoBack() ? '' : 'disabled title="Dati disponibili dal ' + new Date(Portal.dal + 'T00:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' }) + '"'}>‹</button>
         <strong>${m.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}</strong>
         <button class="btn-icon" onclick="changeMonth(1)" aria-label="Mese successivo">›</button>
         <button class="btn btn-secondary btn-sm" onclick="changeMonth(0)">Oggi</button>
@@ -184,8 +208,9 @@ function showDetail(key) {
         <div class="dtf-kpi"><span>Metri stampati</span><strong>${metri(e?.metri)} m</strong></div>
         <h3 class="portal-files-title">File stampati (${files.length})</h3>
         <ul class="portal-files">${(e?.files?.length ? e.files : files.map(name => ({ name }))).map(f => `
-          <li><span>${esc(f.name)}</span>${f.metri > 0
-            ? `<small>${String(f.w_cm).replace('.', ',')} × ${String(f.h_cm).replace('.', ',')} cm · ${f.pz} pz · <strong>${metri(f.metri)} m</strong></small>` : ''}</li>`).join('')}</ul>
+          <li class="${hasRate(f) ? 'custom-rate' : ''}"><span>${esc(f.name)}</span>${f.metri > 0
+            ? `<small>${String(f.w_cm).replace('.', ',')} × ${String(f.h_cm).replace('.', ',')} cm · ${f.pz} pz · <strong>${metri(f.metri)} m</strong></small>` : ''}${hasRate(f)
+            ? `<small class="dtf-rate-note">Tariffa diversa: ${euro(f.tariffa)}/m · <strong>${euro(f.metri * f.tariffa)}</strong></small>` : ''}</li>`).join('')}</ul>
       </div>
     </div>`;
   modal.classList.add('active');
