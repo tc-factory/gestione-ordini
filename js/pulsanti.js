@@ -210,21 +210,30 @@ function pulsantiSettingsHtml() {
   const card = (p, i, list) => {
     // Si eliminano quelli creati a mano o rimasti senza lavorazione; gli altri si disattivano
     const removable = !PULSANTI_FISSI.has(p.id) && !p.auto && (p.id.startsWith('p-') || Pulsanti.orfano(p));
+    const open = PulsantiOpen.has(p.id);
+    const pid = escapeHtml(p.id);
+    const sommario = [PULSANTI_RUOLI[p.ruolo || 'nessuno']?.label, p.collegamento ? 'collegato' : '', p.mostra && p.mostra !== 'sempre' ? 'condizionale' : '']
+      .filter(Boolean).join(' · ');
     return `
-    <div class="pulsante-cfg ${p.attivo === false ? 'off' : ''}">
+    <div class="pulsante-cfg ${p.attivo === false ? 'off' : ''} ${open ? 'open' : ''}">
       <div class="pulsante-cfg-head">
         <div class="reorder-arrows">
           <button type="button" ${i === 0 ? 'disabled' : ''} onclick="pulsantiMove('${escapeHtml(p.id)}',-1)" aria-label="Sposta su">${Icons.arrowUp()}</button>
           <button type="button" ${i === list.length - 1 ? 'disabled' : ''} onclick="pulsantiMove('${escapeHtml(p.id)}',1)" aria-label="Sposta giù">${Icons.arrowDown()}</button>
         </div>
         <span class="stage-pill ${p.colonna === 'spedizione' ? 'evasione' : ''}" aria-hidden="true">${escapeHtml(Pulsanti.nome(p))}</span>
-        <input class="form-input" value="${escapeHtml(p.nome || '')}" placeholder="${escapeHtml(Pulsanti.nome(p))}" maxlength="30" aria-label="Nome del pulsante"
-          onchange="pulsantiSet('${escapeHtml(p.id)}','nome',this.value)">
+        <button type="button" class="pulsante-cfg-toggle" aria-expanded="${open}" aria-controls="pcfg-${pid}" onclick="pulsantiToggleOpen('${pid}')">
+          <small>${escapeHtml(sommario)}</small>
+          <svg class="settings-block-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
         <label class="check-inline" title="Mostra il pulsante"><input type="checkbox" ${p.attivo !== false ? 'checked' : ''} onchange="pulsantiSet('${escapeHtml(p.id)}','attivo',this.checked)"> Attivo</label>
         ${removable ? `<button type="button" class="btn-icon" style="color:var(--priority-urgent);" onclick="pulsantiDelete('${escapeHtml(p.id)}')" aria-label="Elimina pulsante">${Icons.trash(15)}</button>` : ''}
       </div>
       ${Pulsanti.orfano(p) ? `<div class="settings-section-hint" style="margin:0;color:var(--priority-urgent);">La lavorazione collegata è stata eliminata: il pulsante non compare.</div>` : ''}
-      <div class="pulsante-cfg-grid">
+      <div class="pulsante-cfg-grid" id="pcfg-${pid}" ${open ? '' : 'hidden'}>
+        <label>Nome</label>
+        <input class="form-input" value="${escapeHtml(p.nome || '')}" placeholder="${escapeHtml(Pulsanti.nome(p))}" maxlength="30" aria-label="Nome del pulsante"
+          onchange="pulsantiSet('${pid}','nome',this.value)">
         <label>Colonna</label>${sel(p, 'colonna', opt({ lavorazione: 'Lavorazione', spedizione: 'Spedizione / Evasione' }, p.colonna))}
         <label>Cosa fa</label>${sel(p, 'ruolo', opt(PULSANTI_RUOLI, p.ruolo || 'nessuno'))}
         <small class="pulsante-cfg-hint">${escapeHtml(PULSANTI_RUOLI[p.ruolo || 'nessuno']?.hint || '')}</small>
@@ -264,6 +273,13 @@ function pulsantiSettingsHtml() {
     <button type="button" class="btn btn-ghost btn-sm" style="align-self:flex-start;" onclick="pulsantiReset()">Ripristina pulsanti predefiniti</button>`;
 }
 
+// Pulsanti aperti nelle Impostazioni (chiusi di default, restano aperti tra un salvataggio e l'altro)
+const PulsantiOpen = new Set();
+function pulsantiToggleOpen(id) {
+  if (PulsantiOpen.has(id)) PulsantiOpen.delete(id); else PulsantiOpen.add(id);
+  renderSettingsDialog();
+}
+
 // Salva l'elenco completo (i pulsanti automatici diventano normali alla prima modifica)
 async function pulsantiSave(list, msg) {
   const clean = list.map(({ auto, ...p }) => p);
@@ -297,7 +313,9 @@ function pulsantiAdd() {
   const nome = document.getElementById('new-pulsante')?.value.trim();
   if (!nome) return;
   const colonna = document.getElementById('new-pulsante-col')?.value || 'lavorazione';
-  pulsantiSave([...Pulsanti.all(), { id: 'p-' + Date.now().toString(36), nome, colonna, ruolo: 'nessuno', collegamento: '', mostra: 'sempre' }], `Aggiunto "${nome}"`);
+  const id = 'p-' + Date.now().toString(36);
+  PulsantiOpen.add(id);   // il pulsante appena creato si apre per sceglierne le regole
+  pulsantiSave([...Pulsanti.all(), { id, nome, colonna, ruolo: 'nessuno', collegamento: '', mostra: 'sempre' }], `Aggiunto "${nome}"`);
 }
 function pulsantiDelete(id) {
   const p = Pulsanti.get(id);
