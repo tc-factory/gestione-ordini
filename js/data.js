@@ -7,7 +7,7 @@
 const LAVORAZIONE_DEFS = [
   { id: 'merceCompleta',  label: 'Merce completa', shortLabel: 'Merce' },
   { id: 'dtfPronti',      label: 'DTF pronti',      shortLabel: 'DTF' },
-  { id: 'ordineStampato', label: 'Stampato',         shortLabel: 'Stampato' },
+  { id: 'ordineStampato', label: 'Pronto',           shortLabel: 'Pronto' },
 ];
 
 // EVASIONE (spedizione)
