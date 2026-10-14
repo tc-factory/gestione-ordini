@@ -374,7 +374,7 @@ function renderOrderList() {
         <div class="orc-tags orc-hdr">Tipologia</div>
         ${sortHdr('data', 'Data creazione', 'orc-date')}
         ${sortHdr('scadenza', 'Scadenza', 'orc-deadline')}
-        <div class="orc-lav orc-hdr">${isEvasione ? 'Stampato' : 'Lavorazione'}</div>
+        <div class="orc-lav orc-hdr">${isEvasione ? 'Pronto' : 'Lavorazione'}</div>
         <div class="orc-eva orc-hdr">${isEvasione ? 'Evasione' : 'Spedizione'}</div>
         <div class="orc-files orc-hdr">Ordine</div>
         <div class="orc-payment orc-hdr">Pagamento</div>
@@ -512,7 +512,7 @@ function renderOrderRow(o) {
     const lavPills = LAVORAZIONE_DEFS.map(s => {
       const done  = o.stages?.[s.id]?.done;
       const stage = o.stages?.[s.id];
-      // Se merce NON completa, "Stampato" diventa "Parziale"
+      // Se merce NON completa, "Pronto" diventa "Parziale"
       const label = (s.id === 'ordineStampato' && !isMerceDone) ? 'Parziale' : s.shortLabel;
       const stDate = (s.id === 'ordineStampato' && done && stage?.date)
         ? TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'}) : '';
@@ -570,7 +570,7 @@ function renderOrderRow(o) {
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           ${scadenzaCell}
           <div class="orc-lav" style="flex-direction:column;gap:1px;">
-            <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);">Stampato</span>
+            <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);">Pronto</span>
             <span style="font-size:0.78rem;font-weight:700;color:#22c55e;">${stampatoDate}</span>
             ${buildExternaPill()}
           </div>
