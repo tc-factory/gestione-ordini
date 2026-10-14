@@ -1463,6 +1463,8 @@ function ofToggleLav(which) {
   const other = which === 'esterna' ? 'formLavInterna' : 'formLavEsterna';
   AppState[key] = !AppState[key];
   if (AppState[key]) AppState.formLavNeutro = false;
+  // Spegnendo Interna / Esterna si tolgono anche le sue lavorazioni spuntate
+  else if (AppState.formLavTipi) AppState.formLavTipi[which === 'esterna' ? 'esterne' : 'interne'] = [];
   if (!AppState[key] && !AppState[other] && !AppState.formLavNeutro) AppState[other] = true;   // mai nessuna
   ofRenderLav();
 }
@@ -1481,14 +1483,15 @@ function ofRenderLav() {
   if (tipi) tipi.innerHTML = ofLavTipiHtml();
 }
 
-// Tipi di lavorazione dell'ordine: si spuntano sotto Interna / Esterna e smistano l'ordine
-// nelle schede (Interne → UV, Laser, Stampa, DTF; Esterne → per tipo) anche senza modulo d'ordine.
+// Tipi di lavorazione dell'ordine: righe INTERNA e ESTERNA sempre visibili (tranne Neutro) con le
+// loro lavorazioni; spuntarne una accende Interna / Esterna. Smistano l'ordine nelle schede
+// (Interne → UV, Laser, Stampa, DTF; Esterne → per tipo) anche senza modulo d'ordine.
 function ofLavTipiHtml() {
-  const group = (kind, label) => {
+  const group = (kind, label, on) => {
     const list = getLav(kind), sel = AppState.formLavTipi?.[kind] || [];
     const gone = sel.filter(id => !list.some(l => l.id === id)).map(id => ({ id, nome: '(eliminata)' }));
     return `
-      <div class="of-lav-tipi-row" role="group" aria-label="Tipi di lavorazione ${label.toLowerCase()}">
+      <div class="of-lav-tipi-row ${on ? '' : 'off'}" role="group" aria-label="Lavorazioni ${label.toLowerCase()}">
         <span class="of-lav-tipi-label">${label}</span>
         ${[...list, ...gone].map(l => `
           <label class="of-lav-tipo">
@@ -1498,14 +1501,16 @@ function ofLavTipiHtml() {
         || `<span class="of-lav-tipi-empty">Nessun tipo: aggiungili in Impostazioni → Lavorazioni</span>`}
       </div>`;
   };
-  return (AppState.formLavInterna && !AppState.formLavNeutro ? group('interne', 'Interna') : '')
-       + (AppState.formLavEsterna && !AppState.formLavNeutro ? group('esterne', 'Esterna') : '');
+  if (AppState.formLavNeutro) return '';
+  return group('interne', 'INTERNA', AppState.formLavInterna) + group('esterne', 'ESTERNA', AppState.formLavEsterna);
 }
 function ofToggleLavTipo(kind, id, on) {
   const sel = AppState.formLavTipi[kind];
   const i = sel.indexOf(id);
   if (on && i < 0) sel.push(id);
   if (!on && i >= 0) sel.splice(i, 1);
+  // Una lavorazione spuntata rende l'ordine interno / esterno
+  if (on && !AppState[kind === 'esterne' ? 'formLavEsterna' : 'formLavInterna']) ofSetLav(kind === 'esterne');
 }
 // Una riga del modulo con un tipo di lavorazione spunta anche quel tipo per l'ordine
 function ofAddLavTipo(kind, id) {
