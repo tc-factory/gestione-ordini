@@ -16,8 +16,8 @@ const euro = (n) => '€ ' + (Number(n) || 0).toLocaleString('it-IT', { minimumF
 // Stato leggibile di un ordine, dal più avanzato
 function orderStatus(o) {
   if (o.archived)                    return { label: 'Archiviato',     color: '#22c55e' };
-  if (o.stages?.spedito?.done)       return { label: 'Evaso',          color: '#0ea5e9' };
-  if (o.stages?.ordineStampato?.done) return { label: 'In evasione',   color: '#f97316' };
+  if (Pulsanti.isEvaso(o))           return { label: 'Evaso',          color: '#0ea5e9' };
+  if (Pulsanti.chiusa(o))            return { label: 'In evasione',   color: '#f97316' };
   return                                    { label: 'In lavorazione', color: 'var(--brand-gold)' };
 }
 

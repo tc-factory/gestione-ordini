@@ -39,7 +39,7 @@ function getCassaMovements() {
   return TCFactory.getOrders()
     .filter(o => !o.deletedAt && (o.importo || 0) > 0)
     .filter(o => CassaState.stato === 'tutti' || (CassaState.stato === 'riscossi' ? o.paymentDone : !o.paymentDone))
-    .filter(o => !CassaState.soloEvasi || o.paymentDone || o.stages?.spedito?.done)
+    .filter(o => !CassaState.soloEvasi || o.paymentDone || Pulsanti.isEvaso(o))
     .filter(o => !CassaState.tag || (o.tags || []).includes(CassaState.tag))
     .filter(o => !CassaState.clientId || (CassaState.clientId === '__none__' ? !o.clientId : o.clientId === CassaState.clientId))
     .filter(o => { const d = movementDate(o) || ''; return d >= from && d <= to; })

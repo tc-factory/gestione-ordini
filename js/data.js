@@ -229,16 +229,18 @@ const TCFactory = {
   // Attivi: non archiviati e non ancora stampati
   // Ordine NEUTRO (nessuna lavorazione): niente Attivi/Parziali, va direttamente in Evasione
   isNeutro(o)               { return !!o?.orderModule?.neutro; },
-  getActiveOrders()         { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && !o.stages?.ordineStampato?.done); },
-  // Parziali: stampati senza merce completa (lavorazione parziale)
-  getParziali()             { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && !!o.stages?.ordineStampato?.done && !o.stages?.merceCompleta?.done && !o.stages?.spedito?.done); },
-  // Evasione: merce completa + stampati, non ancora evasi
-  getEvasioneOrders()       { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !o.stages?.spedito?.done
-                                && (this.isNeutro(o) || (!!o.stages?.ordineStampato?.done && !!o.stages?.merceCompleta?.done))); },
+  // Le schede dipendono dal ruolo dei pulsanti (Impostazioni → Pulsanti, js/pulsanti.js):
+  // "Chiude la lavorazione" (Pronto), "Obbligatorio per l'evasione" (Merce), "Evade l'ordine" (Evaso)
+  getActiveOrders()         { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && !Pulsanti.chiusa(o)); },
+  // Parziali: lavorazione chiusa ma manca un pulsante obbligatorio (es. merce non completa)
+  getParziali()             { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && Pulsanti.chiusa(o) && !Pulsanti.obbligatoriOk(o) && !Pulsanti.isEvaso(o)); },
+  // Evasione: lavorazione chiusa con tutti gli obbligatori, non ancora evasi
+  getEvasioneOrders()       { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !Pulsanti.isEvaso(o)
+                                && (this.isNeutro(o) || (Pulsanti.chiusa(o) && Pulsanti.obbligatoriOk(o)))); },
   // Compat (non più usato come tab)
   getPartialOrders()        { return this.getOrders().filter(o => !o.archived && o.stages?.speditoParzialmente?.done && !o.stages?.spedito?.done); },
   // Da riscuotere: evasi ma NON ancora pagati (il promemoria "hai spedito senza farti pagare")
-  getDaRiscuotereOrders()   { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !!o.stages?.spedito?.done && !o.paymentDone); },
+  getDaRiscuotereOrders()   { return this.getOrders().filter(o => !o.deletedAt && !o.archived && Pulsanti.isEvaso(o) && !o.paymentDone); },
   // Archivio: solo quando ENTRAMBI evaso E pagato
   getArchivedOrders()       { return this.getOrders().filter(o => !o.deletedAt && o.archived); },
   getTrashedOrders()        { return this.getOrders().filter(o => !!o.deletedAt); },
@@ -314,13 +316,13 @@ const TCFactory = {
     return updated;
   },
 
-  async setStage(id, stageId, done) {
+  async setStage(id, stageId, done, label = null) {
     const current = this.getOrderById(id);
     if (!current) return;
     const today = new Date().toISOString().slice(0, 10);
     const stages = { ...current.stages, [stageId]: done ? { done: true, date: today } : { done: false } };
     const updated = await this.updateOrder(id, { stages });
-    const stageLbl = [...LAVORAZIONE_DEFS, ...EVASIONE_DEFS].find(s => s.id === stageId)?.label || stageId;
+    const stageLbl = label || [...LAVORAZIONE_DEFS, ...EVASIONE_DEFS].find(s => s.id === stageId)?.label || stageId;
     this._log(done ? `✓ ${stageLbl}` : `☐ ${stageLbl}`, id, current.nome, { stage: stageId, done });
     return updated;
   },
@@ -485,7 +487,7 @@ const TCFactory = {
       lavTotal,
       evaDone,
       evaTotal,
-      allLavDone:   lavDone === lavTotal,
+      allLavDone:   Pulsanti.chiusa(order) && Pulsanti.obbligatoriOk(order),
       isSpeditoP:   !!stages.speditoParzialmente?.done,
       isSpedito:    !!stages.spedito?.done,
       // compat
@@ -509,7 +511,7 @@ const TCFactory = {
 
   // Ordini ancora da evadere: sono quelli che hanno senso nel Planner
   getOrdersToDeliver() {
-    return this.getOrders().filter(o => !o.deletedAt && !o.archived && !o.stages?.spedito?.done);
+    return this.getOrders().filter(o => !o.deletedAt && !o.archived && !Pulsanti.isEvaso(o));
   },
 
   isDeadlinePast(order) {

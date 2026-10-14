@@ -884,6 +884,24 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   line-height: 1.6;
 }
 
+/* Impostazioni → Pulsanti ordine */
+.pulsante-cfg { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-card); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.pulsante-cfg.off { opacity: 0.55; }
+.pulsante-cfg-head { display: flex; align-items: center; gap: 8px; }
+.pulsante-cfg-head .form-input { flex: 1; min-width: 0; }
+.pulsante-cfg-head .stage-pill { cursor: default; }
+.pulsante-cfg-grid { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 6px 10px; align-items: center; font-size: 0.8rem; }
+.pulsante-cfg-grid > label { font-weight: 600; color: var(--text-secondary); }
+.pulsante-cfg-hint { grid-column: 2; margin-top: -3px; font-size: 0.7rem; color: var(--text-muted); }
+.pulsante-cfg-alt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pulsante-cfg-alt .form-input { flex: 1 1 120px; min-width: 0; }
+.pulsante-cfg-alt .form-select { flex: 1 1 120px; min-width: 0; }
+.pulsante-cfg-alt > span { font-size: 0.75rem; color: var(--text-muted); }
+@media (max-width: 600px) {
+  .pulsante-cfg-grid { grid-template-columns: 1fr; }
+  .pulsante-cfg-hint { grid-column: 1; }
+}
+
 /* Pill + data: la data sta sotto senza spostare la pill, così resta centrata nella riga */
 .orc-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 5px; }
 .stage-cell { position: relative; display: inline-flex; }
