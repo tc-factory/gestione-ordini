@@ -33,8 +33,8 @@ const PULSANTI_ETICHETTE_DEFAULT = () => [
 
 const PULSANTI_RUOLI = {
   nessuno:      { label: 'Solo spunta',                  hint: 'Segna la fase con la data, senza spostare l\'ordine' },
-  obbligatorio: { label: 'Obbligatorio per l\'evasione', hint: 'Se manca, l\'ordine in Evasione risulta parziale (es. con l\'etichetta alternativa "Parziale")' },
-  chiude:       { label: 'Chiude la lavorazione',        hint: 'Spuntato, l\'ordine esce da Attivi e va in Evasione' },
+  obbligatorio: { label: 'Obbligatorio per l\'evasione', hint: 'Se manca, l\'ordine resta in Attivi anche con la lavorazione chiusa' },
+  chiude:       { label: 'Chiude la lavorazione',        hint: 'Spuntato (e con gli obbligatori fatti), l\'ordine esce da Attivi e va in Evasione' },
   parziale:     { label: 'Spedizione parziale',          hint: 'Togliendo la spunta si annulla anche l\'evasione' },
   evade:        { label: 'Evade l\'ordine',              hint: 'Con il pagamento l\'ordine va in Archivio, senza in Da riscuotere' },
 };

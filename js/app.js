@@ -260,7 +260,7 @@ function toggleTagFilter(tag) {
 function clearTagFilters() { AppState.filterTags = []; renderOrderList(); }
 
 function renderOrderList() {
-  if (AppState.view === 'parziali') AppState.view = 'evasione';   // scheda Parziali tolta: i suoi ordini sono in Evasione
+  if (AppState.view === 'parziali') AppState.view = 'active';   // scheda Parziali tolta: i suoi ordini sono in Attivi
   const nActive   = TCFactory.getActiveOrders().length;
   const nEvasione = TCFactory.getEvasioneOrders().length;
   const nDaRisc   = TCFactory.getDaRiscuotereOrders().length;
