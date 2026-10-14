@@ -577,7 +577,9 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 }
 .search-box svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-muted); width: 15px; height: 15px; }
 
-.order-rows { display: flex; flex-direction: column; }
+/* Le righe tengono tutte le colonne: se lo schermo è stretto (telefono, tablet) si scorre in orizzontale */
+.order-rows { display: flex; flex-direction: column; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; padding-bottom: 4px; }
+.order-rows > .order-row-item { min-width: max-content; }
 
 .order-row-item {
   display: flex;
@@ -1161,53 +1163,8 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   .view-tabs          { overflow-x: auto; flex-shrink: 0; -webkit-overflow-scrolling: touch; }
   .view-tab           { white-space: nowrap; padding: 4px 10px; font-size: 0.75rem; }
 
-  /* ── Header colonne — nascosto su mobile ── */
-  .order-row-header-row { display: none !important; }
-
-  /* ── Riga ordine — layout a scheda invece di griglia ── */
-  .order-row-item { padding: 0 10px; }
-
-  /* .order-row-grid--active è definita più sotto nel file con la stessa
-     specificità: a parità di specificità vince l'ordine nel file, quindi
-     qui va qualificata con un antenato per garantire che vinca lei anche
-     su mobile (altrimenti torna la grid fissa a 8 colonne del desktop). */
-  .order-row-grid,
-  .order-row-item .order-row-grid--active {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    padding: 10px 4px;
-    gap: 0;
-  }
-
-  /* Reset celle */
-  .order-row-grid > div {
-    border: none;
-    min-height: auto;
-    padding: 2px 6px;
-  }
-
-  /* Nome: occupa tutta la prima riga */
-  .orc-name {
-    width: 100%;
-    flex-basis: 100%;
-    padding: 0 6px 7px;
-    border-bottom: 1px solid var(--border-light);
-    margin-bottom: 4px;
-    font-size: 0.92rem;
-  }
-
-  /* Seconda riga: tutto scorre inline naturalmente */
-  .orc-date     { flex: 0 0 auto; font-size: 0.72rem; }
-  /* width:100% forza queste righe di chip/pillole sulla propria riga così il loro
-     flex-wrap interno ha uno spazio definito in cui andare a capo, invece di
-     sfondare la larghezza della card (bug: pagina intera che si allargava su mobile) */
-  .orc-tags     { flex: 1 1 100%; width: 100%; min-width: 0; flex-wrap: wrap; gap: 3px; }
-  .orc-lav      { flex: 1 1 100%; width: 100%; min-width: 0; flex-wrap: wrap; gap: 3px; }
-  .orc-eva      { flex: 1 1 100%; width: 100%; min-width: 0; flex-wrap: wrap; gap: 3px; }
-  .orc-deadline { flex: 0 0 auto; font-size: 0.75rem; }
-  .orc-priority { flex: 0 0 auto; }
-  .orc-files    { flex: 0 0 auto; }
+  /* ── Lista ordini: stessa riga a colonne del computer, si scorre in orizzontale (vedi .order-rows) ── */
+  .order-row-item { padding: 0 6px 0 0; }
 
   /* ── Stage pills — leggermente più grandi su mobile (tap target) ── */
   .stage-pill { padding: 6px 12px; font-size: 0.76rem; }
@@ -2273,7 +2230,3 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .data-table td.cell-action { white-space: nowrap; }
 .pimg img { background: repeating-conic-gradient(color-mix(in srgb, var(--text-muted) 14%, transparent) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
 
-/* Mobile: le colonne delle etichette tornano a capo come le altre pill */
-@media (max-width: 768px) {
-  .orc-gruppo.orc-pills { flex-wrap: wrap; }
-}

@@ -98,16 +98,16 @@ const Pulsanti = {
   },
   gruppoDi(p) { const g = this.gruppi(); return g.some(x => x.id === p.colonna) ? p.colonna : g[0].id; },
   gruppiVista(view) { return this.gruppi().filter(g => (g.schede || Object.keys(PULSANTI_SCHEDE)).includes(view)); },
-  // Colonne della riga: Nome 300px, Tipologia, Data, Scadenza, una per etichetta, Ordine, Pagamento
+  // Colonne della riga: Nome 200px, Tipologia, Data, Scadenza, Ordine, una per etichetta, Pagamento
   // Le colonne delle etichette partono larghe quanto il loro contenuto; adattaColonne le allinea poi tra le righe
   gridStyle(view) {
     const n = this.gruppiVista(view).length;
     return `grid-template-columns: ${this._cols(n ? Array(n).fill('max-content') : [])};`;
   },
-  _cols(gruppi) { return ['300px', '130px', '112px', '104px', ...gruppi, '62px', '90px'].join(' '); },
+  _cols(gruppi) { return ['200px', '130px', '112px', '104px', '62px', ...gruppi, '90px'].join(' '); },
   // Ogni colonna etichetta larga quanto la cella più lunga (intestazione compresa), uguale in tutte le righe
   adattaColonne(root) {
-    if (!root || window.matchMedia('(max-width: 768px)').matches) return;
+    if (!root) return;
     const grids = [...root.querySelectorAll('.order-row-grid')];
     const widths = [];
     grids.forEach(g => g.querySelectorAll(':scope > .orc-gruppo').forEach((c, i) => {
