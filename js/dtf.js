@@ -32,7 +32,31 @@ const DtfState = {
   clientDragId: null,
   clientOrderSeen: '',  // ordine clienti già applicato (per gli aggiornamenti in diretta)
   tag: null,            // filtro tipologia dell'Interno
+  qInterno: '',         // ricerca dell'Interno (ordine, cliente, tipologia, file)
+  qTerzi: '',           // ricerca del Conto terzi (file e clienti, in tutti i mesi)
+  terziResults: null,   // risultati della ricerca Conto terzi: null = nessuna ricerca
+  terziTimer: null,
 };
+
+// Testo cercato in un campo: senza maiuscole/minuscole
+const dtfHas = (text, q) => String(text || '').toLowerCase().includes(q);
+
+// Campo cerca che resta attivo mentre la sezione si ridisegna
+function dtfSearchBox(id, value, placeholder, oninput) {
+  return `<div class="search-box dtf-search">
+    ${Icons.search()}
+    <input id="${id}" type="search" placeholder="${placeholder}" aria-label="${placeholder}" value="${escapeHtml(value)}" oninput="${oninput}">
+  </div>`;
+}
+// Ricerca dell'Interno: nome/codice ordine, descrizione, cliente, tipologie, nomi dei file
+function dtfMatchInterno(o, q) {
+  return !q || [o.nome, o.id, orderDesc(o), TCFactory.clientName(TCFactory.getClient(o.clientId)), ...o.tags,
+    ...(Array.isArray(o.dtfItems) ? o.dtfItems.map(f => f?.name) : [])].some(t => dtfHas(t, q));
+}
+function dtfRefocus(id) {
+  const el = document.getElementById(id);
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
 
 const dtfLs = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -121,7 +145,11 @@ function renderDtfInterno() {
   if (DtfState.tag === null) DtfState.tag = dtfLs.get(DTF_TAG_KEY) || null;
   const tagsInList = TCFactory.getTags().filter(t => all.some(o => o.tags.includes(t.name)));
   if (DtfState.tag && !tagsInList.some(t => t.name === DtfState.tag)) DtfState.tag = null;
-  const todo = DtfState.tag ? all.filter(o => o.tags.includes(DtfState.tag)) : all;
+  const q = DtfState.qInterno.trim().toLowerCase();
+  const matches = (o) => dtfMatchInterno(o, q);
+  const todo = (DtfState.tag ? all.filter(o => o.tags.includes(DtfState.tag)) : all).filter(matches);
+  // Con la ricerca: quanti ne trova anche tra stampati e rimossi
+  const altrove = q ? printed.filter(matches).length + removedList.filter(x => matches(x.o)).length : 0;
   const today = localISODate(new Date());
   const fmt = (d) => TCFactory.formatDate(d, { day: '2-digit', month: '2-digit' });
   const stats = todo.map(dtfOrderStats);
@@ -173,9 +201,13 @@ function renderDtfInterno() {
 
   root.innerHTML = `
     <div class="dtf-box-head">
-      <div><h2>Da stampare</h2><p>${todo.length}${DtfState.tag ? ` di ${all.length}` : ''} ${todo.length === 1 ? 'ordine' : 'ordini'} · per scadenza, trascina per dare priorità</p></div>
-      <button type="button" class="btn btn-secondary btn-sm" onclick="dtfOpenHistory()">Stampati e rimossi · ${printed.length + removedList.length}</button>
+      <div><h2>Da stampare</h2><p>${todo.length}${DtfState.tag || q ? ` di ${all.length}` : ''} ${todo.length === 1 ? 'ordine' : 'ordini'} · per scadenza, trascina per dare priorità</p></div>
+      <div class="dtf-head-actions">
+        ${dtfSearchBox('dtf-q-interno', DtfState.qInterno, 'Cerca ordine, cliente, file…', 'dtfSearchInterno(this.value)')}
+        <button type="button" class="btn btn-secondary btn-sm" onclick="dtfOpenHistory()">Stampati e rimossi · ${printed.length + removedList.length}</button>
+      </div>
     </div>
+    ${altrove ? `<p class="dtf-note">Trovati anche ${altrove} tra <button type="button" class="link-btn" onclick="dtfOpenHistory()">Stampati e rimossi</button>.</p>` : ''}
     ${tagBar}
     <div class="dtf-summary dtf-summary-interno">
       <div class="dtf-kpi"><span>Metri da stampare</span><strong>${dtfMetri(tot.metri)} m</strong></div>
@@ -187,7 +219,13 @@ function renderDtfInterno() {
     ${senzaFile ? `<p class="dtf-note">${senzaFile} ${senzaFile === 1 ? 'ordine non ha' : 'ordini non hanno'} ancora file: metri e tempo li contano solo quando ci sono.</p>` : ''}
     ${todo.length
       ? `<ol class="dtf-timeline" aria-label="Ordini da stampare">${todo.map(card).join('')}</ol>`
-      : `<div class="empty-list">${DtfState.tag ? `Nessun ordine "${escapeHtml(DtfState.tag)}" da stampare.` : 'Nessun ordine da stampare. 🎉'}</div>`}`;
+      : `<div class="empty-list">${q ? `Nessun ordine da stampare trovato per "${escapeHtml(DtfState.qInterno.trim())}".` : DtfState.tag ? `Nessun ordine "${escapeHtml(DtfState.tag)}" da stampare.` : 'Nessun ordine da stampare. 🎉'}</div>`}`;
+}
+
+function dtfSearchInterno(v) {
+  DtfState.qInterno = v;
+  renderDtfInterno();
+  dtfRefocus('dtf-q-interno');
 }
 
 // ── Stampati e rimossi (finestra) ──
@@ -200,7 +238,11 @@ function dtfOpenHistory() {
 }
 
 function dtfRenderHistory() {
-  const { printed, removedList } = dtfLists();
+  // Con una ricerca attiva nell'Interno, anche qui si vedono solo gli ordini trovati
+  const q = DtfState.qInterno.trim().toLowerCase();
+  const lists = dtfLists();
+  const printed = lists.printed.filter(o => dtfMatchInterno(o, q));
+  const removedList = lists.removedList.filter(x => dtfMatchInterno(x.o, q));
   const fmt = (iso) => iso ? new Date(String(iso).length > 10 ? iso : iso + 'T00:00:00').toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' }) : 'data non registrata';
   const row = (o, when, action) => `
     <li class="dtf-side-row">
@@ -214,6 +256,7 @@ function dtfRenderHistory() {
         <button class="btn-icon" onclick="closeModal('dtf-history-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <div class="modal-body dtf-history">
+        ${q ? `<p class="dtf-note" style="grid-column:1/-1;margin:0;">Solo gli ordini trovati per "${escapeHtml(DtfState.qInterno.trim())}" · <button type="button" class="link-btn" onclick="DtfState.qInterno='';renderDtfInterno();dtfRenderHistory()">mostra tutti</button></p>` : ''}
         <section>
           <h3>Stampati <small>ultimi ${DTF_STAMPATI_DAYS} giorni · ${printed.length}</small></h3>
           ${printed.length ? `<ul>${printed.map(o => row(o, `stampato il ${fmt(o.stages.dtfPronti.date)}`, 'dtfRestorePrinted')).join('')}</ul>` : '<p class="dtf-side-empty">Nessuno.</p>'}
@@ -413,15 +456,19 @@ function renderDtfTerzi() {
   }
 
   const c = dtfClient();
+  const searching = DtfState.qTerzi.trim().length > 0;
   const head = `
     <div class="dtf-box-head">
       <div><h2>DTF Conto terzi</h2><p id="dtf-save-status">${dtfSaveStatus()}</p></div>
-      ${c ? `<div class="dtf-client-actions">
+      ${dtfSearchBox('dtf-q-terzi', DtfState.qTerzi, 'Cerca file o cliente, in tutti i mesi…', 'dtfSearchTerzi(this.value)')}
+      ${c && !searching ? `<div class="dtf-client-actions">
         <button type="button" class="btn btn-secondary btn-sm" onclick="dtfCopyLink('${c.id}')" title="Copia il link di sola lettura per il cliente">${Icons.link(14)} Link cliente</button>
         <button type="button" class="btn btn-secondary btn-sm" onclick="dtfOpenClientForm('${c.id}')">${Icons.edit(14)} Modifica</button>
       </div>` : ''}
     </div>
     ${dtfClientGridHtml()}`;
+
+  if (searching) { root.innerHTML = head + dtfTerziResultsHtml(); return; }
 
   if (!c) {
     root.innerHTML = head + `<div class="empty-list">Aggiungi un cliente con il box <strong>Nuovo cliente</strong> per iniziare.</div>`;
@@ -465,6 +512,69 @@ function renderDtfTerzi() {
       <button class="btn btn-secondary btn-sm" onclick="dtfMonth(0)">Oggi</button>
     </div>
     <div class="dtf-calendar" id="dtf-calendar">${rows.join('')}</div>`;
+}
+
+// ── Ricerca Conto terzi: nomi dei file (tutti i clienti e i mesi) e nomi dei clienti ──
+function dtfSearchTerzi(v) {
+  DtfState.qTerzi = v;
+  clearTimeout(DtfState.terziTimer);
+  const q = v.trim();
+  if (!q) { DtfState.terziResults = null; renderDtfTerzi(); dtfRefocus('dtf-q-terzi'); dtfScrollToToday(); return; }
+  DtfState.terziResults = DtfState.terziResults || { loading: true, rows: [] };
+  renderDtfTerzi();
+  dtfRefocus('dtf-q-terzi');
+  DtfState.terziTimer = setTimeout(() => dtfRunTerziSearch(q), 300);
+}
+async function dtfRunTerziSearch(q) {
+  const like = '%' + q.replace(/[\\%_]/g, (ch) => '\\' + ch) + '%';
+  let rows = [], error = null;
+  try {
+    const res = await supabaseClient.from('dtf_entries').select('client_id, giorno, metri, dettaglio')
+      .ilike('dettaglio', like).order('giorno', { ascending: false }).limit(200);
+    if (res.error) throw res.error;
+    rows = res.data || [];
+  } catch (e) { error = e.message || 'errore'; }
+  if (DtfState.qTerzi.trim() !== q) return;   // nel frattempo si è scritto altro
+  DtfState.terziResults = { loading: false, rows, error };
+  renderDtfTerzi();
+  dtfRefocus('dtf-q-terzi');
+}
+function dtfTerziResultsHtml() {
+  const q = DtfState.qTerzi.trim().toLowerCase();
+  const r = DtfState.terziResults || { loading: true, rows: [] };
+  const clienti = DtfState.clients.filter(x => dtfHas(x.nome, q));
+  const nome = (id) => DtfState.clients.find(x => x.id === id)?.nome || 'Cliente eliminato';
+  const fmt = (d) => new Date(d + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  const righe = r.rows.map(e => {
+    const files = String(e.dettaglio || '').split('\n').map(x => x.trim()).filter(Boolean);
+    const hit = files.filter(f => dtfHas(f, q));
+    return `<li>
+      <button type="button" class="dtf-result" onclick="dtfOpenResult('${e.client_id}','${e.giorno}')">
+        <span class="dtf-result-when"><strong>${fmt(e.giorno)}</strong><small>${escapeHtml(nome(e.client_id))}</small></span>
+        <span class="dtf-result-files">${hit.slice(0, 3).map(f => `<span>${escapeHtml(f)}</span>`).join('')}${hit.length > 3 ? `<small>+${hit.length - 3} file</small>` : ''}</span>
+        <span class="dtf-result-metri">${Number(e.metri) ? `${dtfMetri(Number(e.metri))} m` : ''}</span>
+      </button>
+    </li>`;
+  }).join('');
+  return `
+    ${clienti.length ? `<p class="dtf-note">Clienti trovati: ${clienti.map(x => `<button type="button" class="link-btn" onclick="dtfSearchTerzi('');dtfSelectClient('${x.id}')">${escapeHtml(x.nome)}</button>`).join(', ')}</p>` : ''}
+    <h3 class="dtf-results-title">File trovati ${r.loading ? '' : `· ${r.rows.length}${r.rows.length === 200 ? '+' : ''}`}</h3>
+    ${r.error ? `<div class="empty-list">Ricerca non riuscita: ${escapeHtml(r.error)}</div>`
+      : r.loading && !r.rows.length ? '<div class="empty-list">Ricerca in corso…</div>'
+      : righe ? `<ol class="dtf-results">${righe}</ol>`
+      : `<div class="empty-list">Nessun file trovato per "${escapeHtml(DtfState.qTerzi.trim())}".</div>`}`;
+}
+// Apre il giorno trovato: cliente, mese e dettaglio dei file
+async function dtfOpenResult(clientId, giorno) {
+  DtfState.qTerzi = '';
+  DtfState.terziResults = null;
+  DtfState.clientId = clientId;
+  dtfLs.set(DTF_CLIENT_KEY, clientId);
+  const d = new Date(giorno + 'T00:00:00');
+  DtfState.month = new Date(d.getFullYear(), d.getMonth(), 1);
+  await dtfReloadTerzi(false);
+  document.querySelector(`.dtf-day[data-date="${giorno}"]`)?.scrollIntoView({ block: 'center' });
+  dtfOpenDetail(giorno);
 }
 
 function dtfScrollToToday() {
