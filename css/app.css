@@ -935,6 +935,9 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 /* Colonne delle etichette: strette, larghe quanto il contenuto più lungo */
 .order-row-grid > .orc-gruppo { padding-left: 8px; padding-right: 8px; }
 .orc-gruppo.orc-pills { flex-wrap: nowrap; }
+/* La data sotto i pulsanti sta fuori dal pulsante: se in riga c'è almeno una data,
+   la riga si alza di quanto serve (sopra e sotto, così i pulsanti restano centrati) */
+.order-row-grid:has(.pill-date:not(:empty)) > .orc-gruppo { padding-top: 18px; padding-bottom: 18px; }
 
 /* Pill + data: la data sta sotto senza spostare la pill, così resta centrata nella riga */
 .orc-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 5px; }
