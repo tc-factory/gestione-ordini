@@ -496,12 +496,21 @@ function renderOrderRow(o) {
 
   // Etichette dei tipi di lavorazione (spuntati nel form o nelle righe del modulo)
   const lavTipi = orderLavTipi(o);
-  const lavTipiTags = lavTipi.length ? `<div class="orc-lav-tipi">${lavTipi.map(t =>
-    `<span class="lav-tipo-tag ${t.kind}" title="Lavorazione ${t.kind === 'interne' ? 'interna' : 'esterna'}">${escapeHtml(t.nome)}</span>`).join('')}</div>` : '';
+  // Pulsanti per tipo: si spuntano come le altre fasi (interne → schede UV/Laser/Stampa, esterne → Esterne).
+  // Il DTF interno ha già la sua pill "DTF".
+  const dtfLavId = typeof interneLavId === 'function' ? interneLavId('interno') : null;
+  const lavTipiTags = lavTipi.filter(t => !(t.kind === 'interne' && t.id === dtfLavId)).map(t => {
+    const date = lavTipoDone(o, t.kind, t.id);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+      <button class="stage-pill lav-tipo ${t.kind} ${date ? 'done' : ''}" onclick="event.stopPropagation();toggleLavTipoInline('${o.id}','${t.kind}','${escapeHtml(t.id)}',${!date})"
+        title="Lavorazione ${t.kind === 'interne' ? 'interna' : 'esterna'} ${escapeHtml(t.nome)}${date ? ' completata' : ''}">${escapeHtml(t.nome)}</button>
+      <span style="font-size:0.6rem;white-space:nowrap;color:${typeof date === 'string' ? '#22c55e' : 'transparent'};">${typeof date === 'string' ? TCFactory.formatDate(date,{day:'2-digit',month:'2-digit'}) : '00/00'}</span>
+    </div>`;
+  }).join('');
 
   // Pill "Esterna" — visibile in tutti i tab se lavorazioneEsterna=true
   const buildExternaPill = () => {
-    if (!o.lavorazioneEsterna) return '';
+    if (!o.lavorazioneEsterna || lavTipi.some(t => t.kind === 'esterne')) return '';
     const externaStage = o.stages?.lavorazioneEsterna || { done: false };
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
       <button class="stage-pill ${externaStage.done?'done':''}"
@@ -578,7 +587,7 @@ function renderOrderRow(o) {
             <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);">Pronto</span>
             <span style="font-size:0.78rem;font-weight:700;color:#22c55e;">${stampatoDate}</span>
             ${buildExternaPill()}
-            ${lavTipiTags}
+            ${lavTipiTags ? `<div style="display:flex;gap:3px;flex-wrap:wrap;">${lavTipiTags}</div>` : ''}
           </div>
           <div class="orc-eva" style="gap:6px;flex-wrap:nowrap;align-items:flex-start;">${evaPills}</div>
           ${ordineCell}
@@ -1906,7 +1915,43 @@ function orderLavTipi(o) {
     esterne: o?.lavorazioneEsterna && !TCFactory.isNeutro(o) ? [...orderLavEsterne(o), ...rows.map(r => r.esterna)] : [],
   };
   return ['interne', 'esterne'].flatMap(kind => [...new Set(ids[kind].filter(Boolean))]
-    .map(id => ({ kind, nome: lavName(kind, id) })).filter(t => t.nome));
+    .map(id => ({ kind, id, nome: lavName(kind, id) })).filter(t => t.nome));
+}
+// Completamento di un tipo di lavorazione: data (o true) se fatto, altrimenti null.
+// Interne: orderModule.interneFatte (come le schede UV/Laser/Stampa).
+// Esterne: orderModule.esterneFatte, oppure tutte fatte se la fase "Esterna" è completata.
+function lavTipoDone(o, kind, id) {
+  const m = o?.orderModule || {};
+  if (kind === 'interne') return m.interneFatte?.[id] || null;
+  return m.esterneFatte?.[id] || (o.stages?.lavorazioneEsterna?.done ? (o.stages.lavorazioneEsterna.date || true) : null);
+}
+async function toggleLavTipoInline(orderId, kind, id, done) {
+  const o = TCFactory.getOrderById(orderId);
+  if (!o) return;
+  const today = localISODate(new Date());
+  const mod = o.orderModule || { rows: [], acconto: '' };
+  const changes = {};
+  if (kind === 'interne') {
+    const fatte = { ...(mod.interneFatte || {}) };
+    if (done) fatte[id] = today; else delete fatte[id];
+    changes.orderModule = { ...mod, interneFatte: fatte };
+  } else {
+    // La fase "Esterna" è completata quando lo sono tutti i tipi esterni dell'ordine
+    const tipi = orderLavTipi(o).filter(t => t.kind === 'esterne').map(t => t.id);
+    const fatte = {};
+    tipi.forEach(t => { const d = lavTipoDone(o, 'esterne', t); if (d) fatte[t] = d; });
+    if (done) fatte[id] = today; else delete fatte[id];
+    changes.orderModule = { ...mod, esterneFatte: fatte };
+    const allDone = tipi.every(t => fatte[t]);
+    if (allDone !== !!o.stages?.lavorazioneEsterna?.done)
+      changes.stages = { ...o.stages, lavorazioneEsterna: allDone ? { done: true, date: today } : { done: false } };
+  }
+  try {
+    await TCFactory.updateOrder(orderId, changes);
+    TCFactory._log(`${done ? '✓' : '☐'} ${lavName(kind, id) || id}`, orderId, o.nome, { [kind === 'interne' ? 'interna' : 'esterna']: id, done });
+    TCFactory._notify();
+  } catch (e) { showToast('Errore — riprova', 'error'); }
+  renderOrderList();
 }
 
 function modRowEsterna(r, legacy = '✓') {
