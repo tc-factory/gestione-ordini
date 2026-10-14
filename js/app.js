@@ -375,7 +375,7 @@ function renderOrderList() {
         <div class="orc-tags orc-hdr">Tipologia</div>
         ${sortHdr('data', 'Data creazione', 'orc-date')}
         ${sortHdr('scadenza', 'Scadenza', 'orc-deadline')}
-        ${Pulsanti.gruppiVista(rowView).map(g => `<div class="orc-lav orc-hdr">${escapeHtml(g.nome)}</div>`).join('')}
+        ${Pulsanti.gruppiVista(rowView).map(g => `<div class="orc-lav orc-hdr orc-gruppo">${escapeHtml(g.nome)}</div>`).join('')}
         <div class="orc-files orc-hdr">Ordine</div>
         <div class="orc-payment orc-hdr">Pagamento</div>
       </div>`;
@@ -425,6 +425,7 @@ function renderOrderList() {
       </div>
     </div>
   `;
+  Pulsanti.adattaColonne(document.getElementById('orderlist-root'));
 }
 
 
