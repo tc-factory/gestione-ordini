@@ -927,6 +927,9 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 
 .stage-pill:hover { border-color: var(--text-muted); color: var(--text-primary); }
 
+.stage-pill.locked { opacity: 0.45; cursor: not-allowed; border-style: dashed; }
+.stage-pill.locked:hover { border-color: var(--border); color: var(--text-muted); }
+
 .stage-pill.done {
   background: #22c55e1a;
   border-color: #22c55e88;

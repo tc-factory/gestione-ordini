@@ -1064,9 +1064,10 @@ function renderOrderDetail() {
       <div class="stage-list">
         ${Pulsanti.visibili(order, colonna).map(s => {
           const state = Pulsanti.stato(order, s);
+          const locked = !state.done && !Pulsanti.cliccabile(order, s);
           return `
-            <label class="stage-item">
-              <input type="checkbox" class="stage-checkbox" ${state.done ? 'checked' : ''}
+            <label class="stage-item" ${locked ? `title="${escapeHtml(Pulsanti.motivo(s))}"` : ''}>
+              <input type="checkbox" class="stage-checkbox" ${state.done ? 'checked' : ''} ${locked ? 'disabled' : ''}
                 onchange="pulsanteToggle('${order.id}','${escapeHtml(s.id)}',this.checked)">
               <span class="stage-label ${state.done ? 'done' : ''}">
                 <span>${escapeHtml(Pulsanti.nome(s))}</span>

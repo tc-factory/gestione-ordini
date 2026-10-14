@@ -8,6 +8,8 @@
  *                  'interne:<id>' / 'esterne:<id>' = scheda Interne / tipo Esterne; 'esterne:*' = Esterna generica)
  *  - mostra:       quando compare sull'ordine (vedi PULSANTI_MOSTRA)
  *  - alt:          etichetta alternativa { nome, seNon: <id pulsante> }
+ *  - abilita:      cliccabile solo se { se: <condizione, vedi PULSANTI_ABILITA>, pulsante: <id> }
+ *                  (vale solo per spuntare: togliere la spunta è sempre possibile)
  *  - attivo:       false = nascosto ovunque
  * Le lavorazioni interne/esterne delle Impostazioni hanno un pulsante automatico
  * (id "lav-<id>") finché non se ne modifica uno: da lì viene salvato con gli altri.
@@ -29,6 +31,24 @@ const PULSANTI_MOSTRA = {
   interna:              'Solo ordini con lavorazione interna',
   esterna:              'Solo ordini con lavorazione esterna',
   'esterna-senza-tipo': 'Ordini esterni senza tipo di lavorazione',
+};
+
+// "Cliccabile solo se": quelle con pulsante: true chiedono anche quale pulsante
+const PULSANTI_ABILITA = {
+  '':                   { label: 'Sempre' },
+  spuntato:             { label: 'Un altro pulsante è spuntato', pulsante: true, testo: (n) => `${n} spuntato` },
+  'non-spuntato':       { label: 'Un altro pulsante NON è spuntato', pulsante: true, testo: (n) => `${n} non spuntato` },
+  'lavorazioni-fatte':  { label: 'Tutti gli altri pulsanti di Lavorazione sono spuntati', testo: () => 'tutte le lavorazioni fatte' },
+  'lavorazione-chiusa': { label: 'La lavorazione è chiusa', testo: () => 'lavorazione chiusa' },
+  'merce-ok':           { label: 'Tutti i pulsanti obbligatori sono spuntati', testo: () => 'obbligatori spuntati' },
+  pagato:               { label: 'L\'ordine è pagato (€)', testo: () => 'ordine pagato' },
+  'non-pagato':         { label: 'L\'ordine NON è pagato', testo: () => 'ordine non pagato' },
+  fatturato:            { label: 'La fattura è confermata (🧾)', testo: () => 'fattura confermata' },
+  importo:              { label: 'L\'ordine ha un importo', testo: () => 'importo inserito' },
+  modulo:               { label: 'C\'è il modulo d\'ordine', testo: () => 'modulo d\'ordine compilato' },
+  allegati:             { label: 'Ci sono file allegati', testo: () => 'file allegati' },
+  cliente:              { label: 'L\'ordine ha un cliente collegato', testo: () => 'cliente collegato' },
+  scadenza:             { label: 'L\'ordine ha una deadline', testo: () => 'deadline inserita' },
 };
 
 const PULSANTI_DEFAULT = () => [
@@ -115,6 +135,33 @@ const Pulsanti = {
     const cond = p.alt?.nome && p.alt.seNon ? this.get(p.alt.seNon) : null;
     return cond && this.visibile(o, cond) && !this.stato(o, cond).done ? p.alt.nome : this.nome(p);
   },
+  // "Cliccabile solo se": la condizione per poter spuntare il pulsante
+  cliccabile(o, p) {
+    const c = p.abilita?.se || '';
+    const other = p.abilita?.pulsante ? this.get(p.abilita.pulsante) : null;
+    switch (c) {
+      case 'spuntato':           return !other || (this.visibile(o, other) && this.stato(o, other).done);
+      case 'non-spuntato':       return !other || !this.visibile(o, other) || !this.stato(o, other).done;
+      case 'lavorazioni-fatte':  return this.visibili(o, 'lavorazione').filter(x => x.id !== p.id).every(x => this.stato(o, x).done);
+      case 'lavorazione-chiusa': return this.chiusa(o);
+      case 'merce-ok':           return this.obbligatoriOk(o);
+      case 'pagato':             return !!o.paymentDone;
+      case 'non-pagato':         return !o.paymentDone;
+      case 'fatturato':          return !!o.invoiceConfirmed;
+      case 'importo':            return (parseFloat(o.importo) || 0) > 0;
+      case 'modulo':             return (o.orderModule?.rows?.length || 0) > 0;
+      case 'allegati':           return (o.files?.length || 0) > 0;
+      case 'cliente':            return !!o.clientId;
+      case 'scadenza':           return !!o.deadline;
+      default:                   return true;
+    }
+  },
+  motivo(p) {
+    const def = PULSANTI_ABILITA[p.abilita?.se || ''];
+    if (!def?.testo) return '';
+    const other = p.abilita?.pulsante ? this.get(p.abilita.pulsante) : null;
+    return `Cliccabile solo con ${def.testo(other ? this.nome(other) : '…')}`;
+  },
   _ruolo(o, ruolo) { return this.visibili(o).filter(p => p.ruolo === ruolo); },
   // Lavorazione chiusa: tutti i pulsanti "chiude" spuntati
   chiusa(o) { const l = this._ruolo(o, 'chiude'); return l.length > 0 && l.every(p => this.stato(o, p).done); },
@@ -142,6 +189,7 @@ const Pulsanti = {
     const o = TCFactory.getOrderById(orderId);
     const p = this.get(pid);
     if (!o || !p) return;
+    if (done && !this.cliccabile(o, p)) { showToast(this.motivo(p), 'error'); return; }
     const wasPaid = !!o.paymentDone, wasEvaso = this.isEvaso(o);
     await this.set(orderId, p, done);
     if (p.ruolo === 'parziale' && !done && wasEvaso) {
@@ -164,10 +212,11 @@ const Pulsanti = {
 function pulsantiPills(o, colonna, filtro = () => true) {
   return Pulsanti.visibili(o, colonna).filter(filtro).map(p => {
     const st = Pulsanti.stato(o, p);
+    const locked = !st.done && !Pulsanti.cliccabile(o, p);
     return `<div class="stage-cell">
-      <button class="stage-pill ${colonna === 'spedizione' ? 'evasione' : ''} ${st.done ? 'done' : ''}"
-        onclick="event.stopPropagation();pulsanteToggle('${o.id}','${escapeHtml(p.id)}',${!st.done})"
-        title="${escapeHtml(Pulsanti.nome(p))}${st.done ? ' — fatto' : ''}">${escapeHtml(Pulsanti.etichetta(o, p))}</button>
+      <button class="stage-pill ${colonna === 'spedizione' ? 'evasione' : ''} ${st.done ? 'done' : ''} ${locked ? 'locked' : ''}"
+        onclick="event.stopPropagation();${locked ? '' : `pulsanteToggle('${o.id}','${escapeHtml(p.id)}',${!st.done})`}" ${locked ? 'aria-disabled="true"' : ''}
+        title="${escapeHtml(locked ? Pulsanti.motivo(p) : Pulsanti.nome(p) + (st.done ? ' — fatto' : ''))}">${escapeHtml(Pulsanti.etichetta(o, p))}</button>
       <span class="pill-date">${st.date ? TCFactory.formatDate(st.date, { day: '2-digit', month: '2-digit' }) : ''}</span>
     </div>`;
   }).join('');
@@ -212,7 +261,7 @@ function pulsantiSettingsHtml() {
     const removable = !PULSANTI_FISSI.has(p.id) && !p.auto && (p.id.startsWith('p-') || Pulsanti.orfano(p));
     const open = PulsantiOpen.has(p.id);
     const pid = escapeHtml(p.id);
-    const sommario = [PULSANTI_RUOLI[p.ruolo || 'nessuno']?.label, p.collegamento ? 'collegato' : '', p.mostra && p.mostra !== 'sempre' ? 'condizionale' : '']
+    const sommario = [PULSANTI_RUOLI[p.ruolo || 'nessuno']?.label, p.collegamento ? 'collegato' : '', p.mostra && p.mostra !== 'sempre' ? 'condizionale' : '', p.abilita?.se ? 'con condizione' : '']
       .filter(Boolean).join(' · ');
     return `
     <div class="pulsante-cfg ${p.attivo === false ? 'off' : ''} ${open ? 'open' : ''}">
@@ -240,6 +289,18 @@ function pulsantiSettingsHtml() {
         <label>Collegato a</label>${sel(p, 'collegamento', pulsantiCollegamentiOptions(p))}
         <small class="pulsante-cfg-hint">${p.collegamento ? 'La spunta è la stessa della scheda Interne / Esterne collegata' : 'La spunta vale solo per questo pulsante'}</small>
         <label>Quando compare</label>${sel(p, 'mostra', opt(PULSANTI_MOSTRA, p.mostra || 'sempre'))}
+        <label>Cliccabile solo se</label>
+        <span class="pulsante-cfg-alt">
+          <select class="form-select" aria-label="Cliccabile solo se" onchange="pulsantiSetAbilita('${pid}','se',this.value)">
+            ${Object.entries(PULSANTI_ABILITA).map(([v, x]) => `<option value="${v}" ${(p.abilita?.se || '') === v ? 'selected' : ''}>${escapeHtml(x.label)}</option>`).join('')}
+          </select>
+          ${PULSANTI_ABILITA[p.abilita?.se || '']?.pulsante ? `
+          <select class="form-select" aria-label="Quale pulsante" onchange="pulsantiSetAbilita('${pid}','pulsante',this.value)">
+            <option value="">— scegli il pulsante —</option>
+            ${all.filter(x => x.id !== p.id).map(x => `<option value="${escapeHtml(x.id)}" ${p.abilita?.pulsante === x.id ? 'selected' : ''}>${escapeHtml(Pulsanti.nome(x))}</option>`).join('')}
+          </select>` : ''}
+        </span>
+        <small class="pulsante-cfg-hint">Finché la condizione non c'è il pulsante resta grigio; togliere la spunta è sempre possibile</small>
         <label>Etichetta alternativa</label>
         <span class="pulsante-cfg-alt">
           <input class="form-input" value="${escapeHtml(p.alt?.nome || '')}" placeholder="es. Parziale" maxlength="30" aria-label="Etichetta alternativa"
@@ -297,6 +358,14 @@ function pulsantiSetAlt(id, field, value) {
     if (p.id !== id) return p;
     const alt = { ...(p.alt || {}), [field]: String(value).trim() };
     return { ...p, alt: alt.nome || alt.seNon ? alt : null };
+  }));
+}
+function pulsantiSetAbilita(id, field, value) {
+  pulsantiSave(Pulsanti.all().map(p => {
+    if (p.id !== id) return p;
+    const abilita = { ...(p.abilita || {}), [field]: value };
+    if (field === 'se' && !PULSANTI_ABILITA[value]?.pulsante) delete abilita.pulsante;
+    return { ...p, abilita: abilita.se ? abilita : null };
   }));
 }
 function pulsantiMove(id, dir) {
