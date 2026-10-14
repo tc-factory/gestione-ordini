@@ -191,6 +191,7 @@ function renderApp() {
     const sec = dtfSection();
     if (!sec) renderInterneDashboard();
     else if (sec === 'interno') renderDtfInterno();
+    else if (sec === 'terzi') dtfSyncClientOrder();
     else if (sec !== 'terzi') renderInterneLav(sec);
   }
   if (Nav.current === 'esterne') renderEsternePage();
