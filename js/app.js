@@ -502,10 +502,10 @@ function renderOrderRow(o) {
   const dtfLavId = typeof interneLavId === 'function' ? interneLavId('interno') : null;
   const lavTipiTags = lavTipi.filter(t => !(t.kind === 'interne' && t.id === dtfLavId)).map(t => {
     const date = lavTipoDone(o, t.kind, t.id);
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+    return `<div class="stage-cell">
       <button class="stage-pill lav-tipo ${t.kind} ${date ? 'done' : ''}" onclick="event.stopPropagation();toggleLavTipoInline('${o.id}','${t.kind}','${escapeHtml(t.id)}',${!date})"
         title="Lavorazione ${t.kind === 'interne' ? 'interna' : 'esterna'} ${escapeHtml(t.nome)}${date ? ' completata' : ''}">${escapeHtml(t.nome)}</button>
-      <span style="font-size:0.6rem;white-space:nowrap;color:${typeof date === 'string' ? '#22c55e' : 'transparent'};">${typeof date === 'string' ? TCFactory.formatDate(date,{day:'2-digit',month:'2-digit'}) : '00/00'}</span>
+      <span class="pill-date">${typeof date === 'string' ? TCFactory.formatDate(date,{day:'2-digit',month:'2-digit'}) : ''}</span>
     </div>`;
   }).join('');
 
@@ -513,11 +513,11 @@ function renderOrderRow(o) {
   const buildExternaPill = () => {
     if (!o.lavorazioneEsterna || lavTipi.some(t => t.kind === 'esterne')) return '';
     const externaStage = o.stages?.lavorazioneEsterna || { done: false };
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+    return `<div class="stage-cell">
       <button class="stage-pill ${externaStage.done?'done':''}"
         onclick="event.stopPropagation();toggleStageInline('${o.id}','lavorazioneEsterna',${!externaStage.done})"
         title="Lavorazione esterna completata">Esterna</button>
-      <span style="font-size:0.6rem;white-space:nowrap;color:${externaStage.done&&externaStage.date?'#22c55e':'transparent'};">${externaStage.done&&externaStage.date ? TCFactory.formatDate(externaStage.date,{day:'2-digit',month:'2-digit'}) : '00/00'}</span>
+      <span class="pill-date">${externaStage.done&&externaStage.date ? TCFactory.formatDate(externaStage.date,{day:'2-digit',month:'2-digit'}) : ''}</span>
     </div>`;
   };
 
@@ -531,9 +531,9 @@ function renderOrderRow(o) {
       const label = (s.id === 'ordineStampato' && !isMerceDone) ? 'Parziale' : s.shortLabel;
       const stDate = (s.id === 'ordineStampato' && done && stage?.date)
         ? TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'}) : '';
-      return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+      return `<div class="stage-cell">
         <button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${label}</button>
-        <span style="font-size:0.6rem;white-space:nowrap;color:${stDate?'#22c55e':'transparent'};">${stDate||'00/00'}</span>
+        <span class="pill-date">${stDate||''}</span>
       </div>`;
     }).join('');
 
@@ -549,7 +549,7 @@ function renderOrderRow(o) {
           <div class="orc-tags">${tagPills}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           ${scadenzaCell}
-          <div class="orc-lav" style="gap:3px;flex-wrap:wrap;align-items:flex-start;">${lavPills}${externaPill}${lavTipiTags}</div>
+          <div class="orc-lav orc-pills">${lavPills}${externaPill}${lavTipiTags}</div>
           ${ordineCell}
           ${paymentCell}
         </div>
@@ -567,11 +567,11 @@ function renderOrderRow(o) {
       const stageDate = done && o.stages?.[s.id]?.date
         ? TCFactory.formatDate(o.stages[s.id].date, {day:'2-digit',month:'2-digit'})
         : '';
-      return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+      return `<div class="stage-cell">
         <button class="stage-pill evasione ${done?'done':''}"
           onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
           title="${s.label}">${s.shortLabel}</button>
-        <span style="font-size:0.6rem;white-space:nowrap;color:${stageDate?'#22c55e':'transparent'};">${stageDate||'00/00'}</span>
+        <span class="pill-date">${stageDate||''}</span>
       </div>`;
     }).join('');
 
@@ -588,9 +588,9 @@ function renderOrderRow(o) {
             <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);">Pronto</span>
             <span style="font-size:0.78rem;font-weight:700;color:#22c55e;">${stampatoDate}</span>
             ${buildExternaPill()}
-            ${lavTipiTags ? `<div style="display:flex;gap:3px;flex-wrap:wrap;">${lavTipiTags}</div>` : ''}
+            ${lavTipiTags ? `<div class="orc-pills">${lavTipiTags}</div>` : ''}
           </div>
-          <div class="orc-eva" style="gap:6px;flex-wrap:nowrap;align-items:flex-start;">${evaPills}</div>
+          <div class="orc-eva orc-pills">${evaPills}</div>
           ${ordineCell}
           ${paymentCell}
         </div>
@@ -603,9 +603,9 @@ function renderOrderRow(o) {
     const stage = o.stages?.[s.id];
     const stDate = (s.id === 'ordineStampato' && done && stage?.date)
       ? TCFactory.formatDate(stage.date, {day:'2-digit',month:'2-digit'}) : '';
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+    return `<div class="stage-cell">
       <button class="stage-pill ${done?'done':''}" onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})" title="${s.label}">${s.shortLabel}</button>
-      <span style="font-size:0.6rem;white-space:nowrap;color:${stDate?'#22c55e':'transparent'};">${stDate||'00/00'}</span>
+      <span class="pill-date">${stDate||''}</span>
     </div>`;
   }).join('');
 
@@ -614,11 +614,11 @@ function renderOrderRow(o) {
     const stageDate = done && o.stages?.[s.id]?.date
       ? TCFactory.formatDate(o.stages[s.id].date, {day:'2-digit',month:'2-digit'})
       : '';
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+    return `<div class="stage-cell">
       <button class="stage-pill evasione ${done?'done':''}"
         onclick="event.stopPropagation();toggleStageInline('${o.id}','${s.id}',${!done})"
         title="${s.label}">${s.shortLabel}</button>
-      <span style="font-size:0.6rem;white-space:nowrap;color:${stageDate?'#22c55e':'transparent'};">${stageDate||'00/00'}</span>
+      <span class="pill-date">${stageDate||''}</span>
     </div>`;
   }).join('');
 
@@ -631,8 +631,8 @@ function renderOrderRow(o) {
         <div class="orc-tags">${tagPills}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         ${scadenzaCell}
-        <div class="orc-lav" style="gap:3px;flex-wrap:wrap;">${lavPills}${buildExternaPill()}${lavTipiTags}</div>
-        <div class="orc-eva" style="gap:4px;flex-wrap:nowrap;">${evaPills}</div>
+        <div class="orc-lav orc-pills">${lavPills}${buildExternaPill()}${lavTipiTags}</div>
+        <div class="orc-eva orc-pills">${evaPills}</div>
         ${ordineCell}
         ${paymentCell}
       </div>
