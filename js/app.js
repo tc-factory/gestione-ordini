@@ -190,8 +190,8 @@ function renderApp() {
   if (Nav.current === 'dtf') {
     const sec = dtfSection();
     if (!sec) renderInterneDashboard();
-    else if (['uv', 'laser', 'stampa'].includes(sec)) renderInterneLav(sec);
-    else renderDtfInterno();
+    else if (sec === 'interno') renderDtfInterno();
+    else if (sec !== 'terzi') renderInterneLav(sec);
   }
   if (Nav.current === 'esterne') renderEsternePage();
   if (Nav.current === 'clienti') renderClientsPage();
@@ -515,7 +515,7 @@ function renderOrderRow(o) {
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
       <button class="stage-pill ${externaStage.done?'done':''}"
         onclick="event.stopPropagation();toggleStageInline('${o.id}','lavorazioneEsterna',${!externaStage.done})"
-        title="Lavorazione esterna completata" style="font-size:0.75rem;">Esterna</button>
+        title="Lavorazione esterna completata">Esterna</button>
       <span style="font-size:0.6rem;white-space:nowrap;color:${externaStage.done&&externaStage.date?'#22c55e':'transparent'};">${externaStage.done&&externaStage.date ? TCFactory.formatDate(externaStage.date,{day:'2-digit',month:'2-digit'}) : '00/00'}</span>
     </div>`;
   };
@@ -2402,6 +2402,9 @@ async function saveLav(kind, list, msg) {
   try { await TCFactory.setSetting(LAV_KINDS[kind].key, list); if (msg) showToast(msg); }
   catch { showToast('Salvataggio non riuscito', 'error'); }
   renderSettingsDialog();
+  // Lista ordini, schede Interne, pagina Esterne e menu del modulo usano subito i nuovi nomi
+  renderApp();
+  if (document.getElementById('of-lav-tipi')) ofRenderLav();
 }
 
 function addLav(kind) {

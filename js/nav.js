@@ -258,15 +258,28 @@ function openMoreSheet() {
 
 // Lavorazioni interne: la pagina Interne (#/dtf) è una dashboard a blocchi,
 // ogni blocco apre la sua scheda (#/dtf/<id>). "lav": lavorazione interna (Impostazioni → Lavorazioni)
-// scelta nella colonna INTERNA del modulo d'ordine: gli ordini con quelle righe finiscono nella scheda.
-const INTERNE_SECTIONS = [
+// scelta nell'ordine o nella colonna INTERNA del modulo d'ordine: quegli ordini finiscono nella scheda.
+// Oltre ai due DTF, c'è una scheda per ogni lavorazione interna delle Impostazioni:
+// UV / Laser / Stampa tengono id e icona storici, le nuove usano l'id della lavorazione.
+const INTERNE_FISSE = [
   { id: 'interno', label: 'DTF interno',     subtitle: 'Ordini da stampare: file, metri, tempo e costo', icon: () => Icons.printer(22), ready: true, lav: { id: 'li-dtf', nome: 'DTF' } },
   { id: 'terzi',   label: 'DTF Conto terzi', subtitle: 'Stampe per clienti esterni',                   icon: () => Icons.users(22),   ready: true },
-  { id: 'uv',      label: 'UV',              subtitle: 'Ordini con lavorazione interna UV',            icon: () => Icons.sun(22),   ready: true, lav: { id: 'li-uv',     nome: 'UV' } },
-  { id: 'laser',   label: 'Laser',           subtitle: 'Ordini con lavorazione interna Laser',         icon: () => Icons.zap(22),   ready: true, lav: { id: 'li-laser',  nome: 'LASER' } },
-  { id: 'stampa',  label: 'Stampa',          subtitle: 'Ordini con lavorazione interna Stampa',        icon: () => Icons.image(22), ready: true, lav: { id: 'li-stampa', nome: 'STAMPA' } },
 ];
-const dtfSection = () => INTERNE_SECTIONS.find(s => s.id === Nav.param)?.id || null;   // null = dashboard
+const INTERNE_STORICHE = [
+  { id: 'uv',     icon: () => Icons.sun(22),   lav: { id: 'li-uv',     nome: 'UV' } },
+  { id: 'laser',  icon: () => Icons.zap(22),   lav: { id: 'li-laser',  nome: 'LASER' } },
+  { id: 'stampa', icon: () => Icons.image(22), lav: { id: 'li-stampa', nome: 'STAMPA' } },
+];
+const sameLav = (l, ref) => l.id === ref.id || l.nome.toLowerCase() === ref.nome.toLowerCase();
+function interneSections() {
+  const dtf = INTERNE_FISSE[0].lav;
+  return [...INTERNE_FISSE, ...getLavInterne().filter(l => !sameLav(l, dtf)).map(l => {
+    const old = INTERNE_STORICHE.find(s => sameLav(l, s.lav));
+    return { id: old?.id || l.id, label: l.nome, subtitle: `Ordini con lavorazione interna ${l.nome}`,
+      icon: old?.icon || (() => Icons.tag(22)), ready: true, lav: { id: l.id, nome: l.nome } };
+  })];
+}
+const dtfSection = () => interneSections().find(s => s.id === Nav.param)?.id || null;   // null = dashboard
 
 // Barra in alto: titolo della sezione + azioni contestuali
 function renderHeader() {
@@ -293,7 +306,7 @@ function renderHeader() {
        <button class="btn btn-primary" onclick="openProductForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo prodotto</span></button>`
     : '';
 
-  const sub = Nav.current === 'dtf' ? INTERNE_SECTIONS.find(x => x.id === dtfSection()) : null;
+  const sub = Nav.current === 'dtf' ? interneSections().find(x => x.id === dtfSection()) : null;
   const fornitoriPage = Nav.current === 'prodotti' && Nav.param === 'fornitori';
   root.innerHTML = `
     <button class="btn-icon menu-toggle" onclick="Nav.openDrawer()" aria-label="Apri menu">${Icons.menu()}</button>
