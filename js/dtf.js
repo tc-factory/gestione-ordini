@@ -50,7 +50,7 @@ function dtfSearchBox(id, value, placeholder, oninput) {
 }
 // Ricerca dell'Interno: nome/codice ordine, descrizione, cliente, tipologie, nomi dei file
 function dtfMatchInterno(o, q) {
-  return !q || [o.nome, o.id, orderDesc(o), TCFactory.clientName(TCFactory.getClient(o.clientId)), ...o.tags,
+  return !q || [o.nome, TCFactory.orderCode(o), orderDesc(o), TCFactory.clientName(TCFactory.getClient(o.clientId)), ...o.tags,
     ...(Array.isArray(o.dtfItems) ? o.dtfItems.map(f => f?.name) : [])].some(t => dtfHas(t, q));
 }
 function dtfRefocus(id) {
