@@ -14,7 +14,7 @@
  *  - eliminato:    true = tolto dalle Impostazioni (resta salvato solo per non far ricomparire
  *                  il pulsante automatico della sua lavorazione)
  * Etichette (app_settings.pulsanti_etichette): le colonne della lista ordini che raccolgono
- * i pulsanti, ognuna con le schede in cui compare (Attivi, Parziali, Evasione…).
+ * i pulsanti, ognuna con le schede in cui compare (Attivi, Evasione…).
  * Le lavorazioni interne/esterne delle Impostazioni hanno un pulsante automatico
  * (id "lav-<id>") finché non se ne modifica uno: da lì viene salvato con gli altri.
  */
@@ -24,7 +24,7 @@ const PULSANTI_ETICHETTE_KEY = 'pulsanti_etichette';
 
 // Schede della lista ordini in cui può comparire un'etichetta
 const PULSANTI_SCHEDE = {
-  active: 'Attivi', parziali: 'Parziali', evasione: 'Evasione', dariscuotere: 'Da riscuotere', archived: 'Archivio', search: 'Ricerca',
+  active: 'Attivi', evasione: 'Evasione', dariscuotere: 'Da riscuotere', archived: 'Archivio', search: 'Ricerca',
 };
 const PULSANTI_ETICHETTE_DEFAULT = () => [
   { id: 'lavorazione', nome: 'Lavorazione', schede: Object.keys(PULSANTI_SCHEDE) },
@@ -33,8 +33,8 @@ const PULSANTI_ETICHETTE_DEFAULT = () => [
 
 const PULSANTI_RUOLI = {
   nessuno:      { label: 'Solo spunta',                  hint: 'Segna la fase con la data, senza spostare l\'ordine' },
-  obbligatorio: { label: 'Obbligatorio per l\'evasione', hint: 'Se manca, l\'ordine chiuso va in Parziali invece che in Evasione' },
-  chiude:       { label: 'Chiude la lavorazione',        hint: 'Spuntato, l\'ordine esce da Attivi e va in Evasione (o in Parziali)' },
+  obbligatorio: { label: 'Obbligatorio per l\'evasione', hint: 'Se manca, l\'ordine in Evasione risulta parziale (es. con l\'etichetta alternativa "Parziale")' },
+  chiude:       { label: 'Chiude la lavorazione',        hint: 'Spuntato, l\'ordine esce da Attivi e va in Evasione' },
   parziale:     { label: 'Spedizione parziale',          hint: 'Togliendo la spunta si annulla anche l\'evasione' },
   evade:        { label: 'Evade l\'ordine',              hint: 'Con il pagamento l\'ordine va in Archivio, senza in Da riscuotere' },
 };

@@ -202,7 +202,6 @@ function renderApp() {
 
 function renderStats() {
   const active  = TCFactory.getActiveOrders().length;
-  const parziali = TCFactory.getParziali().length;
   const partial  = TCFactory.getEvasioneOrders().length;
   const arch    = TCFactory.getArchivedOrders().length;
 
@@ -215,7 +214,7 @@ function renderStats() {
     <div class="glass-card stat-card">
       <div class="stat-card-glow" style="background:#f97316;"></div>
       <div class="stat-card-label">Evasione</div>
-      <div class="stat-card-value" style="color:#f97316;">${partial + parziali}</div>
+      <div class="stat-card-value" style="color:#f97316;">${partial}</div>
     </div>
     <div class="glass-card stat-card">
       <div class="stat-card-glow" style="background:#22c55e;"></div>
@@ -261,15 +260,14 @@ function toggleTagFilter(tag) {
 function clearTagFilters() { AppState.filterTags = []; renderOrderList(); }
 
 function renderOrderList() {
+  if (AppState.view === 'parziali') AppState.view = 'evasione';   // scheda Parziali tolta: i suoi ordini sono in Evasione
   const nActive   = TCFactory.getActiveOrders().length;
-  const nParziali = TCFactory.getParziali().length;
   const nEvasione = TCFactory.getEvasioneOrders().length;
   const nDaRisc   = TCFactory.getDaRiscuotereOrders().length;
   const nArchived = TCFactory.getArchivedOrders().length;
 
   let source =
     AppState.view === 'active'       ? TCFactory.getActiveOrders()       :
-    AppState.view === 'parziali'     ? TCFactory.getParziali()           :
     AppState.view === 'evasione'     ? TCFactory.getEvasioneOrders()     :
     AppState.view === 'dariscuotere' ? TCFactory.getDaRiscuotereOrders() :
                                        TCFactory.getArchivedOrders();
@@ -293,7 +291,6 @@ function renderOrderList() {
   AppState.sectionOf = q ? new Map([
     ...TCFactory.getActiveOrders().map(o => [o.id, 'Attivi']),
     ...TCFactory.getEvasioneOrders().map(o => [o.id, 'Evasione']),
-    ...TCFactory.getParziali().map(o => [o.id, 'Parziali']),
     ...TCFactory.getDaRiscuotereOrders().map(o => [o.id, 'Da riscuotere']),
     ...TCFactory.getArchivedOrders().map(o => [o.id, 'Archivio']),
   ]) : null;
@@ -363,7 +360,6 @@ function renderOrderList() {
   const emptyMsg =
     q || AppState.filterTags.length > 0 || AppState.filterCreator ? 'Nessun risultato.' :
     AppState.view === 'archived'       ? 'Nessun ordine archiviato.' :
-    AppState.view === 'parziali'       ? 'Nessun ordine parziale.' :
     AppState.view === 'evasione'       ? 'Nessun ordine in evasione.' :
     AppState.view === 'dariscuotere'   ? 'Nessun ordine da riscuotere.' :
     'Nessun ordine attivo.';
@@ -390,7 +386,6 @@ function renderOrderList() {
           </div>
           <div class="view-tabs">
             <button class="view-tab ${AppState.view==='active'?'active':''}"        onclick="setView('active')">Attivi · ${nActive}</button>
-            <button class="view-tab ${AppState.view==='parziali'?'active':''}"      onclick="setView('parziali')">Parziali · ${nParziali}</button>
             <button class="view-tab ${AppState.view==='evasione'?'active':''}"      onclick="setView('evasione')">Evasione · ${nEvasione}</button>
             <button class="view-tab ${AppState.view==='dariscuotere'?'active':''}"  onclick="setView('dariscuotere')" style="${AppState.view==='dariscuotere'?'':'color:#ef4444;'}">€ Da riscuotere · ${nDaRisc}</button>
             <button class="view-tab ${AppState.view==='archived'?'active':''}"      onclick="setView('archived')">${Icons.archive(12)} Archivio · ${nArchived}</button>
