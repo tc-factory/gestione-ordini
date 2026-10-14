@@ -99,9 +99,23 @@ const Pulsanti = {
   gruppoDi(p) { const g = this.gruppi(); return g.some(x => x.id === p.colonna) ? p.colonna : g[0].id; },
   gruppiVista(view) { return this.gruppi().filter(g => (g.schede || Object.keys(PULSANTI_SCHEDE)).includes(view)); },
   // Colonne della riga: Nome 300px, Tipologia, Data, Scadenza, una per etichetta, Ordine, Pagamento
+  // Le colonne delle etichette partono larghe quanto il loro contenuto; adattaColonne le allinea poi tra le righe
   gridStyle(view) {
     const n = this.gruppiVista(view).length;
-    return `grid-template-columns: 300px 130px 112px 104px ${n ? `repeat(${n}, minmax(160px, 1fr))` : ''} 62px 90px;`;
+    return `grid-template-columns: ${this._cols(n ? Array(n).fill('max-content') : [])};`;
+  },
+  _cols(gruppi) { return ['300px', '130px', '112px', '104px', ...gruppi, '62px', '90px'].join(' '); },
+  // Ogni colonna etichetta larga quanto la cella più lunga (intestazione compresa), uguale in tutte le righe
+  adattaColonne(root) {
+    if (!root || window.matchMedia('(max-width: 768px)').matches) return;
+    const grids = [...root.querySelectorAll('.order-row-grid')];
+    const widths = [];
+    grids.forEach(g => g.querySelectorAll(':scope > .orc-gruppo').forEach((c, i) => {
+      widths[i] = Math.max(widths[i] || 0, Math.ceil(c.getBoundingClientRect().width));
+    }));
+    if (!widths.length) return;
+    const cols = this._cols(widths.map(w => `${w}px`));
+    grids.forEach(g => { g.style.gridTemplateColumns = cols; });
   },
   dtfLavId() { return typeof interneLavId === 'function' ? interneLavId('interno') : 'li-dtf'; },
   // Collegamento → { kind, id } della lavorazione (null se non è collegato a una lavorazione)

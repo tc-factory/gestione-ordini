@@ -932,6 +932,10 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border);
 }
 
+/* Colonne delle etichette: strette, larghe quanto il contenuto più lungo */
+.order-row-grid > .orc-gruppo { padding-left: 8px; padding-right: 8px; }
+.orc-gruppo.orc-pills { flex-wrap: nowrap; }
+
 /* Pill + data: la data sta sotto senza spostare la pill, così resta centrata nella riga */
 .orc-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 5px; }
 .stage-cell { position: relative; display: inline-flex; }
@@ -2265,3 +2269,8 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .pimg-row .form-select { flex: 1; min-width: 0; }
 .data-table td.cell-action { white-space: nowrap; }
 .pimg img { background: repeating-conic-gradient(color-mix(in srgb, var(--text-muted) 14%, transparent) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+
+/* Mobile: le colonne delle etichette tornano a capo come le altre pill */
+@media (max-width: 768px) {
+  .orc-gruppo.orc-pills { flex-wrap: wrap; }
+}
