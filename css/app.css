@@ -888,6 +888,15 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .pulsante-cfg { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-card); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .pulsante-cfg.off { opacity: 0.55; }
 .pulsante-cfg-head { display: flex; align-items: center; gap: 8px; }
+.pulsante-cfg-grip { cursor: grab; color: var(--text-muted); font-size: 0.9rem; letter-spacing: -2px; padding: 4px 2px; user-select: none; }
+.pulsante-cfg-grip:active { cursor: grabbing; }
+.pulsante-cfg-pos { min-width: 18px; text-align: center; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
+.pulsante-cfg.dragging { opacity: 0.4; }
+.pulsante-cfg.drop-before { box-shadow: 0 -3px 0 var(--brand-gold); }
+.pulsante-cfg.drop-after  { box-shadow: 0 3px 0 var(--brand-gold); }
+.pulsanti-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: var(--radius-md); }
+.pulsanti-preview small { font-size: 0.7rem; color: var(--text-muted); margin-right: 4px; }
+.pulsanti-preview .stage-pill { cursor: default; }
 .pulsante-cfg-toggle {
   flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   background: none; border: none; padding: 4px 2px; cursor: pointer; color: var(--text-muted); text-align: left; font-family: var(--font-body);

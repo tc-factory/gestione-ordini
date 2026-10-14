@@ -264,8 +264,12 @@ function pulsantiSettingsHtml() {
     const sommario = [PULSANTI_RUOLI[p.ruolo || 'nessuno']?.label, p.collegamento ? 'collegato' : '', p.mostra && p.mostra !== 'sempre' ? 'condizionale' : '', p.abilita?.se ? 'con condizione' : '']
       .filter(Boolean).join(' · ');
     return `
-    <div class="pulsante-cfg ${p.attivo === false ? 'off' : ''} ${open ? 'open' : ''}">
+    <div class="pulsante-cfg ${p.attivo === false ? 'off' : ''} ${open ? 'open' : ''}" data-pid="${pid}" data-col="${p.colonna}"
+      ondragover="pulsantiDragOver(event, this)" ondragleave="this.classList.remove('drop-before','drop-after')" ondrop="pulsantiDrop(event, this)">
       <div class="pulsante-cfg-head">
+        <span class="pulsante-cfg-grip" draggable="true" ondragstart="pulsantiDragStart(event, '${pid}')" ondragend="pulsantiDragEnd()"
+          title="Trascina per cambiare l'ordine" aria-hidden="true">⋮⋮</span>
+        <span class="pulsante-cfg-pos">${i + 1}</span>
         <div class="reorder-arrows">
           <button type="button" ${i === 0 ? 'disabled' : ''} onclick="pulsantiMove('${escapeHtml(p.id)}',-1)" aria-label="Sposta su">${Icons.arrowUp()}</button>
           <button type="button" ${i === list.length - 1 ? 'disabled' : ''} onclick="pulsantiMove('${escapeHtml(p.id)}',1)" aria-label="Sposta giù">${Icons.arrowDown()}</button>
@@ -316,7 +320,11 @@ function pulsantiSettingsHtml() {
   };
   const group = (colonna, title) => {
     const list = all.filter(p => p.colonna === colonna);
+    // Anteprima: i pulsanti attivi nell'ordine in cui compaiono nella lista ordini
+    const preview = list.filter(p => p.attivo !== false && !Pulsanti.orfano(p)).map(p =>
+      `<span class="stage-pill ${colonna === 'spedizione' ? 'evasione' : ''}">${escapeHtml(Pulsanti.nome(p))}</span>`).join('');
     return `<div style="font-size:0.8rem;font-weight:700;margin-top:4px;">${title}</div>
+      ${preview ? `<div class="pulsanti-preview" aria-label="Ordine nella lista ordini"><small>Nella lista ordini:</small>${preview}</div>` : ''}
       ${list.map((p, i) => card(p, i, list)).join('') || '<div class="settings-section-hint" style="margin:0;">Nessun pulsante.</div>'}`;
   };
   return `
@@ -368,6 +376,41 @@ function pulsantiSetAbilita(id, field, value) {
     return { ...p, abilita: abilita.se ? abilita : null };
   }));
 }
+// Trascina e rilascia (nella stessa colonna): il pulsante va prima o dopo quello su cui si rilascia
+let pulsantiDragId = null;
+function pulsantiDragStart(e, id) {
+  pulsantiDragId = id;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', id);
+  const card = e.target.closest('.pulsante-cfg');
+  if (card) { e.dataTransfer.setDragImage(card, 20, 20); card.classList.add('dragging'); }
+}
+function pulsantiDragEnd() {
+  pulsantiDragId = null;
+  document.querySelectorAll('.pulsante-cfg').forEach(c => c.classList.remove('dragging', 'drop-before', 'drop-after'));
+}
+function pulsantiDropAfter(e, el) { const r = el.getBoundingClientRect(); return e.clientY > r.top + r.height / 2; }
+function pulsantiDragOver(e, el) {
+  const from = pulsantiDragId && Pulsanti.get(pulsantiDragId);
+  if (!from || from.colonna !== el.dataset.col || el.dataset.pid === pulsantiDragId) return;
+  e.preventDefault();
+  const after = pulsantiDropAfter(e, el);
+  el.classList.toggle('drop-after', after);
+  el.classList.toggle('drop-before', !after);
+}
+function pulsantiDrop(e, el) {
+  e.preventDefault();
+  const id = pulsantiDragId, target = el.dataset.pid, after = pulsantiDropAfter(e, el);
+  pulsantiDragEnd();
+  if (!id || id === target) return;
+  const list = Pulsanti.all();
+  const moved = list.find(p => p.id === id);
+  if (!moved || moved.colonna !== list.find(p => p.id === target)?.colonna) return;
+  const rest = list.filter(p => p.id !== id);
+  rest.splice(rest.findIndex(p => p.id === target) + (after ? 1 : 0), 0, moved);
+  pulsantiSave(rest);
+}
+
 function pulsantiMove(id, dir) {
   const list = Pulsanti.all();
   const i = list.findIndex(p => p.id === id);
