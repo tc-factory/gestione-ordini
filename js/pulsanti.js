@@ -79,7 +79,16 @@ const Pulsanti = {
   // ── Configurazione ──
   config() {
     const v = TCFactory._settings[PULSANTI_KEY];
-    return Array.isArray(v) ? v.filter(p => p && p.id) : PULSANTI_DEFAULT();
+    if (!Array.isArray(v)) return PULSANTI_DEFAULT();
+    // Id doppi (salvati dalla versione precedente): ogni pulsante deve avere il suo, altrimenti
+    // modificarne uno cambia anche l'altro. Il secondo prende un id nuovo.
+    const seen = new Set();
+    return v.filter(p => p && p.id).map(p => {
+      let id = p.id, n = 2;
+      while (seen.has(id)) id = `${p.id}-${n++}`;
+      seen.add(id);
+      return id === p.id ? p : { ...p, id };
+    });
   },
   // ── Etichette (colonne della lista ordini) ──
   gruppi() {
@@ -113,9 +122,12 @@ const Pulsanti = {
     const conf = this.config().filter(p => !p.eliminato);
     const linked = new Set(this.config().map(p => this.linkKey(p)).filter(Boolean));
     const dtf = this.dtfLavId();
+    // Id del pulsante automatico: mai uguale a uno salvato (es. un pulsante "lav-…" ricollegato a un'altra lavorazione)
+    const used = new Set(this.config().map(p => p.id));
+    const freeId = (base) => { let id = base, n = 2; while (used.has(id)) id = `${base}-${n++}`; used.add(id); return id; };
     const auto = ['interne', 'esterne'].flatMap(kind => getLav(kind)
       .filter(l => !(kind === 'interne' && l.id === dtf) && !linked.has(`${kind}:${l.id}`))
-      .map(l => ({ id: `lav-${l.id}`, nome: '', colonna: this.gruppi()[0].id, ruolo: 'nessuno', collegamento: `${kind}:${l.id}`, mostra: 'selezionata', auto: true })));
+      .map(l => ({ id: freeId(`lav-${l.id}`), nome: '', colonna: this.gruppi()[0].id, ruolo: 'nessuno', collegamento: `${kind}:${l.id}`, mostra: 'selezionata', auto: true })));
     return [...conf, ...auto];
   },
   get(id) { return this.all().find(p => p.id === id) || null; },
