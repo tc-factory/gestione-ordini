@@ -46,7 +46,7 @@ function getCassaMovements() {
     .filter(o => {
       if (!q) return true;
       const c = TCFactory.getClient(o.clientId);
-      return o.nome.toLowerCase().includes(q) || o.id.toLowerCase().includes(q) || (c && TCFactory.clientName(c).toLowerCase().includes(q));
+      return o.nome.toLowerCase().includes(q) || TCFactory.orderCode(o).includes(q) || (c && TCFactory.clientName(c).toLowerCase().includes(q));
     })
     .sort((a, b) => (movementDate(b) || '').localeCompare(movementDate(a) || ''));
 }
@@ -155,7 +155,7 @@ function renderCassaPage() {
                 ${hasClients ? `<td class="cell-client">${c
                   ? `<a href="#/clienti/${c.id}" onclick="event.stopPropagation()" class="client-link">${escapeHtml(TCFactory.clientName(c))}</a>`
                   : `<span style="color:var(--text-muted);">—</span>`}</td>` : ''}
-                <td class="cell-main"><strong>${escapeHtml(o.nome)}</strong><small class="muted-id">${o.id}</small></td>
+                <td class="cell-main"><strong>${escapeHtml(o.nome)}</strong><small class="muted-id">${TCFactory.orderCode(o)}</small></td>
                 <td class="hide-sm"><span class="status-dot" style="--st:${st.color};">${st.label}</span></td>
                 <td class="num cell-amount" style="font-weight:700;">${euro(o.importo)}</td>
                 <td class="cell-pay">
@@ -194,7 +194,7 @@ function exportCassaCSV() {
     ...moves.map(o => [
       movementDate(o),
       TCFactory.clientName(TCFactory.getClient(o.clientId)),
-      o.nome, o.id, orderStatus(o).label,
+      o.nome, TCFactory.orderCode(o), orderStatus(o).label,
       (o.importo || 0).toFixed(2).replace('.', ','),
       o.paymentDone ? 'Riscosso' : 'Da riscuotere',
       o.paymentDate || '',

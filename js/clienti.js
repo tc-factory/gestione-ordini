@@ -197,7 +197,7 @@ function renderClientDetail(c) {
                 const st = orderStatus(o);
                 return `<tr class="data-row" tabindex="0" onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
                   <td class="cell-date">${TCFactory.formatDate(o.dataOrdine)}</td>
-                  <td class="cell-main"><strong>${escapeHtml(o.nome)}</strong><small class="muted-id">${o.id}</small></td>
+                  <td class="cell-main"><strong>${escapeHtml(o.nome)}</strong><small class="muted-id">${TCFactory.orderCode(o)}</small></td>
                   <td class="cell-status"><span class="status-dot" style="--st:${st.color};">${st.label}</span></td>
                   <td class="num cell-amount">${o.importo ? euro(o.importo) : '—'}</td>
                   <td class="cell-pay">${o.paymentDone
@@ -387,7 +387,7 @@ function renderLinkOrders(clientId) {
   const q = ClientState.linkSearch.trim().toLowerCase();
   const free = TCFactory.getOrders()
     .filter(o => !o.deletedAt && !o.clientId)
-    .filter(o => !q || o.nome.toLowerCase().includes(q) || o.id.toLowerCase().includes(q))
+    .filter(o => !q || o.nome.toLowerCase().includes(q) || TCFactory.orderCode(o).includes(q))
     .sort((a, b) => (b.dataOrdine || '').localeCompare(a.dataOrdine || ''));
   const n = ClientState.linkSelected.length;
 
@@ -408,7 +408,7 @@ function renderLinkOrders(clientId) {
             free.map(o => `
               <label class="link-row">
                 <input type="checkbox" ${ClientState.linkSelected.includes(o.id) ? 'checked' : ''} onchange="toggleLinkOrder('${o.id}', this.checked, '${clientId}')">
-                <span style="flex:1;min-width:0;"><strong>${escapeHtml(o.nome)}</strong><small>${o.id} · ${TCFactory.formatDate(o.dataOrdine)}</small></span>
+                <span style="flex:1;min-width:0;"><strong>${escapeHtml(o.nome)}</strong><small>${TCFactory.orderCode(o)} · ${TCFactory.formatDate(o.dataOrdine)}</small></span>
                 <span style="font-size:0.8rem;color:var(--text-secondary);">${o.importo ? euro(o.importo) : ''}</span>
               </label>`).join('')}
         </div>

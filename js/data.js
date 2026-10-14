@@ -248,10 +248,17 @@ const TCFactory = {
   getArchivedOrders()       { return this.getOrders().filter(o => !o.deletedAt && o.archived); },
   getTrashedOrders()        { return this.getOrders().filter(o => !!o.deletedAt); },
 
+  // Codici ordine: 5 numeri in sequenza (00001, 00002…). Gli ordini vecchi hanno l'id "ORD-0001":
+  // l'id nel database resta quello, ma si mostra sempre come codice a 5 cifre (orderCode).
+  orderNumber(id) { const m = String(id || '').match(/^(?:ORD-)?(\d+)$/); return m ? parseInt(m[1], 10) : 0; },
+  orderCode(o) {
+    const id = typeof o === 'string' ? o : o?.id;
+    const n = this.orderNumber(id);
+    return n ? String(n).padStart(5, '0') : String(id || '');
+  },
   generateId() {
-    const nums = this._orders.map(o => parseInt((o.id || '').replace('ORD-', '')) || 0);
-    const next = Math.max(0, ...nums) + 1;
-    return 'ORD-' + String(next).padStart(4, '0');
+    const next = Math.max(0, ...this._orders.map(o => this.orderNumber(o.id))) + 1;
+    return String(next).padStart(5, '0');
   },
 
   emptyStages() {

@@ -285,7 +285,7 @@ function renderOrderList() {
   const clientOf = (o) => TCFactory.clientName(TCFactory.getClient(o.clientId)) || '';
   let filtered = q
     ? source.filter(o => o.nome.toLowerCase().includes(q) || orderDesc(o).toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q))
-        || (o.createdBy || '').toLowerCase().includes(q) || clientOf(o).toLowerCase().includes(q) || (o.id || '').toLowerCase().includes(q))
+        || (o.createdBy || '').toLowerCase().includes(q) || clientOf(o).toLowerCase().includes(q) || TCFactory.orderCode(o).includes(q))
     : source;
   // Scheda di ogni ordine, mostrata accanto al nome nei risultati della ricerca
   AppState.sectionOf = q ? new Map([
