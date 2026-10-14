@@ -7,6 +7,7 @@
 const CassaState = {
   stato: 'tutti',      // 'tutti' | 'da-riscuotere' | 'riscossi'
   clientId: '',        // '' = tutti, '__none__' = senza cliente
+  tag: '',             // '' = tutte le tipologie
   periodo: 'tutto',    // 'tutto' | 'mese' | 'mese-scorso' | 'anno' | 'custom'
   from: '',
   to: '',
@@ -39,6 +40,7 @@ function getCassaMovements() {
     .filter(o => !o.deletedAt && (o.importo || 0) > 0)
     .filter(o => CassaState.stato === 'tutti' || (CassaState.stato === 'riscossi' ? o.paymentDone : !o.paymentDone))
     .filter(o => !CassaState.soloEvasi || o.paymentDone || o.stages?.spedito?.done)
+    .filter(o => !CassaState.tag || (o.tags || []).includes(CassaState.tag))
     .filter(o => !CassaState.clientId || (CassaState.clientId === '__none__' ? !o.clientId : o.clientId === CassaState.clientId))
     .filter(o => { const d = movementDate(o) || ''; return d >= from && d <= to; })
     .filter(o => {
@@ -62,7 +64,7 @@ function setCassaSearch(v) {
 }
 
 function resetCassaFilters() {
-  Object.assign(CassaState, { stato: 'tutti', clientId: '', periodo: 'tutto', from: '', to: '', search: '', soloEvasi: false });
+  Object.assign(CassaState, { stato: 'tutti', clientId: '', tag: '', periodo: 'tutto', from: '', to: '', search: '', soloEvasi: false });
   renderCassaPage();
 }
 
@@ -76,7 +78,7 @@ function renderCassaPage() {
   const riscossi = moves.filter(o => o.paymentDone);
   const sum = (list) => list.reduce((s, o) => s + (o.importo || 0), 0);
   const hasClients = TCFactory.isClientsAvailable();
-  const filtersActive = CassaState.stato !== 'tutti' || CassaState.clientId || CassaState.periodo !== 'tutto' || CassaState.search || CassaState.soloEvasi;
+  const filtersActive = CassaState.stato !== 'tutti' || CassaState.clientId || CassaState.tag || CassaState.periodo !== 'tutto' || CassaState.search || CassaState.soloEvasi;
 
   root.innerHTML = `
     <div class="cassa-grid">
@@ -106,6 +108,12 @@ function renderCassaPage() {
           <option value="">Tutti i clienti</option>
           <option value="__none__" ${CassaState.clientId === '__none__' ? 'selected' : ''}>Senza cliente</option>
           ${TCFactory.getClients().map(c => `<option value="${c.id}" ${CassaState.clientId === c.id ? 'selected' : ''}>${escapeHtml(TCFactory.clientName(c))}</option>`).join('')}
+        </select>` : ''}
+
+        ${TCFactory.getTags().length ? `
+        <select class="form-select filter-select" aria-label="Tipologia" onchange="setCassa('tag', this.value)">
+          <option value="">Tutte le tipologie</option>
+          ${TCFactory.getTags().map(t => `<option value="${escapeHtml(t.name)}" ${CassaState.tag === t.name ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
         </select>` : ''}
 
         <select class="form-select filter-select" aria-label="Periodo" onchange="setCassa('periodo', this.value)">
