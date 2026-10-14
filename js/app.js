@@ -371,8 +371,8 @@ function renderOrderList() {
         <div class="orc-tags orc-hdr">Tipologia</div>
         ${sortHdr('data', 'Data creazione', 'orc-date')}
         ${sortHdr('scadenza', 'Scadenza', 'orc-deadline')}
-        ${Pulsanti.gruppiVista(rowView).map(g => `<div class="orc-lav orc-hdr orc-gruppo">${escapeHtml(g.nome)}</div>`).join('')}
         <div class="orc-files orc-hdr">Ordine</div>
+        ${Pulsanti.gruppiVista(rowView).map(g => `<div class="orc-lav orc-hdr orc-gruppo">${escapeHtml(g.nome)}</div>`).join('')}
         <div class="orc-payment orc-hdr">Pagamento</div>
       </div>`;
 
@@ -504,8 +504,8 @@ function renderOrderRow(o) {
         <div class="orc-tags">${tagPills}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         ${scadenzaCell}
-        ${gruppiCells}
         ${ordineCell}
+        ${gruppiCells}
         ${paymentCell}
       </div>
     </div>`;
