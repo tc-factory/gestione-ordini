@@ -889,6 +889,25 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   color: #22c55e;
 }
 
+/* Tipi di lavorazione dell'ordine (interne / esterne) sotto le pill */
+.orc-lav-tipi { display: flex; flex-wrap: wrap; gap: 3px; flex-basis: 100%; }
+.lav-tipo-tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--brand-gold) 14%, transparent);
+  color: var(--brand-gold);
+}
+.lav-tipo-tag.esterne {
+  background: color-mix(in srgb, #6366f1 14%, transparent);
+  color: #6366f1;
+}
+
 .stage-pill.evasione.done {
   background: color-mix(in srgb, var(--brand-gold) 14%, transparent);
   border-color: color-mix(in srgb, var(--brand-gold) 50%, transparent);
