@@ -281,19 +281,30 @@ function renderOrderList() {
     );
   }
 
+  // Con la ricerca si cerca in tutti gli ordini (tutte le schede, archivio compreso), senza filtri di tag/autore
   const q = AppState.searchQuery.trim().toLowerCase();
+  if (q) source = TCFactory.getOrders().filter(o => !o.deletedAt);
+  const clientOf = (o) => TCFactory.clientName(TCFactory.getClient(o.clientId)) || '';
   let filtered = q
     ? source.filter(o => o.nome.toLowerCase().includes(q) || orderDesc(o).toLowerCase().includes(q) || o.tags.some(t => t.toLowerCase().includes(q))
-        || (o.createdBy || '').toLowerCase().includes(q))
+        || (o.createdBy || '').toLowerCase().includes(q) || clientOf(o).toLowerCase().includes(q) || (o.id || '').toLowerCase().includes(q))
     : source;
+  // Scheda di ogni ordine, mostrata accanto al nome nei risultati della ricerca
+  AppState.sectionOf = q ? new Map([
+    ...TCFactory.getActiveOrders().map(o => [o.id, 'Attivi']),
+    ...TCFactory.getEvasioneOrders().map(o => [o.id, 'Evasione']),
+    ...TCFactory.getParziali().map(o => [o.id, 'Parziali']),
+    ...TCFactory.getDaRiscuotereOrders().map(o => [o.id, 'Da riscuotere']),
+    ...TCFactory.getArchivedOrders().map(o => [o.id, 'Archivio']),
+  ]) : null;
 
   // Chi ha inserito almeno un ordine: il filtro compare solo se il dato esiste
   const creators = [...new Set(TCFactory.getOrders().filter(o => !o.deletedAt && o.createdBy).map(o => o.createdBy))]
     .sort((a, b) => a.localeCompare(b, 'it'));
   if (AppState.filterCreator && !creators.includes(AppState.filterCreator)) AppState.filterCreator = '';
-  if (AppState.filterCreator) filtered = filtered.filter(o => o.createdBy === AppState.filterCreator);
+  if (AppState.filterCreator && !q) filtered = filtered.filter(o => o.createdBy === AppState.filterCreator);
 
-  if (AppState.filterTags.length > 0) {
+  if (AppState.filterTags.length > 0 && !q) {
     filtered = filtered.filter(o => AppState.filterTags.every(t => o.tags.includes(t)));
   }
 
@@ -321,8 +332,8 @@ function renderOrderList() {
       ${active ? `aria-sort="${AppState.sortDir === 'asc' ? 'ascending' : 'descending'}"` : ''}>${label} <span class="sort-arrow" aria-hidden="true">${arrow}</span></button></div>`;
   };
 
-  const isActive   = AppState.view === 'active';
-  const isEvasione = AppState.view === 'evasione' || AppState.view === 'parziali';
+  const isActive   = AppState.view === 'active' && !q;
+  const isEvasione = (AppState.view === 'evasione' || AppState.view === 'parziali') && !q;
 
   const allTags = TCFactory.getTags();
   const tagFilterRow = allTags.length > 0 ? `
@@ -387,7 +398,7 @@ function renderOrderList() {
         <div class="list-title-group">
           <div class="list-title">
             <h2>Ordini</h2>
-            <p>${filtered.length} di ${source.length}</p>
+            <p>${q ? `${filtered.length} ${filtered.length === 1 ? 'risultato' : 'risultati'} in tutti gli ordini` : `${filtered.length} di ${source.length}`}</p>
           </div>
           <div class="view-tabs">
             <button class="view-tab ${AppState.view==='active'?'active':''}"        onclick="setView('active')">Attivi · ${nActive}</button>
@@ -400,7 +411,7 @@ function renderOrderList() {
         <div class="list-controls">
           <div class="search-box">
             ${Icons.search()}
-            <input type="text" placeholder="${creators.length ? 'Cerca nome, tag, autore…' : 'Cerca per nome o tag…'}" value="${escapeHtml(AppState.searchQuery)}" oninput="setSearchQuery(this.value)">
+            <input type="text" placeholder="Cerca in tutti gli ordini…" aria-label="Cerca in tutti gli ordini: nome, cliente, tag, autore" value="${escapeHtml(AppState.searchQuery)}" oninput="setSearchQuery(this.value)">
           </div>
           ${creators.length ? `
           <select class="form-select" style="width:auto;" aria-label="Inserito da" onchange="AppState.filterCreator=this.value;renderOrderList()">
@@ -413,8 +424,8 @@ function renderOrderList() {
           </select>
         </div>
       </div>
-      ${tagFilterRow}
-      ${archiveFilterRow}
+      ${q ? '' : tagFilterRow}
+      ${q ? '' : archiveFilterRow}
       <div class="order-rows">
         <div class="order-row-item order-row-header-row" onclick="event.stopPropagation()">
           <div class="order-row-bar" style="background:transparent;"></div>
@@ -439,7 +450,7 @@ function isUrgentOrder(o) {
 }
 
 function renderOrderRow(o) {
-  const view  = AppState.view;
+  const view  = AppState.searchQuery.trim() ? 'search' : AppState.view;
 
   // Scadenza: data impostata o automatica, senza colori; l'urgenza la decide la priorità scelta a mano
   const dl = TCFactory.getEffectiveDeadline(o);
@@ -544,13 +555,14 @@ function renderOrderRow(o) {
       </div>`;
   }
 
-  // ── DA RISCUOTERE / ARCHIVIO / ALTRI: layout completo con date ───────
+  // ── DA RISCUOTERE / ARCHIVIO / RICERCA: layout completo con date ───────
+  const section = view === 'search' ? AppState.sectionOf?.get(o.id) : '';
   return `
     <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
       onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-bar" style="background:${color};"></div>
       <div class="order-row-grid">
-        <div class="orc-name">${escapeHtml(o.nome)}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
+        <div class="orc-name">${escapeHtml(o.nome)}${section ? ` <span class="order-section-badge">${section}</span>` : ''}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
         <div class="orc-tags">${tagPills}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         ${scadenzaCell}

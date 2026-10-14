@@ -909,6 +909,13 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   .pulsante-cfg-hint { grid-column: 1; }
 }
 
+/* Ricerca in tutti gli ordini: scheda in cui si trova l'ordine */
+.order-section-badge {
+  display: inline-block; vertical-align: middle; margin-left: 6px; padding: 1px 7px; border-radius: 6px;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border);
+}
+
 /* Pill + data: la data sta sotto senza spostare la pill, così resta centrata nella riga */
 .orc-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 5px; }
 .stage-cell { position: relative; display: inline-flex; }
