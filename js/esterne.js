@@ -3,7 +3,8 @@
  * Ordini con lavorazione ESTERNA, divisi per tipo di lavorazione
  * (righe del modulo d'ordine con il menu "Esterna" compilato, o tipi spuntati nel form dell'ordine).
  * Le lavorazioni si creano in Impostazioni → Lavorazioni.
- * "Completata" usa la fase lavorazioneEsterna dell'ordine, la stessa della pill "Esterna" nella lista.
+ * "Completata" è per tipo (orderModule.esterneFatte, come i pulsanti nella lista ordini);
+ * la fase lavorazioneEsterna si completa quando tutti i tipi dell'ordine sono fatti.
  */
 
 const EsterneState = { tab: 'todo' };
@@ -38,7 +39,8 @@ function esterneGroups() {
   return [...groups.values()].sort((a, b) => rank(a) - rank(b) || a.nome.localeCompare(b.nome, 'it'));
 }
 
-const esterneDone = (o) => !!o.stages?.lavorazioneEsterna?.done;
+// Per gruppo: tipo spuntato (o fase "Esterna" completata); "Da specificare" usa la fase
+const esterneDone = (o, id) => id && id !== DA_SPECIFICARE ? !!lavTipoDone(o, 'esterne', id) : !!o.stages?.lavorazioneEsterna?.done;
 
 function renderEsternePage() {
   const root = document.getElementById('esterne-root');
@@ -48,18 +50,18 @@ function renderEsternePage() {
   const done = EsterneState.tab === 'done';
 
   const all = esterneGroups();
-  const count = (g, d) => g.items.filter(x => esterneDone(x.order) === d).length;
-  const totTodo = new Set(all.flatMap(g => g.items.filter(x => !esterneDone(x.order)).map(x => x.order.id))).size;
-  const totDone = new Set(all.flatMap(g => g.items.filter(x => esterneDone(x.order)).map(x => x.order.id))).size;
+  const count = (g, d) => g.items.filter(x => esterneDone(x.order, g.id) === d).length;
+  const totTodo = new Set(all.flatMap(g => g.items.filter(x => !esterneDone(x.order, g.id)).map(x => x.order.id))).size;
+  const totDone = new Set(all.flatMap(g => g.items.filter(x => esterneDone(x.order, g.id)).map(x => x.order.id))).size;
 
   const rowsText = (rows) => rows.map(r => [
     r.qnt ? `${r.qnt}×` : '', r.descrizione || r.codice || r.catalogo || '', r.colore || '', r.tg || '',
   ].filter(Boolean).join(' ')).filter(Boolean);
 
-  const item = ({ order: o, rows }) => {
+  const item = ({ order: o, rows }, gid) => {
     const dl = TCFactory.getEffectiveDeadline(o);
     const client = TCFactory.getClient(o.clientId);
-    const st = o.stages?.lavorazioneEsterna;
+    const st = gid === DA_SPECIFICARE ? o.stages?.lavorazioneEsterna : { date: lavTipoDone(o, 'esterne', gid) };
     const lines = rowsText(rows);
     return `
       <li class="dtf-item est-item ${isUrgentOrder(o) ? 'dtf-urgent' : ''}">
@@ -76,13 +78,13 @@ function renderEsternePage() {
             : '<small>Nessuna riga nel modulo</small>'}
         </div>
         ${done
-          ? `<span class="est-done-date">${st?.date ? 'Completata ' + fmt(st.date) : 'Completata'}</span>
-             <button type="button" class="btn btn-ghost btn-sm" onclick="esterneToggle('${o.id}', false)">Riapri</button>`
-          : `<button type="button" class="btn btn-sm dtf-done-btn" onclick="esterneToggle('${o.id}', true)">${Icons.checkCircle('currentColor', 15)} Completata</button>`}
+          ? `<span class="est-done-date">${typeof st?.date === 'string' ? 'Completata ' + fmt(st.date) : 'Completata'}</span>
+             <button type="button" class="btn btn-ghost btn-sm" onclick="esterneToggle('${o.id}', false, '${escapeHtml(gid)}')">Riapri</button>`
+          : `<button type="button" class="btn btn-sm dtf-done-btn" onclick="esterneToggle('${o.id}', true, '${escapeHtml(gid)}')">${Icons.checkCircle('currentColor', 15)} Completata</button>`}
       </li>`;
   };
 
-  const groups = all.map(g => ({ ...g, items: g.items.filter(x => esterneDone(x.order) === done) }))
+  const groups = all.map(g => ({ ...g, items: g.items.filter(x => esterneDone(x.order, g.id) === done) }))
     .filter(g => g.items.length)
     .map(g => ({ ...g, items: g.items.sort((a, b) => {
       const da = TCFactory.getEffectiveDeadline(a.order)?.date || '9999', db = TCFactory.getEffectiveDeadline(b.order)?.date || '9999';
@@ -112,15 +114,16 @@ function renderEsternePage() {
           <div><h2 id="est-h-${escapeHtml(g.id)}">${escapeHtml(g.nome)}</h2>
             <p>${g.items.length} ${g.items.length === 1 ? 'ordine' : 'ordini'}${g.id === DA_SPECIFICARE ? ' · scegli la lavorazione nel modulo d\'ordine' : ''}</p></div>
         </div>
-        <ol class="dtf-timeline">${g.items.map(item).join('')}</ol>
+        <ol class="dtf-timeline">${g.items.map(x => item(x, g.id)).join('')}</ol>
       </section>`).join('')
     : `<div class="glass-card page-card dtf-box"><div class="empty-list">${done ? 'Nessuna lavorazione esterna completata' : 'Nessuna lavorazione esterna da fare'}</div></div>`}`;
 }
 
 function esterneTab(tab) { EsterneState.tab = tab; renderEsternePage(); }
 
-async function esterneToggle(orderId, done) {
-  await toggleStageInline(orderId, 'lavorazioneEsterna', done);
+async function esterneToggle(orderId, done, gid) {
+  if (gid && gid !== DA_SPECIFICARE) await toggleLavTipoInline(orderId, 'esterne', gid, done);
+  else await toggleStageInline(orderId, 'lavorazioneEsterna', done);
   renderEsternePage();
 }
 
