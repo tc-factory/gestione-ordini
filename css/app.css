@@ -888,7 +888,14 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .pulsante-cfg { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-card); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .pulsante-cfg.off { opacity: 0.55; }
 .pulsante-cfg-head { display: flex; align-items: center; gap: 8px; }
-.pulsante-cfg-head .form-input { flex: 1; min-width: 0; }
+.pulsante-cfg-toggle {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: none; border: none; padding: 4px 2px; cursor: pointer; color: var(--text-muted); text-align: left; font-family: var(--font-body);
+}
+.pulsante-cfg-toggle small { font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulsante-cfg-toggle:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; border-radius: 6px; }
+.pulsante-cfg.open .settings-block-chevron { transform: rotate(180deg); }
+.pulsante-cfg-grid[hidden] { display: none; }
 .pulsante-cfg-head .stage-pill { cursor: default; }
 .pulsante-cfg-grid { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 6px 10px; align-items: center; font-size: 0.8rem; }
 .pulsante-cfg-grid > label { font-weight: 600; color: var(--text-secondary); }
