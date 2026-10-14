@@ -894,6 +894,13 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .pulsante-cfg.dragging { opacity: 0.4; }
 .pulsante-cfg.drop-before { box-shadow: 0 -3px 0 var(--brand-gold); }
 .pulsante-cfg.drop-after  { box-shadow: 0 3px 0 var(--brand-gold); }
+.pulsanti-etichetta { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
+.pulsanti-etichetta.drop-into { outline: 2px dashed var(--brand-gold); outline-offset: 2px; }
+.pulsanti-etichetta-head { display: flex; align-items: center; gap: 8px; }
+.pulsanti-etichetta-head .form-input { flex: 1; min-width: 0; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.pulsanti-etichetta-schede { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 0.78rem; }
+.pulsanti-etichetta-schede small { color: var(--text-muted); font-size: 0.72rem; }
+.pulsanti-etichetta-vuota { margin: 0; padding: 12px; text-align: center; border: 1px dashed var(--border); border-radius: var(--radius-md); }
 .pulsanti-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: var(--radius-md); }
 .pulsanti-preview small { font-size: 0.7rem; color: var(--text-muted); margin-right: 4px; }
 .pulsanti-preview .stage-pill { cursor: default; }
