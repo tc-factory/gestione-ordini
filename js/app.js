@@ -494,6 +494,11 @@ function renderOrderRow(o) {
     : '<span style="color:var(--text-muted);">—</span>'}</div>`;
   const ordineCell   = `<div class="orc-files">${filesBtns}${filesExtra}${moduleBtn}</div>`;
 
+  // Etichette dei tipi di lavorazione (spuntati nel form o nelle righe del modulo)
+  const lavTipi = orderLavTipi(o);
+  const lavTipiTags = lavTipi.length ? `<div class="orc-lav-tipi">${lavTipi.map(t =>
+    `<span class="lav-tipo-tag ${t.kind}" title="Lavorazione ${t.kind === 'interne' ? 'interna' : 'esterna'}">${escapeHtml(t.nome)}</span>`).join('')}</div>` : '';
+
   // Pill "Esterna" — visibile in tutti i tab se lavorazioneEsterna=true
   const buildExternaPill = () => {
     if (!o.lavorazioneEsterna) return '';
@@ -534,7 +539,7 @@ function renderOrderRow(o) {
           <div class="orc-tags">${tagPills}</div>
           <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
           ${scadenzaCell}
-          <div class="orc-lav" style="gap:3px;flex-wrap:wrap;align-items:flex-start;">${lavPills}${externaPill}</div>
+          <div class="orc-lav" style="gap:3px;flex-wrap:wrap;align-items:flex-start;">${lavPills}${externaPill}${lavTipiTags}</div>
           ${ordineCell}
           ${paymentCell}
         </div>
@@ -573,6 +578,7 @@ function renderOrderRow(o) {
             <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);">Pronto</span>
             <span style="font-size:0.78rem;font-weight:700;color:#22c55e;">${stampatoDate}</span>
             ${buildExternaPill()}
+            ${lavTipiTags}
           </div>
           <div class="orc-eva" style="gap:6px;flex-wrap:nowrap;align-items:flex-start;">${evaPills}</div>
           ${ordineCell}
@@ -615,7 +621,7 @@ function renderOrderRow(o) {
         <div class="orc-tags">${tagPills}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         ${scadenzaCell}
-        <div class="orc-lav" style="gap:3px;flex-wrap:wrap;">${lavPills}${buildExternaPill()}</div>
+        <div class="orc-lav" style="gap:3px;flex-wrap:wrap;">${lavPills}${buildExternaPill()}${lavTipiTags}</div>
         <div class="orc-eva" style="gap:4px;flex-wrap:nowrap;">${evaPills}</div>
         ${ordineCell}
         ${paymentCell}
@@ -1892,6 +1898,16 @@ function isLavInterna(o) {
 // Tipi di lavorazione spuntati nel form (Interna / Esterna), validi solo se l'ordine lo è
 const orderLavInterne = (o) => isLavInterna(o) ? (o?.orderModule?.lavInterne || []) : [];
 const orderLavEsterne = (o) => o?.lavorazioneEsterna && !TCFactory.isNeutro(o) ? (o?.orderModule?.lavEsterne || []) : [];
+// Tipi di lavorazione dell'ordine per la lista: spuntati nel form più quelli delle righe del modulo
+function orderLavTipi(o) {
+  const rows = o?.orderModule?.rows || [];
+  const ids = {
+    interne: isLavInterna(o) ? [...orderLavInterne(o), ...rows.map(r => r.interna)] : [],
+    esterne: o?.lavorazioneEsterna && !TCFactory.isNeutro(o) ? [...orderLavEsterne(o), ...rows.map(r => r.esterna)] : [],
+  };
+  return ['interne', 'esterne'].flatMap(kind => [...new Set(ids[kind].filter(Boolean))]
+    .map(id => ({ kind, nome: lavName(kind, id) })).filter(t => t.nome));
+}
 
 function modRowEsterna(r, legacy = '✓') {
   if (r?.esterna) return lavEsternaName(r.esterna) || 'Esterna';
