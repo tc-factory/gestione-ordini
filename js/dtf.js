@@ -970,11 +970,12 @@ function renderInterneDashboard() {
     interno: `${daStampare} ${daStampare === 1 ? 'ordine' : 'ordini'} da stampare`,
     terzi:   DtfState.loaded || DtfState._dashClients ? `${DtfState.clients.length} ${DtfState.clients.length === 1 ? 'cliente' : 'clienti'}` : '',
   };
-  ['uv', 'laser', 'stampa'].forEach(id => {
+  const sections = interneSections();
+  sections.filter(s => !['interno', 'terzi'].includes(s.id)).map(s => s.id).forEach(id => {
     const n = interneOrders(id).filter(x => !interneDone(x.order, id)).length;
     info[id] = `${n} ${n === 1 ? 'ordine' : 'ordini'} da fare`;
   });
-  root.innerHTML = INTERNE_SECTIONS.map(s => `
+  root.innerHTML = sections.map(s => `
     <a href="#/dtf/${s.id}" class="glass-card interne-block ${s.ready ? '' : 'soon'}" onclick="event.preventDefault();Nav.go('dtf','${s.id}')">
       <span class="interne-block-icon" aria-hidden="true">${s.icon()}</span>
       <span class="interne-block-text">
@@ -1005,7 +1006,7 @@ const InterneLavState = { tab: 'todo' };
 
 // Id della lavorazione interna di una scheda (per id, oppure per nome se rinominata/ricreata)
 function interneLavId(section) {
-  const lav = INTERNE_SECTIONS.find(s => s.id === section)?.lav;
+  const lav = interneSections().find(s => s.id === section)?.lav;
   if (!lav) return null;
   const list = getLavInterne();
   return (list.find(l => l.id === lav.id) || list.find(l => l.nome.toLowerCase() === lav.nome.toLowerCase()))?.id || lav.id;
@@ -1023,7 +1024,7 @@ function interneOrders(section) {
 
 function renderInterneLav(section) {
   const root = document.getElementById('interne-lav-root');
-  const s = INTERNE_SECTIONS.find(x => x.id === section);
+  const s = interneSections().find(x => x.id === section);
   if (!root || !s) return;
   const done = InterneLavState.tab === 'done';
   const today = localISODate(new Date());
@@ -1086,7 +1087,8 @@ async function interneToggle(orderId, section, done) {
   if (done) fatte[lavId] = localISODate(new Date()); else delete fatte[lavId];
   try {
     await TCFactory.updateOrder(orderId, { orderModule: { ...(o.orderModule || {}), interneFatte: fatte } });
-    TCFactory._log(done ? `✓ ${INTERNE_SECTIONS.find(s => s.id === section)?.label}` : `☐ ${INTERNE_SECTIONS.find(s => s.id === section)?.label}`, orderId, o.nome, { interna: lavId, done });
+    const label = interneSections().find(s => s.id === section)?.label;
+    TCFactory._log(`${done ? '✓' : '☐'} ${label}`, orderId, o.nome, { interna: lavId, done });
     TCFactory._notify();
   } catch (e) { showToast('Errore — riprova', 'error'); }
   renderInterneLav(section);
