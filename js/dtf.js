@@ -352,14 +352,29 @@ function dtfUpdateSummary() {
   if (st) st.innerHTML = dtfSaveStatus();
 }
 
+// File con una tariffa diversa da quella del cliente (prezzo inserito e metri calcolati)
+const dtfHasRate = (f) => !!f?.tariffa_diversa && Number.isFinite(f.tariffa) && f.metri > 0;
+
+// Costo di un giorno: i file con tariffa diversa al loro prezzo, il resto dei metri al costo del cliente
+function dtfDayCosto(e, costo) {
+  const special = (Array.isArray(e?.files) ? e.files : []).filter(dtfHasRate);
+  const metriSpeciali = special.reduce((s, f) => s + f.metri, 0);
+  const standard = Math.max(0, (Number(e?.metri) || 0) - metriSpeciali);
+  return { euro: standard * costo + special.reduce((s, f) => s + f.metri * f.tariffa, 0), metriSpeciali };
+}
+
 function dtfSummaryHtml() {
   const c = dtfClient();
-  const metri = Object.values(DtfState.entries).reduce((s, e) => s + (Number(e.metri) || 0), 0);
+  const days = Object.values(DtfState.entries);
+  const metri = days.reduce((s, e) => s + (Number(e.metri) || 0), 0);
   const costo = Number(c?.costo_metro) || 0;
+  const tot = days.map(e => dtfDayCosto(e, costo));
+  const speciali = tot.reduce((s, x) => s + x.metriSpeciali, 0);
   return `
     <div class="dtf-kpi"><span>Metri del mese</span><strong>${dtfMetri(metri)} m</strong></div>
     <div class="dtf-kpi"><span>Costo al metro</span><strong>${euro(costo)}</strong></div>
-    <div class="dtf-kpi dtf-kpi-total"><span>Totale</span><strong>${euro(metri * costo)}</strong></div>`;
+    <div class="dtf-kpi dtf-kpi-total"><span>Totale</span><strong>${euro(tot.reduce((s, x) => s + x.euro, 0))}</strong>
+      ${speciali ? `<small class="dtf-rate-note">di cui ${dtfMetri(speciali)} m a tariffa diversa</small>` : ''}</div>`;
 }
 
 // Ordine scelto a mano (trascinando i box); i clienti nuovi vanno in fondo, in ordine alfabetico
@@ -423,6 +438,7 @@ function renderDtfTerzi() {
     const e = DtfState.entries[iso] || { metri: 0, dettaglio: '' };
     const files = e.dettaglio.split('\n').map(s => s.trim()).filter(Boolean);
     const weekend = date.getDay() === 0 || date.getDay() === 6;
+    const special = (Array.isArray(e.files) ? e.files : []).some(f => f?.tariffa_diversa);
     rows.push(`
       <div class="dtf-day ${iso === today ? 'today' : ''} ${weekend ? 'weekend' : ''}" data-date="${iso}" ${iso === today ? 'id="dtf-today"' : ''}>
         <div class="dtf-day-date"><strong>${d}</strong><span>${date.toLocaleDateString('it-IT', { weekday: 'short' })}</span></div>
@@ -431,7 +447,9 @@ function renderDtfTerzi() {
             aria-label="Metri del ${d}" oninput="dtfOnMetri('${iso}', this.value)" onfocus="this.select()">
           <span>m</span>
         </label>
-        <button type="button" class="dtf-detail-btn ${files.length ? 'has-files' : ''}" onclick="dtfOpenDetail('${iso}')">
+        <button type="button" class="dtf-detail-btn ${files.length ? 'has-files' : ''} ${special ? 'has-rate' : ''}" onclick="dtfOpenDetail('${iso}')"
+          ${special ? 'title="Ci sono file con una tariffa diversa"' : ''}>
+          ${special ? '<em class="dtf-rate-badge">€ diversa</em>' : ''}
           ${files.length ? `${Icons.paperclip(13)} ${files.length} ${files.length === 1 ? 'file' : 'file'} · <span>${escapeHtml(files[0])}${files.length > 1 ? '…' : ''}</span>` : 'Dettaglio'}
         </button>
       </div>`);
@@ -653,6 +671,21 @@ function dtfRenderFileList(busy = 0) {
   const files = dtfDetailFiles();
   const totale = files.reduce((s, f) => s + (f.metri || 0), 0);
   const senza = files.filter(f => !(f.metri > 0)).length;
+  // Tariffa diversa per singolo file: solo nel conto terzi (non per gli ordini interni)
+  const isDay = dtfDetail().kind !== 'order';
+  const std = Number(dtfClient()?.costo_metro) || 0;
+  const fmtEur = (v) => String(v).replace('.', ',');
+  const rateRow = (f, i) => !isDay ? '' : `
+    <div class="dtf-file-rate">
+      <label class="dtf-rate-check"><input type="checkbox" ${f.tariffa_diversa ? 'checked' : ''} onchange="dtfToggleRate(${i}, this.checked)"> Tariffa diversa</label>
+      ${f.tariffa_diversa ? `
+        <input class="form-input dtf-rate-input" id="dtf-rate-${i}" inputmode="decimal" value="${Number.isFinite(f.tariffa) ? fmtEur(f.tariffa) : ''}"
+          placeholder="${fmtEur(std)}" aria-label="Prezzo al metro per ${escapeHtml(f.name)}" onchange="dtfEditRate(${i}, this.value)">
+        <span>€/m</span>
+        ${!Number.isFinite(f.tariffa) ? '<span class="dtf-tag warn">inserisci il prezzo</span>'
+          : f.metri > 0 ? `<strong>= ${euro(f.metri * f.tariffa)}</strong>` : ''}` : ''}
+    </div>`;
+  const dayCost = isDay ? dtfDayCosto(DtfState.entries[DtfState.detailDate], std).euro : 0;
 
   const note = (f) => {
     if (f.errore === 'misura mancante') return `<span class="dtf-tag warn">${f.fonte === 'formato' ? 'formato non leggibile: inserisci la misura' : 'inserisci la misura'}</span>`;
@@ -668,11 +701,11 @@ function dtfRenderFileList(busy = 0) {
   box.innerHTML = (files.length ? `
     <div class="dtf-files-head">
       <span>${files.length} ${files.length === 1 ? 'file stampato' : 'file stampati'}</span>
-      <strong>${dtfMetri(totale)} m${senza ? ` <small>(${senza} senza misura)</small>` : ''}</strong>
+      <strong>${dtfMetri(totale)} m${isDay ? ` · ${euro(dayCost)}` : ''}${senza ? ` <small>(${senza} senza misura)</small>` : ''}</strong>
     </div>
     <ul class="dtf-files">
       ${files.map((f, i) => `
-        <li class="dtf-file ${f.metri > 0 ? '' : 'missing'}">
+        <li class="dtf-file ${f.metri > 0 ? '' : 'missing'} ${isDay && f.tariffa_diversa ? 'custom-rate' : ''}">
           <div class="dtf-file-top">
             <span class="dtf-file-icon" aria-hidden="true">${Icons.paperclip(14)}</span>
             <span class="dtf-file-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
@@ -688,6 +721,7 @@ function dtfRenderFileList(busy = 0) {
             <span>pz</span>
             ${note(f)}
           </div>
+          ${rateRow(f, i)}
         </li>`).join('')}
     </ul>` : '<p class="dtf-files-empty">Nessun file per questo giorno.</p>')
     + (busy ? `<p class="dtf-reading">Lettura misure di ${busy} ${busy === 1 ? 'file' : 'file'}…</p>` : '');
@@ -751,6 +785,25 @@ function dtfEditFile(index, field, value) {
   if (field === 'pz') { f.pz = Math.max(1, parseInt(value, 10) || 1); f.pz_trovati = true; }
   else { f[field] = n > 0 ? Math.round(n * 10) / 10 : null; f.dpi_ipotizzato = false; if (f.fonte !== 'manuale') f.fonte = 'corretto'; }
   files[index] = DtfMisure.recompute(f);
+  dtfSetFiles(files);
+}
+
+function dtfToggleRate(index, on) {
+  const files = dtfDetailFiles();
+  const f = files[index];
+  if (!f) return;
+  f.tariffa_diversa = on;
+  if (!on) delete f.tariffa;
+  dtfSetFiles(files);
+  if (on) document.getElementById(`dtf-rate-${index}`)?.focus();
+}
+
+function dtfEditRate(index, value) {
+  const files = dtfDetailFiles();
+  const f = files[index];
+  if (!f) return;
+  const n = parseFloat(String(value).replace(',', '.'));
+  f.tariffa = Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
   dtfSetFiles(files);
 }
 
@@ -878,6 +931,10 @@ function dtfOpenClientForm(id = null) {
               placeholder="${c ? 'Lascia vuoto per non cambiarla' : 'Almeno 8 caratteri (facoltativa)'}">
             <span class="settings-section-hint" style="margin:4px 0 0;" id="dtf-c-pwd-state">${c ? 'Verifica in corso…' : 'Con la password il cliente può vedere la sua tabella in sola lettura.'}</span>
           </div>
+          <div class="form-group"><label class="form-label" for="dtf-c-dal">Il link mostra i dati dal</label>
+            <input id="dtf-c-dal" type="date" class="form-input">
+            <span class="settings-section-hint" style="margin:4px 0 0;">Vuoto = il cliente vede tutto lo storico.</span>
+          </div>
           ${c ? `<div class="dtf-link-box" id="dtf-c-link" hidden>
             <label class="form-label" for="dtf-c-link-input">Link di sola lettura</label>
             <div class="dtf-link-row">
@@ -897,6 +954,7 @@ function dtfOpenClientForm(id = null) {
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('dtf-client-modal'); };
   setTimeout(() => document.getElementById('dtf-c-nome')?.focus(), 50);
+  DtfState.accessDal = null;   // null finché non si conosce il valore salvato
   if (c) dtfLoadAccess(c.id);
 }
 
@@ -918,6 +976,8 @@ function dtfShowAccess(info) {
   if (state) state.textContent = info.has_password
     ? 'Password impostata: il cliente può accedere con il link qui sotto.'
     : 'Nessuna password: imposta una password per attivare il link del cliente.';
+  const dal = document.getElementById('dtf-c-dal');
+  if (dal) { dal.value = info.visibile_dal || ''; DtfState.accessDal = dal.value; }
   const box = document.getElementById('dtf-c-link');
   if (box) { box.hidden = !info.has_password; document.getElementById('dtf-c-link-input').value = dtfPortalUrl(info.token); }
 }
@@ -964,6 +1024,10 @@ async function dtfSubmitClient(id) {
       : await supabaseClient.from('dtf_clients').insert(payload).select().single();
     if (res.error) throw res.error;
     if (pwd) await dtfAccessRpc('dtf_set_password', { p_client_id: res.data.id, p_password: pwd });
+    const dal = document.getElementById('dtf-c-dal').value;
+    if ((id ? DtfState.accessDal !== null : true) && dal !== (DtfState.accessDal || '')) {
+      await dtfAccessRpc('dtf_set_visibile_dal', { p_client_id: res.data.id, p_dal: dal || null });
+    }
     closeModal('dtf-client-modal');
     showToast(pwd
       ? `${id ? 'Cliente aggiornato' : `Cliente "${nome}" aggiunto`} · password ${id ? 'cambiata' : 'impostata'}: copia il link con 🔗`
