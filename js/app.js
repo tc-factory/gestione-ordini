@@ -332,8 +332,6 @@ function renderOrderList() {
       ${active ? `aria-sort="${AppState.sortDir === 'asc' ? 'ascending' : 'descending'}"` : ''}>${label} <span class="sort-arrow" aria-hidden="true">${arrow}</span></button></div>`;
   };
 
-  const isActive   = AppState.view === 'active' && !q;
-  const isEvasione = (AppState.view === 'evasione' || AppState.view === 'parziali') && !q;
 
   const allTags = TCFactory.getTags();
   const tagFilterRow = allTags.length > 0 ? `
@@ -370,24 +368,14 @@ function renderOrderList() {
     AppState.view === 'dariscuotere'   ? 'Nessun ordine da riscuotere.' :
     'Nessun ordine attivo.';
 
-  // Header colonne — dipende dal tab
-  const hdrGrid = isActive
-    ? `<div class="order-row-grid order-row-grid--active">
+  // Header colonne: una per ogni etichetta dei pulsanti che compare in questa scheda
+  const rowView = q ? 'search' : AppState.view;
+  const hdrGrid = `<div class="order-row-grid" style="${Pulsanti.gridStyle(rowView)}">
         <div class="orc-name orc-hdr">Nome</div>
         <div class="orc-tags orc-hdr">Tipologia</div>
         ${sortHdr('data', 'Data creazione', 'orc-date')}
         ${sortHdr('scadenza', 'Scadenza', 'orc-deadline')}
-        <div class="orc-lav orc-hdr">Lavorazione</div>
-        <div class="orc-files orc-hdr">Ordine</div>
-        <div class="orc-payment orc-hdr">Pagamento</div>
-      </div>`
-    : `<div class="order-row-grid">
-        <div class="orc-name orc-hdr">Nome</div>
-        <div class="orc-tags orc-hdr">Tipologia</div>
-        ${sortHdr('data', 'Data creazione', 'orc-date')}
-        ${sortHdr('scadenza', 'Scadenza', 'orc-deadline')}
-        <div class="orc-lav orc-hdr">${isEvasione ? escapeHtml(Pulsanti.nomeChiusura()) : 'Lavorazione'}</div>
-        <div class="orc-eva orc-hdr">${isEvasione ? 'Evasione' : 'Spedizione'}</div>
+        ${Pulsanti.gruppiVista(rowView).map(g => `<div class="orc-lav orc-hdr">${escapeHtml(g.nome)}</div>`).join('')}
         <div class="orc-files orc-hdr">Ordine</div>
         <div class="orc-payment orc-hdr">Pagamento</div>
       </div>`;
@@ -506,73 +494,25 @@ function renderOrderRow(o) {
     : '<span style="color:var(--text-muted);">—</span>'}</div>`;
   const ordineCell   = `<div class="orc-files">${filesBtns}${filesExtra}${moduleBtn}</div>`;
 
-  // Pulsanti di avanzamento: configurati in Impostazioni → Pulsanti (js/pulsanti.js)
-  const lavPills = pulsantiPills(o, 'lavorazione');
-  const evaPills = pulsantiPills(o, 'spedizione');
-
-  // ── ATTIVI: solo Lavorazione, nessuna Spedizione ──────────────────────
-  if (view === 'active') {
-    return `
-      <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
-        onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
-        <div class="order-row-bar" style="background:${color};"></div>
-        <div class="order-row-grid order-row-grid--active">
-          <div class="orc-name">${escapeHtml(o.nome)}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
-          <div class="orc-tags">${tagPills}</div>
-          <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
-          ${scadenzaCell}
-          <div class="orc-lav orc-pills">${lavPills}</div>
-          ${ordineCell}
-          ${paymentCell}
-        </div>
-      </div>`;
-  }
-
-  // ── EVASIONE: data di chiusura lavorazione + pulsanti "solo spunta" + Spedizione ─────────
-  if (view === 'evasione') {
-    const chiusa = Pulsanti.dataChiusura(o);
-    const chiusaDate = chiusa ? TCFactory.formatDate(chiusa, {day:'2-digit',month:'long'}) : '—';
-    const altriLav = pulsantiPills(o, 'lavorazione', p => (p.ruolo || 'nessuno') === 'nessuno');
-
-    return `
-      <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
-        onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
-        <div class="order-row-bar" style="background:${color};"></div>
-        <div class="order-row-grid">
-          <div class="orc-name">${escapeHtml(o.nome)}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
-          <div class="orc-tags">${tagPills}</div>
-          <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
-          ${scadenzaCell}
-          <div class="orc-lav" style="flex-direction:column;gap:1px;align-items:flex-start;">
-            <span style="font-size:0.66rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;">${escapeHtml(Pulsanti.nomeChiusura())}</span>
-            <span style="font-size:0.78rem;font-weight:700;color:#22c55e;">${chiusaDate}</span>
-            ${altriLav ? `<div class="orc-pills" style="margin:4px 0 12px;">${altriLav}</div>` : ''}
-          </div>
-          <div class="orc-eva orc-pills">${evaPills}</div>
-          ${ordineCell}
-          ${paymentCell}
-        </div>
-      </div>`;
-  }
-
-  // ── DA RISCUOTERE / ARCHIVIO / RICERCA: layout completo con date ───────
+  // Pulsanti di avanzamento, una colonna per etichetta (Impostazioni → Pulsanti ordine, js/pulsanti.js)
   const section = view === 'search' ? AppState.sectionOf?.get(o.id) : '';
+  const gruppiCells = Pulsanti.gruppiVista(view).map(g =>
+    `<div class="orc-lav orc-pills orc-gruppo">${pulsantiPills(o, g.id)}</div>`).join('');
+
   return `
     <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
       onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-bar" style="background:${color};"></div>
-      <div class="order-row-grid">
+      <div class="order-row-grid" style="${Pulsanti.gridStyle(view)}">
         <div class="orc-name">${escapeHtml(o.nome)}${section ? ` <span class="order-section-badge">${section}</span>` : ''}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
         <div class="orc-tags">${tagPills}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         ${scadenzaCell}
-        <div class="orc-lav orc-pills">${lavPills}</div>
-        <div class="orc-eva orc-pills">${evaPills}</div>
+        ${gruppiCells}
         ${ordineCell}
         ${paymentCell}
       </div>
     </div>`;
-
 }
 
 function quickPreviewFile(orderId, fileIndex) {
@@ -1108,8 +1048,7 @@ function renderOrderDetail() {
 
         ${order.notes ? `<div class="detail-notes">${escapeHtml(order.notes)}</div>` : ''}
 
-        ${renderStageSection('lavorazione', 'Lavorazione')}
-        ${renderStageSection('spedizione', 'Evasione')}
+        ${Pulsanti.gruppi().map(g => Pulsanti.visibili(order, g.id).length ? renderStageSection(g.id, escapeHtml(g.nome)) : '').join('')}
 
         <div style="display:flex;flex-wrap:wrap;gap:6px;padding-top:4px;">
           ${order.archived ? `

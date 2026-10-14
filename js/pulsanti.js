@@ -2,7 +2,7 @@
  * T&C Factory — Pulsanti dell'ordine (Impostazioni → Pulsanti)
  * Tutti i pulsanti di avanzamento della lista ordini (Merce, DTF, Pronto, Parziale, Evaso,
  * le lavorazioni interne/esterne e quelli creati a mano) con le loro regole:
- *  - colonna:      'lavorazione' | 'spedizione'
+ *  - colonna:      id dell'etichetta sotto cui sta il pulsante (vedi Etichette qui sotto)
  *  - ruolo:        cosa fa la spunta (vedi PULSANTI_RUOLI) → decide in che scheda sta l'ordine
  *  - collegamento: dove si salva la spunta ('' = fase propria; 'dtf' = DTF interno;
  *                  'interne:<id>' / 'esterne:<id>' = scheda Interne / tipo Esterne; 'esterne:*' = Esterna generica)
@@ -11,11 +11,23 @@
  *  - abilita:      cliccabile solo se { se: <condizione, vedi PULSANTI_ABILITA>, pulsante: <id> }
  *                  (vale solo per spuntare: togliere la spunta è sempre possibile)
  *  - attivo:       false = nascosto ovunque
+ * Etichette (app_settings.pulsanti_etichette): le colonne della lista ordini che raccolgono
+ * i pulsanti, ognuna con le schede in cui compare (Attivi, Parziali, Evasione…).
  * Le lavorazioni interne/esterne delle Impostazioni hanno un pulsante automatico
  * (id "lav-<id>") finché non se ne modifica uno: da lì viene salvato con gli altri.
  */
 
 const PULSANTI_KEY = 'pulsanti_ordine';
+const PULSANTI_ETICHETTE_KEY = 'pulsanti_etichette';
+
+// Schede della lista ordini in cui può comparire un'etichetta
+const PULSANTI_SCHEDE = {
+  active: 'Attivi', parziali: 'Parziali', evasione: 'Evasione', dariscuotere: 'Da riscuotere', archived: 'Archivio', search: 'Ricerca',
+};
+const PULSANTI_ETICHETTE_DEFAULT = () => [
+  { id: 'lavorazione', nome: 'Lavorazione', schede: Object.keys(PULSANTI_SCHEDE) },
+  { id: 'spedizione',  nome: 'Spedizione',  schede: Object.keys(PULSANTI_SCHEDE).filter(v => v !== 'active') },
+];
 
 const PULSANTI_RUOLI = {
   nessuno:      { label: 'Solo spunta',                  hint: 'Segna la fase con la data, senza spostare l\'ordine' },
@@ -67,6 +79,19 @@ const Pulsanti = {
     const v = TCFactory._settings[PULSANTI_KEY];
     return Array.isArray(v) ? v.filter(p => p && p.id) : PULSANTI_DEFAULT();
   },
+  // ── Etichette (colonne della lista ordini) ──
+  gruppi() {
+    const v = TCFactory._settings[PULSANTI_ETICHETTE_KEY];
+    const list = Array.isArray(v) ? v.filter(g => g && g.id) : [];
+    return list.length ? list : PULSANTI_ETICHETTE_DEFAULT();
+  },
+  gruppoDi(p) { const g = this.gruppi(); return g.some(x => x.id === p.colonna) ? p.colonna : g[0].id; },
+  gruppiVista(view) { return this.gruppi().filter(g => (g.schede || Object.keys(PULSANTI_SCHEDE)).includes(view)); },
+  // Colonne della riga: Nome 300px, Tipologia, Data, Scadenza, una per etichetta, Ordine, Pagamento
+  gridStyle(view) {
+    const n = this.gruppiVista(view).length;
+    return `grid-template-columns: 300px 130px 112px 104px ${n ? `repeat(${n}, minmax(160px, 1fr))` : ''} 62px 90px;`;
+  },
   dtfLavId() { return typeof interneLavId === 'function' ? interneLavId('interno') : 'li-dtf'; },
   // Collegamento → { kind, id } della lavorazione (null se non è collegato a una lavorazione)
   link(p) {
@@ -88,7 +113,7 @@ const Pulsanti = {
     const dtf = this.dtfLavId();
     const auto = ['interne', 'esterne'].flatMap(kind => getLav(kind)
       .filter(l => !(kind === 'interne' && l.id === dtf) && !linked.has(`${kind}:${l.id}`))
-      .map(l => ({ id: `lav-${l.id}`, nome: '', colonna: 'lavorazione', ruolo: 'nessuno', collegamento: `${kind}:${l.id}`, mostra: 'selezionata', auto: true })));
+      .map(l => ({ id: `lav-${l.id}`, nome: '', colonna: this.gruppi()[0].id, ruolo: 'nessuno', collegamento: `${kind}:${l.id}`, mostra: 'selezionata', auto: true })));
     return [...conf, ...auto];
   },
   get(id) { return this.all().find(p => p.id === id) || null; },
@@ -116,7 +141,7 @@ const Pulsanti = {
       default: return true;
     }
   },
-  visibili(o, colonna) { return this.all().filter(p => (!colonna || p.colonna === colonna) && this.visibile(o, p)); },
+  visibili(o, colonna) { return this.all().filter(p => (!colonna || this.gruppoDi(p) === colonna) && this.visibile(o, p)); },
   // Fase dell'ordine dove si salva la spunta (null = collegato a una lavorazione)
   stageId(p) {
     if (!p.collegamento) return p.id;
@@ -214,7 +239,7 @@ function pulsantiPills(o, colonna, filtro = () => true) {
     const st = Pulsanti.stato(o, p);
     const locked = !st.done && !Pulsanti.cliccabile(o, p);
     return `<div class="stage-cell">
-      <button class="stage-pill ${colonna === 'spedizione' ? 'evasione' : ''} ${st.done ? 'done' : ''} ${locked ? 'locked' : ''}"
+      <button class="stage-pill ${st.done ? 'done' : ''} ${locked ? 'locked' : ''}"
         onclick="event.stopPropagation();${locked ? '' : `pulsanteToggle('${o.id}','${escapeHtml(p.id)}',${!st.done})`}" ${locked ? 'aria-disabled="true"' : ''}
         title="${escapeHtml(locked ? Pulsanti.motivo(p) : Pulsanti.nome(p) + (st.done ? ' — fatto' : ''))}">${escapeHtml(Pulsanti.etichetta(o, p))}</button>
       <span class="pill-date">${st.date ? TCFactory.formatDate(st.date, { day: '2-digit', month: '2-digit' }) : ''}</span>
@@ -264,7 +289,7 @@ function pulsantiSettingsHtml() {
     const sommario = [PULSANTI_RUOLI[p.ruolo || 'nessuno']?.label, p.collegamento ? 'collegato' : '', p.mostra && p.mostra !== 'sempre' ? 'condizionale' : '', p.abilita?.se ? 'con condizione' : '']
       .filter(Boolean).join(' · ');
     return `
-    <div class="pulsante-cfg ${p.attivo === false ? 'off' : ''} ${open ? 'open' : ''}" data-pid="${pid}" data-col="${p.colonna}"
+    <div class="pulsante-cfg ${p.attivo === false ? 'off' : ''} ${open ? 'open' : ''}" data-pid="${pid}" data-col="${escapeHtml(Pulsanti.gruppoDi(p))}"
       ondragover="pulsantiDragOver(event, this)" ondragleave="this.classList.remove('drop-before','drop-after')" ondrop="pulsantiDrop(event, this)">
       <div class="pulsante-cfg-head">
         <span class="pulsante-cfg-grip" draggable="true" ondragstart="pulsantiDragStart(event, '${pid}')" ondragend="pulsantiDragEnd()"
@@ -274,7 +299,7 @@ function pulsantiSettingsHtml() {
           <button type="button" ${i === 0 ? 'disabled' : ''} onclick="pulsantiMove('${escapeHtml(p.id)}',-1)" aria-label="Sposta su">${Icons.arrowUp()}</button>
           <button type="button" ${i === list.length - 1 ? 'disabled' : ''} onclick="pulsantiMove('${escapeHtml(p.id)}',1)" aria-label="Sposta giù">${Icons.arrowDown()}</button>
         </div>
-        <span class="stage-pill ${p.colonna === 'spedizione' ? 'evasione' : ''}" aria-hidden="true">${escapeHtml(Pulsanti.nome(p))}</span>
+        <span class="stage-pill" aria-hidden="true">${escapeHtml(Pulsanti.nome(p))}</span>
         <button type="button" class="pulsante-cfg-toggle" aria-expanded="${open}" aria-controls="pcfg-${pid}" onclick="pulsantiToggleOpen('${pid}')">
           <small>${escapeHtml(sommario)}</small>
           <svg class="settings-block-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
@@ -287,7 +312,7 @@ function pulsantiSettingsHtml() {
         <label>Nome</label>
         <input class="form-input" value="${escapeHtml(p.nome || '')}" placeholder="${escapeHtml(Pulsanti.nome(p))}" maxlength="30" aria-label="Nome del pulsante"
           onchange="pulsantiSet('${pid}','nome',this.value)">
-        <label>Colonna</label>${sel(p, 'colonna', opt({ lavorazione: 'Lavorazione', spedizione: 'Spedizione / Evasione' }, p.colonna))}
+        <label>Etichetta</label>${sel(p, 'colonna', Pulsanti.gruppi().map(g => `<option value="${escapeHtml(g.id)}" ${Pulsanti.gruppoDi(p) === g.id ? 'selected' : ''}>${escapeHtml(g.nome)}</option>`).join(''))}
         <label>Cosa fa</label>${sel(p, 'ruolo', opt(PULSANTI_RUOLI, p.ruolo || 'nessuno'))}
         <small class="pulsante-cfg-hint">${escapeHtml(PULSANTI_RUOLI[p.ruolo || 'nessuno']?.hint || '')}</small>
         <label>Collegato a</label>${sel(p, 'collegamento', pulsantiCollegamentiOptions(p))}
@@ -318,24 +343,45 @@ function pulsantiSettingsHtml() {
       </div>
     </div>`;
   };
-  const group = (colonna, title) => {
-    const list = all.filter(p => p.colonna === colonna);
+  const gruppi = Pulsanti.gruppi();
+  const group = (g, gi) => {
+    const colonna = g.id;
+    const list = all.filter(p => Pulsanti.gruppoDi(p) === colonna);
+    const gid = escapeHtml(g.id);
+    const schede = g.schede || Object.keys(PULSANTI_SCHEDE);
     // Anteprima: i pulsanti attivi nell'ordine in cui compaiono nella lista ordini
     const preview = list.filter(p => p.attivo !== false && !Pulsanti.orfano(p)).map(p =>
-      `<span class="stage-pill ${colonna === 'spedizione' ? 'evasione' : ''}">${escapeHtml(Pulsanti.nome(p))}</span>`).join('');
-    return `<div style="font-size:0.8rem;font-weight:700;margin-top:4px;">${title}</div>
+      `<span class="stage-pill">${escapeHtml(Pulsanti.nome(p))}</span>`).join('');
+    return `
+    <section class="pulsanti-etichetta" data-col="${gid}" ondragover="pulsantiDragOverGruppo(event, this)" ondragleave="this.classList.remove('drop-into')" ondrop="pulsantiDropGruppo(event, this)">
+      <div class="pulsanti-etichetta-head">
+        <div class="reorder-arrows">
+          <button type="button" ${gi === 0 ? 'disabled' : ''} onclick="etichetteMove('${gid}',-1)" aria-label="Sposta etichetta a sinistra">${Icons.arrowUp()}</button>
+          <button type="button" ${gi === gruppi.length - 1 ? 'disabled' : ''} onclick="etichetteMove('${gid}',1)" aria-label="Sposta etichetta a destra">${Icons.arrowDown()}</button>
+        </div>
+        <input class="form-input" value="${escapeHtml(g.nome)}" maxlength="30" aria-label="Nome dell'etichetta" onchange="etichetteSet('${gid}','nome',this.value)">
+        <button type="button" class="btn-icon" style="color:var(--priority-urgent);" ${gruppi.length <= 1 ? 'disabled' : ''} onclick="etichetteDelete('${gid}')" aria-label="Elimina etichetta ${escapeHtml(g.nome)}">${Icons.trash(15)}</button>
+      </div>
+      <div class="pulsanti-etichetta-schede" role="group" aria-label="Schede in cui compare">
+        <small>Compare in:</small>
+        ${Object.entries(PULSANTI_SCHEDE).map(([v, l]) => `<label class="check-inline"><input type="checkbox" ${schede.includes(v) ? 'checked' : ''} onchange="etichetteScheda('${gid}','${v}',this.checked)"> ${l}</label>`).join('')}
+      </div>
       ${preview ? `<div class="pulsanti-preview" aria-label="Ordine nella lista ordini"><small>Nella lista ordini:</small>${preview}</div>` : ''}
-      ${list.map((p, i) => card(p, i, list)).join('') || '<div class="settings-section-hint" style="margin:0;">Nessun pulsante.</div>'}`;
+      ${list.map((p, i) => card(p, i, list)).join('') || '<div class="settings-section-hint pulsanti-etichetta-vuota">Nessun pulsante: trascinane uno qui o sceglila come Etichetta di un pulsante.</div>'}
+    </section>`;
   };
   return `
-    <div class="settings-section-hint" style="margin:0;">I pulsanti delle colonne Lavorazione e Spedizione della lista ordini. Le lavorazioni interne ed esterne hanno già il loro pulsante (compare quando sono scelte nell'ordine). Vale per tutti gli utenti.</div>
+    <div class="settings-section-hint" style="margin:0;">Ogni etichetta è una colonna della lista ordini con i suoi pulsanti, nell'ordine scritto qui. Le lavorazioni interne ed esterne hanno già il loro pulsante (compare quando sono scelte nell'ordine). Vale per tutti gli utenti.</div>
     ${warn.map(w => `<div class="settings-section-hint" style="margin:0;color:var(--priority-urgent);font-weight:600;">⚠ ${escapeHtml(w)}</div>`).join('')}
-    ${group('lavorazione', 'Lavorazione')}
-    ${group('spedizione', 'Spedizione / Evasione')}
+    ${gruppi.map(group).join('')}
+    <form class="config-add-row" onsubmit="event.preventDefault();etichetteAdd()">
+      <input id="new-etichetta" class="form-input" placeholder="Nuova etichetta (es. Grafica, Controllo)" maxlength="30">
+      <button type="submit" class="btn btn-secondary btn-icon" aria-label="Aggiungi etichetta">${Icons.plus()}</button>
+    </form>
     <form class="config-add-row" onsubmit="event.preventDefault();pulsantiAdd()">
       <input id="new-pulsante" class="form-input" placeholder="Nuovo pulsante (es. Controllo qualità)" maxlength="30">
-      <select id="new-pulsante-col" class="form-select" aria-label="Colonna" style="max-width:150px;">
-        <option value="lavorazione">Lavorazione</option><option value="spedizione">Spedizione</option>
+      <select id="new-pulsante-col" class="form-select" aria-label="Etichetta" style="max-width:170px;">
+        ${gruppi.map(g => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.nome)}</option>`).join('')}
       </select>
       <button type="submit" class="btn btn-secondary btn-icon" aria-label="Aggiungi pulsante">${Icons.plus()}</button>
     </form>
@@ -392,31 +438,98 @@ function pulsantiDragEnd() {
 function pulsantiDropAfter(e, el) { const r = el.getBoundingClientRect(); return e.clientY > r.top + r.height / 2; }
 function pulsantiDragOver(e, el) {
   const from = pulsantiDragId && Pulsanti.get(pulsantiDragId);
-  if (!from || from.colonna !== el.dataset.col || el.dataset.pid === pulsantiDragId) return;
+  if (!from || el.dataset.pid === pulsantiDragId) return;
   e.preventDefault();
+  e.stopPropagation();
   const after = pulsantiDropAfter(e, el);
   el.classList.toggle('drop-after', after);
   el.classList.toggle('drop-before', !after);
 }
 function pulsantiDrop(e, el) {
   e.preventDefault();
+  e.stopPropagation();
   const id = pulsantiDragId, target = el.dataset.pid, after = pulsantiDropAfter(e, el);
   pulsantiDragEnd();
   if (!id || id === target) return;
   const list = Pulsanti.all();
   const moved = list.find(p => p.id === id);
-  if (!moved || moved.colonna !== list.find(p => p.id === target)?.colonna) return;
+  if (!moved) return;
+  // Rilasciato su un pulsante di un'altra etichetta: passa sotto quell'etichetta
   const rest = list.filter(p => p.id !== id);
-  rest.splice(rest.findIndex(p => p.id === target) + (after ? 1 : 0), 0, moved);
+  rest.splice(rest.findIndex(p => p.id === target) + (after ? 1 : 0), 0, { ...moved, colonna: el.dataset.col });
   pulsantiSave(rest);
+}
+// Rilasciato nello spazio di un'etichetta (anche vuota): va in fondo a quell'etichetta
+function pulsantiDragOverGruppo(e, el) {
+  if (!pulsantiDragId) return;
+  e.preventDefault();
+  el.classList.add('drop-into');
+}
+function pulsantiDropGruppo(e, el) {
+  e.preventDefault();
+  const id = pulsantiDragId;
+  pulsantiDragEnd();
+  el.classList.remove('drop-into');
+  if (!id) return;
+  const list = Pulsanti.all();
+  const moved = list.find(p => p.id === id);
+  if (!moved) return;
+  pulsantiSave([...list.filter(p => p.id !== id), { ...moved, colonna: el.dataset.col }]);
+}
+
+// ── Etichette ──
+async function etichetteSave(list, msg) {
+  try { await TCFactory.setSetting(PULSANTI_ETICHETTE_KEY, list); if (msg) showToast(msg); }
+  catch { showToast('Salvataggio non riuscito', 'error'); }
+  renderSettingsDialog();
+  renderApp();
+}
+function etichetteSet(id, field, value) {
+  value = String(value).trim();
+  if (field === 'nome' && !value) { renderSettingsDialog(); return; }
+  etichetteSave(Pulsanti.gruppi().map(g => g.id === id ? { ...g, [field]: value } : g));
+}
+function etichetteScheda(id, scheda, on) {
+  etichetteSave(Pulsanti.gruppi().map(g => {
+    if (g.id !== id) return g;
+    const schede = new Set(g.schede || Object.keys(PULSANTI_SCHEDE));
+    if (on) schede.add(scheda); else schede.delete(scheda);
+    return { ...g, schede: Object.keys(PULSANTI_SCHEDE).filter(v => schede.has(v)) };
+  }));
+}
+function etichetteMove(id, dir) {
+  const list = Pulsanti.gruppi();
+  const i = list.findIndex(g => g.id === id), j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  etichetteSave(list);
+}
+function etichetteAdd() {
+  const nome = document.getElementById('new-etichetta')?.value.trim();
+  if (!nome) return;
+  etichetteSave([...Pulsanti.gruppi(), { id: 'e-' + Date.now().toString(36), nome, schede: Object.keys(PULSANTI_SCHEDE) }], `Aggiunta etichetta "${nome}"`);
+}
+async function etichetteDelete(id) {
+  const list = Pulsanti.gruppi();
+  const g = list.find(x => x.id === id);
+  if (!g || list.length <= 1) return;
+  const rest = list.filter(x => x.id !== id);
+  const n = Pulsanti.all().filter(p => Pulsanti.gruppoDi(p) === id).length;
+  if (!confirm(`Eliminare l'etichetta "${g.nome}"?${n ? `\n\nI suoi ${n} pulsanti passano sotto "${rest[0].nome}".` : ''}`)) return;
+  // I pulsanti dell'etichetta passano alla prima rimasta
+  if (n) {
+    try { await TCFactory.setSetting(PULSANTI_KEY, Pulsanti.all().map(({ auto, ...p }) => Pulsanti.gruppoDi(p) === id ? { ...p, colonna: rest[0].id } : p)); }
+    catch { showToast('Salvataggio non riuscito', 'error'); return; }
+  }
+  etichetteSave(rest, 'Etichetta eliminata');
 }
 
 function pulsantiMove(id, dir) {
   const list = Pulsanti.all();
   const i = list.findIndex(p => p.id === id);
-  const col = list[i]?.colonna;
+  const col = list[i] && Pulsanti.gruppoDi(list[i]);
   let j = i + dir;
-  while (j >= 0 && j < list.length && list[j].colonna !== col) j += dir;
+  while (j >= 0 && j < list.length && Pulsanti.gruppoDi(list[j]) !== col) j += dir;
   if (i < 0 || j < 0 || j >= list.length) return;
   [list[i], list[j]] = [list[j], list[i]];
   pulsantiSave(list);
@@ -424,7 +537,7 @@ function pulsantiMove(id, dir) {
 function pulsantiAdd() {
   const nome = document.getElementById('new-pulsante')?.value.trim();
   if (!nome) return;
-  const colonna = document.getElementById('new-pulsante-col')?.value || 'lavorazione';
+  const colonna = document.getElementById('new-pulsante-col')?.value || Pulsanti.gruppi()[0].id;
   const id = 'p-' + Date.now().toString(36);
   PulsantiOpen.add(id);   // il pulsante appena creato si apre per sceglierne le regole
   pulsantiSave([...Pulsanti.all(), { id, nome, colonna, ruolo: 'nessuno', collegamento: '', mostra: 'sempre' }], `Aggiunto "${nome}"`);
