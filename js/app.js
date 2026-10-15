@@ -1878,13 +1878,23 @@ function ofKeepLavFatte(old, payload) {
     if (d) (t.kind === 'interne' ? interneFatte : esterneFatte)[t.id] = d;
   });
   payload.orderModule = { ...oldMod, ...payload.orderModule, interneFatte, esterneFatte };
+  const stages = { ...old.stages };
+  let cambiate = false;
   // Fase "Esterna": completata solo se lo sono tutti i tipi esterni rimasti
   const est = dopo.filter(t => t.kind === 'esterne');
   if (est.length) {
     const tutte = est.every(t => esterneFatte[t.id]);
-    if (tutte !== !!old.stages?.lavorazioneEsterna?.done)
-      payload.stages = { ...old.stages, lavorazioneEsterna: tutte ? { done: true, date: localISODate(new Date()) } : { done: false } };
+    if (tutte !== !!old.stages?.lavorazioneEsterna?.done) {
+      stages.lavorazioneEsterna = tutte ? { done: true, date: localISODate(new Date()) } : { done: false };
+      cambiate = true;
+    }
   }
+  // DTF: la spunta è la fase dtfPronti dell'ordine; se il DTF viene aggiunto ora parte da non fatto
+  // (una vecchia spunta, es. "Stampato" dalla pagina DTF, non deve valere per la lavorazione nuova)
+  const dtf = typeof interneLavId === 'function' ? interneLavId('interno') : 'li-dtf';
+  const dtfNuovo = dopo.some(t => t.kind === 'interne' && t.id === dtf) && !prima.some(t => t.kind === 'interne' && t.id === dtf);
+  if (dtfNuovo && old.stages?.dtfPronti?.done) { stages.dtfPronti = { done: false }; cambiate = true; }
+  if (cambiate) payload.stages = stages;
 }
 
 async function submitOrderForm() {
