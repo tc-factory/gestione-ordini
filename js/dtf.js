@@ -86,10 +86,10 @@ const dtfDone = (o) => !!o.stages?.dtfPronti?.done;
 function dtfLists() {
   const { order, removed } = dtfSettings();
   const removedAt = new Map(removed.map(r => [r.id, r.at]));
-  // Ordini interni con DTF (righe o tipo spuntato), più quelli senza nessuna lavorazione interna indicata (ordini vecchi)
+  // Solo gli ordini interni con la lavorazione DTF (spuntata sotto INTERNA o in una riga del modulo)
   const dtfLav = interneLavId('interno');
   const internal = TCFactory.getOrders().filter(o => !o.deletedAt && isLavInterna(o) &&
-    ((!interneRows(o).length && !orderLavInterne(o).length) || orderLavInterne(o).includes(dtfLav) || interneRows(o).some(r => r.interna === dtfLav)));
+    (orderLavInterne(o).includes(dtfLav) || interneRows(o).some(r => r.interna === dtfLav)));
   const deadline = (o) => TCFactory.getEffectiveDeadline(o)?.date || '9999-12-31';
 
   // Da stampare: ordini attivi a lavorazione interna, DTF non ancora fatto, non rimossi
