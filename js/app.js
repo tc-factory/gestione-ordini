@@ -11,7 +11,8 @@ const AppState = {
   view: 'active',
   searchQuery: '',
   sortKey: 'data',
-  sortDir: 'asc',          // 'asc' | 'desc' — si inverte cliccando l'intestazione della colonna
+  sortDir: 'asc',
+  groupBy: '',             // id dell'etichetta per cui raggruppare gli ordini ('' = nessun raggruppamento)          // 'asc' | 'desc' — si inverte cliccando l'intestazione della colonna
   filterTags: [],
   filterCreator: '',       // nickname di chi ha inserito l'ordine ('' = tutti)
   calYear: new Date().getFullYear(),
@@ -372,7 +373,11 @@ function renderOrderList() {
         ${sortHdr('data', 'Data creazione', 'orc-date')}
         ${sortHdr('scadenza', 'Scadenza', 'orc-deadline')}
         <div class="orc-files orc-hdr">Ordine</div>
-        ${Pulsanti.gruppiVista(rowView).map(g => `<div class="orc-lav orc-hdr orc-gruppo">${escapeHtml(g.nome)}</div>`).join('')}
+        ${Pulsanti.gruppiVista(rowView).map(g => {
+          const on = AppState.groupBy === g.id;
+          return `<div class="orc-lav orc-hdr orc-gruppo"><button type="button" class="sort-hdr ${on ? 'active' : ''}" aria-pressed="${on}"
+            onclick="event.stopPropagation();toggleGroupBy('${escapeHtml(g.id)}')" title="${on ? 'Togli il raggruppamento' : `Raggruppa gli ordini per lavorazione di ${escapeHtml(g.nome)}`}">${escapeHtml(g.nome)} <span class="sort-arrow" aria-hidden="true">${on ? '▤' : '☰'}</span></button></div>`;
+        }).join('')}
         <div class="orc-payment orc-hdr">Pagamento</div>
       </div>`;
 
@@ -416,13 +421,31 @@ function renderOrderList() {
         </div>
         ${sorted.length === 0
           ? `<div class="empty-list">${emptyMsg}</div>`
-          : sorted.map(o => renderOrderRow(o)).join('')}
+          : groupedRows(sorted, rowView)}
       </div>
     </div>
   `;
   Pulsanti.adattaColonne(document.getElementById('orderlist-root'));
 }
 
+
+// Raggruppa per lavorazione: clic sull'intestazione di un'etichetta (es. INTERNA). Un gruppo per ogni
+// pulsante dell'etichetta, nell'ordine delle Impostazioni; un ordine con più lavorazioni compare in ognuna.
+// Dentro ogni gruppo resta l'ordinamento scelto (data di creazione o scadenza).
+function toggleGroupBy(id) { AppState.groupBy = AppState.groupBy === id ? '' : id; renderOrderList(); }
+function groupedRows(sorted, view) {
+  const g = AppState.groupBy && Pulsanti.gruppiVista(view).find(x => x.id === AppState.groupBy);
+  if (!g) return sorted.map(o => renderOrderRow(o)).join('');
+  const pulsanti = Pulsanti.all().filter(p => Pulsanti.gruppoDi(p) === g.id && p.attivo !== false && !Pulsanti.orfano(p));
+  const head = (nome, n) => `<div class="order-group-head"><strong>${escapeHtml(nome)}</strong><span>${n} ${n === 1 ? 'ordine' : 'ordini'}</span></div>`;
+  const sections = pulsanti.map(p => {
+    const list = sorted.filter(o => Pulsanti.visibile(o, p));
+    return list.length ? head(Pulsanti.nome(p), list.length) + list.map(o => renderOrderRow(o)).join('') : '';
+  });
+  const senza = sorted.filter(o => !pulsanti.some(p => Pulsanti.visibile(o, p)));
+  if (senza.length) sections.push(head(`Senza ${g.nome.toLowerCase()}`, senza.length) + senza.map(o => renderOrderRow(o)).join(''));
+  return sections.join('');
+}
 
 function setArchiveFilter(f) { AppState.filterArchive = f; renderOrderList(); }
 

@@ -577,6 +577,14 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 }
 .search-box svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-muted); width: 15px; height: 15px; }
 
+/* Raggruppamento per lavorazione: titolo di ogni gruppo (resta visibile scorrendo in orizzontale) */
+.order-group-head {
+  position: sticky; left: 0; display: flex; align-items: baseline; gap: 8px; width: max-content;
+  margin: 14px 0 2px; padding: 0 4px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.order-group-head:first-of-type { margin-top: 6px; }
+.order-group-head span { font-size: 0.7rem; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
+
 /* Le righe tengono tutte le colonne: se lo schermo è stretto (telefono, tablet) si scorre in orizzontale */
 .order-rows { display: flex; flex-direction: column; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; padding-bottom: 4px; }
 .order-rows > .order-row-item { min-width: max-content; }
