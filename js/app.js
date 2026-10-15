@@ -1863,6 +1863,30 @@ function removeInvoiceFile(i) {
 
 // ── Submit ────────────────────────────────────
 
+// Modifica di un ordine: il form riscrive il modulo d'ordine, quindi qui si riportano le spunte
+// "fatto" delle lavorazioni (interneFatte / esterneFatte) solo per i tipi che restano. Una lavorazione
+// aggiunta parte sempre da NON fatta, anche se la fase "Esterna" generica era già completata.
+function ofKeepLavFatte(old, payload) {
+  const oldMod = old.orderModule || {};
+  const prima = orderLavTipi(old);
+  const dopo = orderLavTipi({ ...old, ...payload });
+  const cEra = (t) => prima.some(x => x.kind === t.kind && x.id === t.id);
+  const interneFatte = {}, esterneFatte = {};
+  dopo.forEach(t => {
+    if (!cEra(t)) return;
+    const d = lavTipoDone(old, t.kind, t.id);
+    if (d) (t.kind === 'interne' ? interneFatte : esterneFatte)[t.id] = d;
+  });
+  payload.orderModule = { ...oldMod, ...payload.orderModule, interneFatte, esterneFatte };
+  // Fase "Esterna": completata solo se lo sono tutti i tipi esterni rimasti
+  const est = dopo.filter(t => t.kind === 'esterne');
+  if (est.length) {
+    const tutte = est.every(t => esterneFatte[t.id]);
+    if (tutte !== !!old.stages?.lavorazioneEsterna?.done)
+      payload.stages = { ...old.stages, lavorazioneEsterna: tutte ? { done: true, date: localISODate(new Date()) } : { done: false } };
+  }
+}
+
 async function submitOrderForm() {
   const nome       = ofUpper(document.getElementById('of-nome')?.value?.trim());
   const dataOrdine = document.getElementById('of-data')?.value;
@@ -1909,6 +1933,8 @@ async function submitOrderForm() {
 
   const btn = document.querySelector('#order-form-modal .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio…'; }
+
+  if (AppState.formEditOrder) ofKeepLavFatte(TCFactory.getOrderById(AppState.formEditOrder.id) || AppState.formEditOrder, payload);
 
   let saved = false;
   try {

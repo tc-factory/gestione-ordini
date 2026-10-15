@@ -1010,7 +1010,6 @@ html.dark .dtf-item.dtf-urgent .dtf-stats { background: rgba(0, 0, 0, 0.2); }
 .of-lav-tipi { display: flex; flex-direction: column; gap: 8px; }
 .of-lav-tipi:not(:empty) { margin-top: 10px; }
 .of-lav-tipi-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.of-lav-tipi-row.off .of-lav-tipo { opacity: 0.6; }
 .of-lav-tipi-label { min-width: 72px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
 .of-lav-tipi-empty { font-size: 0.78rem; color: var(--text-muted); }
 .of-lav-tipo { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); font-size: 0.8rem; font-weight: 600; cursor: pointer; user-select: none; transition: background var(--transition), color var(--transition); }
