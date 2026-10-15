@@ -629,16 +629,14 @@ function previewOrderModule(orderId) {
       <td style="padding:7px 10px;text-align:right;">${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.ordinato ? '✓' : ''}</td>
-      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:0.8rem;font-weight:600;">${escapeHtml(modRowInterna(r))}</td>
-      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:0.8rem;font-weight:600;">${escapeHtml(modRowEsterna(r))}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.neutro ? '✓' : ''}</td>
     </tr>`;
   };
-  const integHeaderRow = `<tr><td colspan="12" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>`;
+  const integHeaderRow = `<tr><td colspan="10" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>`;
   const { base: modBase, integ: modInteg } = splitModuleRows(rows);
   const rowsHtml = rows.length
     ? modBase.map(renderModRow).join('') + (modInteg.length ? integHeaderRow + modInteg.map(renderModRow).join('') : '')
-    : `<tr><td colspan="12" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
+    : `<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
 
   modal.innerHTML = `
     <div class="modal" style="max-width:820px;">
@@ -646,6 +644,7 @@ function previewOrderModule(orderId) {
         <div>
           <div style="font-size:1.8rem;font-weight:900;color:#1e40af;line-height:1.1;">${escapeHtml(tags[0] || 'Ordine')}</div>
           <div style="font-size:0.9rem;color:var(--text-muted);margin-top:3px;">${escapeHtml(order.nome)}${dlHtml ? ` · Deadline: ${dlHtml}` : ''}</div>
+          ${modLavRiepilogo(order) ? `<div style="font-size:0.85rem;font-weight:700;margin-top:4px;"><span style="color:var(--text-muted);font-weight:600;">Lavorazione:</span> ${escapeHtml(modLavRiepilogo(order))}</div>` : ''}
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
           <button class="btn btn-secondary btn-sm" onclick="downloadOrderModule('${order.id}')">⬇ Scarica PDF</button>
@@ -665,8 +664,6 @@ function previewOrderModule(orderId) {
               <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Prezzo</th>
               <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Totale</th>
               <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Ord.</th>
-              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Lav. int.</th>
-              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Lav. est.</th>
               <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Neutro</th>
             </tr>
           </thead>
@@ -697,6 +694,23 @@ function previewOrderModule(orderId) {
   modal.onclick = e => { if (e.target === modal) closeModal('file-preview-modal'); };
 }
 
+// Riga "Lavorazione" del modulo stampato: al posto delle colonne Lav. int. / Lav. est.
+// es. "INTERNA — UV, LASER · ESTERNA — RICAMO". Senza ordine (form aperto) usa le scelte del form.
+function modLavRiepilogo(order) {
+  if (order ? TCFactory.isNeutro(order) : AppState.formLavNeutro) return 'NEUTRO';
+  const o = order || {
+    lavorazioneEsterna: !!AppState.formLavEsterna,
+    orderModule: { rows: AppState.formModuleRows || [], interna: !!AppState.formLavInterna,
+      lavInterne: AppState.formLavTipi?.interne || [], lavEsterne: AppState.formLavTipi?.esterne || [] },
+  };
+  const tipi = orderLavTipi(o);
+  const parte = (kind, label, attiva) => {
+    const nomi = tipi.filter(t => t.kind === kind).map(t => t.nome.toLocaleUpperCase('it-IT'));
+    return nomi.length ? `${label} — ${nomi.join(', ')}` : attiva ? label : '';
+  };
+  return [parte('interne', 'INTERNA', isLavInterna(o)), parte('esterne', 'ESTERNA', !!o.lavorazioneEsterna)].filter(Boolean).join(' · ');
+}
+
 function downloadOrderModule(orderId) {
   const order   = orderId ? TCFactory.getOrderById(orderId) : null;
   const desc    = order ? orderDesc(order) : (document.getElementById('of-descrizione')?.value || '').trim();
@@ -709,16 +723,17 @@ function downloadOrderModule(orderId) {
   const isUrgent = order ? isUrgentOrder(order) : !!document.getElementById('of-urgent')?.checked;
   const tags    = order?.tags || AppState.formTags || [];
   const dl      = order?.deadline || document.getElementById('of-deadline')?.value || '';
+  const lav     = modLavRiepilogo(order);
 
   // Usa jsPDF se disponibile, altrimenti fallback al print
   if (window.jspdf?.jsPDF) {
-    _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl });
+    _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl, lav });
   } else {
-    _generatePrintPreview({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl });
+    _generatePrintPreview({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl, lav });
   }
 }
 
-function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl }) {
+function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl, lav }) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pw = doc.internal.pageSize.width;
@@ -738,6 +753,12 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
   doc.text(`Data: ${new Date().toLocaleDateString('it-IT')}`, 15, y); y += 5;
   if (dl) { doc.text(`Deadline: ${new Date(dl+'T00:00:00').toLocaleDateString('it-IT')}`, 15, y); y += 5; }
   if (tags.length) { doc.text(`Tipologia: ${tags.join(', ')}`, 15, y); y += 5; }
+  if (lav) {
+    doc.setFont(undefined,'bold'); doc.setTextColor(30, 41, 59);
+    const lavLines = doc.splitTextToSize(`Lavorazione: ${lav}`, pw - 30);
+    doc.text(lavLines, 15, y); y += 5 * lavLines.length;
+    doc.setFont(undefined,'normal'); doc.setTextColor(100, 116, 139);
+  }
 
   // Table
   const { base: pdfBase, integ: pdfInteg } = splitModuleRows(rows);
@@ -745,7 +766,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
     const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
     return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
       r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
-      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : '', modRowInterna(r), modRowEsterna(r, 'SI'), r.neutro ? 'SI' : ''];
+      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : '', r.neutro ? 'SI' : ''];
   };
   const autoTableStyle = {
     styles: { fontSize: 9, cellPadding: 2 },
@@ -755,8 +776,8 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
   };
   doc.autoTable({
     startY: y + 3,
-    head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lav. int.','Lav. est.','Neutro']],
-    body: pdfBase.length ? pdfBase.map(rowToArr) : [['','','','','','','','','','','']],
+    head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Neutro']],
+    body: pdfBase.length ? pdfBase.map(rowToArr) : [['','','','','','','','','','']],
     ...autoTableStyle,
   });
 
@@ -767,7 +788,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
     doc.text('INTEGRAZIONI', 15, fy); fy += 5;
     doc.autoTable({
       startY: fy,
-      head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lav. int.','Lav. est.','Neutro']],
+      head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Neutro']],
       body: pdfInteg.map(rowToArr),
       ...autoTableStyle,
     });
@@ -800,7 +821,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
   doc.save(`ordine-${nome.replace(/[^a-zA-Z0-9]/g,'-')}-${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
-function _generatePrintPreview({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl }) {
+function _generatePrintPreview({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl, lav }) {
   // Fallback: open print dialog
   const today = new Date().toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'});
   const tagsHtml = tags.map(t => { const c=TCFactory.getTagColor(t); return `<span style="background:${c}22;color:${c};border:1.5px solid ${c}77;border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700;margin-right:5px;">${t}</span>`; }).join('');
@@ -823,14 +844,15 @@ tbody td{padding:7px 10px;border-bottom:1px solid #dbeafe}
 <div class="hdr"><div><div class="brand">T&C Factory Creative Lab</div>
 <div class="meta"><strong>Ordine:</strong> ${nome}<br><strong>Data:</strong> ${today}
 ${dlHtml ? `<br><strong>Deadline:</strong> ${dlHtml}` : ''}
-${tagsHtml ? `<br><strong>Tipologia:</strong> ${tagsHtml}` : ''}</div></div>
+${tagsHtml ? `<br><strong>Tipologia:</strong> ${tagsHtml}` : ''}
+${lav ? `<br><strong>Lavorazione:</strong> ${escapeHtml(lav)}` : ''}</div></div>
 ${isUrgent ? `<div class="urg">⚠️ URGENTE</div>` : ''}</div>
-<table><thead><tr><th>Catalogo</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th><th style="text-align:center">Lav. int.</th><th style="text-align:center">Lav. est.</th><th style="text-align:center">Neutro</th></tr></thead><tbody>
+<table><thead><tr><th>Catalogo</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th><th style="text-align:center">Neutro</th></tr></thead><tbody>
 ${(() => {
-    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td><td style="text-align:center;color:#16a34a">${escapeHtml(modRowInterna(r))}</td><td style="text-align:center;color:#16a34a">${escapeHtml(modRowEsterna(r))}</td><td style="text-align:center;color:#16a34a">${r.neutro?'✓':''}</td></tr>`; };
-    const integHeaderHtml = '<tr><td colspan="12" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>';
+    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td><td style="text-align:center;color:#16a34a">${r.neutro?'✓':''}</td></tr>`; };
+    const integHeaderHtml = '<tr><td colspan="10" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">Integrazioni</td></tr>';
     const { base, integ } = splitModuleRows(rows);
-    return rows.length ? base.map(rowHtml).join('') + (integ.length ? integHeaderHtml + integ.map(rowHtml).join('') : '') : '<tr><td colspan="12" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
+    return rows.length ? base.map(rowHtml).join('') + (integ.length ? integHeaderHtml + integ.map(rowHtml).join('') : '') : '<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
   })()}
 </tbody></table>
 <div class="tots"><div class="tr"><span class="tl">Totale ordine</span><span class="tv" style="color:#1e40af">€ ${total.toFixed(2)}</span></div><div class="tr"><span class="tl">Acconto</span><span class="tv">€ ${acconto.toFixed(2)}</span></div><div class="tr"><span class="tl">Saldo</span><span class="tv" style="color:#dc2626">€ ${saldo.toFixed(2)}</span></div></div>
