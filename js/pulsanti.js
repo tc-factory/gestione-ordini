@@ -97,6 +97,12 @@ const Pulsanti = {
     return list.length ? list : PULSANTI_ETICHETTE_DEFAULT();
   },
   gruppoDi(p) { const g = this.gruppi(); return g.some(x => x.id === p.colonna) ? p.colonna : g[0].id; },
+  // Raggruppare per un'etichetta serve solo se ha pulsanti che compaiono solo su alcuni ordini
+  // (es. le lavorazioni di INTERNA / ESTERNA): se sono tutti "Sempre" (es. GENERALE) ogni gruppo
+  // conterrebbe tutti gli ordini, quindi l'intestazione non è cliccabile.
+  raggruppabile(id) {
+    return this.all().some(p => this.gruppoDi(p) === id && p.attivo !== false && !this.orfano(p) && (p.mostra || 'sempre') !== 'sempre');
+  },
   gruppiVista(view) { return this.gruppi().filter(g => (g.schede || Object.keys(PULSANTI_SCHEDE)).includes(view)); },
   // Colonne della riga: Nome 200px, Tipologia, Data, Scadenza, Ordine, una per etichetta, Pagamento
   // Le colonne delle etichette partono larghe quanto il loro contenuto; adattaColonne le allinea poi tra le righe
