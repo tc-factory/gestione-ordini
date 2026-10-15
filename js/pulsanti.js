@@ -102,19 +102,23 @@ const Pulsanti = {
   // Le colonne delle etichette partono larghe quanto il loro contenuto; adattaColonne le allinea poi tra le righe
   gridStyle(view) {
     const n = this.gruppiVista(view).length;
-    return `grid-template-columns: ${this._cols(n ? Array(n).fill('max-content') : [])};`;
+    return `grid-template-columns: ${this._cols(n ? Array(n).fill('max-content') : [], 'max-content')};`;
   },
-  _cols(gruppi) { return ['200px', '130px', '112px', '104px', '62px', ...gruppi, '90px'].join(' '); },
-  // Ogni colonna etichetta larga quanto la cella più lunga (intestazione compresa), uguale in tutte le righe
+  _cols(gruppi, ordine = '62px') { return ['200px', '130px', '112px', '104px', ordine, ...gruppi, '90px'].join(' '); },
+  // Colonna Ordine e colonne etichetta larghe quanto la cella più lunga (intestazione compresa), uguali in tutte le righe
   adattaColonne(root) {
     if (!root) return;
     const grids = [...root.querySelectorAll('.order-row-grid')];
     const widths = [];
-    grids.forEach(g => g.querySelectorAll(':scope > .orc-gruppo').forEach((c, i) => {
-      widths[i] = Math.max(widths[i] || 0, Math.ceil(c.getBoundingClientRect().width));
-    }));
-    if (!widths.length) return;
-    const cols = this._cols(widths.map(w => `${w}px`));
+    let ordine = 62;
+    grids.forEach(g => {
+      const f = g.querySelector(':scope > .orc-files');
+      if (f) ordine = Math.max(ordine, Math.ceil(f.getBoundingClientRect().width));
+      g.querySelectorAll(':scope > .orc-gruppo').forEach((c, i) => {
+        widths[i] = Math.max(widths[i] || 0, Math.ceil(c.getBoundingClientRect().width));
+      });
+    });
+    const cols = this._cols(widths.map(w => `${w}px`), `${ordine}px`);
     grids.forEach(g => { g.style.gridTemplateColumns = cols; });
   },
   dtfLavId() { return typeof interneLavId === 'function' ? interneLavId('interno') : 'li-dtf'; },

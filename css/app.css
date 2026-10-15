@@ -1122,10 +1122,12 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .file-quick-btn {
   background: none;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   cursor: pointer;
-  font-size: 0.9rem;
-  padding: 2px 5px;
+  font-size: 1.25rem;
+  padding: 7px 9px;
+  min-width: 40px;
+  min-height: 38px;
   line-height: 1;
   transition: border-color 0.15s, background 0.15s;
 }
