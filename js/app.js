@@ -374,6 +374,7 @@ function renderOrderList() {
         ${sortHdr('scadenza', 'Scadenza', 'orc-deadline')}
         <div class="orc-files orc-hdr">Ordine</div>
         ${Pulsanti.gruppiVista(rowView).map(g => {
+          if (!Pulsanti.raggruppabile(g.id)) return `<div class="orc-lav orc-hdr orc-gruppo">${escapeHtml(g.nome)}</div>`;
           const on = AppState.groupBy === g.id;
           return `<div class="orc-lav orc-hdr orc-gruppo"><button type="button" class="sort-hdr ${on ? 'active' : ''}" aria-pressed="${on}"
             onclick="event.stopPropagation();toggleGroupBy('${escapeHtml(g.id)}')" title="${on ? 'Togli il raggruppamento' : `Raggruppa gli ordini per lavorazione di ${escapeHtml(g.nome)}`}">${escapeHtml(g.nome)} <span class="sort-arrow" aria-hidden="true">${on ? '▤' : '☰'}</span></button></div>`;
@@ -434,7 +435,7 @@ function renderOrderList() {
 // Dentro ogni gruppo resta l'ordinamento scelto (data di creazione o scadenza).
 function toggleGroupBy(id) { AppState.groupBy = AppState.groupBy === id ? '' : id; renderOrderList(); }
 function groupedRows(sorted, view) {
-  const g = AppState.groupBy && Pulsanti.gruppiVista(view).find(x => x.id === AppState.groupBy);
+  const g = AppState.groupBy && Pulsanti.raggruppabile(AppState.groupBy) && Pulsanti.gruppiVista(view).find(x => x.id === AppState.groupBy);
   if (!g) return sorted.map(o => renderOrderRow(o)).join('');
   const pulsanti = Pulsanti.all().filter(p => Pulsanti.gruppoDi(p) === g.id && p.attivo !== false && !Pulsanti.orfano(p));
   const head = (nome, n) => `<div class="order-group-head"><strong>${escapeHtml(nome)}</strong><span>${n} ${n === 1 ? 'ordine' : 'ordini'}</span></div>`;
