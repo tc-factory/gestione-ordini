@@ -76,8 +76,36 @@ const PULSANTI_DEFAULT = () => [
 const PULSANTI_FISSI = new Set(PULSANTI_DEFAULT().map(p => p.id));
 
 const Pulsanti = {
+  // ── Memoria dei calcoli ──
+  // Elenco pulsanti, etichette e lavorazioni dell'ordine si ricalcolano solo quando cambiano le
+  // impostazioni da cui dipendono (le impostazioni salvate sono sempre oggetti nuovi) o l'ordine
+  // (ogni modifica sostituisce l'oggetto ordine). Prima si ricostruiva tutto per ogni ordine e pulsante.
+  _memo: null,
+  _deps() {
+    const st = TCFactory._settings;
+    return [st[PULSANTI_KEY], st[PULSANTI_ETICHETTE_KEY], st.lavorazioni_interne, st.lavorazioni_esterne];
+  },
+  _cache() {
+    const deps = this._deps();
+    if (!this._memo || this._memo.deps.some((d, i) => d !== deps[i])) this._memo = { deps, values: {}, orders: new WeakMap() };
+    return this._memo;
+  },
+  _remember(key, fn) {
+    const v = this._cache().values;
+    return key in v ? v[key] : (v[key] = fn());
+  },
+  // Calcoli per singolo ordine (stessa memoria, legata all'oggetto ordine)
+  _perOrdine(o, key, fn) {
+    if (!o || typeof o !== 'object') return fn();
+    const m = this._cache().orders;
+    let c = m.get(o);
+    if (!c) m.set(o, c = {});
+    return key in c ? c[key] : (c[key] = fn());
+  },
+
   // ── Configurazione ──
-  config() {
+  config() { return this._remember('config', () => this._config()); },
+  _config() {
     const v = TCFactory._settings[PULSANTI_KEY];
     if (!Array.isArray(v)) return PULSANTI_DEFAULT();
     // Id doppi (salvati dalla versione precedente): ogni pulsante deve avere il suo, altrimenti
@@ -91,12 +119,16 @@ const Pulsanti = {
     });
   },
   // ── Etichette (colonne della lista ordini) ──
-  gruppi() {
+  gruppi() { return this._remember('gruppi', () => this._gruppi()); },
+  _gruppi() {
     const v = TCFactory._settings[PULSANTI_ETICHETTE_KEY];
     const list = Array.isArray(v) ? v.filter(g => g && g.id) : [];
     return list.length ? list : PULSANTI_ETICHETTE_DEFAULT();
   },
-  gruppoDi(p) { const g = this.gruppi(); return g.some(x => x.id === p.colonna) ? p.colonna : g[0].id; },
+  gruppoDi(p) {
+    const ids = this._remember('gruppiIds', () => new Set(this.gruppi().map(g => g.id)));
+    return ids.has(p.colonna) ? p.colonna : this.gruppi()[0].id;
+  },
   // Raggruppare per un'etichetta serve solo se ha pulsanti che compaiono solo su alcuni ordini
   // (es. le lavorazioni di INTERNA / ESTERNA): se sono tutti "Sempre" (es. GENERALE) ogni gruppo
   // conterrebbe tutti gli ordini, quindi l'intestazione non è cliccabile.
@@ -142,7 +174,9 @@ const Pulsanti = {
     return !!l && l.id !== '*' && p.collegamento !== 'dtf' && !getLav(l.kind).some(x => x.id === l.id);
   },
   // Tutti i pulsanti: quelli salvati + uno automatico per ogni lavorazione non ancora collegata
-  all() {
+  all() { return this._remember('all', () => this._all()); },
+  get(id) { return this._remember('byId', () => new Map(this.all().map(p => [p.id, p]))).get(id) || null; },
+  _all() {
     const conf = this.config().filter(p => !p.eliminato);
     const linked = new Set(this.config().map(p => this.linkKey(p)).filter(Boolean));
     const dtf = this.dtfLavId();
@@ -154,7 +188,6 @@ const Pulsanti = {
       .map(l => ({ id: freeId(`lav-${l.id}`), nome: '', colonna: this.gruppi()[0].id, ruolo: 'nessuno', collegamento: `${kind}:${l.id}`, mostra: 'selezionata', auto: true })));
     return [...conf, ...auto];
   },
-  get(id) { return this.all().find(p => p.id === id) || null; },
   // Elenco da salvare: i pulsanti + quelli eliminati (che restano come segnaposto)
   salvabili(list) {
     const ids = new Set(list.map(p => p.id));
@@ -184,7 +217,10 @@ const Pulsanti = {
       default: return true;
     }
   },
-  visibili(o, colonna) { return this.all().filter(p => (!colonna || this.gruppoDi(p) === colonna) && this.visibile(o, p)); },
+  visibili(o, colonna) {
+    const tutti = this._perOrdine(o, 'visibili', () => this.all().filter(p => this.visibile(o, p)));
+    return colonna ? tutti.filter(p => this.gruppoDi(p) === colonna) : tutti;
+  },
   // Fase dell'ordine dove si salva la spunta (null = collegato a una lavorazione)
   stageId(p) {
     if (!p.collegamento) return p.id;
@@ -192,7 +228,8 @@ const Pulsanti = {
     if (p.collegamento === 'esterne:*') return 'lavorazioneEsterna';
     return null;
   },
-  stato(o, p) {
+  stato(o, p) { return this._perOrdine(o, 'stato:' + p.id, () => this._stato(o, p)); },
+  _stato(o, p) {
     const sid = this.stageId(p);
     let v;
     if (sid) { const st = o.stages?.[sid]; v = st?.done ? (st.date || true) : null; }
