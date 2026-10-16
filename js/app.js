@@ -1778,6 +1778,9 @@ const orderLavInterne = (o) => isLavInterna(o) ? (o?.orderModule?.lavInterne || 
 const orderLavEsterne = (o) => o?.lavorazioneEsterna && !TCFactory.isNeutro(o) ? (o?.orderModule?.lavEsterne || []) : [];
 // Tipi di lavorazione dell'ordine per la lista: spuntati nel form più quelli delle righe del modulo
 function orderLavTipi(o) {
+  return typeof Pulsanti !== 'undefined' ? Pulsanti._perOrdine(o, 'lavTipi', () => _orderLavTipi(o)) : _orderLavTipi(o);
+}
+function _orderLavTipi(o) {
   const rows = o?.orderModule?.rows || [];
   const ids = {
     interne: isLavInterna(o) ? [...orderLavInterne(o), ...rows.map(r => r.interna)] : [],
