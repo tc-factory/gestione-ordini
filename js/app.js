@@ -520,7 +520,7 @@ function renderOrderRow(o) {
     `<div class="orc-lav orc-pills orc-gruppo">${pulsantiPills(o, g.id)}</div>`).join('');
 
   return `
-    <div class="order-row-item ${isUrgent ? 'order-urgent' : ''}" role="button" tabindex="0"
+    <div class="order-row-item ${isUrgent ? 'order-urgent' : ''} ${Pulsanti.rigaGialla(o) ? 'order-giallo' : ''}" role="button" tabindex="0"
       onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-bar" style="background:${color};"></div>
       <div class="order-row-grid" style="${Pulsanti.gridStyle(view)}">
