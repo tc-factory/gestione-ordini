@@ -8,6 +8,10 @@
  *                  'interne:<id>' / 'esterne:<id>' = scheda Interne / tipo Esterne; 'esterne:*' = Esterna generica)
  *  - mostra:       quando compare sull'ordine (vedi PULSANTI_MOSTRA)
  *  - alt:          etichetta alternativa { nome, seNon: <id pulsante> }
+ *  - intermedio:   nome del passaggio intermedio (es. "Stampa"): il primo clic lo fa diventare giallo
+ *                  con questo nome, il secondo verde (fatto), il terzo toglie la spunta.
+ *                  Il passaggio si salva in o.stages["mezzo:<id pulsante>"]
+ *  - rigaGialla:   true = fatto ma con altre lavorazioni dell'ordine ancora da fare → riga gialla
  *  - abilita:      cliccabile solo se { se: <condizione, vedi PULSANTI_ABILITA>, pulsante: <id> }
  *                  (vale solo per spuntare: togliere la spunta è sempre possibile)
  *  - attivo:       false = nascosto ovunque
@@ -67,7 +71,7 @@ const PULSANTI_ABILITA = {
 
 const PULSANTI_DEFAULT = () => [
   { id: 'merceCompleta',       nome: 'Merce',    colonna: 'lavorazione', ruolo: 'obbligatorio', collegamento: '',          mostra: 'sempre' },
-  { id: 'dtfPronti',           nome: 'DTF',      colonna: 'lavorazione', ruolo: 'nessuno',      collegamento: 'dtf',       mostra: 'sempre' },
+  { id: 'dtfPronti',           nome: 'DTF',      colonna: 'lavorazione', ruolo: 'nessuno',      collegamento: 'dtf',       mostra: 'sempre', intermedio: 'Stampa', rigaGialla: true },
   { id: 'ordineStampato',      nome: 'Pronto',   colonna: 'lavorazione', ruolo: 'chiude',       collegamento: '',          mostra: 'sempre', alt: { nome: 'Parziale', seNon: 'merceCompleta' } },
   { id: 'lavorazioneEsterna',  nome: 'Esterna',  colonna: 'lavorazione', ruolo: 'nessuno',      collegamento: 'esterne:*', mostra: 'esterna-senza-tipo' },
   { id: 'speditoParzialmente', nome: 'Parziale', colonna: 'spedizione',  ruolo: 'parziale',     collegamento: '',          mostra: 'sempre' },
@@ -234,9 +238,13 @@ const Pulsanti = {
     let v;
     if (sid) { const st = o.stages?.[sid]; v = st?.done ? (st.date || true) : null; }
     else { const l = this.link(p); v = lavTipoDone(o, l.kind, l.id); }
-    return { done: !!v, date: typeof v === 'string' ? v : null };
+    const mezzo = !v && !!p.intermedio && !!o.stages?.[this.mezzoKey(p)];
+    return { done: !!v, date: typeof v === 'string' ? v : null, mezzo };
   },
+  // Passaggio intermedio (giallo) del pulsante, salvato tra le fasi dell'ordine
+  mezzoKey(p) { return `mezzo:${p.id}`; },
   etichetta(o, p) {
+    if (p.intermedio) { const st = this.stato(o, p); if (st.mezzo || st.done) return p.intermedio; }
     const cond = p.alt?.nome && p.alt.seNon ? this.get(p.alt.seNon) : null;
     return cond && this.visibile(o, cond) && !this.stato(o, cond).done ? p.alt.nome : this.nome(p);
   },
@@ -274,14 +282,32 @@ const Pulsanti = {
   isEvaso(o) { const l = this._ruolo(o, 'evade'); return l.length > 0 && l.every(p => this.stato(o, p).done); },
   // Data con cui è stata chiusa la lavorazione (per la vista Evasione)
   dataChiusura(o) { return this._ruolo(o, 'chiude').map(p => this.stato(o, p).date).filter(Boolean).sort().pop() || null; },
+  // Riga gialla: un pulsante "riga gialla" è fatto ma restano altre lavorazioni (pulsanti collegati) da fare
+  rigaGialla(o) {
+    return this._perOrdine(o, 'rigaGialla', () => {
+      const vis = this.visibili(o);
+      return vis.some(p => p.rigaGialla && this.stato(o, p).done
+        && vis.some(x => x.id !== p.id && this.link(x) && !this.stato(o, x).done));
+    });
+  },
   nomeChiusura() { const p = this.all().find(x => x.ruolo === 'chiude' && x.attivo !== false); return p ? this.nome(p) : 'Lavorazione'; },
 
   // Salva la spunta di un pulsante (senza effetti sulle schede)
   async set(orderId, p, done) {
     const sid = this.stageId(p);
-    if (sid) return TCFactory.setStage(orderId, sid, done, this.nome(p));
-    const l = this.link(p);
-    return setLavTipo(orderId, l.kind, l.id, done);
+    if (sid) await TCFactory.setStage(orderId, sid, done, this.nome(p));
+    else { const l = this.link(p); await setLavTipo(orderId, l.kind, l.id, done); }
+    await this.setMezzo(orderId, p, false);
+  },
+  // Segna / toglie il passaggio intermedio (giallo)
+  async setMezzo(orderId, p, on) {
+    const o = TCFactory.getOrderById(orderId);
+    const key = this.mezzoKey(p);
+    if (!o || !!o.stages?.[key] === on) return;
+    const { [key]: _, ...stages } = o.stages || {};
+    if (on) stages[key] = { date: localISODate(new Date()) };
+    await TCFactory.updateOrder(orderId, { stages });
+    if (on) TCFactory._log(`◐ ${p.intermedio}`, orderId, o.nome, { stage: key, done: false });
   },
   // Spunta tutti i pulsanti visibili con un certo ruolo (Sposta in… dal dettaglio ordine)
   async setRuolo(orderId, ruolo, done) {
@@ -295,6 +321,8 @@ const Pulsanti = {
     const p = this.get(pid);
     if (!o || !p) return;
     if (done && !this.cliccabile(o, p)) { showToast(this.motivo(p), 'error'); return; }
+    // Con il passaggio intermedio il primo clic lo fa diventare giallo, il secondo verde
+    if (done && p.intermedio && !this.stato(o, p).mezzo) { await this.setMezzo(orderId, p, true); return; }
     const wasPaid = !!o.paymentDone, wasEvaso = this.isEvaso(o);
     await this.set(orderId, p, done);
     if (p.ruolo === 'parziale' && !done && wasEvaso) {
@@ -319,9 +347,9 @@ function pulsantiPills(o, colonna, filtro = () => true) {
     const st = Pulsanti.stato(o, p);
     const locked = !st.done && !Pulsanti.cliccabile(o, p);
     return `<div class="stage-cell">
-      <button class="stage-pill ${st.done ? 'done' : ''} ${locked ? 'locked' : ''}"
+      <button class="stage-pill ${st.done ? 'done' : ''} ${st.mezzo ? 'mezzo' : ''} ${locked ? 'locked' : ''}"
         onclick="event.stopPropagation();${locked ? '' : `pulsanteToggle('${o.id}','${escapeHtml(p.id)}',${!st.done})`}" ${locked ? 'aria-disabled="true"' : ''}
-        title="${escapeHtml(locked ? Pulsanti.motivo(p) : Pulsanti.nome(p) + (st.done ? ' — fatto' : ''))}">${escapeHtml(Pulsanti.etichetta(o, p))}</button>
+        title="${escapeHtml(locked ? Pulsanti.motivo(p) : Pulsanti.nome(p) + (st.done ? ' — fatto' : st.mezzo ? ` — ${p.intermedio}: clic per segnarlo fatto` : ''))}">${escapeHtml(Pulsanti.etichetta(o, p))}</button>
       <span class="pill-date">${st.date ? TCFactory.formatDate(st.date, { day: '2-digit', month: '2-digit' }) : ''}</span>
     </div>`;
   }).join('');
@@ -365,7 +393,8 @@ function pulsantiSettingsHtml() {
     // Si eliminano quelli creati a mano o rimasti senza lavorazione; gli altri si disattivano
     const open = PulsantiOpen.has(p.id);
     const pid = escapeHtml(p.id);
-    const sommario = [PULSANTI_RUOLI[p.ruolo || 'nessuno']?.label, p.collegamento ? 'collegato' : '', p.mostra && p.mostra !== 'sempre' ? 'condizionale' : '', p.abilita?.se ? 'con condizione' : '']
+    const sommario = [PULSANTI_RUOLI[p.ruolo || 'nessuno']?.label, p.collegamento ? 'collegato' : '', p.mostra && p.mostra !== 'sempre' ? 'condizionale' : '', p.abilita?.se ? 'con condizione' : '',
+      p.intermedio ? `poi ${p.intermedio}` : '', p.rigaGialla ? 'riga gialla' : '']
       .filter(Boolean).join(' · ');
     return `
     <div class="pulsante-cfg ${p.attivo === false ? 'off' : ''} ${open ? 'open' : ''}" data-pid="${pid}" data-col="${escapeHtml(Pulsanti.gruppoDi(p))}"
@@ -419,6 +448,12 @@ function pulsantiSettingsHtml() {
             ${all.filter(x => x.id !== p.id).map(x => `<option value="${escapeHtml(x.id)}" ${p.alt?.seNon === x.id ? 'selected' : ''}>${escapeHtml(Pulsanti.nome(x))}</option>`).join('')}
           </select>
         </span>
+        <label>Passaggio intermedio</label>
+        <input class="form-input" value="${escapeHtml(p.intermedio || '')}" placeholder="es. Stampa (vuoto = nessuno)" maxlength="30" aria-label="Nome del passaggio intermedio"
+          onchange="pulsantiSet('${pid}','intermedio',this.value)">
+        <small class="pulsante-cfg-hint">Primo clic: diventa giallo con questo nome · secondo clic: verde (fatto) · terzo clic: toglie la spunta</small>
+        <label>Riga gialla</label>
+        <label class="check-inline"><input type="checkbox" ${p.rigaGialla ? 'checked' : ''} onchange="pulsantiSet('${pid}','rigaGialla',this.checked)"> Quando è fatto ma mancano altre lavorazioni dell'ordine</label>
       </div>
     </div>`;
   };
@@ -480,7 +515,7 @@ async function pulsantiSave(list, msg, { reset = false } = {}) {
   renderApp();
 }
 function pulsantiSet(id, field, value) {
-  if (field === 'nome') value = String(value).trim();
+  if (field === 'nome' || field === 'intermedio') value = String(value).trim();
   pulsantiSave(Pulsanti.all().map(p => p.id === id ? { ...p, [field]: value } : p));
 }
 function pulsantiSetAlt(id, field, value) {

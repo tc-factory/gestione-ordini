@@ -969,6 +969,13 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   color: #22c55e;
 }
 
+.stage-pill.mezzo {
+  background: #eab3081f;
+  border-color: #eab308aa;
+  color: #b45309;
+}
+html.dark .stage-pill.mezzo { color: #facc15; }
+
 .stage-pill.evasione.done {
   background: color-mix(in srgb, var(--brand-gold) 14%, transparent);
   border-color: color-mix(in srgb, var(--brand-gold) 50%, transparent);

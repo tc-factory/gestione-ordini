@@ -576,6 +576,14 @@ html:not(.sidebar-collapsed) .brand-logo { width: 42px; height: 42px; border-rad
   vertical-align: middle;
 }
 
+/* ── Riga gialla: lavorazione fatta (es. Stampa) ma altre ancora da fare (Impostazioni → Pulsanti).
+   Sta prima di Urgente, così un ordine urgente resta rosso ── */
+:root { --giallo-bg: #FEF6D8; --giallo-bg-hover: #FCEFC0; }
+html.dark { --giallo-bg: #3A3418; --giallo-bg-hover: #453D1C; }
+.list-shell .order-row-item.order-giallo,
+.order-row-item.order-giallo { background: var(--giallo-bg); }
+.list-shell .order-row-item.order-giallo:hover { background: var(--giallo-bg-hover); }
+
 /* ── Ordini segnati "Urgente": tutta la card in rosso molto chiaro ── */
 :root { --urgent-bg: #FDECEC; --urgent-bg-hover: #FBE2E2; }
 html.dark { --urgent-bg: #3A1F22; --urgent-bg-hover: #452428; }
