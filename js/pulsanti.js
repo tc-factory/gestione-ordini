@@ -148,9 +148,12 @@ const Pulsanti = {
   },
   _cols(gruppi, ordine = '62px') { return ['200px', '130px', '112px', '104px', ordine, ...gruppi, '90px'].join(' '); },
   // Colonna Ordine e colonne etichetta larghe quanto la cella più lunga (intestazione compresa), uguali in tutte le righe
+  // Con la pagina Ordini nascosta (si è su un'altra pagina) le larghezze sarebbero 0: si rifà quando torna visibile (nav.js)
   adattaColonne(root) {
-    if (!root) return;
+    if (!root || !root.getClientRects().length) return;
     const grids = [...root.querySelectorAll('.order-row-grid')];
+    // Si misura con le colonne larghe quanto il contenuto, non con quelle fissate dalla volta prima
+    grids.forEach(g => { g.style.gridTemplateColumns = this._cols(Array(g.querySelectorAll(':scope > .orc-gruppo').length).fill('max-content'), 'max-content'); });
     const widths = [];
     let ordine = 62;
     grids.forEach(g => {

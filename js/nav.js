@@ -115,6 +115,7 @@ window.Nav = Nav;
 function renderCurrentView() {
   dtfFlushSaves();   // lasciando la pagina DTF non si perde quello che si stava scrivendo
   switch (Nav.current) {
+    case 'ordini':       Pulsanti.adattaColonne(document.getElementById('orderlist-root')); break;
     case 'dtf':          openDtfPage(); break;
     case 'planner':      renderCalendarSection(); break;
     case 'esterne':      renderEsternePage(); break;
