@@ -1873,6 +1873,8 @@ function ofKeepLavFatte(old, payload) {
   const dtf = typeof interneLavId === 'function' ? interneLavId('interno') : 'li-dtf';
   const dtfNuovo = dopo.some(t => t.kind === 'interne' && t.id === dtf) && !prima.some(t => t.kind === 'interne' && t.id === dtf);
   if (dtfNuovo && old.stages?.dtfPronti?.done) { stages.dtfPronti = { done: false }; cambiate = true; }
+  const dtfP = typeof Pulsanti !== 'undefined' ? Pulsanti.byStage('dtfPronti') : null;
+  if (dtfNuovo && dtfP && stages[Pulsanti.mezzoKey(dtfP)]) { delete stages[Pulsanti.mezzoKey(dtfP)]; cambiate = true; }
   if (cambiate) payload.stages = stages;
 }
 
