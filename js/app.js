@@ -628,10 +628,14 @@ function previewOrderModule(orderId) {
     return `<span style="color:${dc};font-weight:700;">${new Date(order.deadline+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})}</span>`;
   })() : '';
 
+  const checked = modPreviewChecks(order.id);
   const renderModRow = (r, i) => {
     const t   = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
     const bg  = i % 2 === 0 ? 'var(--bg-card)' : 'var(--bg-secondary)';
-    return `<tr style="background:${bg};">
+    const idx = rows.indexOf(r);
+    const on  = checked.has(idx);
+    return `<tr class="mod-preview-row${on ? ' is-checked' : ''}" style="background:${bg};" onclick="toggleModPreviewRow('${order.id}',${idx},this)">
+      <td style="padding:7px 4px 7px 12px;text-align:center;"><input type="checkbox" class="mod-preview-check" aria-label="Evidenzia riga" ${on ? 'checked' : ''} onclick="event.stopPropagation();toggleModPreviewRow('${order.id}',${idx},this.closest('tr'))"></td>
       <td style="padding:7px 10px;font-weight:600;">${escapeHtml(r.catalogo||'')}</td>
       <td style="padding:7px 10px;">${escapeHtml(r.codice||'')}</td>
       <td style="padding:7px 10px;">${escapeHtml(r.descrizione||'')}</td>
@@ -644,14 +648,14 @@ function previewOrderModule(orderId) {
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.neutro ? '✓' : ''}</td>
     </tr>`;
   };
-  const integHeaderRow = (label) => `<tr><td colspan="10" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(label)}</td></tr>`;
+  const integHeaderRow = (label) => `<tr><td colspan="11" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(label)}</td></tr>`;
   const { base: modBase, integ: modInteg } = splitModuleRows(rows);
   const rowsHtml = rows.length
     ? modBase.map(renderModRow).join('') + modInteg.map(m => integHeaderRow(m.label) + m.rows.map(renderModRow).join('')).join('')
-    : `<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
+    : `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
 
   modal.innerHTML = `
-    <div class="modal" style="max-width:820px;">
+    <div class="modal modal-fullscreen">
       <div class="modal-header">
         <div>
           <div style="font-size:1.8rem;font-weight:900;color:#1e40af;line-height:1.1;">${escapeHtml(tags[0] || 'Ordine')}</div>
@@ -667,6 +671,7 @@ function previewOrderModule(orderId) {
         <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
           <thead>
             <tr style="background:#1e40af;">
+              <th style="padding:9px 4px 9px 12px;width:1%;"></th>
               <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Catalogo</th>
               <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Codice</th>
               <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Descrizione</th>
@@ -704,6 +709,21 @@ function previewOrderModule(orderId) {
   `;
   modal.classList.add('active');
   modal.onclick = e => { if (e.target === modal) closeModal('file-preview-modal'); };
+}
+
+// Righe evidenziate con la spunta nella preview del modulo: restano su questo dispositivo, per ordine
+const MOD_CHECKS_KEY = 'tc-mod-checks-';
+function modPreviewChecks(orderId) {
+  try { return new Set(JSON.parse(localStorage.getItem(MOD_CHECKS_KEY + orderId) || '[]')); } catch { return new Set(); }
+}
+function toggleModPreviewRow(orderId, idx, tr) {
+  const set = modPreviewChecks(orderId);
+  const on = !set.has(idx);
+  on ? set.add(idx) : set.delete(idx);
+  try { set.size ? localStorage.setItem(MOD_CHECKS_KEY + orderId, JSON.stringify([...set])) : localStorage.removeItem(MOD_CHECKS_KEY + orderId); } catch {}
+  tr.classList.toggle('is-checked', on);
+  const cb = tr.querySelector('.mod-preview-check');
+  if (cb) cb.checked = on;
 }
 
 // Riga "Lavorazione" del modulo stampato: al posto delle colonne Lav. int. / Lav. est.
