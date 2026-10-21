@@ -2298,4 +2298,15 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .modal.modal-fullscreen .modal-body { flex: 1; overflow-y: auto; padding-bottom: env(safe-area-inset-bottom) !important; }
 .mod-preview-row { cursor: pointer; }
 .mod-preview-row.is-checked { background: color-mix(in srgb, #facc15 38%, var(--bg-card)) !important; }
-.mod-preview-check { width: 20px; height: 20px; accent-color: #1e40af; cursor: pointer; vertical-align: middle; }
+.mod-preview-row.is-red,
+.mod-preview-row.is-red + .mod-preview-note { background: color-mix(in srgb, #ef4444 30%, var(--bg-card)) !important; }
+.mod-preview-note .form-input { width: 100%; }
+.mod-preview-check {
+  width: 22px; height: 22px; padding: 0; border: 2px solid var(--border); border-radius: 5px;
+  background: var(--bg-card); color: #fff; font-size: 14px; font-weight: 900; line-height: 1;
+  cursor: pointer; vertical-align: middle; display: inline-flex; align-items: center; justify-content: center;
+}
+.is-checked .mod-preview-check { background: #1e40af; border-color: #1e40af; }
+.is-checked .mod-preview-check::after { content: '✓'; }
+.is-red .mod-preview-check { background: #dc2626; border-color: #dc2626; }
+.is-red .mod-preview-check::after { content: '!'; }

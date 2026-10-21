@@ -628,14 +628,14 @@ function previewOrderModule(orderId) {
     return `<span style="color:${dc};font-weight:700;">${new Date(order.deadline+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})}</span>`;
   })() : '';
 
-  const checked = modPreviewChecks(order.id);
+  const checks = modPreviewChecks(order.id);
   const renderModRow = (r, i) => {
     const t   = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
     const bg  = i % 2 === 0 ? 'var(--bg-card)' : 'var(--bg-secondary)';
     const idx = rows.indexOf(r);
-    const on  = checked.has(idx);
-    return `<tr class="mod-preview-row${on ? ' is-checked' : ''}" style="background:${bg};" onclick="toggleModPreviewRow('${order.id}',${idx},this)">
-      <td style="padding:7px 4px 7px 12px;text-align:center;"><input type="checkbox" class="mod-preview-check" aria-label="Evidenzia riga" ${on ? 'checked' : ''} onclick="event.stopPropagation();toggleModPreviewRow('${order.id}',${idx},this.closest('tr'))"></td>
+    const c   = checks[idx] || {};
+    return `<tr class="mod-preview-row ${MOD_CHECK_CLASS[c.s] || ''}" style="background:${bg};" onclick="toggleModPreviewRow('${order.id}',${idx},this)">
+      <td style="padding:7px 4px 7px 12px;text-align:center;"><button type="button" class="mod-preview-check" aria-label="Evidenzia riga (due volte: rossa con nota)" onclick="event.stopPropagation();toggleModPreviewRow('${order.id}',${idx},this.closest('tr'))"></button></td>
       <td style="padding:7px 10px;font-weight:600;">${escapeHtml(r.catalogo||'')}</td>
       <td style="padding:7px 10px;">${escapeHtml(r.codice||'')}</td>
       <td style="padding:7px 10px;">${escapeHtml(r.descrizione||'')}</td>
@@ -646,7 +646,7 @@ function previewOrderModule(orderId) {
       <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.ordinato ? '✓' : ''}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.neutro ? '✓' : ''}</td>
-    </tr>`;
+    </tr>${c.s === 2 ? modPreviewNoteRow(order.id, idx, c.n) : ''}`;
   };
   const integHeaderRow = (label) => `<tr><td colspan="11" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(label)}</td></tr>`;
   const { base: modBase, integ: modInteg } = splitModuleRows(rows);
@@ -711,19 +711,45 @@ function previewOrderModule(orderId) {
   modal.onclick = e => { if (e.target === modal) closeModal('file-preview-modal'); };
 }
 
-// Righe evidenziate con la spunta nella preview del modulo: restano su questo dispositivo, per ordine
+// Righe evidenziate con la spunta nella preview del modulo: restano su questo dispositivo, per ordine.
+// Primo clic gialla (✓), secondo rossa con una nota sotto la riga, terzo toglie la spunta.
+// Salvate come { <indice riga>: { s: 1|2, n: nota } }; la nota resta anche togliendo il rosso.
 const MOD_CHECKS_KEY = 'tc-mod-checks-';
+const MOD_CHECK_CLASS = { 1: 'is-checked', 2: 'is-red' };
 function modPreviewChecks(orderId) {
-  try { return new Set(JSON.parse(localStorage.getItem(MOD_CHECKS_KEY + orderId) || '[]')); } catch { return new Set(); }
+  let v;
+  try { v = JSON.parse(localStorage.getItem(MOD_CHECKS_KEY + orderId) || '{}'); } catch { return {}; }
+  // Versione precedente: elenco degli indici spuntati (gialli)
+  return Array.isArray(v) ? Object.fromEntries(v.map(i => [i, { s: 1 }])) : (v && typeof v === 'object' ? v : {});
+}
+function saveModPreviewChecks(orderId, checks) {
+  const keep = Object.fromEntries(Object.entries(checks).filter(([, c]) => c.s || c.n));
+  try { Object.keys(keep).length ? localStorage.setItem(MOD_CHECKS_KEY + orderId, JSON.stringify(keep)) : localStorage.removeItem(MOD_CHECKS_KEY + orderId); } catch {}
+}
+function modPreviewNoteRow(orderId, idx, nota) {
+  return `<tr class="mod-preview-note"><td></td><td colspan="10" style="padding:0 10px 9px;">
+    <input class="form-input" placeholder="Nota sulla riga…" aria-label="Nota sulla riga" value="${escapeHtml(nota || '')}"
+      oninput="setModPreviewNote('${orderId}',${idx},this.value)"></td></tr>`;
 }
 function toggleModPreviewRow(orderId, idx, tr) {
-  const set = modPreviewChecks(orderId);
-  const on = !set.has(idx);
-  on ? set.add(idx) : set.delete(idx);
-  try { set.size ? localStorage.setItem(MOD_CHECKS_KEY + orderId, JSON.stringify([...set])) : localStorage.removeItem(MOD_CHECKS_KEY + orderId); } catch {}
-  tr.classList.toggle('is-checked', on);
-  const cb = tr.querySelector('.mod-preview-check');
-  if (cb) cb.checked = on;
+  const checks = modPreviewChecks(orderId);
+  const c = checks[idx] || {};
+  c.s = ((c.s || 0) + 1) % 3;
+  checks[idx] = c;
+  saveModPreviewChecks(orderId, checks);
+  tr.classList.remove('is-checked', 'is-red');
+  if (MOD_CHECK_CLASS[c.s]) tr.classList.add(MOD_CHECK_CLASS[c.s]);
+  const next = tr.nextElementSibling;
+  if (next?.classList.contains('mod-preview-note')) next.remove();
+  if (c.s === 2) {
+    tr.insertAdjacentHTML('afterend', modPreviewNoteRow(orderId, idx, c.n));
+    tr.nextElementSibling.querySelector('input')?.focus();
+  }
+}
+function setModPreviewNote(orderId, idx, value) {
+  const checks = modPreviewChecks(orderId);
+  checks[idx] = { ...(checks[idx] || {}), n: value };
+  saveModPreviewChecks(orderId, checks);
 }
 
 // Riga "Lavorazione" del modulo stampato: al posto delle colonne Lav. int. / Lav. est.
