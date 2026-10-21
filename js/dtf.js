@@ -81,7 +81,11 @@ async function dtfSaveSettings(patch) {
   await TCFactory.setSetting(DTF_SETTINGS_KEY, next);
 }
 
-const dtfDone = (o) => !!o.stages?.dtfPronti?.done;
+// Stampato: fase DTF fatta (verde) oppure passaggio intermedio "Stampa" (giallo) dalla lista ordini
+const dtfPulsante = () => Pulsanti.byStage('dtfPronti');
+const dtfMezzo = (o) => { const p = dtfPulsante(); return p ? o.stages?.[Pulsanti.mezzoKey(p)] : null; };
+const dtfDone = (o) => !!o.stages?.dtfPronti?.done || !!dtfMezzo(o);
+const dtfPrintedDate = (o) => (o.stages?.dtfPronti?.done ? o.stages.dtfPronti.date : dtfMezzo(o)?.date) || '';
 
 function dtfLists() {
   const { order, removed } = dtfSettings();
@@ -100,8 +104,8 @@ function dtfLists() {
 
   const limit = localISODate(new Date(Date.now() - DTF_STAMPATI_DAYS * 86400000));
   const printed = internal
-    .filter(o => dtfDone(o) && (o.stages.dtfPronti.date || '') >= limit)
-    .sort((a, b) => (b.stages.dtfPronti.date || '').localeCompare(a.stages.dtfPronti.date || ''));
+    .filter(o => dtfDone(o) && dtfPrintedDate(o) >= limit)
+    .sort((a, b) => dtfPrintedDate(b).localeCompare(dtfPrintedDate(a)));
   const removedList = internal
     .filter(o => removedAt.has(o.id) && !dtfDone(o))
     .map(o => ({ o, at: removedAt.get(o.id) }))
@@ -259,7 +263,7 @@ function dtfRenderHistory() {
         ${q ? `<p class="dtf-note" style="grid-column:1/-1;margin:0;">Solo gli ordini trovati per "${escapeHtml(DtfState.qInterno.trim())}" · <button type="button" class="link-btn" onclick="DtfState.qInterno='';renderDtfInterno();dtfRenderHistory()">mostra tutti</button></p>` : ''}
         <section>
           <h3>Stampati <small>ultimi ${DTF_STAMPATI_DAYS} giorni · ${printed.length}</small></h3>
-          ${printed.length ? `<ul>${printed.map(o => row(o, `stampato il ${fmt(o.stages.dtfPronti.date)}`, 'dtfRestorePrinted')).join('')}</ul>` : '<p class="dtf-side-empty">Nessuno.</p>'}
+          ${printed.length ? `<ul>${printed.map(o => row(o, `stampato il ${fmt(dtfPrintedDate(o))}`, 'dtfRestorePrinted')).join('')}</ul>` : '<p class="dtf-side-empty">Nessuno.</p>'}
         </section>
         <section>
           <h3>Rimossi <small>${removedList.length}</small></h3>
@@ -287,6 +291,7 @@ async function dtfMarkPrinted(id) {
 async function dtfRestorePrinted(id) {
   try {
     await TCFactory.setStage(id, 'dtfPronti', false);
+    if (dtfPulsante()) await Pulsanti.setMezzo(id, dtfPulsante(), false);
     showToast('Riportato tra gli ordini da stampare');
     dtfAfterHistoryChange(); renderOrderList();
   } catch { showToast('Impossibile ripristinare', 'error'); }
