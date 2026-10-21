@@ -103,32 +103,7 @@ function renderCassaPage() {
             `<button role="tab" aria-selected="${CassaState.stato===id}" class="${CassaState.stato===id?'active':''}" onclick="setCassa('stato','${id}')">${l}</button>`).join('')}
         </div>
 
-        ${hasClients ? `
-        <select class="form-select filter-select" aria-label="Cliente" onchange="setCassa('clientId', this.value)">
-          <option value="">Tutti i clienti</option>
-          <option value="__none__" ${CassaState.clientId === '__none__' ? 'selected' : ''}>Senza cliente</option>
-          ${TCFactory.getClients().map(c => `<option value="${c.id}" ${CassaState.clientId === c.id ? 'selected' : ''}>${escapeHtml(TCFactory.clientName(c))}</option>`).join('')}
-        </select>` : ''}
-
-        ${TCFactory.getTags().length ? `
-        <select class="form-select filter-select" aria-label="Tipologia" onchange="setCassa('tag', this.value)">
-          <option value="">Tutte le tipologie</option>
-          ${TCFactory.getTags().map(t => `<option value="${escapeHtml(t.name)}" ${CassaState.tag === t.name ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
-        </select>` : ''}
-
-        <select class="form-select filter-select" aria-label="Periodo" onchange="setCassa('periodo', this.value)">
-          ${[['tutto','Tutto il periodo'],['mese','Questo mese'],['mese-scorso','Mese scorso'],['anno','Quest\'anno'],['custom','Date personalizzate…']].map(([id, l]) =>
-            `<option value="${id}" ${CassaState.periodo === id ? 'selected' : ''}>${l}</option>`).join('')}
-        </select>
-        ${CassaState.periodo === 'custom' ? `
-          <input type="date" class="form-input filter-date" aria-label="Dal" value="${CassaState.from}" onchange="setCassa('from', this.value)">
-          <input type="date" class="form-input filter-date" aria-label="Al" value="${CassaState.to}" onchange="setCassa('to', this.value)">` : ''}
-
-        <label class="check-inline" title="Da riscuotere: mostra solo gli ordini già evasi">
-          <input type="checkbox" ${CassaState.soloEvasi ? 'checked' : ''} onchange="setCassa('soloEvasi', this.checked)"> Solo evasi
-        </label>
-
-        <div class="search-box">
+        <div class="search-box cassa-search">
           ${Icons.search()}
           <input id="cassa-search" type="text" placeholder="Cerca ordine o cliente…" value="${escapeHtml(CassaState.search)}" oninput="setCassaSearch(this.value)">
         </div>
@@ -138,6 +113,42 @@ function renderCassaPage() {
           <button class="btn btn-secondary btn-sm" onclick="exportCassaCSV()" ${moves.length ? '' : 'disabled'}>Esporta CSV</button>
         </div>
       </div>
+
+      <div class="cassa-subfilters">
+        ${hasClients ? `
+        <select class="filter-pill ${CassaState.clientId ? 'on' : ''}" aria-label="Cliente" onchange="setCassa('clientId', this.value)">
+          <option value="">Tutti i clienti</option>
+          <option value="__none__" ${CassaState.clientId === '__none__' ? 'selected' : ''}>Senza cliente</option>
+          ${TCFactory.getClients().map(c => `<option value="${c.id}" ${CassaState.clientId === c.id ? 'selected' : ''}>${escapeHtml(TCFactory.clientName(c))}</option>`).join('')}
+        </select>` : ''}
+
+        <select class="filter-pill ${CassaState.periodo !== 'tutto' ? 'on' : ''}" aria-label="Periodo" onchange="setCassa('periodo', this.value)">
+          ${[['tutto','Tutto il periodo'],['mese','Questo mese'],['mese-scorso','Mese scorso'],['anno','Quest\'anno'],['custom','Date personalizzate…']].map(([id, l]) =>
+            `<option value="${id}" ${CassaState.periodo === id ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+        ${CassaState.periodo === 'custom' ? `
+          <input type="date" class="filter-pill filter-pill-date" aria-label="Dal" value="${CassaState.from}" onchange="setCassa('from', this.value)">
+          <span class="cassa-dash">→</span>
+          <input type="date" class="filter-pill filter-pill-date" aria-label="Al" value="${CassaState.to}" onchange="setCassa('to', this.value)">` : ''}
+
+        <button type="button" class="filter-pill filter-pill-toggle ${CassaState.soloEvasi ? 'on' : ''}" aria-pressed="${CassaState.soloEvasi}"
+          onclick="setCassa('soloEvasi', ${!CassaState.soloEvasi})" title="Da riscuotere: mostra solo gli ordini già evasi">
+          ${CassaState.soloEvasi ? '✓ ' : ''}Solo evasi
+        </button>
+      </div>
+
+      ${TCFactory.getTags().length ? `
+      <div style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+        <span style="font-size:0.72rem;color:var(--text-muted);font-weight:600;flex-shrink:0;">Tag:</span>
+        ${TCFactory.getTags().map(t => {
+          const active = CassaState.tag === t.name;
+          return `<button class="chip chip-btn" onclick="setCassa('tag', ${active ? "''" : `'${escapeHtml(t.name)}'`})"
+            style="background:${active ? t.color : `color-mix(in srgb, ${t.color} 12%, transparent)`};color:${active ? '#fff' : t.color};cursor:pointer;">
+            <span class="chip-dot" style="background:${active ? '#fff' : t.color};"></span>${escapeHtml(t.name)}
+          </button>`;
+        }).join('')}
+        ${CassaState.tag ? `<button class="btn btn-ghost btn-sm" onclick="setCassa('tag', '')" style="font-size:0.72rem;">× rimuovi filtro</button>` : ''}
+      </div>` : ''}
 
       ${moves.length === 0 ? `<div class="empty-list">Nessun movimento${filtersActive ? ' con questi filtri' : ''}.</div>` : `
       <div class="table-scroll">
