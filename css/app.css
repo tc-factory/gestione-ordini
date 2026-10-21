@@ -2280,3 +2280,22 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .data-table td.cell-action { white-space: nowrap; }
 .pimg img { background: repeating-conic-gradient(color-mix(in srgb, var(--text-muted) 14%, transparent) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
 
+
+/* ── Preview modulo d'ordine: a schermo intero, righe evidenziabili con la spunta ── */
+.modal-overlay:has(.modal-fullscreen) { padding: 0; align-items: stretch; }
+.modal.modal-fullscreen {
+  max-width: none;
+  max-height: none;
+  height: 100%;
+  height: 100dvh;
+  border-radius: 0;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal.modal-fullscreen .modal-header { flex-shrink: 0; padding-top: max(16px, env(safe-area-inset-top)); }
+.modal.modal-fullscreen .modal-body { flex: 1; overflow-y: auto; padding-bottom: env(safe-area-inset-bottom) !important; }
+.mod-preview-row { cursor: pointer; }
+.mod-preview-row.is-checked { background: color-mix(in srgb, #facc15 38%, var(--bg-card)) !important; }
+.mod-preview-check { width: 20px; height: 20px; accent-color: #1e40af; cursor: pointer; vertical-align: middle; }
