@@ -12,7 +12,7 @@
  *                  con questo nome, il secondo verde (fatto), il terzo toglie la spunta.
  *                  Il passaggio si salva in o.stages["mezzo:<id pulsante>"]
  *  - rigaGialla:   true = fatto ma con altre lavorazioni dell'ordine ancora da fare → riga gialla;
- *                  anche se fatto con l'ordine non completo (obbligatori non spuntati)
+ *                  anche se fatto finché la lavorazione non è chiusa (l'ordine va in Evasione)
  *  - abilita:      cliccabile solo se { se: <condizione, vedi PULSANTI_ABILITA>, pulsante: <id> }
  *                  (vale solo per spuntare: togliere la spunta è sempre possibile)
  *  - attivo:       false = nascosto ovunque
@@ -287,14 +287,14 @@ const Pulsanti = {
   // Data con cui è stata chiusa la lavorazione (per la vista Evasione)
   dataChiusura(o) { return this._ruolo(o, 'chiude').map(p => this.stato(o, p).date).filter(Boolean).sort().pop() || null; },
   // Riga gialla: un pulsante "riga gialla" è fatto ma restano altre lavorazioni (pulsanti collegati) da fare
-  // o l'ordine non è completo (obbligatori, es. Merce, non spuntati)
+  // o la lavorazione non è ancora chiusa (pulsante "chiude", es. Pronto, che manda in Evasione)
   rigaGialla(o) {
     return this._perOrdine(o, 'rigaGialla', () => {
       const vis = this.visibili(o);
       return vis.some(p => {
         if (!p.rigaGialla) return false;
         if (!this.stato(o, p).done) return false;
-        return !this.obbligatoriOk(o) || vis.some(x => x.id !== p.id && this.link(x) && !this.stato(o, x).done);
+        return !this.chiusa(o) || vis.some(x => x.id !== p.id && this.link(x) && !this.stato(o, x).done);
       });
     });
   },
@@ -461,7 +461,7 @@ function pulsantiSettingsHtml() {
           onchange="pulsantiSet('${pid}','intermedio',this.value)">
         <small class="pulsante-cfg-hint">Primo clic: diventa giallo con questo nome · secondo clic: verde (fatto) · terzo clic: toglie la spunta</small>
         <label>Riga gialla</label>
-        <label class="check-inline"><input type="checkbox" ${p.rigaGialla ? 'checked' : ''} onchange="pulsantiSet('${pid}','rigaGialla',this.checked)"> Quando è fatto ma mancano altre lavorazioni dell'ordine, o l'ordine non è completo</label>
+        <label class="check-inline"><input type="checkbox" ${p.rigaGialla ? 'checked' : ''} onchange="pulsantiSet('${pid}','rigaGialla',this.checked)"> Quando è fatto ma mancano altre lavorazioni dell'ordine, o finché l'ordine non va in Evasione</label>
       </div>
     </div>`;
   };
