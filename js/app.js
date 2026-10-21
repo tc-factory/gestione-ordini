@@ -462,6 +462,9 @@ function renderOrderRow(o) {
   const dl = TCFactory.getEffectiveDeadline(o);
   const p  = TCFactory.getPriority(o.priorityId);
   const isUrgent = isUrgentOrder(o);
+  // Bordo rosso solo per scadenze impostate a mano, a 3 giorni o meno (scadute comprese)
+  const nearDeadline = dl && !dl.auto && !Pulsanti.isEvaso(o)
+    && (new Date(dl.date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000 <= 3;
 
   // Tag cliccabili
   const tagPills = o.tags.slice(0, 3).map(t => {
@@ -517,7 +520,7 @@ function renderOrderRow(o) {
     `<div class="orc-lav orc-pills orc-gruppo">${pulsantiPills(o, g.id)}</div>`).join('');
 
   return `
-    <div class="order-row-item ${isUrgent ? 'order-urgent' : ''} ${Pulsanti.rigaGialla(o) ? 'order-giallo' : ''}" role="button" tabindex="0"
+    <div class="order-row-item ${isUrgent ? 'order-urgent' : ''} ${Pulsanti.rigaGialla(o) ? 'order-giallo' : ''} ${nearDeadline ? 'order-near-deadline' : ''}" role="button" tabindex="0"
       onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-grid" style="${Pulsanti.gridStyle(view)}">
         <div class="orc-name">${escapeHtml(o.nome)}${section ? ` <span class="order-section-badge">${section}</span>` : ''}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>

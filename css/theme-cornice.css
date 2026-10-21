@@ -590,6 +590,11 @@ html.dark { --urgent-bg: #3A1F22; --urgent-bg-hover: #452428; }
 .list-shell .order-row-item.order-urgent,
 .order-row-item.order-urgent { background: var(--urgent-bg); }
 .list-shell .order-row-item.order-urgent:hover { background: var(--urgent-bg-hover); }
+
+/* Scadenza manuale a 3 giorni o meno: bordo rosso */
+.order-row-item.order-near-deadline,
+.list-shell .order-row-item.order-near-deadline,
+.list-shell .order-row-item.order-near-deadline:hover { box-shadow: inset 0 0 0 2px #DC2626, var(--shadow-sm); }
 .pl-chip.pl-chip-urgent,
 .pl-chip-order.pl-chip-urgent { background: var(--urgent-bg); box-shadow: none; }
 .pl-chip.pl-chip-urgent:hover { background: var(--urgent-bg-hover); }
