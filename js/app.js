@@ -201,27 +201,27 @@ function renderApp() {
 }
 
 function renderStats() {
-  const active  = TCFactory.getActiveOrders().length;
-  const partial  = TCFactory.getEvasioneOrders().length;
-  const arch    = TCFactory.getArchivedOrders().length;
+  const root = document.getElementById('stats-root');
+  if (!root) return;
+  // Con un tag selezionato: ordini di quel tag (nel colore del tag) / totale
+  const tag = AppState.filterTags[0];
+  const color = tag ? TCFactory.getTagColor(tag) : '';
+  const count = (list) => {
+    if (!tag) return `${list.length}`;
+    const n = list.filter(o => o.tags.includes(tag)).length;
+    return `<span style="color:${color};">${n}</span>/${list.length}`;
+  };
+  const card = (label, glow, list) => `
+    <div class="glass-card stat-card">
+      <div class="stat-card-glow" style="background:${glow};"></div>
+      <div class="stat-card-label">${label}${tag ? ` · ${escapeHtml(tag)}` : ''}</div>
+      <div class="stat-card-value" style="color:var(--text-primary);">${count(list)}</div>
+    </div>`;
 
-  document.getElementById('stats-root').innerHTML = `
-    <div class="glass-card stat-card">
-      <div class="stat-card-glow" style="background:var(--brand-gold);"></div>
-      <div class="stat-card-label">Attivi</div>
-      <div class="stat-card-value">${active}</div>
-    </div>
-    <div class="glass-card stat-card">
-      <div class="stat-card-glow" style="background:#f97316;"></div>
-      <div class="stat-card-label">Evasione</div>
-      <div class="stat-card-value" style="color:#f97316;">${partial}</div>
-    </div>
-    <div class="glass-card stat-card">
-      <div class="stat-card-glow" style="background:#22c55e;"></div>
-      <div class="stat-card-label">Archiviati</div>
-      <div class="stat-card-value" style="color:#22c55e;">${arch}</div>
-    </div>
-  `;
+  root.innerHTML =
+    card('Attivi', 'var(--brand-gold)', TCFactory.getActiveOrders()) +
+    card('Evasione', '#f97316', TCFactory.getEvasioneOrders()) +
+    card('Archiviati', '#22c55e', TCFactory.getArchivedOrders());
 }
 
 // ─────────────────────────────────────────────
@@ -255,9 +255,10 @@ function toggleTagFilter(tag) {
   } else {
     AppState.filterTags = [tag];
   }
+  renderStats();
   renderOrderList();
 }
-function clearTagFilters() { AppState.filterTags = []; renderOrderList(); }
+function clearTagFilters() { AppState.filterTags = []; renderStats(); renderOrderList(); }
 
 function renderOrderList() {
   if (AppState.view === 'parziali') AppState.view = 'active';   // scheda Parziali tolta: i suoi ordini sono in Attivi
