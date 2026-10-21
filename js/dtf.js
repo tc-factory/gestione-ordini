@@ -282,7 +282,10 @@ async function dtfMarkPrinted(id) {
   const o = TCFactory.getOrderById(id);
   try {
     dtfFlushOrderSave(id);
-    await TCFactory.setStage(id, 'dtfPronti', true);
+    // Stampato = giallo "Stampa" (stampato ma non ancora applicato); il verde si dà dalla lista ordini
+    const p = dtfPulsante();
+    if (p?.intermedio) await Pulsanti.setMezzo(id, p, true);
+    else await TCFactory.setStage(id, 'dtfPronti', true);
     showToast(`"${o?.nome}": DTF stampato ✓`);
     dtfAfterHistoryChange(); renderOrderList();
   } catch { showToast('Impossibile segnare come stampato', 'error'); }
