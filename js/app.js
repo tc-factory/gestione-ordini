@@ -416,7 +416,6 @@ function renderOrderList() {
       ${q ? '' : archiveFilterRow}
       <div class="order-rows">
         <div class="order-row-item order-row-header-row" onclick="event.stopPropagation()">
-          <div class="order-row-bar" style="background:transparent;"></div>
           ${hdrGrid}
         </div>
         ${sorted.length === 0
@@ -462,7 +461,6 @@ function renderOrderRow(o) {
   // Scadenza: data impostata o automatica, senza colori; l'urgenza la decide la priorità scelta a mano
   const dl = TCFactory.getEffectiveDeadline(o);
   const p  = TCFactory.getPriority(o.priorityId);
-  const color = p?.color || '#94a3b8';
   const isUrgent = isUrgentOrder(o);
 
   // Tag cliccabili
@@ -521,7 +519,6 @@ function renderOrderRow(o) {
   return `
     <div class="order-row-item ${isUrgent ? 'order-urgent' : ''} ${Pulsanti.rigaGialla(o) ? 'order-giallo' : ''}" role="button" tabindex="0"
       onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
-      <div class="order-row-bar" style="background:${color};"></div>
       <div class="order-row-grid" style="${Pulsanti.gridStyle(view)}">
         <div class="orc-name">${escapeHtml(o.nome)}${section ? ` <span class="order-section-badge">${section}</span>` : ''}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
         <div class="orc-tags">${tagPills}</div>
