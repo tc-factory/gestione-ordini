@@ -613,7 +613,6 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   box-shadow: inset 0 0 0 2px var(--brand-gold);
 }
 
-.order-row-bar { width: 4px; align-self: stretch; flex-shrink: 0; margin-right: 0; }
 .order-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
 
 .order-row-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.92rem; }

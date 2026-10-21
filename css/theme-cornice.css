@@ -360,7 +360,7 @@ html.dark .nav-item.active .nav-item-icon { color: var(--frame-fg); }
   background: var(--bg-card);
   border: none;
   border-radius: 18px;
-  padding: 0 16px 0 0;
+  padding: 0 16px;
   overflow: hidden;
   box-shadow: var(--shadow-sm);
   transition: box-shadow var(--transition), transform var(--dur-fast) var(--ease-out);
@@ -479,7 +479,7 @@ html.dark .pay-badge.due  { background: #3A1C1C; color: #F87171; }
   .list-shell .data-table { border-spacing: 0; margin-top: 0; }
   .list-shell .cards-sm tr { background: var(--bg-card); border-radius: 16px; margin-bottom: 8px; border-bottom: none; box-shadow: var(--shadow-sm); }
   .list-shell .cards-sm td { background: transparent; border-radius: 0 !important; padding: 0; }
-  .list-shell .order-row-item { padding: 0 6px 0 0; }
+  .list-shell .order-row-item { padding: 0 6px; }
 }
 
 /* Riduci trasparenza: superfici piene */
