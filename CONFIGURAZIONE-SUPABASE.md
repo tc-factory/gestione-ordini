@@ -98,6 +98,17 @@ Facoltativo: in `app_settings` la chiave `catalog_tag` (es. `"Box Factory Lab"`)
 
 ---
 
+## PASSO 8 — Collegamento con Kamon
+
+Gli ordini che i clienti confermano su **Kamon** (la piattaforma dei cataloghi) arrivano qui come ordini normali, con il modulo compilato.
+
+1. **SQL Editor** → incolla `sql/kamon-collegamento.sql` → **Run** (si può rieseguire)
+2. Imposta la chiave segreta (la stessa che va in Kamon → Impostazioni → Collegamento al gestionale):
+   `insert into app_settings (key, value) values ('kamon_key_hash', to_jsonb(extensions.crypt('<chiave>', extensions.gen_salt('bf')))) on conflict (key) do update set value = excluded.value;`
+3. Facoltativo: `app_settings` → `kamon_tag` con il nome di un tag esistente, da mettere sugli ordini che arrivano da Kamon.
+
+---
+
 ## Cosa fa il nuovo schema database
 
 | Tabella | Contenuto | Sincronizzata in tempo reale |
