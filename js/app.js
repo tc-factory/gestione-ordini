@@ -2538,12 +2538,26 @@ async function addNewTagSetting() {
 // ─────────────────────────────────────────────
 
 let _usersList = [];
+let _rolesList = [];
+
+const roleById = (id) => _rolesList.find(r => r.id === id);
+const sectionsSummary = (schede) => !Array.isArray(schede) ? 'Tutte le schede'
+  : `${schede.length} di ${ALL_SECTIONS().length} schede`;
 
 async function renderUsersSection(container) {
-  try { _usersList = await TCAuth.listUsers(); } catch(e) { _usersList = []; }
+  [_usersList, _rolesList] = await Promise.all([
+    TCAuth.listUsers().catch(() => []),
+    TCAuth.listRoles().catch(() => []),
+  ]);
+  const me = TCAuth.getNickname();
+  const accessLabel = (u) => {
+    if (u.is_admin) return 'Vede tutto';
+    const r = roleById(u.ruolo_id);
+    return r ? escapeHtml(r.nome) : `Personalizzato · ${sectionsSummary(u.schede)}`;
+  };
   container.innerHTML = `
-    <div class="settings-section-hint">Solo gli admin possono creare e rimuovere account.</div>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+    <div class="settings-section-hint">Solo gli admin possono creare e rimuovere account e decidere quali schede vede ognuno. Gli admin vedono sempre tutto.</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
       ${_usersList.map(u => `
         <div class="config-row" style="justify-content:space-between;flex-wrap:wrap;gap:4px;">
           <div style="display:flex;align-items:center;gap:8px;">
@@ -2551,12 +2565,11 @@ async function renderUsersSection(container) {
             ${u.is_admin ? `<span class="chip" style="background:var(--brand-gold)22;color:var(--brand-gold);font-size:0.65rem;">admin</span>` : ''}
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <label style="display:flex;align-items:center;gap:5px;font-size:0.75rem;cursor:pointer;" title="Può vedere la dashboard economica">
-              <input type="checkbox" ${u.can_view_economics?'checked':''} ${u.nickname===TCAuth.getNickname()?'disabled':''} onchange="setUserEconomicsFlag('${escapeHtml(u.nickname)}',this.checked)">
-              Gest. economica
-            </label>
+            ${u.is_admin || u.nickname === me
+              ? `<span style="font-size:0.75rem;color:var(--text-muted);">${accessLabel(u)}</span>`
+              : `<button class="btn btn-secondary btn-sm" style="font-size:0.72rem;" onclick="openUserAccessDialog('${escapeHtml(u.nickname)}')" title="Schede visibili e ruolo">${Icons.lock(12)} ${accessLabel(u)}</button>`}
             <span style="font-size:0.72rem;color:var(--text-muted);">${new Date(u.created_at).toLocaleDateString('it-IT')}</span>
-            ${u.nickname !== TCAuth.getNickname() ? `
+            ${u.nickname !== me ? `
               <button class="btn btn-secondary btn-sm" style="font-size:0.72rem;" onclick="adminResetPwdPrompt('${escapeHtml(u.nickname)}')" title="Reimposta password">🔑</button>
               <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteUserConfirm('${escapeHtml(u.nickname)}')">${Icons.trash(14)}</button>
             ` : `<span style="font-size:0.7rem;color:var(--text-muted);">(sei tu)</span>`}
@@ -2564,11 +2577,36 @@ async function renderUsersSection(container) {
         </div>
       `).join('')}
     </div>
+
+    <div style="font-size:0.8rem;font-weight:700;margin-bottom:4px;">Ruoli</div>
+    <div class="settings-section-hint">Preset di schede da dare agli account: modificando un ruolo cambiano tutti gli account che lo hanno.</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+      ${_rolesList.map(r => {
+        const n = _usersList.filter(u => u.ruolo_id === r.id && !u.is_admin).length;
+        return `
+        <div class="config-row" style="justify-content:space-between;flex-wrap:wrap;gap:4px;">
+          <div style="display:flex;flex-direction:column;">
+            <span style="font-size:0.88rem;font-weight:600;">${escapeHtml(r.nome)}</span>
+            <span style="font-size:0.72rem;color:var(--text-muted);">${sectionsSummary(r.schede)}${r.economia ? ' · gestione economica' : ''} · ${n} account</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn btn-secondary btn-sm" style="font-size:0.72rem;" onclick="openRoleDialog('${r.id}')">Modifica</button>
+            <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteRoleConfirm('${r.id}')" aria-label="Elimina ruolo ${escapeHtml(r.nome)}">${Icons.trash(14)}</button>
+          </div>
+        </div>`;
+      }).join('') || `<div style="font-size:0.8rem;color:var(--text-muted);">Nessun ruolo.</div>`}
+      <button class="btn btn-secondary btn-sm" style="align-self:flex-start;" onclick="openRoleDialog(null)">${Icons.plus()} Nuovo ruolo</button>
+    </div>
+
     <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;background:var(--bg-secondary);">
       <div style="font-size:0.78rem;font-weight:700;margin-bottom:8px;">Crea nuovo account</div>
       <div style="display:flex;flex-direction:column;gap:6px;">
         <input id="new-user-nick" class="form-input" placeholder="Nickname" maxlength="30">
         <input id="new-user-pwd" type="password" class="form-input" placeholder="Password">
+        <select id="new-user-role" class="form-select" aria-label="Ruolo del nuovo account">
+          <option value="">Nessun ruolo (vede tutte le schede)</option>
+          ${_rolesList.map(r => `<option value="${r.id}">Ruolo: ${escapeHtml(r.nome)}</option>`).join('')}
+        </select>
         <div style="display:flex;align-items:center;gap:8px;">
           <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;">
             <input type="checkbox" id="new-user-admin"> Admin
@@ -2580,24 +2618,156 @@ async function renderUsersSection(container) {
   `;
 }
 
+const refreshUsersSection = () => {
+  const container = document.getElementById('users-section-body');
+  if (container) renderUsersSection(container);
+};
+
 async function createNewUser() {
   const nick  = document.getElementById('new-user-nick')?.value?.trim();
   const pwd   = document.getElementById('new-user-pwd')?.value;
   const isAdm = document.getElementById('new-user-admin')?.checked || false;
+  const ruoloId = document.getElementById('new-user-role')?.value || null;
   if (!nick || !pwd) { showToast('Compila nickname e password', 'error'); return; }
   if (pwd.length < MIN_PASSWORD_LENGTH) { showToast(`Password troppo corta (min. ${MIN_PASSWORD_LENGTH} caratteri)`, 'error'); return; }
   try {
     await TCAuth.createUser(nick, pwd, isAdm);
+    if (ruoloId && !isAdm) await TCAuth.setUserAccess(nick.toLowerCase(), { ruoloId });
     showToast(`Account "${nick}" creato`);
-    const container = document.getElementById('users-section-body');
-    if (container) renderUsersSection(container);
+    refreshUsersSection();
   } catch(e) { showToast(e.message, 'error'); }
 }
 
-async function setUserEconomicsFlag(nick, value) {
+// ── Permessi: schede visibili + gestione economica, per un account o un ruolo ──
+// _access.ruoloId valorizzato (solo account) = l'account segue quel ruolo e le spunte sono bloccate
+
+let _access = null;   // { kind: 'user'|'role', nick?, roleId?, nome?, ruoloId, schede: Set, economia }
+
+function openUserAccessDialog(nick) {
+  const u = _usersList.find(x => x.nickname === nick);
+  if (!u) return;
+  _access = {
+    kind: 'user', nick, ruoloId: roleById(u.ruolo_id) ? u.ruolo_id : null,
+    schede: new Set(Array.isArray(u.schede) ? u.schede : ALL_SECTIONS().map(i => i.id)),
+    economia: !!u.can_view_economics,
+  };
+  renderAccessDialog();
+}
+
+function openRoleDialog(id) {
+  const r = id ? roleById(id) : null;
+  _access = {
+    kind: 'role', roleId: r?.id || null, nome: r?.nome || '', ruoloId: null,
+    schede: new Set(r ? r.schede : ALL_SECTIONS().map(i => i.id)),
+    economia: !!r?.economia,
+  };
+  renderAccessDialog();
+}
+
+function renderAccessDialog() {
+  const a = _access;
+  const role = roleById(a.ruoloId);
+  const schede   = role ? new Set(role.schede) : a.schede;
+  const economia = role ? role.economia : a.economia;
+  const locked   = role ? 'disabled' : '';
+  const title = a.kind === 'user' ? `Permessi di ${escapeHtml(a.nick)}` : a.roleId ? 'Modifica ruolo' : 'Nuovo ruolo';
+  const modal = document.getElementById('access-modal');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:480px;" role="dialog" aria-modal="true" aria-labelledby="ac-title">
+      <div class="modal-header">
+        <h2 id="ac-title">${title}</h2>
+        <button class="btn-icon" onclick="closeModal('access-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <form class="modal-body" style="gap:12px;" onsubmit="event.preventDefault();saveAccessDialog()">
+        ${a.kind === 'role' ? `
+          <div class="form-group"><label class="form-label" for="ac-nome">Nome del ruolo</label>
+            <input id="ac-nome" class="form-input" maxlength="40" required placeholder="es. Magazzino, Grafica…" value="${escapeHtml(a.nome)}"
+              oninput="_access.nome=this.value"></div>` : `
+          <div class="form-group"><label class="form-label" for="ac-ruolo">Ruolo</label>
+            <select id="ac-ruolo" class="form-select" onchange="setAccessRole(this.value)">
+              <option value="" ${role ? '' : 'selected'}>Personalizzato</option>
+              ${_rolesList.map(r => `<option value="${r.id}" ${r.id === a.ruoloId ? 'selected' : ''}>${escapeHtml(r.nome)}</option>`).join('')}
+            </select>
+            ${role ? `<div class="settings-section-hint" style="margin:4px 0 0;">Segue il ruolo: per cambiare le schede modifica il ruolo oppure scegli Personalizzato.</div>` : ''}
+          </div>`}
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span class="form-label" style="margin:0;">Schede visibili</span>
+            ${role ? '' : `<span style="display:flex;gap:4px;">
+              <button type="button" class="btn btn-ghost btn-sm" onclick="setAllAccessSections(true)">Tutte</button>
+              <button type="button" class="btn btn-ghost btn-sm" onclick="setAllAccessSections(false)">Nessuna</button>
+            </span>`}
+          </div>
+          ${ALL_SECTIONS().map(i => `
+            <label class="switch-row">
+              <span><strong>${i.label}</strong><small>${i.subtitle}${i.note ? ` · ${i.note}` : ''}</small></span>
+              <input type="checkbox" class="switch" ${schede.has(i.id) ? 'checked' : ''} ${locked}
+                onchange="toggleAccessSection('${i.id}', this.checked)">
+            </label>`).join('')}
+        </div>
+        <label class="switch-row" style="border-top:1px solid var(--border);">
+          <span><strong>Gestione economica</strong><small>Cassa e costi dei prodotti</small></span>
+          <input type="checkbox" class="switch" ${economia ? 'checked' : ''} ${locked} onchange="_access.economia=this.checked">
+        </label>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('access-modal')">Annulla</button>
+          <button type="submit" class="btn btn-primary" id="ac-save">Salva</button>
+        </div>
+      </form>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('access-modal'); };
+}
+
+// Passando da un ruolo a Personalizzato si parte dalle schede del ruolo
+function setAccessRole(id) {
+  const prev = roleById(_access.ruoloId);
+  if (!id && prev) { _access.schede = new Set(prev.schede); _access.economia = prev.economia; }
+  _access.ruoloId = id || null;
+  renderAccessDialog();
+}
+
+function toggleAccessSection(id, on) {
+  if (on) _access.schede.add(id); else _access.schede.delete(id);
+}
+
+function setAllAccessSections(on) {
+  _access.schede = new Set(on ? ALL_SECTIONS().map(i => i.id) : []);
+  renderAccessDialog();
+}
+
+async function saveAccessDialog() {
+  const a = _access;
+  // In ordine di navbar, solo schede che esistono ancora
+  const schede = ALL_SECTIONS().map(i => i.id).filter(id => a.schede.has(id));
+  if (!a.ruoloId && !schede.length) { showToast('Scegli almeno una scheda', 'error'); return; }
+  const btn = document.getElementById('ac-save');
+  btn.disabled = true;
   try {
-    await TCAuth.setUserEconomics(nick, value);
-    showToast(`Gestione economica ${value ? 'abilitata' : 'disabilitata'} per ${nick} — effettiva al prossimo accesso`);
+    if (a.kind === 'role') {
+      if (!a.nome.trim()) { showToast('Dai un nome al ruolo', 'error'); btn.disabled = false; return; }
+      await TCAuth.saveRole({ id: a.roleId, nome: a.nome, schede, economia: a.economia });
+      showToast(`Ruolo "${a.nome.trim()}" salvato — effettivo al prossimo accesso degli account`);
+    } else {
+      await TCAuth.setUserAccess(a.nick, a.ruoloId ? { ruoloId: a.ruoloId } : { schede, economia: a.economia });
+      showToast(`Permessi di ${a.nick} aggiornati — effettivi al prossimo accesso`);
+    }
+    closeModal('access-modal');
+    refreshUsersSection();
+  } catch(e) { showToast(e.message, 'error'); btn.disabled = false; }
+}
+
+// Gli account del ruolo eliminato restano personalizzati con le stesse schede (non vedono di più)
+async function deleteRoleConfirm(id) {
+  const r = roleById(id);
+  if (!r) return;
+  const users = _usersList.filter(u => u.ruolo_id === id && !u.is_admin);
+  if (!confirm(`Eliminare il ruolo "${r.nome}"?${users.length ? `\n${users.length} account passeranno a Personalizzato con le stesse schede.` : ''}`)) return;
+  try {
+    for (const u of users) await TCAuth.setUserAccess(u.nickname, { schede: r.schede, economia: r.economia });
+    await TCAuth.deleteRole(id);
+    showToast(`Ruolo "${r.nome}" eliminato`);
+    refreshUsersSection();
   } catch(e) { showToast(e.message, 'error'); }
 }
 
@@ -2616,8 +2786,7 @@ async function deleteUserConfirm(nick) {
   try {
     await TCAuth.deleteUser(nick);
     showToast(`Account "${nick}" eliminato`);
-    const container = document.getElementById('users-section-body');
-    if (container) renderUsersSection(container);
+    refreshUsersSection();
   } catch(e) { showToast(e.message, 'error'); }
 }
 

@@ -5,6 +5,9 @@
 
 // ─────────────────────────────────────────────
 // VOCI DELLA NAVBAR
+// Ogni voce (anche quelle in fondo) compare da sola in Impostazioni → Account,
+// dove l'admin sceglie quali schede vede ogni account o ruolo:
+// una sezione nuova va aggiunta qui, mai mostrata fuori da questa lista.
 // ─────────────────────────────────────────────
 
 const NAV_ITEMS = [
@@ -14,7 +17,7 @@ const NAV_ITEMS = [
   { id: 'esterne',      label: 'Esterne',       subtitle: 'Ordini con lavorazione esterna, per tipo', icon: () => Icons.truck(19) },
   { id: 'prodotti',     label: 'Prodotti',      subtitle: 'Anagrafica articoli e prezzi',  icon: () => Icons.shirt(19) },
   { id: 'clienti',      label: 'Clienti',       subtitle: 'Anagrafica clienti',            icon: () => Icons.users(19) },
-  { id: 'cassa',        label: 'Cassa',         subtitle: 'Incassi e pagamenti',           icon: () => Icons.wallet(19), allowed: () => TCAuth.canViewEconomics() },
+  { id: 'cassa',        label: 'Cassa',         subtitle: 'Incassi e pagamenti',           icon: () => Icons.wallet(19), allowed: () => TCAuth.canViewEconomics(), note: 'Serve anche la gestione economica' },
   { id: 'impostazioni', label: 'Impostazioni',  subtitle: 'Preferenze, priorità, tag e staff', icon: () => Icons.settings(19) },
 ];
 
@@ -25,6 +28,9 @@ const NAV_FOOTER_ITEMS = [
 ];
 
 const DEFAULT_VIEW = 'ordini';
+
+// Tutte le schede, nell'ordine della navbar (elenco dei permessi degli account)
+const ALL_SECTIONS = () => [...NAV_ITEMS, ...NAV_FOOTER_ITEMS];
 
 // Vecchi indirizzi → nuova posizione (Staff ora è dentro Impostazioni)
 const NAV_ALIASES = { staff: ['impostazioni', null] };
@@ -63,14 +69,19 @@ const Nav = {
   },
 
   _hashParts()     { return location.hash.replace(/^#\/?/, '').split('/'); },
-  _fromHash()      { return this._hashParts()[0] || DEFAULT_VIEW; },
+  _fromHash()      { return this._hashParts()[0] || this.home(); },
   _paramFromHash() { return this._hashParts().slice(1).join('/') || null; },
 
-  _item(id) { return [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].find(i => i.id === id); },
+  _item(id) { return ALL_SECTIONS().find(i => i.id === id); },
 
   isAllowed(id) {
     const item = this._item(id);
-    return !!item && (!item.allowed || item.allowed());
+    return !!item && TCAuth.canSeeSection(id) && (!item.allowed || item.allowed());
+  },
+
+  // Prima scheda consentita: Ordini, o la prima della navbar se l'account non la vede
+  home() {
+    return this.isAllowed(DEFAULT_VIEW) ? DEFAULT_VIEW : (ALL_SECTIONS().find(i => this.isAllowed(i.id))?.id || DEFAULT_VIEW);
   },
 
   go(id, param = null) {
@@ -82,7 +93,7 @@ const Nav = {
 
   show(id, param = null) {
     if (NAV_ALIASES[id]) [id, param] = NAV_ALIASES[id];
-    if (!this.isAllowed(id)) { id = DEFAULT_VIEW; param = null; }
+    if (!this.isAllowed(id)) { id = this.home(); param = null; }
     if (id === 'impostazioni') param = null;
     const changed = this.current !== id || this.param !== param;
     this.current = id;
@@ -193,7 +204,7 @@ function renderSidebar() {
         </button>
       </div>
       <div class="sidebar-footer-pair">
-        ${NAV_FOOTER_ITEMS.map(navLink).join('')}
+        ${NAV_FOOTER_ITEMS.filter(i => Nav.isAllowed(i.id)).map(navLink).join('')}
       </div>
     </div>
   `;
@@ -212,7 +223,7 @@ function renderBottomNav() {
 
   const badges  = navBadges();
   const primary = BOTTOM_PRIMARY.filter(id => Nav.isAllowed(id)).map(id => Nav._item(id));
-  const moreIds = [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].filter(i => !BOTTOM_PRIMARY.includes(i.id) && Nav.isAllowed(i.id)).map(i => i.id);
+  const moreIds = ALL_SECTIONS().filter(i => !BOTTOM_PRIMARY.includes(i.id) && Nav.isAllowed(i.id)).map(i => i.id);
   const moreActive = moreIds.includes(Nav.current);
   const moreBadge  = moreIds.reduce((n, id) => n + (id === 'supporto' ? (badges[id] || 0) : 0), 0);
 
@@ -231,7 +242,7 @@ function renderBottomNav() {
 function openMoreSheet() {
   const sheet = document.getElementById('more-sheet');
   const badges = navBadges();
-  const items = [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].filter(i => !BOTTOM_PRIMARY.includes(i.id) && Nav.isAllowed(i.id));
+  const items = ALL_SECTIONS().filter(i => !BOTTOM_PRIMARY.includes(i.id) && Nav.isAllowed(i.id));
   const isDark = Theme.get() === 'dark';
 
   sheet.innerHTML = `
@@ -286,7 +297,7 @@ const dtfSection = () => interneSections().find(s => s.id === Nav.param)?.id || 
 function renderHeader() {
   const root = document.getElementById('header-root');
   if (!root) return;
-  const item = Nav._item(Nav.current) || Nav._item(DEFAULT_VIEW);
+  const item = Nav._item(Nav.current) || Nav._item(Nav.home());
 
   const actions = Nav.current === 'ordini'
     ? `<button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>`
