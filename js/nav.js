@@ -195,6 +195,7 @@ function renderSidebar() {
     </nav>
 
     <div class="sidebar-footer">
+      <div class="sidebar-profile-row">
       <div class="sidebar-profile-wrap">
         <button type="button" class="sidebar-profile" id="profile-btn" onclick="toggleProfileMenu(event)"
           aria-haspopup="menu" aria-expanded="false" ${collapsed ? `title="${escapeHtml(TCAuth.getNickname())}"` : ''}>
@@ -202,6 +203,8 @@ function renderSidebar() {
           <span class="user-text"><strong>${escapeHtml(TCAuth.getNickname())}</strong><span>${TCAuth.isAdmin() ? 'Admin' : 'Staff'}</span></span>
           <svg class="profile-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
         </button>
+      </div>
+      ${messagesButton()}
       </div>
       <div class="sidebar-footer-pair">
         ${NAV_FOOTER_ITEMS.filter(i => Nav.isAllowed(i.id)).map(navLink).join('')}
@@ -225,7 +228,7 @@ function renderBottomNav() {
   const primary = BOTTOM_PRIMARY.filter(id => Nav.isAllowed(id)).map(id => Nav._item(id));
   const moreIds = ALL_SECTIONS().filter(i => !BOTTOM_PRIMARY.includes(i.id) && Nav.isAllowed(i.id)).map(i => i.id);
   const moreActive = moreIds.includes(Nav.current);
-  const moreBadge  = moreIds.reduce((n, id) => n + (id === 'supporto' ? (badges[id] || 0) : 0), 0);
+  const moreBadge  = moreIds.reduce((n, id) => n + (id === 'supporto' ? (badges[id] || 0) : 0), 0) + Messages.unreadCount();
 
   const tab = (id, label, icon, active, badge, onclick) => `
     <a href="${id ? '#/' + id : '#'}" class="bn-item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}
@@ -251,6 +254,7 @@ function openMoreSheet() {
       <div class="sidebar-user more-user">
         <span class="user-avatar" aria-hidden="true">${escapeHtml(TCAuth.getNickname().charAt(0).toUpperCase())}</span>
         <div class="user-text"><strong>${escapeHtml(TCAuth.getNickname())}</strong><span>${TCAuth.isAdmin() ? 'Admin' : 'Staff'}</span></div>
+        ${messagesButton('btn-icon more-msg-btn')}
         <button class="btn-icon" onclick="Theme.toggle();openMoreSheet()" aria-label="${isDark ? 'Passa al tema chiaro' : 'Passa al tema scuro'}">${isDark ? Icons.sun(18) : Icons.moon(18)}</button>
         <button class="btn-icon" onclick="closeModal('more-sheet');openPasswordDialog()" aria-label="Cambia password">${Icons.lock(18)}</button>
         <button class="btn-icon" onclick="closeModal('more-sheet');doLogout()" aria-label="Esci">${Icons.logOut(18)}</button>
