@@ -87,6 +87,11 @@ Finché lo script non è eseguito, la pagina Clienti mostra un avviso e il resto
 3. Nel gestionale, sezione **Cataloghi**: per ogni cliente l'accesso all'app (email e password) e i prodotti,
    con il nome che vede e il prezzo a cui li compra. Il cliente può rinominarli dall'app.
 
+4. Per i clienti finali (registrazione dal link di invito): **Authentication → Sign In / Providers → Email** con
+   *Allow new users to sign up* attivo (con *Confirm email* attivo ricevono una email di conferma), e in
+   **Authentication → URL Configuration** l'indirizzo dell'app clienti come *Site URL* e `https://<app>/auth/callback` tra i *Redirect URLs*.
+   Chi si registra non vede niente del gestionale: i permessi stanno nel database.
+
 Il cliente e i suoi clienti non vedono mai fornitore, codice e costo. Le scorte le vede solo il cliente.
 Gli ordini confermati dal cliente nell'app arrivano tra gli ordini con il modulo d'ordine già compilato (inserito da *App clienti*).
 Facoltativo: in `app_settings` la chiave `catalog_tag` (es. `"Box Factory Lab"`) aggiunge quel tag agli ordini dall'app, se il tag esiste.
