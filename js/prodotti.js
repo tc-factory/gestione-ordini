@@ -69,7 +69,7 @@ function renderProductList() {
     if (ProductState.categoria === '-' && p.categoria_id) return false;
     if (ProductState.categoria && ProductState.categoria !== '-' && p.categoria_id !== ProductState.categoria) return false;
     if (!q) return true;
-    return [TCFactory.supplierName(p.fornitore_id), p.codice, p.descrizione, TCFactory.productCategoryName(p.categoria_id), p.colori, p.taglie]
+    return [TCFactory.supplierName(p.fornitore_id), p.codice, p.descrizione, p.nome, TCFactory.productCategoryName(p.categoria_id), p.colori, p.taglie]
       .some(v => (v || '').toLowerCase().includes(q));
   });
 
@@ -78,7 +78,7 @@ function renderProductList() {
     <tr class="data-row ${p.attivo ? '' : 'row-muted'}" tabindex="0" onclick="openProductForm('${p.id}')" onkeydown="if(event.key==='Enter')openProductForm('${p.id}')">
       <td data-label="Fornitore">${cell(TCFactory.supplierName(p.fornitore_id))}</td>
       <td data-label="Codice"><strong>${cell(p.codice)}</strong></td>
-      <td data-label="Descrizione">${cell(p.descrizione)}</td>
+      <td data-label="Descrizione">${cell(p.descrizione)}${p.nome ? `<small class="catalog-sub">Nome: ${escapeHtml(p.nome)}</small>` : ''}</td>
       <td class="hide-sm">${cell(TCFactory.productCategoryName(p.categoria_id))}</td>
       <td class="hide-sm">${cell(p.colori)}</td>
       <td class="hide-sm">${cell(p.taglie)}</td>
@@ -182,6 +182,7 @@ function openProductForm(id = null, prefill = null) {
           ${input('codice', 'Codice', 'maxlength="60"')}
         </div>
         ${input('descrizione', 'Descrizione *', 'maxlength="200"')}
+        ${TCFactory.isCatalogAvailable() ? input('nome', 'Nome <span>(quello che vedono i clienti nell\'app; vuoto = descrizione)</span>', 'maxlength="80"') : ''}
         <div class="form-group">
           <label class="form-label" for="pf-categoria">Categoria</label>
           <div style="display:flex;gap:8px;">
@@ -269,6 +270,7 @@ async function submitProductForm(id) {
   fields.categoria_id = get('categoria') || null;
   fields.fornitore_id = get('fornitore') || null;
   fields.attivo = document.getElementById('pf-attivo')?.checked ?? true;
+  if (document.getElementById('pf-nome')) fields.nome = get('nome');
 
   const invalid = (k, msg) => {
     const el = document.getElementById('pf-' + k);
@@ -312,7 +314,10 @@ async function deleteProductConfirm(id) {
     await TCFactory.deleteProduct(id);
     closeModal('product-form-modal');
     showToast('Prodotto eliminato');
-  } catch (e) { showToast('Errore eliminazione prodotto', 'error'); }
+  } catch (e) {
+    // 23503: il prodotto è nel catalogo di un cliente (app clienti)
+    showToast(e?.code === '23503' ? 'È nel catalogo di un cliente: disattivalo invece di eliminarlo' : 'Errore eliminazione prodotto', 'error');
+  }
 }
 
 // ─────────────────────────────────────────────

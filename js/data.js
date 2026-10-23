@@ -30,6 +30,9 @@ const TCFactory = {
   _productCategories: [],
   _suppliers: [],
   _productsAvailable: false,  // false finché non è stato eseguito sql/prodotti-setup.sql
+  _clientCatalog: [],
+  _catalogUsers: [],
+  _catalogAvailable: false,   // false finché non è stato eseguito sql/cataloghi-clienti.sql
   _settings: {},
   _listeners: [],
   _channel: null,
@@ -56,7 +59,7 @@ const TCFactory = {
       this._tags = tagsRes.data || [];
 
       // Tabelle aggiunte dopo (clienti, prodotti, impostazioni): se mancano l'app funziona lo stesso
-      await Promise.all([this.loadClients(), this.loadProducts(), this.loadSettings()]);
+      await Promise.all([this.loadClients(), this.loadProducts(), this.loadSettings(), this.loadCatalogs()]);
 
       this._isOnline = true;
       this._updateStatusBadge(true);
@@ -82,6 +85,8 @@ const TCFactory = {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products' },   (p) => this._handleRealtimeSimple(p, '_products', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'product_categories' }, (p) => this._handleRealtimeSimple(p, '_productCategories', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'suppliers' }, (p) => this._handleRealtimeSimple(p, '_suppliers', 'id'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'client_catalog' }, (p) => this._handleRealtimeSimple(p, '_clientCatalog', 'id'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'catalog_users' }, (p) => this._handleRealtimeSimple(p, '_catalogUsers', 'auth_id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, (p) => {
         if (p.new?.key) this._settings[p.new.key] = p.new.value;
         this._notify();
@@ -122,7 +127,7 @@ const TCFactory = {
   // Logout: svuota i dati in memoria e chiude il canale realtime
   reset() {
     if (this._channel) { try { supabaseClient.removeChannel(this._channel); } catch {} this._channel = null; }
-    Object.assign(this, { _orders: [], _priorities: [], _tags: [], _clients: [], _products: [], _productCategories: [], _suppliers: [], _calEvents: [], _settings: {}, _clientsAvailable: false, _productsAvailable: false });
+    Object.assign(this, { _orders: [], _priorities: [], _tags: [], _clients: [], _products: [], _productCategories: [], _suppliers: [], _clientCatalog: [], _catalogUsers: [], _calEvents: [], _settings: {}, _clientsAvailable: false, _productsAvailable: false, _catalogAvailable: false });
   },
 
   onUpdate(fn) { this._listeners.push(fn); },
@@ -879,6 +884,8 @@ const TCFactory = {
     const payload = {};
     // Prodotti sempre in MAIUSCOLO (anche quelli importati da link)
     this.PRODUCT_TEXT_FIELDS.forEach(k => { if (fields[k] !== undefined) payload[k] = String(fields[k] ?? '').trim().toLocaleUpperCase('it-IT'); });
+    // Nome visto dai clienti nell'app: esiste solo con sql/cataloghi-clienti.sql
+    if (fields.nome !== undefined && this._catalogAvailable) payload.nome = String(fields.nome ?? '').trim().toLocaleUpperCase('it-IT');
     ['costo', 'prezzo'].forEach(k => { if (fields[k] !== undefined) payload[k] = fields[k]; });
     if (fields.categoria_id !== undefined) payload.categoria_id = fields.categoria_id || null;
     if (fields.fornitore_id !== undefined) payload.fornitore_id = fields.fornitore_id || null;
@@ -1044,6 +1051,86 @@ const TCFactory = {
     // Il database toglie la categoria ai prodotti (on delete set null): allinea la cache locale
     this._products = this._products.map(p => p.categoria_id === id ? { ...p, categoria_id: null } : p);
     this._notify();
+  },
+
+  // ─────────────────────────────────────────────
+  // CATALOGHI DEI CLIENTI (app clienti)
+  // Lo staff sceglie i prodotti di ogni cliente e il suo prezzo d'acquisto;
+  // nome, prezzo di rivendita e scorte li gestisce il cliente dall'app.
+  // ─────────────────────────────────────────────
+
+  async loadCatalogs() {
+    const [cat, users] = await Promise.all([
+      supabaseClient.from('client_catalog').select('*'),
+      supabaseClient.from('catalog_users').select('*'),
+    ]);
+    this._catalogAvailable = !cat.error && !users.error;
+    this._clientCatalog = this._catalogAvailable ? (cat.data || []) : [];
+    this._catalogUsers = this._catalogAvailable ? (users.data || []) : [];
+  },
+
+  isCatalogAvailable() { return this._catalogAvailable; },
+
+  // Nome mostrato al cliente: il suo, altrimenti il nome del prodotto, altrimenti la descrizione
+  productPublicName(p) { return (p?.nome || '').trim() || (p?.descrizione || '').trim() || 'Senza nome'; },
+
+  getClientCatalog(clientId) {
+    return this._clientCatalog
+      .filter(r => r.client_id === clientId)
+      .map(r => ({ ...r, product: this.getProduct(r.product_id) }))
+      .filter(r => r.product)
+      .sort((a, b) => this.productLabel(a.product).localeCompare(this.productLabel(b.product), 'it', { numeric: true }));
+  },
+
+  async addToCatalog(clientId, productIds) {
+    const rows = productIds.map(product_id => ({ client_id: clientId, product_id }));
+    const { data, error } = await supabaseClient.from('client_catalog')
+      .upsert(rows, { onConflict: 'client_id,product_id', ignoreDuplicates: true }).select();
+    if (error) throw error;
+    const ids = new Set((data || []).map(r => r.id));
+    this._clientCatalog = [...this._clientCatalog.filter(r => !ids.has(r.id)), ...(data || [])];
+    this._log('Catalogo cliente: prodotti aggiunti', null, this.clientName(this.getClient(clientId)), { clientId, prodotti: productIds.length });
+    this._notify();
+  },
+
+  // Solo i campi dello staff: prezzo al cliente e attivo
+  async saveCatalogItem(id, fields) {
+    const payload = {};
+    if (fields.prezzo !== undefined) payload.prezzo = fields.prezzo;
+    if (fields.attivo !== undefined) payload.attivo = !!fields.attivo;
+    const { data, error } = await supabaseClient.from('client_catalog').update(payload).eq('id', id).select().single();
+    if (error) throw error;
+    this._clientCatalog = [...this._clientCatalog.filter(r => r.id !== id), data];
+    this._notify();
+    return data;
+  },
+
+  async removeFromCatalog(id) {
+    const row = this._clientCatalog.find(r => r.id === id);
+    const { error } = await supabaseClient.from('client_catalog').delete().eq('id', id);
+    if (error) throw error;
+    this._clientCatalog = this._clientCatalog.filter(r => r.id !== id);
+    if (row) this._log('Catalogo cliente: prodotto tolto', null, this.clientName(this.getClient(row.client_id)), { clientId: row.client_id, productId: row.product_id });
+    this._notify();
+  },
+
+  getCatalogUsers(clientId) {
+    return this._catalogUsers.filter(u => u.client_id === clientId).sort((a, b) => a.email.localeCompare(b.email));
+  },
+
+  // Accessi all'app: create / delete / password, tramite la funzione catalog-users (chiave di servizio)
+  async catalogUsersAction(action, payload) {
+    const { data, error } = await supabaseClient.functions.invoke('catalog-users', { body: { action, ...payload } });
+    if (error) {
+      let msg = 'Errore di connessione';
+      try { msg = (await error.context.json()).error || msg; } catch {}
+      throw new Error(msg);
+    }
+    if (!data?.success) throw new Error(data?.error || 'Errore');
+    const users = await supabaseClient.from('catalog_users').select('*');
+    if (!users.error) this._catalogUsers = users.data || [];
+    this._notify();
+    return data;
   },
 
   // ─────────────────────────────────────────────

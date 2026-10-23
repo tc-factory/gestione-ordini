@@ -76,6 +76,23 @@ Finché lo script non è eseguito, la pagina Clienti mostra un avviso e il resto
 
 ---
 
+## PASSO 7 — Cataloghi dei clienti (app clienti)
+
+1. **SQL Editor** → **New query** → incolla tutto `sql/cataloghi-clienti.sql` → **Run**
+   (non distruttivo, si può rieseguire; richiede prodotti, categorie, immagini e fornitori già attivi)
+2. Pubblica la funzione che crea gli accessi dei clienti all'app:
+   ```
+   supabase functions deploy catalog-users --project-ref <ref> --use-api --no-verify-jwt
+   ```
+3. Nel gestionale: **Prodotti** → campo *Nome* (quello che vedono i clienti); **Clienti** → scheda cliente →
+   *Accesso all'app clienti* (email e password) e *Catalogo nell'app clienti* (prodotti e prezzo per quel cliente).
+
+Il cliente e i suoi clienti non vedono mai fornitore, codice e costo. Le scorte le vede solo il cliente.
+Gli ordini confermati dal cliente nell'app arrivano tra gli ordini con il modulo d'ordine già compilato (inserito da *App clienti*).
+Facoltativo: in `app_settings` la chiave `catalog_tag` (es. `"Box Factory Lab"`) aggiunge quel tag agli ordini dall'app, se il tag esiste.
+
+---
+
 ## Cosa fa il nuovo schema database
 
 | Tabella | Contenuto | Sincronizzata in tempo reale |

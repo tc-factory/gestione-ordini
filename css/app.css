@@ -2310,3 +2310,21 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .is-checked .mod-preview-check::after { content: '✓'; }
 .is-red .mod-preview-check { background: #dc2626; border-color: #dc2626; }
 .is-red .mod-preview-check::after { content: '!'; }
+
+/* ── App clienti: accessi e catalogo nella scheda cliente ── */
+.catalog-users { display: flex; flex-direction: column; }
+.catalog-user { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; padding: 10px 16px; border-top: 1px solid var(--border); }
+.catalog-user:first-child { border-top: 0; }
+.catalog-user small { font-size: 0.75rem; }
+.catalog-user-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.catalog-sub { display: block; font-size: 0.74rem; color: var(--text-muted); font-weight: 400; margin-top: 2px; }
+.catalog-table .catalog-price { display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; flex-wrap: nowrap; }
+.client-app-section .page-card-head { flex-wrap: wrap; row-gap: 8px; }
+.catalog-table .catalog-price .form-input { width: 84px; text-align: right; }
+.client-app-section { display: flex; flex-direction: column; gap: var(--space-lg); margin-top: var(--space-lg); }
+.catalog-user .muted { color: var(--text-muted); }
+#product-form-modal .form-label span, #catalog-user-modal .form-label span { font-weight: 500; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
+@media (max-width: 640px) {
+  .catalog-table td[data-label="Prodotto"] { grid-column: 1 / -1; display: block; }
+  .catalog-table td[data-label="Prodotto"]::before { content: none; }
+}
