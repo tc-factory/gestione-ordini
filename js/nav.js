@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { id: 'dtf',          label: 'Interne',       subtitle: 'Lavorazioni fatte in casa',     icon: () => Icons.printer(19) },
   { id: 'esterne',      label: 'Esterne',       subtitle: 'Ordini con lavorazione esterna, per tipo', icon: () => Icons.truck(19) },
   { id: 'prodotti',     label: 'Prodotti',      subtitle: 'Anagrafica articoli e prezzi',  icon: () => Icons.shirt(19) },
+  { id: 'cataloghi',    label: 'Cataloghi',     subtitle: 'Cataloghi e accessi dell\'app clienti', icon: () => Icons.book(19) },
   { id: 'clienti',      label: 'Clienti',       subtitle: 'Anagrafica clienti',            icon: () => Icons.users(19) },
   { id: 'cassa',        label: 'Cassa',         subtitle: 'Incassi e pagamenti',           icon: () => Icons.wallet(19), allowed: () => TCAuth.canViewEconomics(), note: 'Serve anche la gestione economica' },
   { id: 'impostazioni', label: 'Impostazioni',  subtitle: 'Preferenze, priorità, tag e staff', icon: () => Icons.settings(19) },
@@ -131,6 +132,7 @@ function renderCurrentView() {
     case 'planner':      renderCalendarSection(); break;
     case 'esterne':      renderEsternePage(); break;
     case 'prodotti':     renderProductsPage(); break;
+    case 'cataloghi':    renderCatalogsPage(); break;
     case 'clienti':      renderClientsPage(); break;
     case 'cassa':        renderCassaPage(); break;
     case 'impostazioni': renderSettingsPage(); break;
@@ -309,6 +311,8 @@ function renderHeader() {
     ? `<button class="btn btn-primary" onclick="openCalEventDialog(null,null)">${Icons.plus()} <span class="new-order-btn-text">Nuovo evento</span></button>`
     : Nav.current === 'dtf' && dtfSection()
     ? `<button class="btn btn-ghost btn-sm" onclick="Nav.go('dtf')">${Icons.chevronLeft(14)} <span class="new-order-btn-text">Tutte le interne</span></button>`
+    : Nav.current === 'cataloghi' && !Nav.param && TCFactory.isCatalogAvailable()
+    ? `<button class="btn btn-primary" onclick="openNewCatalog()">${Icons.plus()} <span class="new-order-btn-text">Nuovo catalogo</span></button>`
     : Nav.current === 'clienti' && !Nav.param && TCFactory.isClientsAvailable()
     ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
     : Nav.current === 'prodotti' && Nav.param === 'fornitori' && TCFactory.isProductsAvailable()
