@@ -73,6 +73,12 @@ create table if not exists catalog_shops (
   updated_at  timestamptz not null default now()
 );
 
+-- Personalizzazione del negozio, decisa dal cliente: tema chiaro/scuro, due colori di accento, logo (bucket "loghi")
+alter table catalog_shops add column if not exists tema      text not null default 'scuro' check (tema in ('scuro', 'chiaro'));
+alter table catalog_shops add column if not exists accento_1 text not null default '#FF2A3D' check (accento_1 ~ '^#[0-9A-Fa-f]{6}$');
+alter table catalog_shops add column if not exists accento_2 text not null default '#FFC83D' check (accento_2 ~ '^#[0-9A-Fa-f]{6}$');
+alter table catalog_shops add column if not exists logo      text;
+
 -- Clienti finali: si registrano da soli dal link di invito (una persona può comprare da più clienti)
 create table if not exists catalog_customers (
   auth_id     uuid not null references auth.users(id) on delete cascade,
@@ -356,6 +362,14 @@ end $$;
 -- ─────────────────────────────────────────────
 
 -- Chi sono e il mio negozio (lo crea al primo accesso)
+-- Come si presenta un negozio (al cliente e ai suoi clienti)
+create or replace function catalog_shop_brand(s catalog_shops, c clients) returns jsonb
+language sql stable as $$
+  select jsonb_build_object('nome', coalesce(nullif(s.nome, ''), catalog_client_name(c)), 'attivo', coalesce(s.attivo, false),
+                            'tema', coalesce(s.tema, 'scuro'), 'accento_1', coalesce(s.accento_1, '#FF2A3D'),
+                            'accento_2', coalesce(s.accento_2, '#FFC83D'), 'logo', s.logo)
+$$;
+
 create or replace function catalog_me() returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare v_client clients; v_shop catalog_shops;
@@ -365,17 +379,31 @@ begin
   insert into catalog_shops (client_id) values (v_client.id) on conflict (client_id) do nothing;
   select * into v_shop from catalog_shops where client_id = v_client.id;
   return jsonb_build_object('client_id', v_client.id, 'nome', catalog_client_name(v_client),
-    'negozio', jsonb_build_object('nome', coalesce(nullif(v_shop.nome, ''), catalog_client_name(v_client)), 'nome_proprio', v_shop.nome,
-                                  'invito', v_shop.invito, 'attivo', v_shop.attivo));
+    'negozio', catalog_shop_brand(v_shop, v_client) || jsonb_build_object('nome_proprio', v_shop.nome, 'invito', v_shop.invito));
 end $$;
 
-create or replace function catalog_update_shop(p_nome text, p_attivo boolean) returns jsonb
+drop function if exists catalog_update_shop(text, boolean);
+create or replace function catalog_update_shop(p_nome text, p_attivo boolean, p_tema text, p_accento_1 text, p_accento_2 text) returns jsonb
 language plpgsql security definer set search_path = public as $$
 begin
   if catalog_client_id() is null then raise exception 'Non autorizzato' using errcode = '42501'; end if;
+  if p_tema not in ('scuro', 'chiaro') then raise exception 'Tema non valido'; end if;
+  if p_accento_1 !~ '^#[0-9A-Fa-f]{6}$' or p_accento_2 !~ '^#[0-9A-Fa-f]{6}$' then raise exception 'Colore non valido'; end if;
   perform catalog_me();
-  update catalog_shops set nome = left(trim(coalesce(p_nome, '')), 60), attivo = coalesce(p_attivo, true), updated_at = now()
+  update catalog_shops set nome = left(trim(coalesce(p_nome, '')), 60), attivo = coalesce(p_attivo, true),
+                           tema = p_tema, accento_1 = upper(p_accento_1), accento_2 = upper(p_accento_2), updated_at = now()
    where client_id = catalog_client_id();
+  return catalog_me();
+end $$;
+
+-- Logo: file già caricato nel bucket "loghi", nella cartella del cliente (null = nessun logo)
+create or replace function catalog_set_logo(p_path text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  if catalog_client_id() is null then raise exception 'Non autorizzato' using errcode = '42501'; end if;
+  if p_path is not null and p_path not like catalog_client_id()::text || '/%' then raise exception 'Logo non valido'; end if;
+  perform catalog_me();
+  update catalog_shops set logo = p_path, updated_at = now() where client_id = catalog_client_id();
   return catalog_me();
 end $$;
 
@@ -543,7 +571,7 @@ $$;
 -- Pagina di registrazione: solo il nome del negozio
 create or replace function shop_info(p_invito text) returns jsonb
 language sql stable security definer set search_path = public as $$
-  select jsonb_build_object('nome', coalesce(nullif(s.nome, ''), catalog_client_name(c)))
+  select catalog_shop_brand(s, c)
     from catalog_shops s join clients c on c.id = s.client_id
    where s.invito = p_invito and s.attivo
 $$;
@@ -567,19 +595,35 @@ end $$;
 -- Negozi in cui posso ordinare
 create or replace function shop_list() returns jsonb
 language sql stable security definer set search_path = public as $$
-  select coalesce(jsonb_agg(jsonb_build_object('client_id', c.id, 'nome', coalesce(nullif(s.nome, ''), catalog_client_name(c)),
-                                               'attivo', coalesce(s.attivo, false)) order by cu.created_at), '[]'::jsonb)
+  select coalesce(jsonb_agg(catalog_shop_brand(s, c) || jsonb_build_object('client_id', c.id) order by cu.created_at), '[]'::jsonb)
     from catalog_customers cu
     join clients c on c.id = cu.client_id
     left join catalog_shops s on s.client_id = cu.client_id
    where cu.auth_id = auth.uid() and not cu.bloccato
 $$;
 
+-- La mia scheda in un negozio (nome e telefono, modificabili rientrando con shop_join)
+create or replace function shop_me(p_client uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('nome', nome, 'telefono', telefono, 'email', email)
+    from catalog_customers where auth_id = auth.uid() and client_id = p_client and not bloccato
+$$;
+
+create or replace function shop_update_me(p_client uuid, p_nome text, p_telefono text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(trim(p_nome), '') = '' then raise exception 'Inserisci nome e cognome'; end if;
+  update catalog_customers set nome = left(trim(p_nome), 120), telefono = left(trim(coalesce(p_telefono, '')), 40)
+   where auth_id = auth.uid() and client_id = p_client and not bloccato;
+  if not found then raise exception 'Non autorizzato' using errcode = '42501'; end if;
+  return shop_me(p_client);
+end $$;
+
 -- Catalogo del negozio: nome rinominato e prezzo di rivendita; niente scorte
 create or replace function shop_catalog(p_client uuid) returns jsonb
 language sql stable security definer set search_path = public as $$
   select case when not catalog_is_customer(p_client) then null else jsonb_build_object(
-    'negozio', (select jsonb_build_object('nome', coalesce(nullif(s.nome, ''), catalog_client_name(c)), 'attivo', coalesce(s.attivo, false))
+    'negozio', (select catalog_shop_brand(s, c) || jsonb_build_object('client_id', c.id)
                   from clients c left join catalog_shops s on s.client_id = c.id where c.id = p_client),
     'prodotti', coalesce((
       select jsonb_agg(jsonb_build_object(
@@ -671,21 +715,34 @@ drop policy if exists "App legge le immagini dei prodotti" on storage.objects;
 create policy "App legge le immagini dei prodotti" on storage.objects for select to authenticated
   using (bucket_id = 'prodotti' and catalog_can_see_product((storage.foldername(name))[1]));
 
+-- Loghi dei negozi: bucket pubblico (li vedono anche i clienti finali), cartella = id del cliente
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('loghi', 'loghi', true, 2097152, array['image/png', 'image/jpeg', 'image/webp'])
+on conflict (id) do update set public = true, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Staff gestisce loghi" on storage.objects;
+drop policy if exists "Cliente gestisce il proprio logo" on storage.objects;
+create policy "Staff gestisce loghi" on storage.objects for all to authenticated
+  using (bucket_id = 'loghi' and app_is_staff()) with check (bucket_id = 'loghi' and app_is_staff());
+create policy "Cliente gestisce il proprio logo" on storage.objects for all to authenticated
+  using (bucket_id = 'loghi' and (storage.foldername(name))[1] = catalog_client_id()::text)
+  with check (bucket_id = 'loghi' and (storage.foldername(name))[1] = catalog_client_id()::text);
+
 -- ─────────────────────────────────────────────
 -- 11. Permessi sulle funzioni
 -- ─────────────────────────────────────────────
 
 revoke execute on function catalog_client_id(), catalog_is_customer(uuid), catalog_order_stato(orders), catalog_can_see_product(text),
-                           catalog_me(), catalog_update_shop(text, boolean), catalog_new_invite(), catalog_products(),
+                           catalog_me(), catalog_update_shop(text, boolean, text, text, text), catalog_set_logo(text), catalog_new_invite(), catalog_products(),
                            catalog_block_customer(uuid, boolean), catalog_set_shop_order_stato(uuid, text), catalog_integrate(uuid),
                            catalog_submit(text), catalog_orders(),
-                           shop_info(text), shop_join(text, text, text), shop_list(), shop_catalog(uuid),
+                           shop_info(text), shop_join(text, text, text), shop_list(), shop_me(uuid), shop_update_me(uuid, text, text), shop_catalog(uuid),
                            shop_place_order(uuid, text, jsonb), shop_cancel(uuid) from public;
 grant execute on function catalog_client_id(), catalog_is_customer(uuid), catalog_order_stato(orders), catalog_can_see_product(text),
-                          catalog_me(), catalog_update_shop(text, boolean), catalog_new_invite(), catalog_products(),
+                          catalog_me(), catalog_update_shop(text, boolean, text, text, text), catalog_set_logo(text), catalog_new_invite(), catalog_products(),
                           catalog_block_customer(uuid, boolean), catalog_set_shop_order_stato(uuid, text), catalog_integrate(uuid),
                           catalog_submit(text), catalog_orders(),
-                          shop_join(text, text, text), shop_list(), shop_catalog(uuid),
+                          shop_join(text, text, text), shop_list(), shop_me(uuid), shop_update_me(uuid, text, text), shop_catalog(uuid),
                           shop_place_order(uuid, text, jsonb), shop_cancel(uuid) to authenticated;
 grant execute on function shop_info(text) to anon, authenticated;
 
