@@ -34,6 +34,27 @@ begin
     from clients c), '[]'::jsonb);
 end $$;
 
+-- Nuovo cliente creato da Kamon (quando nel gestionale non c'è ancora). Restituisce l'id.
+-- p_cliente: { ragione_sociale, referente, email, telefono, partita_iva, indirizzo, note }
+create or replace function kamon_create_client(p_key text, p_cliente jsonb) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare v_id uuid; v_nome text := left(trim(coalesce(p_cliente->>'ragione_sociale', '')), 160);
+begin
+  if not kamon_check_key(p_key) then raise exception 'Chiave non valida' using errcode = '42501'; end if;
+  if v_nome = '' then raise exception 'Nome del cliente mancante'; end if;
+  -- se esiste già con lo stesso nome, si collega quello (niente doppioni)
+  select id into v_id from clients where lower(trim(ragione_sociale)) = lower(v_nome) limit 1;
+  if v_id is not null then return v_id; end if;
+  insert into clients (tipo, ragione_sociale, referente, email, telefono, partita_iva, indirizzo, note, created_by)
+  values ('azienda', v_nome, left(coalesce(p_cliente->>'referente', ''), 120), left(coalesce(p_cliente->>'email', ''), 160),
+          left(coalesce(p_cliente->>'telefono', ''), 40), left(coalesce(p_cliente->>'partita_iva', ''), 30),
+          left(coalesce(p_cliente->>'indirizzo', ''), 300), left(coalesce(p_cliente->>'note', ''), 2000), 'Kamon')
+  returning id into v_id;
+  insert into activity_log (user_nickname, action, order_name, details)
+  values ('Kamon', 'Cliente creato', v_nome, jsonb_build_object('origine', 'kamon', 'clientId', v_id));
+  return v_id;
+end $$;
+
 -- Ordine da Kamon → ordine del gestionale. Reinviare lo stesso ordine non lo duplica.
 -- p_ordine: { kamon_id, numero, nota, cliente_nome, cliente_rif, righe: [{ nome, descrizione, fornitore, codice, colore, taglia, qnt, prezzo, per }] }
 create or replace function kamon_import_order(p_key text, p_ordine jsonb) returns text
@@ -94,8 +115,8 @@ begin
 end $$;
 
 revoke execute on function kamon_check_key(text) from public, anon, authenticated;
-revoke execute on function kamon_list_clients(text), kamon_import_order(text, jsonb) from public;
-grant  execute on function kamon_list_clients(text), kamon_import_order(text, jsonb) to anon, authenticated;
+revoke execute on function kamon_list_clients(text), kamon_import_order(text, jsonb), kamon_create_client(text, jsonb) from public;
+grant  execute on function kamon_list_clients(text), kamon_import_order(text, jsonb), kamon_create_client(text, jsonb) to anon, authenticated;
 
 -- ════════════════════════════════════════════════════════
 -- Chiave: la imposta chi configura il collegamento, con
