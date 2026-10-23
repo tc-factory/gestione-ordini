@@ -13,18 +13,15 @@
 -- Il cliente e il cliente finale non vedono mai fornitore, codice e costo:
 -- leggono i prodotti solo tramite le funzioni catalog_* e shop_* qui sotto.
 --
--- Script NON distruttivo: aggiunge una colonna ai prodotti, tabelle e funzioni nuove.
+-- Script NON distruttivo: aggiunge tabelle e funzioni nuove.
 -- Non tocca ordini, clienti e prodotti esistenti né le loro policy. Si può rieseguire.
 -- Richiede sicurezza-2-blocca.sql (app_is_staff), clienti-setup.sql, prodotti-setup.sql,
 -- prodotti-categorie.sql, prodotti-immagini.sql, fornitori.sql.
 -- ════════════════════════════════════════════════════════
 
 -- ─────────────────────────────────────────────
--- 1. Prodotti: nome visto dai clienti
---    (la descrizione resta, es. "T-shirt oversize"; vuoto = si usa la descrizione)
+-- 1. Funzioni di servizio
 -- ─────────────────────────────────────────────
-
-alter table products add column if not exists nome text not null default '';
 
 -- "Bianco, Nero, Navy" → {Bianco,Nero,Navy}, nell'ordine scritto (come modSplitList del gestionale)
 create or replace function catalog_list(s text) returns text[]
@@ -96,8 +93,8 @@ $$;
 
 -- ─────────────────────────────────────────────
 -- 3. Catalogo di ogni cliente
---    Lo staff sceglie prodotti e prezzo d'acquisto; il cliente nome, prezzo di rivendita,
---    cosa mettere in vendita e se tenere il magazzino.
+--    Lo staff sceglie prodotti, nome e prezzo d'acquisto; il cliente può rinominarli,
+--    decide prezzo di rivendita, cosa mettere in vendita e se tenere il magazzino.
 -- ─────────────────────────────────────────────
 
 create table if not exists client_catalog (
@@ -106,7 +103,8 @@ create table if not exists client_catalog (
   product_id        uuid not null references products(id) on delete restrict,
   prezzo            numeric(10,2) check (prezzo >= 0),            -- staff: prezzo al cliente (vuoto = prezzo del prodotto)
   attivo            boolean not null default true,                -- staff: spento = il cliente non lo vede
-  nome              text not null default '',                     -- cliente: rinomina (vuoto = nome del prodotto)
+  nome              text not null default '',                     -- staff: nome nel catalogo (vuoto = descrizione del prodotto)
+  nome_cliente      text not null default '',                     -- cliente: rinomina (vuoto = nome dello staff)
   prezzo_rivendita  numeric(10,2) check (prezzo_rivendita >= 0),  -- cliente
   in_vendita        boolean not null default false,               -- cliente: visibile ai clienti finali
   scorte_attive     boolean not null default false,               -- cliente: tiene il magazzino
@@ -118,10 +116,20 @@ create table if not exists client_catalog (
 );
 create index if not exists client_catalog_product_idx on client_catalog(product_id);
 
+-- Dalla prima versione: il nome stava nei prodotti e "nome" del catalogo era quello del cliente
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'client_catalog' and column_name = 'nome_cliente') then
+    alter table client_catalog rename column nome to nome_cliente;
+    alter table client_catalog add column nome text not null default '';
+  end if;
+end $$;
+alter table products drop column if exists nome;
+
 -- Nome mostrato al cliente e ai suoi clienti
 create or replace function catalog_item_name(cc client_catalog, p products) returns text
 language sql immutable as $$
-  select coalesce(nullif(trim(cc.nome), ''), nullif(trim(p.nome), ''), nullif(trim(p.descrizione), ''), 'Prodotto')
+  select coalesce(nullif(trim(cc.nome_cliente), ''), nullif(trim(cc.nome), ''), nullif(trim(p.descrizione), ''), 'Prodotto')
 $$;
 
 -- Il cliente modifica solo i propri campi
@@ -129,10 +137,12 @@ create or replace function client_catalog_guard() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
   if not app_is_staff() and (new.client_id is distinct from old.client_id or new.product_id is distinct from old.product_id
-     or new.prezzo is distinct from old.prezzo or new.attivo is distinct from old.attivo or new.created_at is distinct from old.created_at) then
+     or new.prezzo is distinct from old.prezzo or new.attivo is distinct from old.attivo or new.nome is distinct from old.nome
+     or new.created_at is distinct from old.created_at) then
     raise exception 'Non autorizzato' using errcode = '42501';
   end if;
   new.nome := left(trim(new.nome), 80);
+  new.nome_cliente := left(trim(new.nome_cliente), 80);
   new.updated_at := now();
   return new;
 end $$;
@@ -383,8 +393,8 @@ end $$;
 create or replace function catalog_products() returns jsonb
 language sql stable security definer set search_path = public as $$
   select coalesce(jsonb_agg(jsonb_build_object(
-    'id', cc.id, 'nome', catalog_item_name(cc, p), 'nome_proprio', cc.nome,
-    'nome_base', coalesce(nullif(trim(p.nome), ''), p.descrizione), 'descrizione', p.descrizione,
+    'id', cc.id, 'nome', catalog_item_name(cc, p), 'nome_proprio', cc.nome_cliente,
+    'nome_base', coalesce(nullif(trim(cc.nome), ''), p.descrizione), 'descrizione', p.descrizione,
     'categoria', coalesce(pc.nome, ''), 'colori', to_jsonb(catalog_list(p.colori)), 'taglie', to_jsonb(catalog_list(p.taglie)),
     'prezzo', coalesce(cc.prezzo, p.prezzo), 'prezzo_rivendita', cc.prezzo_rivendita,
     'in_vendita', cc.in_vendita, 'scorte_attive', cc.scorte_attive, 'ordine', cc.ordine,

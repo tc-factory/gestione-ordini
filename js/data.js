@@ -884,8 +884,6 @@ const TCFactory = {
     const payload = {};
     // Prodotti sempre in MAIUSCOLO (anche quelli importati da link)
     this.PRODUCT_TEXT_FIELDS.forEach(k => { if (fields[k] !== undefined) payload[k] = String(fields[k] ?? '').trim().toLocaleUpperCase('it-IT'); });
-    // Nome visto dai clienti nell'app: esiste solo con sql/cataloghi-clienti.sql
-    if (fields.nome !== undefined && this._catalogAvailable) payload.nome = String(fields.nome ?? '').trim().toLocaleUpperCase('it-IT');
     ['costo', 'prezzo'].forEach(k => { if (fields[k] !== undefined) payload[k] = fields[k]; });
     if (fields.categoria_id !== undefined) payload.categoria_id = fields.categoria_id || null;
     if (fields.fornitore_id !== undefined) payload.fornitore_id = fields.fornitore_id || null;
@@ -1071,8 +1069,14 @@ const TCFactory = {
 
   isCatalogAvailable() { return this._catalogAvailable; },
 
-  // Nome mostrato al cliente: il suo, altrimenti il nome del prodotto, altrimenti la descrizione
-  productPublicName(p) { return (p?.nome || '').trim() || (p?.descrizione || '').trim() || 'Senza nome'; },
+  // Nome nel catalogo: quello dello staff, altrimenti la descrizione del prodotto (il cliente può rinominarlo)
+  catalogItemName(r) { return (r?.nome || '').trim() || (this.getProduct(r?.product_id)?.descrizione || '').trim() || 'Senza nome'; },
+
+  // Clienti con un catalogo o un accesso all'app
+  getCatalogClients() {
+    const ids = new Set([...this._clientCatalog.map(r => r.client_id), ...this._catalogUsers.map(u => u.client_id)]);
+    return this.getClients().filter(c => ids.has(c.id));
+  },
 
   getClientCatalog(clientId) {
     return this._clientCatalog
@@ -1093,9 +1097,10 @@ const TCFactory = {
     this._notify();
   },
 
-  // Solo i campi dello staff: prezzo al cliente e attivo
+  // Solo i campi dello staff: nome, prezzo al cliente e attivo
   async saveCatalogItem(id, fields) {
     const payload = {};
+    if (fields.nome !== undefined) payload.nome = String(fields.nome ?? '').trim();
     if (fields.prezzo !== undefined) payload.prezzo = fields.prezzo;
     if (fields.attivo !== undefined) payload.attivo = !!fields.attivo;
     const { data, error } = await supabaseClient.from('client_catalog').update(payload).eq('id', id).select().single();

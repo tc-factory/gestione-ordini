@@ -84,8 +84,8 @@ Finché lo script non è eseguito, la pagina Clienti mostra un avviso e il resto
    ```
    supabase functions deploy catalog-users --project-ref <ref> --use-api --no-verify-jwt
    ```
-3. Nel gestionale: **Prodotti** → campo *Nome* (quello che vedono i clienti); **Clienti** → scheda cliente →
-   *Accesso all'app clienti* (email e password) e *Catalogo nell'app clienti* (prodotti e prezzo per quel cliente).
+3. Nel gestionale, sezione **Cataloghi**: per ogni cliente l'accesso all'app (email e password) e i prodotti,
+   con il nome che vede e il prezzo a cui li compra. Il cliente può rinominarli dall'app.
 
 Il cliente e i suoi clienti non vedono mai fornitore, codice e costo. Le scorte le vede solo il cliente.
 Gli ordini confermati dal cliente nell'app arrivano tra gli ordini con il modulo d'ordine già compilato (inserito da *App clienti*).

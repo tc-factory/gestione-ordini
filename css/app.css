@@ -2321,10 +2321,13 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .catalog-table .catalog-price { display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; flex-wrap: nowrap; }
 .client-app-section .page-card-head { flex-wrap: wrap; row-gap: 8px; }
 .catalog-table .catalog-price .form-input { width: 84px; text-align: right; }
+.catalog-table .catalog-name { min-width: 170px; font-weight: 600; }
+.catalog-table .catalog-name::placeholder { color: var(--text-muted); font-weight: 400; }
 .client-app-section { display: flex; flex-direction: column; gap: var(--space-lg); margin-top: var(--space-lg); }
 .catalog-user .muted { color: var(--text-muted); }
 #product-form-modal .form-label span, #catalog-user-modal .form-label span { font-weight: 500; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
 @media (max-width: 640px) {
-  .catalog-table td[data-label="Prodotto"] { grid-column: 1 / -1; display: block; }
+  .catalog-table td.catalog-name-cell, .catalog-table td[data-label="Prodotto"] { grid-column: 1 / -1; display: block; }
   .catalog-table td[data-label="Prodotto"]::before { content: none; }
+  .catalog-table .catalog-name { width: 100%; }
 }
