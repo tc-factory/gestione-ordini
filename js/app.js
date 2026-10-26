@@ -1144,7 +1144,7 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
   const clientName = !order && defaultClientId ? TCFactory.clientName(TCFactory.getClient(defaultClientId)) : '';
 
   modal.innerHTML = `
-    <div class="modal" style="max-width:min(1100px, 95vw);">
+    <div class="modal modal-wide">
       <div class="modal-header">
         <h2>${isEdit ? 'Modifica ordine' : 'Nuovo ordine'}</h2>
         <button class="btn-icon" onclick="closeModal('order-form-modal')">${Icons.x()}</button>

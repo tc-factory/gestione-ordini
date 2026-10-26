@@ -2331,3 +2331,13 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
   .catalog-table td[data-label="Prodotto"]::before { content: none; }
   .catalog-table .catalog-name { width: 100%; }
 }
+
+/* Popup largo (nuovo/modifica ordine): usa tutta la larghezza dello schermo
+   così il modulo d'ordine si vede intero */
+.modal-overlay:has(.modal-wide) { padding: 12px; }
+.modal.modal-wide { max-width: none; width: 100%; max-height: calc(100dvh - 24px); }
+.modal.modal-wide .modal-body { padding: var(--space-lg); }
+@media (max-width: 640px) {
+  .modal-overlay:has(.modal-wide) { padding: 0; }
+  .modal.modal-wide { max-height: 92vh; }
+}
