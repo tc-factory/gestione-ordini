@@ -1,0 +1,73 @@
+/* Lista prodotti con la stessa grafica di Kamon (stessi colori, caratteri, tabella e bottoni).
+   Tutto sotto .kl: il resto del gestionale non cambia. Le regole vengono da kamon/app/globals.css. */
+.kl {
+  --bg: #141414; --bg-2: #131315; --card: #1a1a1d; --card-2: #222226; --line: #2b2b30;
+  --text: #f4f1ea; --muted: #a19d95; --faint: #6c6c73; --accent: #c8302a; --on-accent: #ffffff;
+  --btn-h: 44px; --r: 20px; --ctl-r: 14px;
+  --body: 'Figtree', system-ui, -apple-system, sans-serif;
+  color-scheme: dark; background: var(--bg); color: var(--text); font-family: var(--body);
+  border-radius: var(--r); padding: 20px 24px 24px; min-height: calc(100dvh - 140px);
+}
+.kl *, .kl *::before, .kl *::after { box-sizing: border-box; }
+.kl button, .kl input, .kl select { font: inherit; color: inherit; }
+.kl .muted { color: var(--muted); }
+
+/* barra: cerca + fornitore + categoria + stato + conteggio */
+.kl-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 0 0 16px; }
+.kl-search { position: relative; flex: 1; min-width: 200px; }
+.kl-search svg { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--faint); pointer-events: none; }
+.kl-search input { width: 100%; min-height: 50px; padding: 12px 16px 12px 44px; border-radius: var(--ctl-r); corner-shape: squircle; border: 1px solid var(--line);
+  background: var(--bg-2); font-size: 16px; outline: none; transition: border-color 0.15s; }
+.kl-search input::placeholder { color: var(--faint); }
+.kl-search input:focus { border-color: var(--text); }
+.kl-sel { position: relative; display: inline-flex; }
+.kl-sel select { appearance: none; -webkit-appearance: none; min-height: var(--btn-h); padding: 0 40px 0 14px; border: 1px solid var(--line); background: var(--bg-2);
+  font-size: 15px; font-weight: 700; cursor: pointer; border-radius: var(--ctl-r); corner-shape: squircle; transition: border-color 0.15s; outline: none; }
+.kl-sel select:hover, .kl-sel select:focus { border-color: var(--text); }
+.kl-sel svg { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--muted); pointer-events: none; }
+.kl-count { font-size: 14px; color: var(--muted); }
+
+/* tabella */
+.kl-card { background: var(--card); border-radius: var(--r); padding: 18px; }
+.kl-empty { text-align: center; color: var(--muted); padding: 28px 18px; }
+.kl-tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.kl-tbl th { text-align: left; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 10px 12px;
+  border-bottom: 1px solid var(--line); white-space: nowrap; background: none; }
+.kl-tbl td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; background: none; }
+.kl-tbl tr:last-child td { border-bottom: 0; }
+.kl-tbl .num { text-align: right; }
+.kl-tbl tr.off td { opacity: 0.5; }
+.kl-tbl .kl-name { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.kl-tbl .kl-name:hover { text-decoration: underline; }
+@media (min-width: 701px) { .kl-tbl td.full { width: 100%; max-width: 0; } }
+
+/* bottone a cerchio di Kamon (ArrowButton) */
+.kl .btn-x { --x-h: var(--btn-h); --x-r: 14px; position: relative; display: inline-flex; align-items: center; height: var(--x-h);
+  padding: 0 20px 0 calc(var(--x-h) + 12px); border: 2px solid var(--accent); border-radius: var(--x-r); corner-shape: squircle;
+  background: transparent; cursor: pointer; white-space: nowrap; font-family: var(--body); font-weight: 800; font-size: 14px;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); -webkit-tap-highlight-color: transparent; overflow: hidden; isolation: isolate; }
+.kl .btn-x-circle { position: absolute; left: -2px; top: -2px; bottom: -2px; width: var(--x-h); border-radius: var(--x-r); corner-shape: squircle;
+  background: var(--accent); transition: width 0.45s cubic-bezier(0.65, 0, 0.076, 1); z-index: -1; }
+.kl .btn-x-arrow { position: absolute; top: 50%; left: calc(var(--x-h) / 2 - 10px); width: 18px; height: 2px; margin-top: -1px; background: transparent;
+  transition: transform 0.45s cubic-bezier(0.65, 0, 0.076, 1), background 0.45s cubic-bezier(0.65, 0, 0.076, 1); }
+.kl .btn-x-arrow::before { content: ''; position: absolute; top: -4px; right: 1px; width: 8px; height: 8px;
+  border-top: 2px solid var(--on-accent); border-right: 2px solid var(--on-accent); transform: rotate(45deg); }
+.kl .btn-x-text { position: relative; transition: color 0.45s cubic-bezier(0.65, 0, 0.076, 1); }
+.kl .btn-x:hover .btn-x-circle, .kl .btn-x:focus-visible .btn-x-circle { width: calc(100% + 4px); }
+.kl .btn-x:hover .btn-x-arrow, .kl .btn-x:focus-visible .btn-x-arrow { background: var(--on-accent); transform: translateX(4px); }
+.kl .btn-x:hover .btn-x-text, .kl .btn-x:focus-visible .btn-x-text { color: var(--on-accent); }
+.kl .btn-x:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+@media (prefers-reduced-motion: reduce) { .kl .btn-x-circle, .kl .btn-x-arrow, .kl .btn-x-text { transition: none; } }
+
+/* telefono: ogni prodotto è una scheda */
+@media (max-width: 700px) {
+  .kl { padding: 14px 14px 18px; border-radius: 16px; }
+  .kl-card { padding: 4px 14px; }
+  .kl-tbl thead { display: none; }
+  .kl-tbl, .kl-tbl tbody, .kl-tbl tr, .kl-tbl td { display: block; }
+  .kl-tbl tr { padding: 12px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
+  .kl-tbl tr:last-child { border-bottom: 0; }
+  .kl-tbl td { padding: 0; border: 0; white-space: normal; }
+  .kl-tbl td.full { grid-column: 1 / -1; }
+  .kl-tbl td[data-l]::before { content: attr(data-l) ' '; color: var(--muted); font-size: 12px; }
+}

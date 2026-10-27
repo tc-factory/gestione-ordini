@@ -73,52 +73,43 @@ function renderProductList() {
       .some(v => (v || '').toLowerCase().includes(q));
   });
 
-  const cell = (v) => v ? escapeHtml(v) : '<span class="muted">—</span>';
-  // come in Kamon: righe tutte alte uguali, sotto la descrizione solo quanti colori e da che taglia a che taglia
+  // stessa lista di Kamon: stessa grafica (css/kamon-prodotti.css), righe tutte alte uguali, dei colori solo quanti sono
+  const dash = (v) => v ? escapeHtml(v) : '—';
+  const chevron = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+  const select = (label, onchange, options) => `
+    <span class="kl-sel"><select aria-label="${label}" onchange="${onchange}(this.value)">${options}</select>${chevron}</span>`;
   const rows = list.map(p => `
-    <tr class="data-row prod-row ${p.attivo ? '' : 'row-muted'}" tabindex="0" onclick="openProductForm('${p.id}')" onkeydown="if(event.key==='Enter')openProductForm('${p.id}')">
-      <td data-label="Fornitore">${cell(TCFactory.supplierName(p.fornitore_id))}</td>
-      <td data-label="Codice"><strong>${cell(p.codice)}</strong></td>
-      <td class="prod-desc"><strong class="prod-line">${cell(p.descrizione)}</strong><small class="prod-line muted">${escapeHtml(productSummary(p))}</small></td>
-      <td data-label="Categoria">${cell(TCFactory.productCategoryName(p.categoria_id))}</td>
-      ${showCost ? `<td class="num" data-label="Costo">${p.costo !== null ? euro(p.costo) : '—'}</td>` : ''}
-      <td class="num" data-label="Prezzo"><strong>${p.prezzo !== null ? euro(p.prezzo) : '—'}</strong></td>
-      <td class="cell-action" onclick="event.stopPropagation()">
-        <button type="button" class="btn btn-secondary btn-sm" onclick="openProductForm('${p.id}')">Modifica</button>
-      </td>
+    <tr class="${p.attivo ? '' : 'off'}">
+      <td data-l="">${dash(TCFactory.supplierName(p.fornitore_id))}</td>
+      <td data-l=""><b>${dash(p.codice)}</b></td>
+      <td class="full"><span class="kl-name" onclick="openProductForm('${p.id}')">${escapeHtml(p.descrizione)}</span></td>
+      <td data-l="Colori">${productColorCount(p)}</td>
+      <td data-l="">${dash(TCFactory.productCategoryName(p.categoria_id))}</td>
+      ${showCost ? `<td class="num" data-l="Costo">${klEur(p.costo)}</td>` : ''}
+      <td class="num" data-l="Prezzo"><b>${klEur(p.prezzo)}</b></td>
+      <td data-l=""><button type="button" class="btn-x" onclick="openProductForm('${p.id}')"><span class="btn-x-circle" aria-hidden="true"><span class="btn-x-arrow"></span></span><span class="btn-x-text">Modifica</span></button></td>
     </tr>`).join('');
 
   return `
-    <div class="glass-card page-card list-shell">
-      <div class="table-toolbar">
-        <div class="search-box">
-          ${Icons.search()}
-          <input id="product-search" type="text" placeholder="Cerca fornitore, codice, descrizione…" value="${escapeHtml(ProductState.search)}" oninput="setProductSearch(this.value)">
-        </div>
-        <select class="form-select" style="width:auto;" aria-label="Fornitore" onchange="setProductFornitore(this.value)">
-          <option value="">Tutti i fornitori</option>
+    <div class="kl">
+      <div class="kl-toolbar">
+        <label class="kl-search"><span class="sr-only">Cerca</span>${Icons.search(18)}
+          <input id="product-search" type="search" placeholder="Cerca codice, descrizione, colore…" value="${escapeHtml(ProductState.search)}" oninput="setProductSearch(this.value)"></label>
+        ${select('Fornitore', 'setProductFornitore', `<option value="">Tutti i fornitori</option>
           ${fornitori.map(f => `<option value="${f.id}" ${ProductState.fornitore === f.id ? 'selected' : ''}>${escapeHtml(f.nome)}</option>`).join('')}
-          <option value="-" ${ProductState.fornitore === '-' ? 'selected' : ''}>Senza fornitore</option>
-        </select>
-        <select class="form-select" style="width:auto;" aria-label="Categoria" onchange="setProductCategoria(this.value)">
-          <option value="">Tutte le categorie</option>
+          <option value="-" ${ProductState.fornitore === '-' ? 'selected' : ''}>Senza fornitore</option>`)}
+        ${select('Categoria', 'setProductCategoria', `<option value="">Tutte le categorie</option>
           ${cats.map(c => `<option value="${c.id}" ${ProductState.categoria === c.id ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`).join('')}
-          <option value="-" ${ProductState.categoria === '-' ? 'selected' : ''}>Senza categoria</option>
-        </select>
-        <select class="form-select" style="width:auto;" aria-label="Stato" onchange="setProductStato(this.value)">
-          ${[['attivi','Attivi'],['disattivi','Disattivi'],['tutti','Tutti']].map(([id, l]) => `<option value="${id}" ${ProductState.stato === id ? 'selected' : ''}>${l}</option>`).join('')}
-        </select>
-        <span class="table-count">${list.length} di ${all.length}</span>
+          <option value="-" ${ProductState.categoria === '-' ? 'selected' : ''}>Senza categoria</option>`)}
+        ${select('Stato', 'setProductStato', [['attivi','Attivi'],['disattivi','Disattivi'],['tutti','Tutti']].map(([id, l]) =>
+          `<option value="${id}" ${ProductState.stato === id ? 'selected' : ''}>${l}</option>`).join(''))}
+        <span class="kl-count">${list.length} di ${all.length}</span>
       </div>
-      ${all.length === 0 ? `
-        <div class="empty-list">
-          Nessun prodotto ancora.<br><br>
-          <button class="btn btn-primary" onclick="openProductForm()">${Icons.plus()} Crea il primo prodotto</button>
-        </div>` : list.length === 0 ? `<div class="empty-list">Nessun risultato.</div>` : `
-      <div class="table-scroll">
-        <table class="data-table cards-sm prod-table">
+      ${list.length === 0 ? `<div class="kl-card kl-empty">${all.length ? 'Nessun prodotto per questa ricerca.' : 'Nessun prodotto ancora: creane uno.'}</div>` : `
+      <div class="kl-card">
+        <table class="kl-tbl">
           <thead><tr>
-            <th>Fornitore</th><th>Codice</th><th>Descrizione</th><th>Categoria</th>
+            <th>Fornitore</th><th>Codice</th><th>Descrizione</th><th>Colori</th><th>Categoria</th>
             ${showCost ? '<th class="num">Costo</th>' : ''}<th class="num">Prezzo</th><th><span class="sr-only">Apri</span></th>
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -127,12 +118,13 @@ function renderProductList() {
     </div>`;
 }
 
-// "12 colori · XS–5XL"
-function productSummary(p) {
-  const lista = (s) => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
-  const n = lista(p.colori).length, t = lista(p.taglie);
-  return [n ? `${n} ${n === 1 ? 'colore' : 'colori'}` : 'Nessun colore', t.length > 1 ? `${t[0]}–${t[t.length - 1]}` : t[0]].filter(Boolean).join(' · ');
+// "12 colori": solo quanti sono
+function productColorCount(p) {
+  const n = String(p.colori || '').split(',').map(x => x.trim()).filter(Boolean).length;
+  return n ? `${n} ${n === 1 ? 'colore' : 'colori'}` : '—';
 }
+// 3,20 € come in Kamon
+const klEur = (n) => (n === null || n === undefined) ? '—' : Number(n).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
 
 async function toggleProductActive(id, attivo) {
   try { await TCFactory.saveProduct(id, { attivo }); }
