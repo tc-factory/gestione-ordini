@@ -1,19 +1,13 @@
-/* Lista prodotti con la stessa grafica di Kamon (stessi colori, caratteri, tabella e bottoni).
+/* Lista prodotti con la grafica di Kamon (caratteri, tabella, bottoni, accento rosso) e i colori del gestionale.
    Tutto sotto .kl: il resto del gestionale non cambia. Le regole vengono da kamon/app/globals.css. */
 .kl {
-  /* tema chiaro di Kamon (quello scuro sotto, con html.dark come il resto del gestionale) */
-  --bg: #f4f1ea; --bg-2: #ffffff; --card: #fbfaf6; --card-2: #e9e5dc; --line: #dad5ca;
-  --text: #141414; --muted: #5d5d63; --faint: #8c8c92; --accent: #c8302a; --on-accent: #ffffff;
+  /* colori del gestionale (seguono il suo tema chiaro/scuro), accento rosso di Kamon */
+  --bg: transparent; --bg-2: var(--bg-card); --card: var(--bg-card); --line: var(--border);
+  --text: var(--text-primary); --muted: var(--text-secondary); --faint: var(--text-muted); --accent: #c8302a; --on-accent: #ffffff;
   --btn-h: 44px; --r: 20px; --ctl-r: 14px;
   --body: 'Figtree', system-ui, -apple-system, sans-serif;
-  color-scheme: light; background: var(--bg); color: var(--text); font-family: var(--body);
-  border-radius: var(--r); padding: 20px 24px 24px; min-height: calc(100dvh - 140px);
-}
-/* tema scuro del gestionale → tema scuro di Kamon */
-html.dark .kl {
-  --bg: #141414; --bg-2: #131315; --card: #1a1a1d; --card-2: #222226; --line: #2b2b30;
-  --text: #f4f1ea; --muted: #a19d95; --faint: #6c6c73;
-  color-scheme: dark;
+  background: var(--bg); color: var(--text); font-family: var(--body);
+  padding: 0;
 }
 .kl *, .kl *::before, .kl *::after { box-sizing: border-box; }
 .kl button, .kl input, .kl select { font: inherit; color: inherit; }
@@ -70,7 +64,6 @@ html.dark .kl {
 
 /* telefono: ogni prodotto è una scheda */
 @media (max-width: 700px) {
-  .kl { padding: 14px 14px 18px; border-radius: 16px; }
   .kl-card { padding: 4px 14px; }
   .kl-tbl thead { display: none; }
   .kl-tbl, .kl-tbl tbody, .kl-tbl tr, .kl-tbl td { display: block; }
