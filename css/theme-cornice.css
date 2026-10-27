@@ -1000,6 +1000,13 @@ html.dark .dtf-item.dtf-urgent .dtf-stats { background: rgba(0, 0, 0, 0.2); }
 .of-suggest .of-sug-new { color: var(--accent-ink); font-weight: 600; }
 .of-client-linked { display: block; min-height: 1.1em; margin-top: 4px; font-size: 0.74rem; color: var(--text-muted); }
 .of-client-linked.on { color: #16A34A; }
+.of-photo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--bg-secondary); }
+.of-photo .btn { flex: none; }
+.of-photo-msg { flex: 1; min-width: 200px; font-size: 0.78rem; color: var(--text-muted); }
+.of-photo.done { border-style: solid; border-color: #16A34A; }
+.of-photo.done .of-photo-msg { color: #16A34A; }
+.of-photo.warn { border-style: solid; border-color: #D97706; }
+.of-photo.warn .of-photo-msg { color: #B45309; }
 
 .of-urgent {
   display: inline-flex; align-items: center; gap: 9px; height: 42px; padding: 0 16px;
