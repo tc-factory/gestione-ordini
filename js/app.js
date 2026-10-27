@@ -1001,6 +1001,7 @@ function renderOrderDetail() {
               <span class="stage-label ${state.done ? 'done' : ''}">
                 <span>${escapeHtml(Pulsanti.nome(s))}</span>
                 ${state.done && state.date ? `<span class="stage-date">${TCFactory.formatDate(state.date)}</span>` : ''}
+                ${state.mezzo ? `<span class="stage-date stage-date-mezzo">${escapeHtml(s.intermedio || 'In corso')}${state.mezzoDate ? ' ' + TCFactory.formatDate(state.mezzoDate) : ''}</span>` : ''}
               </span>
             </label>`;
         }).join('')}

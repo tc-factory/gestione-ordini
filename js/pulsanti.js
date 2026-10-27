@@ -11,6 +11,8 @@
  *  - intermedio:   nome del passaggio intermedio (es. "Stampa"): il primo clic lo fa diventare giallo
  *                  con questo nome, il secondo verde (fatto), il terzo toglie la spunta.
  *                  Il passaggio si salva in o.stages["mezzo:<id pulsante>"]
+ *                  Le lavorazioni esterne ('esterne:…') hanno sempre il passaggio giallo (anche senza nome):
+ *                  primo clic giallo con la data, secondo verde con la data.
  *  - rigaGialla:   true = fatto ma con altre lavorazioni dell'ordine ancora da fare → riga gialla;
  *                  anche se fatto finché la lavorazione non è chiusa (l'ordine va in Evasione)
  *  - abilita:      cliccabile solo se { se: <condizione, vedi PULSANTI_ABILITA>, pulsante: <id> }
@@ -242,9 +244,11 @@ const Pulsanti = {
     let v;
     if (sid) { const st = o.stages?.[sid]; v = st?.done ? (st.date || true) : null; }
     else { const l = this.link(p); v = lavTipoDone(o, l.kind, l.id); }
-    const mezzo = !v && !!p.intermedio && !!o.stages?.[this.mezzoKey(p)];
-    return { done: !!v, date: typeof v === 'string' ? v : null, mezzo };
+    const m = !v && this.haMezzo(p) ? o.stages?.[this.mezzoKey(p)] : null;
+    return { done: !!v, date: typeof v === 'string' ? v : null, mezzo: !!m, mezzoDate: m?.date || null };
   },
+  // Pulsante con il passaggio intermedio giallo: se ha un nome, o se è una lavorazione esterna
+  haMezzo(p) { return !!p.intermedio || this.link(p)?.kind === 'esterne'; },
   // Passaggio intermedio (giallo) del pulsante, salvato tra le fasi dell'ordine
   mezzoKey(p) { return `mezzo:${p.id}`; },
   etichetta(o, p) {
@@ -315,7 +319,7 @@ const Pulsanti = {
     const { [key]: _, ...stages } = o.stages || {};
     if (on) stages[key] = { date: localISODate(new Date()) };
     await TCFactory.updateOrder(orderId, { stages });
-    if (on) TCFactory._log(`◐ ${p.intermedio}`, orderId, o.nome, { stage: key, done: false });
+    if (on) TCFactory._log(`◐ ${p.intermedio || this.nome(p)}`, orderId, o.nome, { stage: key, done: false });
   },
   // Spunta tutti i pulsanti visibili con un certo ruolo (Sposta in… dal dettaglio ordine)
   async setRuolo(orderId, ruolo, done) {
@@ -330,7 +334,7 @@ const Pulsanti = {
     if (!o || !p) return;
     if (done && !this.cliccabile(o, p)) { showToast(this.motivo(p), 'error'); return; }
     // Con il passaggio intermedio il primo clic lo fa diventare giallo, il secondo verde
-    if (done && p.intermedio && !this.stato(o, p).mezzo) { await this.setMezzo(orderId, p, true); return; }
+    if (done && this.haMezzo(p) && !this.stato(o, p).mezzo) { await this.setMezzo(orderId, p, true); return; }
     const wasPaid = !!o.paymentDone, wasEvaso = this.isEvaso(o);
     await this.set(orderId, p, done);
     if (p.ruolo === 'parziale' && !done && wasEvaso) {
@@ -357,8 +361,8 @@ function pulsantiPills(o, colonna, filtro = () => true) {
     return `<div class="stage-cell">
       <button class="stage-pill ${st.done ? 'done' : ''} ${st.mezzo ? 'mezzo' : ''} ${locked ? 'locked' : ''}"
         onclick="event.stopPropagation();${locked ? '' : `pulsanteToggle('${o.id}','${escapeHtml(p.id)}',${!st.done})`}" ${locked ? 'aria-disabled="true"' : ''}
-        title="${escapeHtml(locked ? Pulsanti.motivo(p) : Pulsanti.nome(p) + (st.done ? ' — fatto' : st.mezzo ? ` — ${p.intermedio}: clic per segnarlo fatto` : ''))}">${escapeHtml(Pulsanti.etichetta(o, p))}</button>
-      <span class="pill-date">${st.date ? TCFactory.formatDate(st.date, { day: '2-digit', month: '2-digit' }) : ''}</span>
+        title="${escapeHtml(locked ? Pulsanti.motivo(p) : Pulsanti.nome(p) + (st.done ? ' — fatto' : st.mezzo ? ` — ${p.intermedio || 'in corso'}: clic per segnarlo fatto` : ''))}">${escapeHtml(Pulsanti.etichetta(o, p))}</button>
+      <span class="pill-date">${(st.date || st.mezzoDate) ? TCFactory.formatDate(st.date || st.mezzoDate, { day: '2-digit', month: '2-digit' }) : ''}</span>
     </div>`;
   }).join('');
 }
