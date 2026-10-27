@@ -1152,6 +1152,12 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
       </div>
       <div class="modal-body order-form">
 
+        <div class="of-photo" id="of-photo">
+          <input type="file" id="of-photo-input" multiple accept="image/*" style="display:none;" onchange="ofReadPhotos(event)">
+          <button type="button" class="btn btn-secondary btn-sm" id="of-photo-btn" onclick="document.getElementById('of-photo-input').click()">📷 Compila da foto</button>
+          <span class="of-photo-msg" id="of-photo-msg" role="status">Carica le foto del foglio scritto a mano: compilo cliente, date, note e prodotti, poi controlli tu.</span>
+        </div>
+
         <div class="of-grid of-grid-2">
           <div class="form-group of-client-group">
             <label class="form-label" for="of-nome">Cliente *</label>
@@ -1605,6 +1611,129 @@ function renderFormFilesList() {
 
 function removeFormFile(i) {
   AppState.formFiles.splice(i, 1);
+  renderFormFilesList();
+}
+
+// ── Compila da foto (funzione order-from-photo su Supabase) ──
+// Le foto del foglio scritto a mano vanno a Claude, che restituisce i campi del form e le righe
+// del modulo; i prodotti riconosciuti si completano dall'anagrafica. Le foto restano negli allegati.
+
+const OF_PHOTO_MAX = 6;
+
+// Foto ridotta a 1600px in JPEG: basta per leggere la scrittura e resta leggera
+function ofPhotoBase64(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const s = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.naturalWidth * s);
+      canvas.height = Math.round(img.naturalHeight * s);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.85).split(',')[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(`${file.name}: formato non leggibile`)); };
+    img.src = url;
+  });
+}
+
+async function ofReadPhotos(event) {
+  const files = Array.from(event.target.files || []).filter(f => f.type.startsWith('image/'));
+  event.target.value = '';
+  if (!files.length) return;
+  if (files.length > OF_PHOTO_MAX) { showToast(`Al massimo ${OF_PHOTO_MAX} foto per volta`, 'error'); return; }
+  const btn = document.getElementById('of-photo-btn');
+  const msg = document.getElementById('of-photo-msg');
+  const box = document.getElementById('of-photo');
+  if (btn) { btn.disabled = true; btn.textContent = 'Lettura in corso…'; }
+  if (msg) msg.textContent = `Leggo ${files.length === 1 ? 'la foto' : `${files.length} foto`}: ci vuole qualche secondo…`;
+  box?.classList.remove('done', 'warn');
+  try {
+    const immagini = await Promise.all(files.map(async f => ({ media_type: 'image/jpeg', data: await ofPhotoBase64(f) })));
+    const clienti = TCFactory.getClients().map(c => TCFactory.clientName(c)).filter(Boolean);
+    const prodotti = TCFactory.getProducts().filter(p => p.attivo && p.codice)
+      .map(p => [p.codice, p.descrizione, TCFactory.supplierName(p.fornitore_id)].filter(Boolean).join(' · '));
+    const { data, error } = await supabaseClient.functions.invoke('order-from-photo', {
+      body: { immagini, clienti, prodotti, oggi: TCFactory.getDefaultDate() },
+    });
+    if (error || !data?.success) {
+      let m = data?.error;
+      if (!m && error?.context?.json) { try { m = (await error.context.json()).error; } catch {} }
+      throw new Error(m || 'Lettura non riuscita');
+    }
+    const n = ofApplyPhotoOrder(data.ordine || {});
+    const dubbi = String(data.ordine?.dubbi || '').trim();
+    if (msg) msg.textContent = `Compilato dalla foto: ${n} ${n === 1 ? 'riga' : 'righe'} nel modulo. Controlla prima di salvare.` + (dubbi ? ` Da verificare: ${dubbi}` : '');
+    box?.classList.add(dubbi ? 'warn' : 'done');
+    ofAttachPhotos(files);
+  } catch (e) {
+    if (msg) msg.textContent = e.message || 'Lettura non riuscita';
+    box?.classList.add('warn');
+    showToast(e.message || 'Lettura non riuscita', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📷 Compila da foto'; }
+  }
+}
+
+function ofApplyPhotoOrder(o) {
+  const text = (v) => String(v ?? '').trim();
+  const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(text(v));
+  const set = (id, v) => { const el = document.getElementById(id); if (el && text(v)) el.value = text(v); };
+
+  if (text(o.cliente)) {
+    const c = ofMatchClient(o.cliente);
+    if (c) ofPickClient(c.id);
+    else { set('of-nome', ofUpper(o.cliente)); AppState.formClientId = null; ofShowLinkedClient(); }
+  }
+  if (!text(document.getElementById('of-descrizione')?.value)) set('of-descrizione', o.descrizione);
+  if (isDate(o.data_ordine)) set('of-data', o.data_ordine);
+  if (isDate(o.deadline)) set('of-deadline', o.deadline);
+  const urgent = document.getElementById('of-urgent');
+  if (o.urgente && urgent && !urgent.checked) { urgent.checked = true; ofUrgentChange(true); }
+  ofCheckDeadline();
+  if (text(o.note)) {
+    const notes = document.getElementById('of-notes');
+    if (notes) notes.value = [text(notes.value), text(o.note)].filter(Boolean).join('\n');
+  }
+
+  // Righe nel modulo d'ordine: le righe vuote lasciano il posto a quelle lette
+  const rows = (Array.isArray(o.righe) ? o.righe : []).map(r => {
+    const row = { catalogo: text(r.catalogo), codice: text(r.codice), descrizione: text(r.descrizione), colore: text(r.colore),
+      qnt: Number(r.qnt) > 0 ? Number(r.qnt) : '', tg: text(r.tg), prezzo: Number(r.prezzo) > 0 ? Number(r.prezzo) : '',
+      ordinato: false, interna: '', esterna: '', lavEsterna: false, neutro: false };
+    const p = modProductByCode(row.codice);
+    if (p) {
+      row.productId = p.id;
+      row.codice = p.codice;
+      row.catalogo = TCFactory.supplierName(p.fornitore_id) || row.catalogo;
+      row.descrizione = p.descrizione || row.descrizione;
+      if (row.prezzo === '' && p.prezzo !== null && p.prezzo !== undefined) row.prezzo = p.prezzo;
+    }
+    return row;
+  }).filter(r => r.catalogo || r.codice || r.descrizione || r.qnt);
+  if (rows.length) {
+    AppState.formModuleRows = AppState.formModuleRows
+      .filter(r => r.catalogo || r.codice || r.descrizione || r.qnt || r.prezzo || modGroup(r) > 0);
+    const firstInteg = AppState.formModuleRows.findIndex(r => modGroup(r) > 0);
+    AppState.formModuleRows.splice(firstInteg < 0 ? AppState.formModuleRows.length : firstInteg, 0, ...rows);
+    AppState.formModuleClosed = AppState.formModuleClosed.filter(g => g !== 0);
+    renderModuleRows();
+  }
+  return rows.length;
+}
+
+// Le foto del foglio restano tra gli allegati dell'ordine
+async function ofAttachPhotos(files) {
+  for (const f of files) {
+    try {
+      const file = await compressImageIfNeeded(f);
+      if (file.size > TCFactory.MAX_FILE_BYTES) continue;
+      const uploaded = await TCFactory.uploadFile(file);
+      AppState.formFiles.push({ ...uploaded, name: f.name });
+    } catch { showToast(`Non sono riuscito ad allegare ${f.name}`, 'error'); }
+  }
   renderFormFilesList();
 }
 
