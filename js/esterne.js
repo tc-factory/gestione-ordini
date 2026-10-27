@@ -5,6 +5,7 @@
  * Le lavorazioni si creano in Impostazioni → Lavorazioni.
  * "Completata" è per tipo (orderModule.esterneFatte, come i pulsanti nella lista ordini);
  * la fase lavorazioneEsterna si completa quando tutti i tipi dell'ordine sono fatti.
+ * Come i pulsanti della lista: primo clic giallo (in corso, con la data), secondo verde (completata).
  */
 
 const EsterneState = { tab: 'todo' };
@@ -39,6 +40,10 @@ function esterneGroups() {
   return [...groups.values()].sort((a, b) => rank(a) - rank(b) || a.nome.localeCompare(b.nome, 'it'));
 }
 
+// Pulsante della lista ordini collegato al gruppo (per il passaggio giallo)
+const esternePulsante = (gid) => gid === DA_SPECIFICARE ? Pulsanti.byStage('lavorazioneEsterna')
+  : Pulsanti.all().find(p => Pulsanti.linkKey(p) === `esterne:${gid}`) || null;
+
 // Per gruppo: tipo spuntato (o fase "Esterna" completata); "Da specificare" usa la fase
 const esterneDone = (o, id) => id && id !== DA_SPECIFICARE ? !!lavTipoDone(o, 'esterne', id) : !!o.stages?.lavorazioneEsterna?.done;
 
@@ -63,6 +68,8 @@ function renderEsternePage() {
     const client = TCFactory.getClient(o.clientId);
     const st = gid === DA_SPECIFICARE ? o.stages?.lavorazioneEsterna : { date: lavTipoDone(o, 'esterne', gid) };
     const lines = rowsText(rows);
+    const p = esternePulsante(gid);
+    const mezzo = !done && p ? Pulsanti.stato(o, p) : null;
     return `
       <li class="dtf-item est-item ${isUrgentOrder(o) ? 'dtf-urgent' : ''}">
         <div class="dtf-when ${!done && dl && dl.date < today ? 'late' : ''}" title="Scadenza">
@@ -80,7 +87,10 @@ function renderEsternePage() {
         ${done
           ? `<span class="est-done-date">${typeof st?.date === 'string' ? 'Completata ' + fmt(st.date) : 'Completata'}</span>
              <button type="button" class="btn btn-ghost btn-sm" onclick="esterneToggle('${o.id}', false, '${escapeHtml(gid)}')">Riapri</button>`
-          : `<button type="button" class="btn btn-sm dtf-done-btn" onclick="esterneToggle('${o.id}', true, '${escapeHtml(gid)}')">${Icons.checkCircle('currentColor', 15)} Completata</button>`}
+          : mezzo?.mezzo
+            ? `<span class="est-mezzo-date">In corso${mezzo.mezzoDate ? ' dal ' + fmt(mezzo.mezzoDate) : ''}</span>
+               <button type="button" class="btn btn-sm dtf-done-btn" onclick="esterneToggle('${o.id}', true, '${escapeHtml(gid)}')">${Icons.checkCircle('currentColor', 15)} Completata</button>`
+            : `<button type="button" class="btn btn-sm est-mezzo-btn" onclick="esterneToggle('${o.id}', true, '${escapeHtml(gid)}')">In corso</button>`}
       </li>`;
   };
 
@@ -122,7 +132,9 @@ function renderEsternePage() {
 function esterneTab(tab) { EsterneState.tab = tab; renderEsternePage(); }
 
 async function esterneToggle(orderId, done, gid) {
-  if (gid && gid !== DA_SPECIFICARE) await toggleLavTipoInline(orderId, 'esterne', gid, done);
+  const p = esternePulsante(gid);
+  if (p) await pulsanteToggle(orderId, p.id, done);
+  else if (gid && gid !== DA_SPECIFICARE) await toggleLavTipoInline(orderId, 'esterne', gid, done);
   else await toggleStageInline(orderId, 'lavorazioneEsterna', done);
   renderEsternePage();
 }

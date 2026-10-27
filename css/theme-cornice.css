@@ -1080,6 +1080,10 @@ html.dark .dtf-item.dtf-urgent .dtf-stats { background: rgba(0, 0, 0, 0.2); }
 .est-rows span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .est-rows small { color: var(--text-muted); font-size: 0.72rem; }
 .est-done-date { font-size: 0.76rem; color: #16A34A; font-weight: 600; white-space: nowrap; }
+.est-mezzo-date { font-size: 0.76rem; color: #B45309; font-weight: 600; white-space: nowrap; }
+html.dark .est-mezzo-date { color: #facc15; }
+.est-mezzo-btn { background: #eab3081f; border: 1px solid #eab308aa; color: #b45309; }
+html.dark .est-mezzo-btn { color: #facc15; }
 @media (max-width: 640px) { .est-rows { flex-basis: 100%; } }
 .est-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .est-bar + .est-hint, .est-bar + .est-jump { margin-top: 12px; }

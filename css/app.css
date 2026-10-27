@@ -742,6 +742,8 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .stage-label { flex: 1; display: flex; align-items: center; justify-content: space-between; font-size: 0.88rem; }
 .stage-label.done { font-weight: 600; }
 .stage-date { font-size: 0.72rem; color: var(--text-muted); }
+.stage-date-mezzo { color: #b45309; font-weight: 600; }
+html.dark .stage-date-mezzo { color: #facc15; }
 
 .completed-banner {
   display: flex;
