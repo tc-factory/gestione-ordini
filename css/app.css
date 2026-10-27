@@ -2343,3 +2343,9 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
   .modal-overlay:has(.modal-wide) { padding: 0; }
   .modal.modal-wide { max-height: 92vh; }
 }
+
+/* Lista prodotti come in Kamon: righe alte uguali, descrizione su una riga */
+.prod-table .prod-line { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prod-table small.prod-line { font-size: 12px; margin-top: 2px; }
+.prod-table td { white-space: nowrap; }
+@media (min-width: 641px) { .prod-table td.prod-desc { width: 100%; max-width: 0; } }
