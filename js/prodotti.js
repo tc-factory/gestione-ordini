@@ -2,7 +2,8 @@
  * T&C Factory — Prodotti
  * Anagrafica articoli: fornitore, codice, descrizione, categoria, colori, taglie, costo, prezzo, attivo.
  * Le categorie si creano e si gestiscono da qui (pulsante "Categorie"),
- * i fornitori nella sottopagina #/prodotti/fornitori.
+ * i fornitori nella sottopagina #/prodotti/fornitori, gli articoli trovati negli
+ * ordini e non ancora in anagrafica in #/prodotti/da-inserire.
  */
 
 const ProductState = {
@@ -29,6 +30,7 @@ function renderProductsPage() {
   const root = document.getElementById('prodotti-root');
   if (!root) return;
   if (Nav.param === 'fornitori' && TCFactory.isProductsAvailable()) { root.innerHTML = renderSuppliersPage(); return; }
+  if (Nav.param === 'da-inserire' && TCFactory.isProductsAvailable()) { root.innerHTML = renderPendingProductsPage(); return; }
 
   if (!TCFactory.isProductsAvailable()) {
     root.innerHTML = `
@@ -136,11 +138,13 @@ async function toggleProductActive(id, attivo) {
 // ─────────────────────────────────────────────
 
 let _pfNewSupplier = '';   // fornitore da creare al salvataggio (import da link)
+let _pfPendingId = null;   // riga di "Prodotti da inserire" da togliere al salvataggio
 
 // prefill: campi già compilati per un prodotto nuovo (es. importato da un link)
 function openProductForm(id = null, prefill = null) {
   const p = id ? TCFactory.getProduct(id) : prefill;
   _pfNewSupplier = (!id && prefill?._fornitoreNuovo) || '';
+  _pfPendingId = (!id && prefill?._pendingId) || null;
   const showCost = TCAuth.canViewEconomics();
   const v = (k) => escapeHtml(ofUpper(p?.[k] ?? ''));
   const input = (k, label, attrs = '') => `
@@ -288,6 +292,7 @@ async function submitProductForm(id) {
       fields.fornitore_id = (TCFactory.findSupplierByName(_pfNewSupplier) || await TCFactory.saveSupplier(null, { nome: _pfNewSupplier })).id;
     }
     const saved = await TCFactory.saveProduct(id, fields);
+    if (!id && _pfPendingId) TCFactory.deleteProductPending(_pfPendingId).catch(() => {});
     closeModal('product-form-modal');
     showToast(id ? 'Prodotto aggiornato' : `Prodotto "${TCFactory.productLabel(saved)}" creato`);
   } catch (e) {
@@ -578,6 +583,69 @@ async function confirmProductImport() {
     showToast(e?.code === '23505' ? 'Importazione annullata: un codice è già usato da un altro prodotto' : 'Importazione non riuscita — riprova', 'error');
     if (btn) { btn.disabled = false; btn.textContent = 'Riprova'; }
   }
+}
+
+// ─────────────────────────────────────────────
+// PRODOTTI DA INSERIRE (#/prodotti/da-inserire)
+// Articoli letti negli ordini (moduli e foto dei fogli) che non sono in anagrafica:
+// "Inserisci" apre la scheda del nuovo prodotto già compilata, e salvato sparisce da qui.
+// ─────────────────────────────────────────────
+
+function renderPendingProductsPage() {
+  const list = TCFactory.getProductsPending();
+  const dash = (v) => v ? escapeHtml(v) : '—';
+  const orderLinks = (ids) => (ids || []).map(id => {
+    const o = TCFactory.getOrderById(id);
+    return o ? `<button type="button" class="btn btn-ghost btn-sm" onclick="openOrderDetail('${escapeHtml(id)}')" title="${escapeHtml(o.nome || '')}">${escapeHtml(id)}</button>` : '';
+  }).join('') || '—';
+  const rows = list.map(x => `
+    <tr>
+      <td data-l="">${dash(x.fornitore)}</td>
+      <td data-l=""><b>${dash(x.codice)}</b></td>
+      <td class="full">${dash(x.descrizione)}</td>
+      <td data-l="Colori">${dash(x.colori)}</td>
+      <td data-l="Taglie">${dash(x.taglie)}</td>
+      <td data-l="Ordini">${orderLinks(x.ordini)}</td>
+      <td data-l="">
+        <button type="button" class="btn-x" onclick="insertPendingProduct('${x.id}')"><span class="btn-x-circle" aria-hidden="true"><span class="btn-x-arrow"></span></span><span class="btn-x-text">Inserisci</span></button>
+        <button type="button" class="btn-icon" onclick="discardPendingProduct('${x.id}')" aria-label="Scarta ${escapeHtml(x.codice)}" title="Scarta">${Icons.trash(14)}</button>
+      </td>
+    </tr>`).join('');
+  return `
+    <div class="kl">
+      <div class="kl-toolbar">
+        <span class="settings-section-hint" style="margin:0;">Articoli trovati negli ordini che non sono ancora tra i prodotti. Controlla i dati e inseriscili: una volta creato il prodotto, sparisce da qui.</span>
+        <span class="kl-count">${list.length} ${list.length === 1 ? 'prodotto' : 'prodotti'}</span>
+      </div>
+      ${list.length === 0 ? '<div class="kl-card kl-empty">Nessun prodotto da inserire.</div>' : `
+      <div class="kl-card">
+        <table class="kl-tbl">
+          <thead><tr><th>Fornitore</th><th>Codice</th><th>Descrizione</th><th>Colori</th><th>Taglie</th><th>Ordini</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`}
+    </div>`;
+}
+
+function insertPendingProduct(id) {
+  const x = TCFactory.getProductPending(id);
+  if (!x) return;
+  const f = x.fornitore ? TCFactory.findSupplierByName(x.fornitore) : null;
+  openProductForm(null, {
+    codice: x.codice, descrizione: x.descrizione, colori: x.colori, taglie: x.taglie,
+    fornitore_id: f?.id || null,
+    _fornitoreNuovo: !f && x.fornitore ? x.fornitore : '',
+    _pendingId: x.id,
+    _titolo: 'Inserisci prodotto',
+    _note: `Trovato negli ordini ${escapeHtml((x.ordini || []).join(', '))}: controlla codice, descrizione, colori e taglie, poi salva.`,
+  });
+}
+
+async function discardPendingProduct(id) {
+  const x = TCFactory.getProductPending(id);
+  if (!x || !confirm(`Togliere ${x.codice} dai prodotti da inserire?`)) return;
+  try { await TCFactory.deleteProductPending(id); showToast('Tolto dai prodotti da inserire'); }
+  catch (e) { showToast('Errore — riprova', 'error'); }
 }
 
 // ─────────────────────────────────────────────

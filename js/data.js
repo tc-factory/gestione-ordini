@@ -29,6 +29,7 @@ const TCFactory = {
   _products: [],
   _productCategories: [],
   _suppliers: [],
+  _productsPending: [],       // articoli trovati negli ordini e non in anagrafica (sql/prodotti-da-inserire.sql)
   _productsAvailable: false,  // false finché non è stato eseguito sql/prodotti-setup.sql
   _clientCatalog: [],
   _catalogUsers: [],
@@ -85,6 +86,7 @@ const TCFactory = {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products' },   (p) => this._handleRealtimeSimple(p, '_products', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'product_categories' }, (p) => this._handleRealtimeSimple(p, '_productCategories', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'suppliers' }, (p) => this._handleRealtimeSimple(p, '_suppliers', 'id'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products_pending' }, (p) => this._handleRealtimeSimple(p, '_productsPending', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'client_catalog' }, (p) => this._handleRealtimeSimple(p, '_clientCatalog', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'catalog_users' }, (p) => this._handleRealtimeSimple(p, '_catalogUsers', 'auth_id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, (p) => {
@@ -127,7 +129,7 @@ const TCFactory = {
   // Logout: svuota i dati in memoria e chiude il canale realtime
   reset() {
     if (this._channel) { try { supabaseClient.removeChannel(this._channel); } catch {} this._channel = null; }
-    Object.assign(this, { _orders: [], _priorities: [], _tags: [], _clients: [], _products: [], _productCategories: [], _suppliers: [], _clientCatalog: [], _catalogUsers: [], _calEvents: [], _settings: {}, _clientsAvailable: false, _productsAvailable: false, _catalogAvailable: false });
+    Object.assign(this, { _orders: [], _priorities: [], _tags: [], _clients: [], _products: [], _productCategories: [], _suppliers: [], _productsPending: [], _clientCatalog: [], _catalogUsers: [], _calEvents: [], _settings: {}, _clientsAvailable: false, _productsAvailable: false, _catalogAvailable: false });
   },
 
   onUpdate(fn) { this._listeners.push(fn); },
@@ -857,15 +859,17 @@ const TCFactory = {
   PRODUCT_TEXT_FIELDS: ['codice','descrizione','colori','taglie'],
 
   async loadProducts() {
-    const [prod, cats, sup] = await Promise.all([
+    const [prod, cats, sup, pend] = await Promise.all([
       supabaseClient.from('products').select('*'),
       supabaseClient.from('product_categories').select('*'),
       supabaseClient.from('suppliers').select('*'),
+      supabaseClient.from('products_pending').select('*'),
     ]);
     this._productsAvailable = !prod.error && !cats.error && !sup.error;
     this._products = this._productsAvailable ? (prod.data || []) : [];
     this._productCategories = this._productsAvailable ? (cats.data || []) : [];
     this._suppliers = this._productsAvailable ? (sup.data || []) : [];
+    this._productsPending = this._productsAvailable && !pend.error ? (pend.data || []) : [];
     return this._products;
   },
 
@@ -903,6 +907,23 @@ const TCFactory = {
     this._log(id ? 'Prodotto modificato' : 'Prodotto creato', null, this.productLabel(row), { productId: row.id });
     this._notify();
     return row;
+  },
+
+  // Prodotti da inserire: quelli il cui codice è già in anagrafica non contano più
+  getProductsPending() {
+    const codici = new Set(this._products.map(p => (p.codice || '').trim().toLowerCase()).filter(Boolean));
+    return this._productsPending
+      .filter(x => !codici.has((x.codice || '').trim().toLowerCase()))
+      .sort((a, b) => `${a.fornitore}\u0000${a.codice}`.localeCompare(`${b.fornitore}\u0000${b.codice}`, 'it', { numeric: true }));
+  },
+
+  getProductPending(id) { return this._productsPending.find(x => x.id === id) || null; },
+
+  async deleteProductPending(id) {
+    const { error } = await supabaseClient.from('products_pending').delete().eq('id', id);
+    if (error) throw error;
+    this._productsPending = this._productsPending.filter(x => x.id !== id);
+    this._notify();
   },
 
   async deleteProduct(id) {
