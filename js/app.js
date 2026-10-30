@@ -1791,16 +1791,113 @@ function modProductDatalist() {
     `<option value="${escapeHtml(p.codice)}" label="${escapeHtml([p.descrizione, TCFactory.supplierName(p.fornitore_id)].filter(Boolean).join(' · '))}"></option>`).join('');
 }
 
-// Colore / taglia: menu con le varianti del prodotto, altrimenti campo libero
+// Colore / taglia: si scrive e si sceglie tra le varianti del prodotto.
+// Per il colore valgono anche i sinonimi: «nero» trova BLACK o «036 Black».
 function modVariantField(i, r, field, list, cls = '') {
-  const opts = modSplitList(list);
   const cur = r[field] || '';
-  if (!opts.length) return `<input class="mod-input ${cls}" value="${escapeHtml(cur)}" oninput="storeMod(${i},'${field}',this.value)">`;
-  const all = cur && !opts.some(o => o.toLowerCase() === cur.toLowerCase()) ? [cur, ...opts] : opts;
-  return `<select class="mod-input mod-variant ${cls}" aria-label="${field === 'tg' ? 'Taglia' : 'Colore'}" onchange="storeMod(${i},'${field}',this.value)">
-    <option value="">—</option>
-    ${all.map(o => `<option value="${escapeHtml(o)}" ${o.toLowerCase() === cur.toLowerCase() ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}
-  </select>`;
+  if (!modSplitList(list).length) return `<input class="mod-input ${cls}" value="${escapeHtml(cur)}" oninput="storeMod(${i},'${field}',this.value)">`;
+  return `<input class="mod-input mod-variant ${cls}" autocomplete="off" value="${escapeHtml(cur)}"
+    aria-label="${field === 'tg' ? 'Taglia' : 'Colore'}" role="combobox" aria-autocomplete="list" aria-controls="mod-var-suggest"
+    oninput="modVarInput(${i},'${field}',this)" onfocus="modVarInput(${i},'${field}',this,true)"
+    onkeydown="modVarKey(event,${i},'${field}',this)" onblur="modVarCommit(${i},'${field}',this)">`;
+}
+
+// Varianti ordinate per somiglianza con quanto scritto (prima le più vicine)
+function modVarMatches(query, opts, field) {
+  const norm = typeof imgNorm === 'function' ? imgNorm : (s) => String(s || '').toLowerCase().trim();
+  const q = norm(query);
+  if (!q) return opts;
+  // Nomi equivalenti dei colori che iniziano con quanto scritto (ner → nero, black, noir)
+  const syn = field === 'colore' && typeof IMG_COLOR_GROUPS !== 'undefined'
+    ? IMG_COLOR_GROUPS.filter(g => g.some(n => n.startsWith(q))).flat() : [];
+  const score = (o) => {
+    const n = norm(o), t = ` ${n} `;
+    if (n === q) return 1000;
+    if (n.startsWith(q)) return 900 - n.length;
+    if (t.includes(` ${q}`)) return 800 - n.length;
+    const hit = syn.filter(x => t.includes(` ${x} `)).reduce((m, x) => Math.max(m, x.length), 0);
+    if (hit) return 500 + hit * 10 - n.length;
+    if (n.includes(q)) return 300 - n.length;
+    return 0;
+  };
+  return opts.map(o => ({ o, s: score(o) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.o);
+}
+
+function modVarOpts(i, field) {
+  const p = modProductByCode(AppState.formModuleRows[i]?.codice);
+  return modSplitList(p && (field === 'tg' ? p.taglie : p.colori));
+}
+
+function modVarInput(i, field, input, onFocus = false) {
+  if (!onFocus) storeMod(i, field, input.value);
+  const opts = modVarOpts(i, field);
+  const isExact = opts.some(o => o.toLowerCase() === input.value.trim().toLowerCase());
+  const matches = onFocus || isExact ? opts : modVarMatches(input.value, opts, field);
+  let list = document.getElementById('mod-var-suggest');
+  if (!list) {
+    list = document.createElement('ul');
+    list.id = 'mod-var-suggest'; list.className = 'of-suggest mod-var-suggest'; list.setAttribute('role', 'listbox');
+    document.body.appendChild(list);
+  }
+  if (!matches.length) { modVarClose(); return; }
+  const cur = input.value.trim().toLowerCase();
+  list.innerHTML = matches.map(o => `<li role="option" data-value="${escapeHtml(o)}" class="${o.toLowerCase() === cur ? 'active' : ''}"
+    onmousedown="event.preventDefault();modVarPick(${i},'${field}',this.dataset.value)">${escapeHtml(o)}</li>`).join('');
+  // Scrivendo, la prima variante è già evidenziata: Invio o Tab la scelgono
+  let active = matches.findIndex(o => o.toLowerCase() === cur);
+  if (active < 0 && !onFocus && cur) { active = 0; list.firstElementChild.classList.add('active'); }
+  list.dataset.active = active;
+  const rc = input.getBoundingClientRect();
+  Object.assign(list.style, { top: `${rc.bottom + 4}px`, left: `${rc.left}px`, minWidth: `${Math.max(rc.width, 160)}px` });
+  list.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
+  list.children[active]?.scrollIntoView({ block: 'nearest' });
+}
+
+function modVarClose() {
+  const list = document.getElementById('mod-var-suggest');
+  if (list) { list.hidden = true; list.innerHTML = ''; }
+}
+// Il menu è fisso sullo schermo: scorrendo il modulo si chiude
+document.addEventListener('scroll', (e) => { if (!e.target.closest?.('#mod-var-suggest')) modVarClose(); }, true);
+
+function modVarKey(e, i, field, input) {
+  const list = document.getElementById('mod-var-suggest');
+  if (!list || list.hidden) return;
+  const items = [...list.querySelectorAll('li')];
+  let k = parseInt(list.dataset.active, 10);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    k = e.key === 'ArrowDown' ? Math.min(items.length - 1, k + 1) : Math.max(0, k - 1);
+    list.dataset.active = k;
+    items.forEach((li, n) => li.classList.toggle('active', n === k));
+    items[k]?.scrollIntoView({ block: 'nearest' });
+  } else if ((e.key === 'Enter' || e.key === 'Tab') && k >= 0 && items[k]) {
+    if (e.key === 'Enter') e.preventDefault();
+    input.value = items[k].dataset.value;
+    storeMod(i, field, input.value);
+    modVarClose();
+  } else if (e.key === 'Escape') {
+    e.stopPropagation();
+    modVarClose();
+  }
+}
+
+function modVarPick(i, field, value) {
+  storeMod(i, field, value);
+  const input = document.activeElement;
+  if (input?.classList.contains('mod-variant')) input.value = value;
+  modVarClose();
+}
+
+// Uscendo dal campo, quanto scritto diventa la variante più vicina
+function modVarCommit(i, field, input) {
+  modVarClose();
+  const v = input.value.trim();
+  const opts = modVarOpts(i, field);
+  if (!v || opts.some(o => o.toLowerCase() === v.toLowerCase())) return;
+  const best = modVarMatches(v, opts, field)[0];
+  if (best) { input.value = best; storeMod(i, field, best); }
 }
 
 function modCodiceInput(i, value) {

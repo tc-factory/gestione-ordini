@@ -997,6 +997,7 @@ html.dark .dtf-item.dtf-urgent .dtf-stats { background: rgba(0, 0, 0, 0.2); }
 .of-suggest li small { margin-left: auto; color: var(--text-muted); font-size: 0.74rem; }
 .of-suggest li:hover, .of-suggest li.active { background: var(--bg-secondary); }
 .of-suggest .client-avatar.sm { width: 26px; height: 26px; font-size: 0.72rem; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.mod-var-suggest { position: fixed; right: auto; z-index: 1500; max-height: 240px; }
 .of-suggest .of-sug-new { color: var(--accent-ink); font-weight: 600; }
 .of-client-linked { display: block; min-height: 1.1em; margin-top: 4px; font-size: 0.74rem; color: var(--text-muted); }
 .of-client-linked.on { color: #16A34A; }
