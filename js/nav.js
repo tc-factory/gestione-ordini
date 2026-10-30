@@ -318,8 +318,11 @@ function renderHeader() {
     : Nav.current === 'prodotti' && Nav.param === 'fornitori' && TCFactory.isProductsAvailable()
     ? `<button class="btn btn-ghost btn-sm" onclick="Nav.go('prodotti')">${Icons.chevronLeft(14)} <span class="new-order-btn-text">Prodotti</span></button>
        <button class="btn btn-primary" onclick="openSupplierForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo fornitore</span></button>`
+    : Nav.current === 'prodotti' && Nav.param === 'da-inserire' && TCFactory.isProductsAvailable()
+    ? `<button class="btn btn-ghost btn-sm" onclick="Nav.go('prodotti')">${Icons.chevronLeft(14)} <span class="new-order-btn-text">Prodotti</span></button>`
     : Nav.current === 'prodotti' && TCFactory.isProductsAvailable()
-    ? `<button class="btn btn-secondary" onclick="Nav.go('prodotti','fornitori')">${Icons.truck(15)} <span class="new-order-btn-text">Fornitori</span></button>
+    ? `${TCFactory.getProductsPending().length ? `<button class="btn btn-secondary" onclick="Nav.go('prodotti','da-inserire')">${Icons.plus(15)} <span class="new-order-btn-text">Da inserire (${TCFactory.getProductsPending().length})</span></button>` : ''}
+       <button class="btn btn-secondary" onclick="Nav.go('prodotti','fornitori')">${Icons.truck(15)} <span class="new-order-btn-text">Fornitori</span></button>
        <button class="btn btn-secondary" onclick="openProductExcel()">${Icons.archive(15)} <span class="new-order-btn-text">Excel</span></button>
        <button class="btn btn-secondary" onclick="openProductCategories()">${Icons.tag(15)} <span class="new-order-btn-text">Categorie</span></button>
        <button class="btn btn-secondary" onclick="openProductImport()">${Icons.link(15)} <span class="new-order-btn-text">Importa da link</span></button>
@@ -328,11 +331,12 @@ function renderHeader() {
 
   const sub = Nav.current === 'dtf' ? interneSections().find(x => x.id === dtfSection()) : null;
   const fornitoriPage = Nav.current === 'prodotti' && Nav.param === 'fornitori';
+  const daInserirePage = Nav.current === 'prodotti' && Nav.param === 'da-inserire';
   root.innerHTML = `
     <button class="btn-icon menu-toggle" onclick="Nav.openDrawer()" aria-label="Apri menu">${Icons.menu()}</button>
     <div class="toolbar-title">
-      <h1 id="toolbar-title" tabindex="-1">${sub ? sub.label : fornitoriPage ? 'Fornitori' : item.label}</h1>
-      <p>${sub ? sub.subtitle : fornitoriPage ? 'Anagrafica fornitori dei prodotti' : item.subtitle}</p>
+      <h1 id="toolbar-title" tabindex="-1">${sub ? sub.label : fornitoriPage ? 'Fornitori' : daInserirePage ? 'Prodotti da inserire' : item.label}</h1>
+      <p>${sub ? sub.subtitle : fornitoriPage ? 'Anagrafica fornitori dei prodotti' : daInserirePage ? 'Articoli trovati negli ordini e non ancora in anagrafica' : item.subtitle}</p>
     </div>
     <div class="app-header-actions">
       ${actions}
