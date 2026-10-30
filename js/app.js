@@ -1791,48 +1791,80 @@ function modProductDatalist() {
     `<option value="${escapeHtml(p.codice)}" label="${escapeHtml([p.descrizione, TCFactory.supplierName(p.fornitore_id)].filter(Boolean).join(' · '))}"></option>`).join('');
 }
 
-// Colore / taglia: si scrive e si sceglie tra le varianti del prodotto.
-// Per il colore valgono anche i sinonimi: «nero» trova BLACK o «036 Black».
+// Colore / taglia: si scrive e si sceglie tra le varianti del prodotto
+// (senza prodotto, tra quelle di tutta l'anagrafica). Per il colore valgono
+// anche i sinonimi: «nero» trova BLACK o «036 Black»; si perdonano gli errori di battitura.
 function modVariantField(i, r, field, list, cls = '') {
   const cur = r[field] || '';
-  if (!modSplitList(list).length) return `<input class="mod-input ${cls}" value="${escapeHtml(cur)}" oninput="storeMod(${i},'${field}',this.value)">`;
   return `<input class="mod-input mod-variant ${cls}" autocomplete="off" value="${escapeHtml(cur)}"
     aria-label="${field === 'tg' ? 'Taglia' : 'Colore'}" role="combobox" aria-autocomplete="list" aria-controls="mod-var-suggest"
     oninput="modVarInput(${i},'${field}',this)" onfocus="modVarInput(${i},'${field}',this,true)"
     onkeydown="modVarKey(event,${i},'${field}',this)" onblur="modVarCommit(${i},'${field}',this)">`;
 }
 
-// Varianti ordinate per somiglianza con quanto scritto (prima le più vicine)
-function modVarMatches(query, opts, field) {
-  const norm = typeof imgNorm === 'function' ? imgNorm : (s) => String(s || '').toLowerCase().trim();
-  const q = norm(query);
-  if (!q) return opts;
-  // Nomi equivalenti dei colori che iniziano con quanto scritto (ner → nero, black, noir)
-  const syn = field === 'colore' && typeof IMG_COLOR_GROUPS !== 'undefined'
-    ? IMG_COLOR_GROUPS.filter(g => g.some(n => n.startsWith(q))).flat() : [];
-  const score = (o) => {
-    const n = norm(o), t = ` ${n} `;
-    if (n === q) return 1000;
-    if (n.startsWith(q)) return 900 - n.length;
-    if (t.includes(` ${q}`)) return 800 - n.length;
-    const hit = syn.filter(x => t.includes(` ${x} `)).reduce((m, x) => Math.max(m, x.length), 0);
-    if (hit) return 500 + hit * 10 - n.length;
-    if (n.includes(q)) return 300 - n.length;
-    return 0;
-  };
-  return opts.map(o => ({ o, s: score(o) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.o);
+const modVarNorm = (s) => typeof imgNorm === 'function' ? imgNorm(s) : String(s || '').toLowerCase().trim();
+
+// Distanza tra due parole (lettere da cambiare, aggiungere, togliere o scambiare)
+function modLev(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+  }
+  return d[a.length][b.length];
 }
 
+// Quanto una variante somiglia a quanto scritto (0 = per niente)
+function modVarScore(q, o, field) {
+  const n = modVarNorm(o), t = ` ${n} `;
+  if (n === q) return 1000;
+  if (n.startsWith(q)) return 900 - n.length;
+  if (t.includes(` ${q}`)) return 800 - n.length;
+  if (n.includes(q)) return 700 - n.length;
+  const words = new Set(n.split(' '));
+  if (field === 'colore' && typeof IMG_COLOR_GROUPS !== 'undefined') {
+    let syn = 0;
+    for (const g of IMG_COLOR_GROUPS) {
+      if (!g.some(x => t.includes(` ${x} `))) continue;
+      g.forEach(x => { words.add(x); if (x.startsWith(q)) syn = Math.max(syn, x.length); });
+    }
+    if (syn) return 600 + syn - n.length;
+  }
+  // Errori di battitura: confronto con l'inizio di ogni parola
+  const max = Math.max(1, Math.floor(q.length / 3));
+  let best = Infinity;
+  for (const w of words) best = Math.min(best, modLev(q, w), modLev(q, w.slice(0, q.length)));
+  return q.length >= 2 && best <= max ? 300 - best * 50 - n.length : 0;
+}
+
+// Varianti ordinate per somiglianza; se nessuna somiglia, tutte (ordine originale)
+function modVarMatches(query, opts, field, onlyHits = false) {
+  const q = modVarNorm(query);
+  if (!q) return opts;
+  const hits = opts.map(o => ({ o, s: modVarScore(q, o, field) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.o);
+  return hits.length || onlyHits ? hits : opts;
+}
+
+// Varianti del prodotto; senza prodotto, quelle di tutti i prodotti più i nomi comuni
+const MOD_TAGLIE = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL', '5XL', 'TU'];
 function modVarOpts(i, field) {
+  const key = field === 'tg' ? 'taglie' : 'colori';
   const p = modProductByCode(AppState.formModuleRows[i]?.codice);
-  return modSplitList(p && (field === 'tg' ? p.taglie : p.colori));
+  const own = modSplitList(p && p[key]);
+  if (own.length) return own;
+  const all = TCFactory.getProducts().flatMap(x => modSplitList(x[key]));
+  if (field === 'tg') all.push(...MOD_TAGLIE);
+  else if (typeof IMG_COLOR_GROUPS !== 'undefined') all.push(...IMG_COLOR_GROUPS.map(g => g[0].toUpperCase()));
+  const seen = new Set();
+  return all.filter(x => { const k = x.toLowerCase(); return seen.has(k) ? false : seen.add(k); });
 }
 
 function modVarInput(i, field, input, onFocus = false) {
   if (!onFocus) storeMod(i, field, input.value);
   const opts = modVarOpts(i, field);
   const isExact = opts.some(o => o.toLowerCase() === input.value.trim().toLowerCase());
-  const matches = onFocus || isExact ? opts : modVarMatches(input.value, opts, field);
+  const matches = (onFocus || isExact ? opts : modVarMatches(input.value, opts, field)).slice(0, 12);
   let list = document.getElementById('mod-var-suggest');
   if (!list) {
     list = document.createElement('ul');
@@ -1845,7 +1877,7 @@ function modVarInput(i, field, input, onFocus = false) {
     onmousedown="event.preventDefault();modVarPick(${i},'${field}',this.dataset.value)">${escapeHtml(o)}</li>`).join('');
   // Scrivendo, la prima variante è già evidenziata: Invio o Tab la scelgono
   let active = matches.findIndex(o => o.toLowerCase() === cur);
-  if (active < 0 && !onFocus && cur) { active = 0; list.firstElementChild.classList.add('active'); }
+  if (active < 0 && !onFocus && cur && modVarMatches(input.value, opts, field, true).length) { active = 0; list.firstElementChild.classList.add('active'); }
   list.dataset.active = active;
   const rc = input.getBoundingClientRect();
   Object.assign(list.style, { top: `${rc.bottom + 4}px`, left: `${rc.left}px`, minWidth: `${Math.max(rc.width, 160)}px` });
@@ -1896,7 +1928,7 @@ function modVarCommit(i, field, input) {
   const v = input.value.trim();
   const opts = modVarOpts(i, field);
   if (!v || opts.some(o => o.toLowerCase() === v.toLowerCase())) return;
-  const best = modVarMatches(v, opts, field)[0];
+  const best = modVarMatches(v, opts, field, true)[0];
   if (best) { input.value = best; storeMod(i, field, best); }
 }
 
