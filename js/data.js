@@ -919,6 +919,38 @@ const TCFactory = {
 
   getProductPending(id) { return this._productsPending.find(x => x.id === id) || null; },
 
+  // Articoli letti da un ordine e non in anagrafica: uno per codice, con colori, taglie e ordini uniti
+  async addProductsPending(items, orderId) {
+    const key = (c) => (c || '').trim().toLowerCase();
+    const known = new Set(this._products.map(p => key(p.codice)).filter(Boolean));
+    const merge = (list, v) => [...new Set([...String(list || '').split(',').map(s => s.trim()), String(v || '').trim()].filter(Boolean))].join(', ');
+    const byCode = new Map();
+    for (const it of items) {
+      const k = key(it.codice);
+      if (!k || known.has(k)) continue;
+      const cur = byCode.get(k) || { fornitore: '', codice: it.codice.trim(), descrizione: '', colori: '', taglie: '' };
+      cur.fornitore = cur.fornitore || (it.fornitore || '').trim();
+      cur.descrizione = cur.descrizione || (it.descrizione || '').trim();
+      cur.colori = merge(cur.colori, it.colore);
+      cur.taglie = merge(cur.taglie, it.taglia);
+      byCode.set(k, cur);
+    }
+    for (const [k, it] of byCode) {
+      const old = this._productsPending.find(x => key(x.codice) === k);
+      const row = old
+        ? { fornitore: old.fornitore || it.fornitore, descrizione: old.descrizione || it.descrizione,
+            colori: merge(old.colori, it.colori), taglie: merge(old.taglie, it.taglie),
+            ordini: [...new Set([...(old.ordini || []), orderId].filter(Boolean))] }
+        : { ...it, ordini: orderId ? [orderId] : [], created_by: window.TCAuth?.getNickname() || 'Compila da foto' };
+      const res = old
+        ? await supabaseClient.from('products_pending').update(row).eq('id', old.id).select().single()
+        : await supabaseClient.from('products_pending').insert(row).select().single();
+      if (res.error) throw res.error;
+      this._productsPending = [...this._productsPending.filter(x => x.id !== res.data.id), res.data];
+    }
+    if (byCode.size) this._notify();
+  },
+
   async deleteProductPending(id) {
     const { error } = await supabaseClient.from('products_pending').delete().eq('id', id);
     if (error) throw error;
