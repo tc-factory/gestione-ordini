@@ -33,6 +33,7 @@ const AppState = {
   formModuleAcconto: '',
   formModuleCount: 1,
   formModuleClosed: [],
+  formPhotoCodes: [],          // codici letti da "Compila da foto": se non sono in anagrafica vanno in Prodotti → Da inserire
 };
 
 
@@ -1129,6 +1130,7 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
   AppState.formModuleAcconto = mod.acconto || '';
   AppState.formModuleCount   = AppState.formModuleRows.reduce((m, r) => Math.max(m, modGroup(r)), 0) + 1;
   AppState.formModuleClosed  = [];
+  AppState.formPhotoCodes    = [];
 
   const isEdit    = !!order;
   const tags       = TCFactory.getTags();
@@ -1713,6 +1715,7 @@ function ofApplyPhotoOrder(o) {
     }
     return row;
   }).filter(r => r.catalogo || r.codice || r.descrizione || r.qnt);
+  AppState.formPhotoCodes.push(...rows.filter(r => r.codice && !r.productId).map(r => ofNorm(r.codice)));
   if (rows.length) {
     AppState.formModuleRows = AppState.formModuleRows
       .filter(r => r.catalogo || r.codice || r.descrizione || r.qnt || r.prezzo || modGroup(r) > 0);
@@ -2236,12 +2239,15 @@ async function submitOrderForm() {
 
   let saved = false;
   try {
+    let orderId;
     if (AppState.formEditOrder) {
       await TCFactory.updateOrder(AppState.formEditOrder.id, payload);
+      orderId = AppState.formEditOrder.id;
     } else {
-      await TCFactory.addOrder(payload);
+      orderId = (await TCFactory.addOrder(payload)).id;
     }
     saved = true;
+    ofPendingFromPhoto(payload.orderModule.rows, orderId);
   } catch(e) {
     showToast('Errore durante il salvataggio — riprova', 'error');
     console.error('[submit]', e);
@@ -2257,6 +2263,19 @@ async function submitOrderForm() {
     closeModal('order-form-modal');
     showToast(AppState.formEditOrder ? 'Ordine aggiornato ✓' : 'Ordine creato ✓');
   }
+}
+
+// Righe lette dalla foto con un codice che non è in anagrafica (né scelto a mano dopo):
+// finiscono in Prodotti → Da inserire, collegate all'ordine
+async function ofPendingFromPhoto(rows, orderId) {
+  const codes = new Set(AppState.formPhotoCodes);
+  const items = rows.filter(r => r.codice && codes.has(ofNorm(r.codice)) && !modProductByCode(r.codice));
+  if (!items.length) return;
+  try {
+    await TCFactory.addProductsPending(items.map(r => ({
+      fornitore: r.catalogo, codice: r.codice, descrizione: r.descrizione, colore: r.colore, taglia: r.tg,
+    })), orderId);
+  } catch (e) { console.error('[da inserire]', e); }
 }
 
 // ─────────────────────────────────────────────
