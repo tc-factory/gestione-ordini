@@ -630,6 +630,7 @@ function previewOrderModule(orderId) {
     return `<span style="color:${dc};font-weight:700;">${new Date(order.deadline+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})}</span>`;
   })() : '';
 
+  migrateModPreviewChecks(order.id);
   const checks = modPreviewChecks(order.id);
   const renderModRow = (r, i) => {
     const t   = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
@@ -713,20 +714,52 @@ function previewOrderModule(orderId) {
   modal.onclick = e => { if (e.target === modal) closeModal('file-preview-modal'); };
 }
 
-// Righe evidenziate con la spunta nella preview del modulo: restano su questo dispositivo, per ordine.
-// Primo clic gialla (✓), secondo rossa con una nota sotto la riga, terzo toglie la spunta.
-// Salvate come { <indice riga>: { s: 1|2, n: nota } }; la nota resta anche togliendo il rosso.
-const MOD_CHECKS_KEY = 'tc-mod-checks-';
+// Righe evidenziate con la spunta nella preview del modulo: salvate nell'ordine su Supabase, dentro
+// la riga stessa (rows[i].spunta = { s: 1|2, n: nota }), così si vedono da ogni dispositivo e restano
+// attaccate all'articolo anche se le righe si spostano. Primo clic gialla (✓), secondo rossa con una
+// nota sotto la riga, terzo toglie la spunta; la nota resta anche togliendo il rosso.
+const MOD_CHECKS_KEY = 'tc-mod-checks-';   // versione vecchia: solo su questo dispositivo, per indice
 const MOD_CHECK_CLASS = { 1: 'is-checked', 2: 'is-red' };
 function modPreviewChecks(orderId) {
-  let v;
-  try { v = JSON.parse(localStorage.getItem(MOD_CHECKS_KEY + orderId) || '{}'); } catch { return {}; }
-  // Versione precedente: elenco degli indici spuntati (gialli)
-  return Array.isArray(v) ? Object.fromEntries(v.map(i => [i, { s: 1 }])) : (v && typeof v === 'object' ? v : {});
+  const rows = TCFactory.getOrderById(orderId)?.orderModule?.rows || [];
+  return Object.fromEntries(rows.map((r, i) => [i, r.spunta || {}]));
 }
-function saveModPreviewChecks(orderId, checks) {
-  const keep = Object.fromEntries(Object.entries(checks).filter(([, c]) => c.s || c.n));
-  try { Object.keys(keep).length ? localStorage.setItem(MOD_CHECKS_KEY + orderId, JSON.stringify(keep)) : localStorage.removeItem(MOD_CHECKS_KEY + orderId); } catch {}
+// Spunte rimaste nel localStorage dalla versione precedente: portate una volta sola nell'ordine
+function migrateModPreviewChecks(orderId) {
+  let v;
+  try { v = JSON.parse(localStorage.getItem(MOD_CHECKS_KEY + orderId) || 'null'); } catch { v = null; }
+  if (!v) return;
+  const old = Array.isArray(v) ? Object.fromEntries(v.map(i => [i, { s: 1 }])) : (typeof v === 'object' ? v : {});
+  const order = TCFactory.getOrderById(orderId);
+  const rows = order?.orderModule?.rows || [];
+  let changed = false;
+  const nuove = rows.map((r, i) => {
+    const c = old[i];
+    if (!c || r.spunta || !(c.s || c.n)) return r;
+    changed = true;
+    return { ...r, spunta: { s: c.s || 0, ...(c.n ? { n: c.n } : {}) } };
+  });
+  const done = () => { try { localStorage.removeItem(MOD_CHECKS_KEY + orderId); } catch {} };
+  if (!changed) return done();
+  order.orderModule = { ...order.orderModule, rows: nuove };
+  TCFactory.updateOrder(orderId, { orderModule: order.orderModule }).then(done).catch(e => console.error('[spunte]', e));
+}
+// Aggiorna subito la cache locale e salva su Supabase (la nota con un piccolo ritardo mentre si scrive)
+const _modCheckTimers = {};
+function saveModPreviewCheck(orderId, idx, c, delay = 0) {
+  const order = TCFactory.getOrderById(orderId);
+  const rows = [...(order?.orderModule?.rows || [])];
+  if (!rows[idx]) return;
+  const r = { ...rows[idx] };
+  if (c.s || c.n) r.spunta = { s: c.s || 0, ...(c.n ? { n: c.n } : {}) }; else delete r.spunta;
+  rows[idx] = r;
+  order.orderModule = { ...order.orderModule, rows };
+  clearTimeout(_modCheckTimers[orderId]);
+  _modCheckTimers[orderId] = setTimeout(() => {
+    const cur = TCFactory.getOrderById(orderId);
+    TCFactory.updateOrder(orderId, { orderModule: cur.orderModule })
+      .catch(e => { console.error('[spunte]', e); showToast('Spunta non salvata — riprova', 'error'); });
+  }, delay);
 }
 function modPreviewNoteRow(orderId, idx, nota) {
   return `<tr class="mod-preview-note"><td></td><td colspan="10" style="padding:0 10px 9px;">
@@ -734,11 +767,9 @@ function modPreviewNoteRow(orderId, idx, nota) {
       oninput="setModPreviewNote('${orderId}',${idx},this.value)"></td></tr>`;
 }
 function toggleModPreviewRow(orderId, idx, tr) {
-  const checks = modPreviewChecks(orderId);
-  const c = checks[idx] || {};
+  const c = { ...(modPreviewChecks(orderId)[idx] || {}) };
   c.s = ((c.s || 0) + 1) % 3;
-  checks[idx] = c;
-  saveModPreviewChecks(orderId, checks);
+  saveModPreviewCheck(orderId, idx, c);
   tr.classList.remove('is-checked', 'is-red');
   if (MOD_CHECK_CLASS[c.s]) tr.classList.add(MOD_CHECK_CLASS[c.s]);
   const next = tr.nextElementSibling;
@@ -749,9 +780,8 @@ function toggleModPreviewRow(orderId, idx, tr) {
   }
 }
 function setModPreviewNote(orderId, idx, value) {
-  const checks = modPreviewChecks(orderId);
-  checks[idx] = { ...(checks[idx] || {}), n: value };
-  saveModPreviewChecks(orderId, checks);
+  const c = { ...(modPreviewChecks(orderId)[idx] || {}), n: value };
+  saveModPreviewCheck(orderId, idx, c, 700);
 }
 
 // Riga "Lavorazione" del modulo stampato: al posto delle colonne Lav. int. / Lav. est.
@@ -1957,6 +1987,7 @@ function modCodiceInput(i, value) {
 
 function copyModRow(i) {
   const row = { ...AppState.formModuleRows[i] };
+  delete row.spunta;   // la copia parte senza evidenziazione
   AppState.formModuleRows.splice(i + 1, 0, row);
   renderModuleRows();
 }
