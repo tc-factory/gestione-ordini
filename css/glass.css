@@ -1,0 +1,205 @@
+/* ============================================
+   T&C FACTORY — Liquid Glass
+   Si carica dopo theme-cornice.css: stessa struttura (navbar + pannello), ma tutto è vetro
+   smerigliato (traslucido, sfocato, filo di luce sul bordo alto) appoggiato su uno sfondo di aloni colorati.
+   Il vetro "vero" (backdrop-filter) solo su pannello, barre, menu e finestre; card e righe dentro
+   il pannello sono riempimenti traslucidi semplici (meno costo, testo nitido).
+   ============================================ */
+
+:root {
+  --amb-base: #E9ECF6;
+  --amb-1: rgba(141, 182, 240, 0.60);   /* azzurro dell'accento */
+  --amb-2: rgba(168, 140, 255, 0.50);
+  --amb-3: rgba(45, 212, 191, 0.32);
+  --amb-4: rgba(255, 176, 140, 0.45);
+
+  --lg-panel: rgba(255, 255, 255, 0.46);
+  --lg-fill: rgba(255, 255, 255, 0.62);           /* card e righe dentro il pannello */
+  --lg-fill-hover: rgba(255, 255, 255, 0.80);
+  --lg-strong: rgba(250, 250, 253, 0.80);         /* menu e finestre: leggibili sopra qualunque cosa */
+  --lg-edge: rgba(255, 255, 255, 0.85);
+  --lg-line: rgba(30, 34, 70, 0.08);
+  --lg-sheen: linear-gradient(170deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.08) 45%, rgba(255, 255, 255, 0) 70%);
+  --lg-hi: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(255, 255, 255, 0.35);
+  --lg-shadow: 0 1px 2px rgba(30, 34, 70, 0.04), 0 18px 44px -16px rgba(30, 34, 70, 0.22);
+  --lg-blur: blur(26px) saturate(175%);
+
+  --bg-card: var(--lg-fill);
+  --bg-secondary: rgba(255, 255, 255, 0.45);
+  --border: rgba(30, 34, 70, 0.10);
+  --border-light: rgba(30, 34, 70, 0.07);
+  --frame-hover: rgba(255, 255, 255, 0.45);
+  --frame-raised: rgba(255, 255, 255, 0.70);
+  --glass-bg-strong: var(--lg-strong);
+  --glass-border: var(--lg-edge);
+}
+
+html.dark {
+  --amb-base: #0B0B12;
+  --amb-1: rgba(90, 140, 230, 0.48);
+  --amb-2: rgba(124, 92, 255, 0.50);
+  --amb-3: rgba(45, 212, 191, 0.26);
+  --amb-4: rgba(255, 140, 90, 0.28);
+
+  --lg-panel: rgba(255, 255, 255, 0.04);
+  --lg-fill: rgba(255, 255, 255, 0.06);
+  --lg-fill-hover: rgba(255, 255, 255, 0.10);
+  --lg-strong: rgba(28, 28, 38, 0.78);
+  --lg-edge: rgba(255, 255, 255, 0.13);
+  --lg-line: rgba(255, 255, 255, 0.08);
+  --lg-sheen: linear-gradient(170deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 45%);
+  --lg-hi: inset 0 1px 0 rgba(255, 255, 255, 0.20), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+  --lg-shadow: 0 18px 50px -14px rgba(0, 0, 0, 0.6);
+  --lg-blur: blur(26px) saturate(180%);
+
+  --bg-card: var(--lg-fill);
+  --bg-secondary: rgba(255, 255, 255, 0.05);
+  --border: rgba(255, 255, 255, 0.11);
+  --border-light: rgba(255, 255, 255, 0.07);
+  --frame-hover: rgba(255, 255, 255, 0.06);
+  --frame-raised: rgba(255, 255, 255, 0.10);
+}
+
+/* ── Sfondo: aloni colorati fermi dietro a tutto ── */
+html { background: var(--amb-base); }
+body, html.dark body { background: transparent; background-image: none; }
+body::before {
+  content: ''; position: fixed; inset: -10vmax; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(48vmax 48vmax at 10% 8%, var(--amb-2), transparent 70%),
+    radial-gradient(50vmax 50vmax at 92% 12%, var(--amb-1), transparent 70%),
+    radial-gradient(46vmax 46vmax at 80% 96%, var(--amb-4), transparent 70%),
+    radial-gradient(44vmax 44vmax at 6% 90%, var(--amb-3), transparent 70%),
+    radial-gradient(30vmax 30vmax at 50% 50%, color-mix(in srgb, var(--amb-2) 45%, transparent), transparent 70%);
+}
+
+/* ── Vetro vero: pannello, barre, menu, finestre ── */
+.app-main,
+.popover, .modal, .account-menu,
+.bottom-nav {
+  background-color: var(--lg-panel);
+  background-image: var(--lg-sheen);
+  -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur);
+  border: 1px solid var(--lg-edge);
+  box-shadow: var(--lg-hi), var(--lg-shadow);
+}
+.popover, .modal, .account-menu { background-color: var(--lg-strong); }
+.modal-overlay { background: rgba(18, 18, 38, 0.22); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+
+@media (min-width: 641px) {
+  .app-main { background-color: var(--lg-panel); box-shadow: var(--lg-hi), var(--lg-shadow); }
+}
+@media (max-width: 640px) {
+  body { background: transparent; }
+  .app-main { background: transparent; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* Toolbar in cima al pannello: vetro leggero quando il contenuto ci scorre sotto */
+.app-toolbar {
+  background: color-mix(in srgb, var(--lg-panel) 60%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%);
+}
+
+/* Login: la card di vetro galleggia sugli aloni */
+.login-overlay { background: transparent; }
+.login-overlay::before { content: ''; position: absolute; inset: 0; z-index: -1; background:
+    radial-gradient(40vmax 40vmax at 20% 15%, var(--amb-2), transparent 70%),
+    radial-gradient(42vmax 42vmax at 85% 25%, var(--amb-1), transparent 70%),
+    radial-gradient(40vmax 40vmax at 70% 95%, var(--amb-4), transparent 70%),
+    radial-gradient(36vmax 36vmax at 10% 90%, var(--amb-3), transparent 70%),
+    var(--amb-base); }
+.login-card {
+  background-color: var(--lg-panel); background-image: var(--lg-sheen);
+  -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur);
+  border: 1px solid var(--lg-edge); box-shadow: var(--lg-hi), var(--lg-shadow);
+}
+
+/* ── Navbar: resta sullo sfondo; la voce attiva è una pillola di vetro ── */
+.sidebar { background: transparent; }
+.nav-item.active, html.dark .nav-item.active,
+.sidebar-nav .nav-item.active, html.dark .sidebar-nav .nav-item.active {
+  background: var(--frame-raised);
+  box-shadow: inset 0 1px 0 var(--lg-edge), 0 6px 18px -8px rgba(20, 20, 40, 0.30);
+}
+@media (min-width: 861px) {
+  .sidebar { width: var(--sidebar-width); padding-right: var(--sb-pad); }
+  .sidebar-nav .nav-item.active, html.dark .sidebar-nav .nav-item.active {
+    margin-right: 0; padding-right: 14px; border-radius: 14px; color: var(--frame-fg);
+  }
+  html.sidebar-collapsed .sidebar-nav .nav-item.active { padding-right: 14px; }
+  .sidebar-nav .nav-item.active::before, .sidebar-nav .nav-item.active::after { display: none; }
+  .sidebar-nav .nav-item.active .nav-item-icon { color: var(--accent-ink); }
+  .sidebar-nav { gap: 4px; }
+}
+@media (max-width: 860px) {
+  .sidebar {
+    background: var(--lg-strong);
+    -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur);
+    border-right: 1px solid var(--lg-edge);
+  }
+}
+.brand-logo { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 6px 16px -6px rgba(0, 0, 0, 0.35); }
+
+/* ── Card e righe dentro il pannello: riempimento traslucido con filo di luce ── */
+.glass-card,
+.list-shell .order-row-item,
+.list-shell .cards-sm tr {
+  background-color: var(--lg-fill);
+  background-image: var(--lg-sheen);
+  box-shadow: inset 0 0 0 1px var(--lg-edge), inset 0 1px 0 var(--lg-edge), 0 6px 20px -12px rgba(20, 20, 40, 0.22);
+}
+html.dark .glass-card,
+html.dark .list-shell .order-row-item,
+html.dark .list-shell .cards-sm tr { box-shadow: inset 0 0 0 1px var(--lg-edge), inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 10px 26px -14px rgba(0, 0, 0, 0.6); }
+.list-shell, html.dark .list-shell { background: transparent; background-image: none; box-shadow: none; border: 0; }
+.list-shell .order-row-item:hover { background-color: var(--lg-fill-hover); }
+.list-shell .order-row-header-row { background: transparent !important; background-image: none !important; box-shadow: none !important; }
+
+.list-shell .data-table td { background: var(--lg-fill); box-shadow: inset 0 1px 0 var(--lg-edge), inset 0 -1px 0 var(--lg-line); }
+.list-shell .data-row:hover td { background: var(--lg-fill-hover); }
+.list-shell .cards-sm td { box-shadow: none; }
+
+.stat-card-btn.selected { box-shadow: 0 0 0 2px var(--accent-ink), var(--lg-shadow); }
+
+/* ── Comandi ── */
+.btn-secondary, .layer-toggle {
+  background-color: var(--lg-fill); background-image: var(--lg-sheen);
+  border-color: var(--lg-edge); box-shadow: inset 0 1px 0 var(--lg-edge);
+}
+.btn-primary, .account-pill, .user-avatar {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 55%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 8px 20px -8px rgba(20, 20, 40, 0.45);
+}
+html.dark .btn-primary { background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 55%); }
+.account-pill .user-avatar { background-image: none; box-shadow: none; }
+
+.segmented, .view-tabs { background: var(--bg-secondary); box-shadow: inset 0 1px 0 var(--lg-edge), inset 0 0 0 1px var(--lg-line); }
+.segmented button.active, .view-tab.active {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 55%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 4px 12px -4px rgba(20, 20, 40, 0.35);
+}
+
+.form-input, .form-select, .form-textarea, .search-box input {
+  background: rgba(255, 255, 255, 0.55); border-color: var(--border);
+  box-shadow: inset 0 1px 2px rgba(20, 20, 40, 0.05);
+}
+html.dark .form-input, html.dark .form-select, html.dark .form-textarea, html.dark .search-box input { background: rgba(255, 255, 255, 0.05); }
+.form-input:focus, .form-select:focus, .form-textarea:focus, .search-box input:focus { box-shadow: var(--focus-ring); }
+
+/* Planner */
+.week-col, .month-cell { background: color-mix(in srgb, var(--lg-fill) 70%, transparent); }
+.month-cell.today { background: color-mix(in srgb, var(--accent) 18%, var(--lg-fill)); }
+
+/* ── Telefono: barra in basso a pillola di vetro ── */
+@media (max-width: 640px) {
+  .bottom-nav { background-color: var(--lg-strong); }
+  .bn-item.active, html.dark .bn-item.active { background: var(--frame-raised); box-shadow: inset 0 1px 0 var(--lg-edge); }
+  .app-toolbar { background: color-mix(in srgb, var(--amb-base) 55%, transparent); }
+}
+
+.toast { -webkit-backdrop-filter: blur(20px) saturate(170%); backdrop-filter: blur(20px) saturate(170%); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 12px 30px -10px rgba(0, 0, 0, 0.4); }
+
+/* Riduci trasparenza: superfici piene */
+html.reduce-transparency { --lg-panel: #F7F7FA; --lg-fill: #FFFFFF; --lg-strong: #FFFFFF; }
+html.reduce-transparency.dark { --lg-panel: #17171D; --lg-fill: #202027; --lg-strong: #202027; }
+html.reduce-transparency body::before { display: none; }
