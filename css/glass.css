@@ -203,3 +203,74 @@ html.dark .form-input, html.dark .form-select, html.dark .form-textarea, html.da
 html.reduce-transparency { --lg-panel: #F7F7FA; --lg-fill: #FFFFFF; --lg-strong: #FFFFFF; }
 html.reduce-transparency.dark { --lg-panel: #17171D; --lg-fill: #202027; --lg-strong: #202027; }
 html.reduce-transparency body::before { display: none; }
+
+/* ═══════════════════════════════════════════════
+   Bottoni come in Kamon: a sinistra un quadrato colorato con la freccetta (o con l'icona del bottone);
+   passandoci sopra il quadrato si allarga e riempie tutto il bottone. Solo CSS: ::before è il quadrato,
+   ::after la freccetta. Vale per i bottoni pieni e secondari; ghost e icone prendono solo la forma.
+   ═══════════════════════════════════════════════ */
+
+:root { --ctl-r: 14px; --ctl-r-sm: 10px; --x-ease: cubic-bezier(0.65, 0, 0.076, 1); }
+
+/* Stessa forma per tutti i comandi */
+.btn, .btn-icon { border-radius: var(--ctl-r); corner-shape: squircle; }
+.btn-sm { border-radius: var(--ctl-r-sm); }
+
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger) {
+  --x-h: 40px; --x-r: var(--ctl-r);
+  --x-c: var(--ink); --x-on: #FFFFFF;
+  position: relative; isolation: isolate; overflow: hidden;
+  height: var(--x-h); min-height: var(--x-h); padding: 0 18px 0 calc(var(--x-h) + 12px);
+  border: 2px solid var(--x-c); border-radius: var(--x-r); corner-shape: squircle;
+  background: var(--lg-fill); background-image: none; color: var(--text-primary);
+  box-shadow: inset 0 1px 0 var(--lg-edge); filter: none;
+  font-weight: 800; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase;
+  transition: color 0.45s var(--x-ease), transform var(--dur-fast) ease;
+}
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger).btn-sm { --x-h: 32px; --x-r: var(--ctl-r-sm); padding: 0 14px 0 calc(var(--x-h) + 10px); font-size: 0.7rem; }
+html .btn-secondary:not(.btn-icon) { --x-c: var(--accent-ink); }
+html .btn-danger { --x-c: #DC2626; }
+html.dark .btn-primary:not([role='menuitem']) { --x-c: var(--accent); --x-on: #111113; }
+html.dark .btn-secondary:not(.btn-icon) { --x-c: #4A4A54; }
+
+/* Il quadrato */
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::before {
+  content: ''; position: absolute; left: -2px; top: -2px; bottom: -2px; width: var(--x-h); z-index: -1;
+  border-radius: var(--x-r); corner-shape: squircle;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 60%), var(--x-c);
+  transition: width 0.45s var(--x-ease);
+}
+/* La freccetta */
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::after {
+  content: ''; position: absolute; top: 50%; left: calc(var(--x-h) / 2 - 6px); width: 7px; height: 7px; margin-top: -4.5px;
+  border-top: 2px solid var(--x-on); border-right: 2px solid var(--x-on); transform: rotate(45deg);
+  transition: transform 0.45s var(--x-ease);
+}
+/* Se il bottone ha un'icona, va nel quadrato al posto della freccetta */
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger) > svg:first-child {
+  position: absolute; left: calc(var(--x-h) / 2 - 2px); top: 50%; translate: -50% -50%; width: 15px; height: 15px; color: var(--x-on);
+}
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger).btn-sm > svg:first-child { width: 13px; height: 13px; }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):has(> svg:first-child)::after { display: none; }
+
+/* Passandoci sopra il quadrato riempie il bottone */
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled) {
+  color: var(--x-on); background: var(--lg-fill); border-color: var(--x-c); filter: none; transform: none;
+  box-shadow: inset 0 1px 0 var(--lg-edge), 0 8px 20px -10px color-mix(in srgb, var(--x-c) 70%, transparent);
+}
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled)::before { width: calc(100% + 4px); }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled)::after { transform: translateX(3px) rotate(45deg); }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--x-c) 35%, transparent); }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):active:not(:disabled) { transform: scale(0.97); }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):disabled { opacity: 0.5; }
+
+/* Bottoni solo icona (e "Nuovo ordine" sul telefono, che nasconde il testo): solo il quadrato */
+html :is(.btn-secondary:not(.btn-icon)).btn-solo.btn-solo { width: var(--x-h); padding: 0; }
+@media (max-width: 768px) {
+  html .app-toolbar .btn.btn-primary.btn-primary:has(.new-order-btn-text) { width: var(--x-h); padding: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::before, html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::after { transition: none; }
+}
+html.reduce-motion :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::before, html.reduce-motion :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::after { transition: none; }

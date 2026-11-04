@@ -172,7 +172,7 @@ function openProductForm(id = null, prefill = null) {
             <label class="form-label" for="pf-fornitore">Fornitore</label>
             <div style="display:flex;gap:8px;">
               <select id="pf-fornitore" class="form-select" style="flex:1;min-width:0;">${productSupplierOptions(p?.fornitore_id, prefill?._fornitoreNuovo)}</select>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="newSupplierFromForm()" title="Nuovo fornitore">${Icons.plus(13)}</button>
+              <button type="button" class="btn btn-secondary btn-sm btn-solo" onclick="newSupplierFromForm()" title="Nuovo fornitore">${Icons.plus(13)}</button>
             </div>
           </div>
           ${input('codice', 'Codice', 'maxlength="60"')}

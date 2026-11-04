@@ -1357,7 +1357,7 @@ function modPanelHtml(g) {
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           ${g ? `<button type="button" class="btn-icon" style="color:var(--priority-urgent);" title="Elimina integrazione" onclick="event.stopPropagation();removeFormModule(${g})">${Icons.trash(13)}</button>` : `
-          <button type="button" class="btn btn-secondary btn-sm" title="Aggiungi modulo d'ordine (integrazione)" aria-label="Aggiungi modulo d'ordine" onclick="event.stopPropagation();addFormModule()">${Icons.plus(13)}</button>
+          <button type="button" class="btn btn-secondary btn-sm btn-solo" title="Aggiungi modulo d'ordine (integrazione)" aria-label="Aggiungi modulo d'ordine" onclick="event.stopPropagation();addFormModule()">${Icons.plus(13)}</button>
           <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation();downloadOrderModule(null)">⬇ Scarica</button>`}
           ${chevron}
         </div>
