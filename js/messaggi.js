@@ -392,25 +392,131 @@ function replyToMessage(id) {
   if (m) openMessageComposer({ destinatari: [m.mittente], riferimento: m.riferimento });
 }
 
-// Avviso cliccabile che resta qualche secondo in più di un toast normale
+// ─────────────────────────────────────────────
+// AVVISO DI MESSAGGIO ARRIVATO
+// Scheda grande in alto, con animazione e suono. Resta finché non la si
+// chiude (o 20 secondi, che si fermano col mouse sopra).
+// ─────────────────────────────────────────────
+
+const MsgSound = {
+  _ctx: null,
+  // I browser fanno suonare solo dopo un primo clic o tasto sulla pagina
+  unlock() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!this._ctx) this._ctx = new AC();
+    if (this._ctx.state === 'suspended') this._ctx.resume().catch(() => {});
+  },
+  // Due note di campanello (Mi6 → La6), morbide
+  play() {
+    try {
+      this.unlock();
+      const ctx = this._ctx;
+      if (!ctx || ctx.state !== 'running') return;
+      const t0 = ctx.currentTime + 0.02;
+      [[1318.5, 0], [1760, 0.16]].forEach(([freq, delay]) => {
+        const t = t0 + delay;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.28, t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+        gain.connect(ctx.destination);
+        [[freq, 'sine', 1], [freq * 2, 'sine', 0.25]].forEach(([f, type, vol]) => {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = type;
+          osc.frequency.value = f;
+          g.gain.value = vol;
+          osc.connect(g).connect(gain);
+          osc.start(t);
+          osc.stop(t + 0.95);
+        });
+      });
+    } catch {}
+  },
+};
+['pointerdown', 'keydown', 'touchstart'].forEach(ev =>
+  document.addEventListener(ev, () => MsgSound.unlock(), { capture: true, passive: true }));
+
+// Titolo della scheda che lampeggia finché la pagina non torna in primo piano
+const MsgTitleBlink = {
+  _timer: null, _orig: null,
+  start(da) {
+    if (!document.hidden || this._timer) return;
+    this._orig = document.title;
+    let on = false;
+    this._timer = setInterval(() => { on = !on; document.title = on ? `💬 Messaggio da ${da}` : this._orig; }, 1000);
+    const stop = () => { if (document.hidden) return; this.stop(); document.removeEventListener('visibilitychange', stop); };
+    document.addEventListener('visibilitychange', stop);
+  },
+  stop() { clearInterval(this._timer); this._timer = null; if (this._orig) document.title = this._orig; },
+};
+
 function showMessageToast(m, da) {
-  let container = document.getElementById('toast-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'toast-container';
-    container.className = 'toast-container';
-    document.body.appendChild(container);
+  let stack = document.getElementById('msg-alert-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'msg-alert-stack';
+    stack.className = 'msg-alert-stack';
+    stack.setAttribute('aria-live', 'assertive');
+    document.body.appendChild(stack);
   }
-  const toast = document.createElement('button');
-  toast.type = 'button';
-  toast.className = 'toast msg-toast';
-  toast.innerHTML = `${Icons.messageCircle(16)}<span><strong>${escapeHtml(da)}</strong> ${escapeHtml(m.testo.length > 90 ? m.testo.slice(0, 90) + '…' : m.testo)}</span>`;
-  toast.onclick = () => { toast.remove(); openMessagesPanel('ricevuti'); };
-  container.appendChild(toast);
-  setTimeout(() => {
-    toast.style.animation = 'toastIn 0.25s ease reverse';
-    setTimeout(() => toast.remove(), 250);
-  }, 8000);
+  const toSelf = m.mittente === Messages._me();
+  const iniziale = escapeHtml((da || '?').trim().charAt(0).toUpperCase());
+  const testo = m.testo.length > 220 ? m.testo.slice(0, 220) + '…' : m.testo;
+  const card = document.createElement('div');
+  card.className = 'msg-alert';
+  card.setAttribute('role', 'alertdialog');
+  card.setAttribute('aria-label', `${toSelf ? 'Promemoria' : 'Nuovo messaggio da ' + da}`);
+  card.innerHTML = `
+    <div class="msg-alert-ring" aria-hidden="true"></div>
+    <div class="msg-alert-avatar" aria-hidden="true">${toSelf ? Icons.clock(22) : iniziale}<span class="msg-alert-bell">${Icons.messageCircle(13)}</span></div>
+    <div class="msg-alert-body">
+      <div class="msg-alert-kicker">${toSelf ? 'Promemoria' : 'Nuovo messaggio'}</div>
+      <strong class="msg-alert-from">${escapeHtml(da)}</strong>
+      <div class="msg-alert-text">${escapeHtml(testo)}</div>
+      ${m.riferimento ? `<div class="msg-alert-ref">${MsgRef.chip(m.riferimento, 'void 0')}</div>` : ''}
+      <div class="msg-alert-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-act="open">Apri</button>
+        ${toSelf ? '' : '<button type="button" class="btn btn-secondary btn-sm" data-act="reply">Rispondi</button>'}
+      </div>
+    </div>
+    <button type="button" class="msg-alert-close" data-act="close" aria-label="Chiudi">${Icons.x(16)}</button>
+    <div class="msg-alert-timer" aria-hidden="true"></div>`;
+
+  const close = () => {
+    if (card.classList.contains('leaving')) return;
+    card.classList.add('leaving');
+    setTimeout(() => card.remove(), 320);
+  };
+  card.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-act], .msg-ref');
+    const act = el?.dataset.act || (el ? 'ref' : 'open');
+    close();
+    if (act === 'close') return;
+    Messages.markRead([m.id]).catch(() => {});
+    if (act === 'reply') replyToMessage(m.id);
+    else if (act === 'ref') MsgRef.open(m.riferimento);
+    else openMessagesPanel('ricevuti');
+  });
+  // Timer di chiusura, fermo col mouse sopra
+  const DURATA = 20000;
+  let rimasto = DURATA, partito = Date.now(), timer = setTimeout(close, DURATA);
+  card.addEventListener('mouseenter', () => { clearTimeout(timer); rimasto -= Date.now() - partito; card.classList.add('paused'); });
+  card.addEventListener('mouseleave', () => { partito = Date.now(); timer = setTimeout(close, rimasto); card.classList.remove('paused'); });
+
+  stack.prepend(card);
+  // Al massimo tre avvisi insieme
+  [...stack.children].slice(3).forEach(c => c.remove());
+
+  MsgSound.play();
+  MsgTitleBlink.start(da);
+  if (navigator.vibrate) try { navigator.vibrate([120, 60, 120]); } catch {}
+  // Il pulsante chat "suona" anche lui (dopo che la barra si è aggiornata col contatore)
+  setTimeout(() => document.querySelectorAll('.sidebar-msg-btn, .more-msg-btn').forEach(b => {
+    b.classList.add('msg-ringing');
+    setTimeout(() => b.classList.remove('msg-ringing'), 2200);
+  }), 60);
 }
 
 // ─────────────────────────────────────────────

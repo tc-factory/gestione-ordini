@@ -1225,9 +1225,117 @@ html.dark .dtf-item.dtf-urgent .dtf-cols, html.dark .dtf-item.dtf-urgent .dtf-fi
 .msg-to { background: var(--fill-hover); color: var(--text-secondary); font-size: 0.8rem; padding: 6px 12px; }
 .msg-to.active { background: var(--brand-gold); color: #fff; }
 
-/* Avviso di un messaggio arrivato: cliccabile */
-.msg-toast { cursor: pointer; font-family: var(--font-body); text-align: left; }
-.msg-toast strong { margin-right: 4px; }
+/* Avviso di un messaggio arrivato: scheda grande in alto, animata */
+.msg-alert-stack {
+  position: fixed;
+  z-index: 2600;
+  top: 18px; left: 50%;
+  transform: translateX(-50%);
+  width: min(440px, calc(100vw - 24px));
+  display: flex; flex-direction: column; gap: 10px;
+  pointer-events: none;
+}
+.msg-alert {
+  position: relative;
+  pointer-events: auto;
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 16px 44px 18px 16px;
+  border: 1.5px solid var(--brand-gold);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--brand-gold) 9%, var(--bg-card));
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-gold) 22%, transparent), 0 24px 50px -14px rgba(0, 0, 0, 0.45);
+  animation: msgAlertIn 620ms cubic-bezier(.2, 1.4, .4, 1) both, msgAlertGlow 1.6s ease-in-out 620ms 3;
+}
+.msg-alert.leaving { animation: msgAlertOut 300ms ease-in forwards; }
+.msg-alert-ring {
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 30%, color-mix(in srgb, var(--brand-gold) 35%, transparent) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: msgAlertShine 1.4s ease-out 300ms 2 both;
+}
+.msg-alert-avatar {
+  position: relative;
+  flex-shrink: 0;
+  width: 48px; height: 48px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 16px;
+  background: var(--brand-gold);
+  color: #fff;
+  font-size: 1.3rem; font-weight: 800;
+  animation: msgAlertWiggle 900ms ease-in-out 450ms 2;
+}
+.msg-alert-bell {
+  position: absolute; right: -6px; bottom: -6px;
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  background: #ef4444; color: #fff;
+  box-shadow: 0 0 0 2px var(--bg-card);
+  animation: msgAlertPing 1.2s ease-out 500ms 3;
+}
+.msg-alert-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.msg-alert-kicker { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--brand-gold); }
+.msg-alert-from { font-size: 1.02rem; }
+.msg-alert-text { font-size: 0.9rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); }
+.msg-alert-ref { margin-top: 4px; }
+.msg-alert-actions { display: flex; gap: 6px; margin-top: 8px; }
+.msg-alert-close {
+  position: absolute; top: 10px; right: 10px;
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 10px;
+  background: transparent; color: var(--text-muted);
+  cursor: pointer;
+}
+.msg-alert-close:hover { background: var(--fill-hover); color: var(--text-primary); }
+.msg-alert-timer {
+  position: absolute; left: 0; bottom: 0;
+  height: 3px; width: 100%;
+  background: var(--brand-gold);
+  transform-origin: left;
+  animation: msgAlertTimer 20s linear forwards;
+}
+.msg-alert.paused .msg-alert-timer { animation-play-state: paused; }
+
+/* Pulsante chat che "squilla" */
+.msg-ringing { animation: msgAlertWiggle 700ms ease-in-out 3; }
+.msg-ringing .msg-badge { animation: msgAlertPing 1s ease-out 3; }
+
+@keyframes msgAlertIn {
+  0%   { opacity: 0; transform: translateY(-120%) scale(0.85); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes msgAlertOut { to { opacity: 0; transform: translateY(-40px) scale(0.92); } }
+@keyframes msgAlertGlow {
+  50% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--brand-gold) 30%, transparent), 0 24px 50px -14px rgba(0, 0, 0, 0.45); }
+}
+@keyframes msgAlertShine { from { background-position: 150% 0; } to { background-position: -100% 0; } }
+@keyframes msgAlertWiggle {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(-12deg); } 30% { transform: rotate(10deg); }
+  45% { transform: rotate(-8deg); }  60% { transform: rotate(6deg); }
+  75% { transform: rotate(-3deg); }
+}
+@keyframes msgAlertPing {
+  0%   { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 2px rgba(239, 68, 68, 0.7); }
+  100% { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 14px rgba(239, 68, 68, 0); }
+}
+@keyframes msgAlertTimer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+@media (max-width: 640px) {
+  .msg-alert-stack { top: calc(10px + env(safe-area-inset-top)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-alert, .msg-alert-ring, .msg-alert-avatar, .msg-alert-bell, .msg-ringing, .msg-ringing .msg-badge { animation: none; }
+  .msg-alert.leaving { animation: none; opacity: 0; }
+}
 
 /* Selezione dalla schermata */
 html.msg-picking, html.msg-picking * { cursor: crosshair !important; }
