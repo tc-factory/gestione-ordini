@@ -88,19 +88,20 @@ $$;
 revoke execute on function tc_mail_stato() from public, anon;
 grant  execute on function tc_mail_stato() to authenticated;
 
--- Controllo delle caselle ogni 2 minuti (stessa chiave del collegamento Shopify)
+-- Controllo delle caselle ogni 5 minuti (accessi più frequenti insospettiscono Aruba) (stessa chiave del collegamento Shopify)
 create or replace function _tc_mail_sync_call()
 returns void security definer set search_path = public language plpgsql as $$
 declare v_key text;
 begin
   select decrypted_secret into v_key from vault.decrypted_secrets where name = 'shopify_sync_key';
   if v_key is null then return; end if;
+  -- Una chiamata per casella: una casella lenta non ferma le altre
   perform net.http_post(
     url     := 'https://gdtlpyowpbwetnovxget.supabase.co/functions/v1/mail-sync',
     headers := jsonb_build_object('Content-Type', 'application/json', 'x-sync-key', v_key),
-    body    := '{}'::jsonb,
+    body    := jsonb_build_object('casella', c.id),
     timeout_milliseconds := 150000
-  );
+  ) from mail_caselle c where c.attivo;
 end;
 $$;
 revoke execute on function _tc_mail_sync_call() from public, anon, authenticated;
@@ -110,7 +111,7 @@ begin
   if exists (select 1 from cron.job where jobname = 'mail-sync') then
     perform cron.unschedule('mail-sync');
   end if;
-  perform cron.schedule('mail-sync', '*/2 * * * *', 'select _tc_mail_sync_call()');
+  perform cron.schedule('mail-sync', '*/5 * * * *', 'select _tc_mail_sync_call()');
 end $$;
 
 -- ════════════════════════════════════════════════════════

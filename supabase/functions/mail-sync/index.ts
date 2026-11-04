@@ -16,7 +16,8 @@ import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { ImapFlow } from 'npm:imapflow@1';
 import { simpleParser } from 'npm:mailparser@3';
 
-const MAX_PER_GIRO = 40;          // mail per casella a ogni giro: le altre al giro dopo
+const MAX_PER_GIRO = 15;          // mail per casella a ogni giro: le altre al giro dopo
+const MAX_SORGENTE = 2_000_000;   // oltre questa dimensione si scaricano solo intestazioni e testo, non gli allegati
 const MAX_TESTO = 20_000;
 const TIME_BUDGET_MS = 110_000;
 
@@ -36,17 +37,27 @@ type Casella = {
 
 // ── Mail automatiche: non servono al cervello ──
 
-// deno-lint-ignore no-explicit-any
-function isAutomatica(parsed: any, casella: Casella): boolean {
-  const h = parsed.headers as Map<string, unknown>;
-  const get = (k: string) => String(h.get(k) ?? '').toLowerCase();
-  const from = String(parsed.from?.value?.[0]?.address || '').toLowerCase();
+// Intestazioni grezze → mappa nome (minuscolo) → valore
+function mappaIntestazioni(raw: Uint8Array | undefined): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!raw) return map;
+  const testo = new TextDecoder().decode(raw).replace(/\r?\n[ \t]+/g, ' ');
+  for (const riga of testo.split(/\r?\n/)) {
+    const i = riga.indexOf(':');
+    if (i > 0) map.set(riga.slice(0, i).trim().toLowerCase(), riga.slice(i + 1).trim());
+  }
+  return map;
+}
+
+function isAutomatica(h: Map<string, string>, from: string, casella: Casella): boolean {
+  const get = (k: string) => (h.get(k) || '').toLowerCase();
+  from = from.toLowerCase();
   if (get('auto-submitted') && get('auto-submitted') !== 'no') return true;
   if (['bulk', 'list', 'junk', 'auto_reply'].includes(get('precedence'))) return true;
   if (h.has('list-unsubscribe') || h.has('list-id') || h.has('x-autoreply') || h.has('x-autorespond')) return true;
-  if (/^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|notifications?|bounce[s]?)[@+.-]/.test(from)) return true;
+  if (/^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|notifications?|bounce[s]?|comunicazioni)[@+.-]/.test(from)) return true;
   if (from === casella.indirizzo.toLowerCase()) return true;
-  if (/(^|\.)(shopify\.com|facebookmail\.com|paypal\.[a-z.]+|stripe\.com|google\.com|amazonses\.com)$/.test(from.split('@')[1] || '')) return true;
+  if (/(^|\.)(shopify\.com|facebookmail\.com|paypal\.[a-z.]+|stripe\.com|google\.com|amazonses\.com|aruba\.it)$/.test(from.split('@')[1] || '')) return true;
   return false;
 }
 
@@ -60,6 +71,25 @@ function senzaCitazione(testo: string): string {
   const tenute = (stop > 0 ? righe.slice(0, stop) : righe).filter(r => !/^\s*>/.test(r));
   return tenute.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
+
+// ── Lettura di una mail ──
+
+// Si scarica la sorgente solo delle mail scritte da persone (al massimo 2 MB: oltre, gli allegati
+// restano fuori). Solo letture a flusso: fetchOne e bodyStructure restano appesi con Aruba.
+// deno-lint-ignore no-explicit-any
+async function leggiSorgente(client: ImapFlow, m: Meta): Promise<any | null> {
+  let source: Uint8Array | null = null;
+  const query = m.size <= MAX_SORGENTE ? { uid: true, source: true } : { uid: true, source: { start: 0, maxLength: MAX_SORGENTE } };
+  // deno-lint-ignore no-explicit-any
+  for await (const f of client.fetch([m.uid], query as any, { uid: true })) source = f.source as Uint8Array;
+  if (!source) return null;
+  return await simpleParser(source, { skipImageLinks: true, skipTextLinks: true });
+}
+
+// deno-lint-ignore no-explicit-any
+type Meta = { uid: number; arrivata: Date; size: number; envelope: any; headers: Map<string, string> };
+
+const HEADER_AUTO = ['auto-submitted', 'precedence', 'list-unsubscribe', 'list-id', 'x-autoreply', 'x-autorespond'];
 
 // ── Una casella ──
 
@@ -96,30 +126,42 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
       // Prima volta senza mail nuove: si parte dall'ultima mail già presente
       if (!uids.length && ripartenza) ultimoUid = Math.max(0, Number(mb.uidNext || 1) - 1);
 
-      if (uids.length) for await (const msg of client.fetch(uids, { uid: true, source: true, internalDate: true }, { uid: true })) {
+      // Prima solo data e dimensione: si scarica il contenuto solo di quello che serve
+      const meta: Meta[] = [];
+      if (uids.length) for await (const m of client.fetch(uids, { uid: true, internalDate: true, size: true, envelope: true, headers: HEADER_AUTO }, { uid: true })) {
+        meta.push({ uid: m.uid, arrivata: m.internalDate ? new Date(m.internalDate) : new Date(), size: Number(m.size) || 0,
+                    envelope: m.envelope, headers: mappaIntestazioni(m.headers as Uint8Array) });
+      }
+      meta.sort((a, b) => a.uid - b.uid);
+
+      for (const msg of meta) {
         if (Date.now() > deadline) break;
-        const arrivata = msg.internalDate ? new Date(msg.internalDate) : new Date();
+        const arrivata = msg.arrivata;
         if (arrivata < dal) { ultimoUid = Math.max(ultimoUid, msg.uid); continue; }   // "since" è a giorni interi
 
-        const parsed = await simpleParser(msg.source as Uint8Array);
-        const from = parsed.from?.value?.[0];
-        const automatica = isAutomatica(parsed, c);
-        const testoPieno = (parsed.text || '').trim();
+        const env = msg.envelope || {};
+        const from = env.from?.[0] || {};
+        const automatica = isAutomatica(msg.headers, from.address || '', c);
+        const parsed = automatica ? null : await leggiSorgente(client, msg);
+        const testoPieno = (parsed?.text || '').trim();
         const row = {
           casella_id: c.id,
           direzione: 'in',
           uid: msg.uid,
-          message_id: parsed.messageId || null,
-          in_reply_to: parsed.inReplyTo || null,
-          riferimenti: Array.isArray(parsed.references) ? parsed.references.join(' ') : (parsed.references || null),
-          da_email: from?.address?.toLowerCase() || null,
-          da_nome: from?.name || null,
-          a: parsed.to ? [parsed.to].flat().map((t: { text: string }) => t.text).join(', ') : null,
-          oggetto: parsed.subject || null,
-          ricevuto_at: (parsed.date || arrivata).toISOString(),
-          testo: (senzaCitazione(testoPieno) || testoPieno).slice(0, MAX_TESTO),
-          allegati: (parsed.attachments || []).filter((a: { related?: boolean }) => !a.related)
-            .map((a: { filename?: string; contentType: string; size: number }) => ({ nome: a.filename || 'allegato', tipo: a.contentType, dimensione: a.size })),
+          message_id: env.messageId || parsed?.messageId || null,
+          in_reply_to: env.inReplyTo || parsed?.inReplyTo || null,
+          riferimenti: parsed ? (Array.isArray(parsed.references) ? parsed.references.join(' ') : (parsed.references || null)) : null,
+          da_email: from.address?.toLowerCase() || null,
+          da_nome: from.name || null,
+          // deno-lint-ignore no-explicit-any
+          a: (env.to || []).map((t: any) => t.name ? `${t.name} <${t.address}>` : t.address).join(', ') || null,
+          oggetto: env.subject || parsed?.subject || null,
+          ricevuto_at: (env.date ? new Date(env.date) : arrivata).toISOString(),
+          testo: testoPieno ? (senzaCitazione(testoPieno) || testoPieno).slice(0, MAX_TESTO) : null,
+          // deno-lint-ignore no-explicit-any
+          allegati: (parsed?.attachments || []).filter((a: any) => !a.related)
+            // deno-lint-ignore no-explicit-any
+            .map((a: any) => ({ nome: a.filename || 'allegato', tipo: a.contentType, dimensione: a.size })),
           automatica,
         };
 
@@ -138,7 +180,10 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
           }
         }
         ultimoUid = Math.max(ultimoUid, msg.uid);
+        // Il punto raggiunto si salva subito: se la funzione si interrompe, si riparte da qui
+        await db.from('mail_caselle').update({ uidvalidity, ultimo_uid: ultimoUid }).eq('id', c.id);
       }
+      if (ripartenza && meta.length && meta.every(m => m.arrivata < dal)) ultimoUid = Math.max(ultimoUid, Number(mb.uidNext || 1) - 1);
     } finally {
       lock.release();
     }
