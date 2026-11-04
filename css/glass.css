@@ -224,8 +224,8 @@ html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .bt
   --x-c: var(--ink); --x-on: #FFFFFF; --x-line: transparent;
   position: relative; isolation: isolate; overflow: hidden; box-sizing: border-box;
   height: var(--x-h); min-height: var(--x-h); padding: 0 20px 0 calc(var(--x-h) + 12px);
-  border: 2px solid var(--x-c); border-radius: var(--x-r); corner-shape: squircle;
-  background: transparent; color: var(--text-primary); box-shadow: none; filter: none;
+  border: 2px solid color-mix(in srgb, var(--x-c) 70%, var(--lg-edge)); border-radius: var(--x-r); corner-shape: squircle;
+  background: var(--lg-fill); color: var(--text-primary); box-shadow: inset 0 1px 0 var(--lg-edge); filter: none;
   font-weight: 800; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase;
   transition: color 0.45s var(--x-ease), --x-line 0.45s var(--x-ease);
 }
@@ -240,9 +240,9 @@ html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .bt
   content: ''; position: absolute; left: -2px; top: -2px; bottom: -2px; width: var(--x-h); z-index: -1;
   border-radius: var(--x-r); corner-shape: squircle;
   background-color: var(--x-c);
-  background-image: linear-gradient(var(--x-line), var(--x-line));
-  background-repeat: no-repeat; background-size: 18px 2px;
-  background-position: calc(var(--x-h) / 2 - 8px) 50%;
+  background-image: linear-gradient(var(--x-line), var(--x-line)), linear-gradient(180deg, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0) 60%);
+  background-repeat: no-repeat; background-size: 18px 2px, 100% 100%;
+  background-position: calc(var(--x-h) / 2 - 8px) 50%, 0 0;
   transition: width 0.45s var(--x-ease), background-position 0.45s var(--x-ease);
 }
 /* La punta della freccia */
@@ -255,8 +255,8 @@ html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .bt
 html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger) > svg { display: none; }
 
 /* Passandoci sopra: il quadrato riempie il bottone, compare l'asta, la freccia scivola avanti */
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled) { --x-line: var(--x-on); color: var(--x-on); background: transparent; border-color: var(--x-c); box-shadow: none; filter: none; transform: none; }
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled)::before { width: calc(100% + 4px); background-position: calc(var(--x-h) / 2 - 4px) 50%; }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled) { --x-line: var(--x-on); color: var(--x-on); background: var(--lg-fill); border-color: color-mix(in srgb, var(--x-c) 70%, var(--lg-edge)); box-shadow: inset 0 1px 0 var(--lg-edge); filter: none; transform: none; }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled)::before { width: calc(100% + 4px); background-position: calc(var(--x-h) / 2 - 4px) 50%, 0 0; }
 html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled)::after { transform: translateX(4px) rotate(45deg); }
 html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--x-c) 35%, transparent); }
 html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):disabled { opacity: 0.5; cursor: default; }
