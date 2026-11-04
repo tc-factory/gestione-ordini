@@ -899,6 +899,8 @@ async function submitTaskTypeForm(id) {
 
 const ShopLinks = {
   negozi: null,      // stato dei negozi (tc_shopify_stato)
+  caselle: null,     // stato delle caselle email (tc_mail_stato)
+  mail: null,        // ultime mail scritte da persone
   ordini: null,      // risultati della ricerca o ultimi ordini
   query: '',
   error: null,
@@ -918,6 +920,13 @@ async function loadShopifyLinks() {
     ShopLinks.negozi = data.negozi || [];
     ShopLinks.error = null;
   } catch (e) { ShopLinks.error = e; }
+  const [caselle, mail] = await Promise.all([
+    supabaseClient.rpc('tc_mail_stato'),
+    supabaseClient.from('mail_messaggi').select('id, casella_id, da_email, da_nome, oggetto, ricevuto_at, testo, allegati')
+      .eq('direzione', 'in').eq('automatica', false).order('ricevuto_at', { ascending: false }).limit(15),
+  ]);
+  ShopLinks.caselle = caselle.data?.success ? caselle.data.caselle : [];
+  ShopLinks.mail = mail.error ? [] : (mail.data || []);
   await searchShopifyOrders(ShopLinks.query, false);
   refreshControlPage();
 }
@@ -937,6 +946,22 @@ async function searchShopifyOrders(q, render = true) {
   const { data, error } = await req;
   ShopLinks.ordini = error ? [] : (data || []);
   if (render) refreshControlPage();
+}
+
+async function syncMail(casellaId = null) {
+  const key = 'mail:' + (casellaId || '*');
+  ShopLinks.syncing.add(key);
+  refreshControlPage();
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('mail-sync', { body: casellaId ? { casella: casellaId } : {} });
+    if (error) throw new Error(error.message || 'Controllo non riuscito');
+    if (!data?.success) throw new Error(data?.error || 'Controllo non riuscito');
+    const errori = data.risultati.filter(r => r.errore);
+    const nuove = data.risultati.reduce((n, r) => n + (r.salvate || 0), 0);
+    showToast(errori.length ? `${errori.length} caselle con errori — vedi la scheda` : nuove ? `${nuove} mail nuove` : 'Nessuna mail nuova', errori.length ? 'error' : 'success');
+  } catch (e) { showToast(e.message, 'error'); }
+  ShopLinks.syncing.delete(key);
+  await loadShopifyLinks();
 }
 
 async function syncShopify(storeId = null) {
@@ -1004,8 +1029,55 @@ function renderControlLinks() {
       </article>`;
   };
 
+  const casella = (c) => {
+    const stato = !c.ultimo_sync_at ? ['In attesa del primo controllo', '#94a3b8']
+      : c.ultimo_errore ? [/Manca il secret/.test(c.ultimo_errore) ? 'Manca la password' : 'Errore', '#ef4444']
+      : ['Collegata', '#22c55e'];
+    const busy = ShopLinks.syncing.has('mail:' + c.id) || ShopLinks.syncing.has('mail:*');
+    return `
+      <article class="glass-card ctrl-person ctrl-shop" style="--st:${stato[1]};">
+        <header>
+          <div><h3>${escapeHtml(c.indirizzo)}</h3><div class="ctrl-cell-sub">${escapeHtml(c.nome)} · mail dal ${ctrlFmtQuando(c.attiva_dal)}</div></div>
+          <span class="task-state">${stato[0]}</span>
+        </header>
+        <div class="ctrl-person-meta">
+          <span><strong>${c.da_persone}</strong> da persone</span>
+          <span>${c.ricevute - c.da_persone} automatiche</span>
+          ${c.ultimo_sync_at ? `<span>controllata ${ctrlFmtQuando(c.ultimo_sync_at)}</span>` : ''}
+        </div>
+        ${c.ultimo_errore ? `<div class="ctrl-shop-error">${escapeHtml(c.ultimo_errore)}</div>` : ''}
+        <button class="btn btn-secondary btn-sm" ${busy ? 'disabled' : ''} onclick="syncMail('${c.id}')">${busy ? 'Controllo…' : '↻ Controlla ora'}</button>
+      </article>`;
+  };
+  const nomeCasella = (id) => ShopLinks.caselle?.find(c => c.id === id)?.nome || id;
+  const mailRow = (m) => `
+    <article class="task-row ctrl-order" style="--p:#6366f1;">
+      <div class="task-main" style="cursor:default;">
+        <span class="task-title">${escapeHtml(m.oggetto || '(senza oggetto)')} <span class="ctrl-cell-sub">${escapeHtml(nomeCasella(m.casella_id))}</span></span>
+        <span class="task-meta">${escapeHtml(m.da_nome ? `${m.da_nome} <${m.da_email}>` : m.da_email || '')}<span aria-hidden="true"> · </span>${ctrlFmtQuando(m.ricevuto_at)}${(m.allegati || []).length ? `<span aria-hidden="true"> · </span>${Icons.paperclip(12)} ${m.allegati.length}` : ''}</span>
+        ${m.testo ? `<span class="task-motivo" style="font-style:normal;">${escapeHtml(m.testo.slice(0, 220))}${m.testo.length > 220 ? '…' : ''}</span>` : ''}
+      </div>
+      <span></span>
+    </article>`;
+  const anyMail = ShopLinks.syncing.has('mail:*');
+
   const anySync = ShopLinks.syncing.has('*');
   return `
+    <section class="ctrl-group">
+      <div class="ctrl-bar" style="margin-bottom:10px;">
+        <h2 class="ctrl-section-title">Caselle email</h2>
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto;" ${anyMail ? 'disabled' : ''} onclick="syncMail()">${anyMail ? 'Controllo…' : '↻ Controlla tutte'}</button>
+      </div>
+      <div class="ctrl-team">${(ShopLinks.caselle || []).map(casella).join('')}</div>
+      <p class="settings-section-hint ctrl-note">Le caselle si controllano da sole ogni 2 minuti, in sola lettura: le mail non vengono segnate come lette. Newsletter e notifiche automatiche non vanno al cervello.</p>
+    </section>
+
+    ${ShopLinks.mail?.length ? `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Ultime mail dai clienti</h2><span class="table-count">${ShopLinks.mail.length}</span></div>
+      <div class="task-list">${ShopLinks.mail.map(mailRow).join('')}</div>
+    </section>` : ''}
+
     <section class="ctrl-group">
       <div class="ctrl-bar" style="margin-bottom:10px;">
         <h2 class="ctrl-section-title">Negozi Shopify</h2>
