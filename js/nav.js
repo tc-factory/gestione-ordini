@@ -178,11 +178,12 @@ function renderSidebar() {
 
   root.innerHTML = `
     <div class="sidebar-brand">
-      <div class="brand-logo" aria-hidden="true">${Icons.logoPlaceholder(26)}</div>
-      <div class="brand-text">
-        <strong>T&amp;C Factory</strong>
-        <span>Gestione ordini</span>
-      </div>
+      <span class="cs-logo" role="img" aria-label="Creative System">
+        <img class="cs-logo-full cs-on-light" src="img/brand/cs-nero.png" alt="" width="1200" height="273">
+        <img class="cs-logo-full cs-on-dark" src="img/brand/cs-bianco.png" alt="" width="1200" height="273">
+        <img class="cs-logo-mark cs-on-light" src="img/brand/cs-mark-nero.png" alt="" width="256" height="256">
+        <img class="cs-logo-mark cs-on-dark" src="img/brand/cs-mark-bianco.png" alt="" width="256" height="256">
+      </span>
       <button class="btn-icon sidebar-close" onclick="Nav.closeDrawer()" aria-label="Chiudi menu">${Icons.x()}</button>
       <button class="btn-icon sidebar-theme-btn" onclick="Theme.toggle()"
         aria-label="${Theme.get() === 'dark' ? 'Passa al tema chiaro' : 'Passa al tema scuro'}"
