@@ -46,7 +46,7 @@ const AppState = {
 const Theme = {
   KEY: 'tcf_theme',
   MEDIA: '(prefers-color-scheme: dark)',
-  FRAME: { light: '#E4E4E9', dark: '#111113' },   // colore della barra del browser su telefono
+  FRAME: { light: '#EFE7DC', dark: '#16171C' },   // colore della barra del browser su telefono
 
   mode() {
     let v = null;
@@ -3167,10 +3167,13 @@ function renderLoginScreen() {
   overlay.style.display = 'flex';
   overlay.innerHTML = `
     <div class="login-card glass">
-      <div style="display:flex;justify-content:center;margin-bottom:16px;">
-        <div class="brand-logo brand-logo-lg">${Icons.logoPlaceholder(30)}</div>
+      <div class="login-brand">
+        <span class="cs-logo cs-logo-login" role="img" aria-label="Creative System">
+          <img class="cs-logo-full cs-on-light" src="img/brand/cs-nero.png" alt="" width="1200" height="273">
+          <img class="cs-logo-full cs-on-dark" src="img/brand/cs-bianco.png" alt="" width="1200" height="273">
+        </span>
       </div>
-      <h2 style="text-align:center;font-size:1.05rem;font-weight:700;margin-bottom:4px;">T&amp;C Gestione ordini</h2>
+      <h1 class="sr-only">Creative System</h1>
       <p style="text-align:center;font-size:0.78rem;color:var(--text-muted);margin-bottom:24px;">Accedi per continuare</p>
       <div class="form-group">
         <label class="form-label">Nickname</label>
@@ -3299,8 +3302,8 @@ const Icons = {
   copy: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
   messageCircle: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`,
   link: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
-  // Logo provvisorio — da sostituire con quello ufficiale
-  logoPlaceholder: (s=26) => `<span class="brand-logo-mark" style="font-size:${Math.round(s*0.56)}px;">T&amp;C</span>`,
+  // Marchio Creative System (la "S"): nero sul chiaro, bianco sullo scuro
+  logoPlaceholder: (s=26) => `<img class="cs-on-light" src="img/brand/cs-mark-nero.png" alt="" width="${s}" height="${s}"><img class="cs-on-dark" src="img/brand/cs-mark-bianco.png" alt="" width="${s}" height="${s}">`,
 };
 
 window.Icons = Icons;
