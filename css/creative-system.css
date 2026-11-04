@@ -225,6 +225,8 @@ html.dark .list-shell .cards-sm tr {
   background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 45%);
   box-shadow: var(--cs-sh-2);
 }
+/* Il contenitore delle liste resta trasparente: le card sono le singole righe */
+.glass-card.list-shell, html.dark .glass-card.list-shell { background: transparent; background-image: none; border: 0; box-shadow: none; }
 .list-shell .order-row-item { border-radius: var(--cs-r-md); box-shadow: var(--cs-sh-1); }
 html.dark .list-shell .order-row-item { box-shadow: var(--cs-sh-1); }
 .list-shell .order-row-item:hover {
