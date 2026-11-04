@@ -205,11 +205,14 @@ html.reduce-transparency.dark { --lg-panel: #17171D; --lg-fill: #202027; --lg-st
 html.reduce-transparency body::before { display: none; }
 
 /* ═══════════════════════════════════════════════
-   Bottoni come in Kamon: a sinistra un quadrato colorato con la freccetta (o con l'icona del bottone);
-   passandoci sopra il quadrato si allarga e riempie tutto il bottone. Solo CSS: ::before è il quadrato,
-   ::after la freccetta. Vale per i bottoni pieni e secondari; ghost e icone prendono solo la forma.
+   Bottoni come in Kamon (components/ArrowButton.tsx), stessa animazione e stesse misure:
+   a riposo un quadrato colorato con la punta della freccia; passandoci sopra il quadrato si allarga
+   fino a riempire il bottone, compare l'asta e la freccia scivola avanti di 4px (0,45s).
+   Solo CSS: ::before è il quadrato (l'asta è un suo sfondo), ::after la punta.
+   Vale per i bottoni pieni, secondari ed elimina; ghost e icone prendono solo la forma.
    ═══════════════════════════════════════════════ */
 
+@property --x-line { syntax: '<color>'; inherits: true; initial-value: transparent; }
 :root { --ctl-r: 14px; --ctl-r-sm: 10px; --x-ease: cubic-bezier(0.65, 0, 0.076, 1); }
 
 /* Stessa forma per tutti i comandi */
@@ -217,60 +220,58 @@ html.reduce-transparency body::before { display: none; }
 .btn-sm { border-radius: var(--ctl-r-sm); }
 
 html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger) {
-  --x-h: 40px; --x-r: var(--ctl-r);
-  --x-c: var(--ink); --x-on: #FFFFFF;
-  position: relative; isolation: isolate; overflow: hidden;
-  height: var(--x-h); min-height: var(--x-h); padding: 0 18px 0 calc(var(--x-h) + 12px);
+  --x-h: 44px; --x-r: var(--ctl-r);
+  --x-c: var(--ink); --x-on: #FFFFFF; --x-line: transparent;
+  position: relative; isolation: isolate; overflow: hidden; box-sizing: border-box;
+  height: var(--x-h); min-height: var(--x-h); padding: 0 20px 0 calc(var(--x-h) + 12px);
   border: 2px solid var(--x-c); border-radius: var(--x-r); corner-shape: squircle;
-  background: var(--lg-fill); background-image: none; color: var(--text-primary);
-  box-shadow: inset 0 1px 0 var(--lg-edge); filter: none;
-  font-weight: 800; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase;
-  transition: color 0.45s var(--x-ease), transform var(--dur-fast) ease;
+  background: transparent; color: var(--text-primary); box-shadow: none; filter: none;
+  font-weight: 800; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase;
+  transition: color 0.45s var(--x-ease), --x-line 0.45s var(--x-ease);
 }
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger).btn-sm { --x-h: 32px; --x-r: var(--ctl-r-sm); padding: 0 14px 0 calc(var(--x-h) + 10px); font-size: 0.7rem; }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger).btn-sm { --x-h: 36px; --x-r: var(--ctl-r-sm); padding: 0 14px 0 calc(var(--x-h) + 10px); font-size: 12px; }
 html .btn-secondary:not(.btn-icon) { --x-c: var(--accent-ink); }
 html .btn-danger { --x-c: #DC2626; }
 html.dark .btn-primary:not([role='menuitem']) { --x-c: var(--accent); --x-on: #111113; }
-html.dark .btn-secondary:not(.btn-icon) { --x-c: #4A4A54; }
+html.dark .btn-secondary:not(.btn-icon) { --x-c: #5A5A66; }
 
-/* Il quadrato */
+/* Il quadrato, con l'asta della freccia disegnata come sfondo (invisibile a riposo) */
 html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::before {
   content: ''; position: absolute; left: -2px; top: -2px; bottom: -2px; width: var(--x-h); z-index: -1;
   border-radius: var(--x-r); corner-shape: squircle;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 60%), var(--x-c);
-  transition: width 0.45s var(--x-ease);
+  background-color: var(--x-c);
+  background-image: linear-gradient(var(--x-line), var(--x-line));
+  background-repeat: no-repeat; background-size: 18px 2px;
+  background-position: calc(var(--x-h) / 2 - 8px) 50%;
+  transition: width 0.45s var(--x-ease), background-position 0.45s var(--x-ease);
 }
-/* La freccetta */
+/* La punta della freccia */
 html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::after {
-  content: ''; position: absolute; top: 50%; left: calc(var(--x-h) / 2 - 6px); width: 7px; height: 7px; margin-top: -4.5px;
+  content: ''; position: absolute; top: 50%; left: calc(var(--x-h) / 2 - 1px); width: 8px; height: 8px; margin-top: -5px; box-sizing: border-box;
   border-top: 2px solid var(--x-on); border-right: 2px solid var(--x-on); transform: rotate(45deg);
   transition: transform 0.45s var(--x-ease);
 }
-/* Se il bottone ha un'icona, va nel quadrato al posto della freccetta */
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger) > svg:first-child {
-  position: absolute; left: calc(var(--x-h) / 2 - 2px); top: 50%; translate: -50% -50%; width: 15px; height: 15px; color: var(--x-on);
-}
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger).btn-sm > svg:first-child { width: 13px; height: 13px; }
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):has(> svg:first-child)::after { display: none; }
+/* Come in Kamon niente icone nel bottone: c'è la freccia */
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger) > svg { display: none; }
 
-/* Passandoci sopra il quadrato riempie il bottone */
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled) {
-  color: var(--x-on); background: var(--lg-fill); border-color: var(--x-c); filter: none; transform: none;
-  box-shadow: inset 0 1px 0 var(--lg-edge), 0 8px 20px -10px color-mix(in srgb, var(--x-c) 70%, transparent);
-}
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled)::before { width: calc(100% + 4px); }
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled)::after { transform: translateX(3px) rotate(45deg); }
+/* Passandoci sopra: il quadrato riempie il bottone, compare l'asta, la freccia scivola avanti */
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled) { --x-line: var(--x-on); color: var(--x-on); background: transparent; border-color: var(--x-c); box-shadow: none; filter: none; transform: none; }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled)::before { width: calc(100% + 4px); background-position: calc(var(--x-h) / 2 - 4px) 50%; }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):is(:hover, :focus-visible):not(:disabled)::after { transform: translateX(4px) rotate(45deg); }
 html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--x-c) 35%, transparent); }
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):active:not(:disabled) { transform: scale(0.97); }
-html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):disabled { opacity: 0.5; }
+html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger):disabled { opacity: 0.5; cursor: default; }
 
-/* Bottoni solo icona (e "Nuovo ordine" sul telefono, che nasconde il testo): solo il quadrato */
+/* Bottoni senza testo (i due "+" e "Nuovo ordine" sul telefono): solo il quadrato con la loro icona */
 html :is(.btn-secondary:not(.btn-icon)).btn-solo.btn-solo { width: var(--x-h); padding: 0; }
+html :is(.btn-secondary:not(.btn-icon)).btn-solo.btn-solo > svg { display: block; position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: 14px; height: 14px; color: var(--x-on); }
+html :is(.btn-secondary:not(.btn-icon)).btn-solo.btn-solo::after { display: none; }
 @media (max-width: 768px) {
   html .app-toolbar .btn.btn-primary.btn-primary:has(.new-order-btn-text) { width: var(--x-h); padding: 0; }
+  html .app-toolbar .btn.btn-primary.btn-primary:has(.new-order-btn-text) > svg { display: block; position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: 16px; height: 16px; color: var(--x-on); }
+  html .app-toolbar .btn.btn-primary.btn-primary:has(.new-order-btn-text)::after { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::before, html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::after { transition: none; }
+  html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger), html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::before, html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::after { transition: none; }
 }
-html.reduce-motion :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::before, html.reduce-motion :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::after { transition: none; }
+html.reduce-motion :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger), html.reduce-motion :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::before, html.reduce-motion :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .btn-danger)::after { transition: none; }
