@@ -84,7 +84,7 @@ const CtrlIcons = {
 // ─────────────────────────────────────────────
 
 const Ctrl = {
-  view: 'giorno',        // giorno | squadra | tipi
+  view: 'giorno',        // giorno | squadra | tipi | collegamenti
   giorno: ctrlOggi(),    // giorno mostrato
   tasks: [],             // task del giorno + arretrati aperti dei giorni prima
   tipi: [],
@@ -244,6 +244,7 @@ async function openControlPage() {
   refreshControlPage();
   await Ctrl.load();
   refreshControlPage();
+  if (Ctrl.view === 'collegamenti') loadShopifyLinks();
 }
 
 function refreshControlPage() {
@@ -255,6 +256,7 @@ function refreshControlPage() {
 function setControlView(view) {
   Ctrl.view = view;
   refreshControlPage();
+  if (view === 'collegamenti') loadShopifyLinks();
 }
 
 async function setControlDay(iso) {
@@ -279,11 +281,12 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Il mio giorno'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['tipi', 'Tipi di task']] : [])];
+  const tabs = [['giorno', 'Il mio giorno'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['tipi', 'Tipi di task'], ['collegamenti', 'Collegamenti']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
     : Ctrl.view === 'tipi' ? renderControlTypes()
+    : Ctrl.view === 'collegamenti' ? renderControlLinks()
     : renderControlMyDay();
 
   root.innerHTML = `
@@ -292,7 +295,7 @@ function renderControlPage() {
         ${tabs.map(([id, label]) => `<button role="tab" aria-selected="${Ctrl.view === id}" class="${Ctrl.view === id ? 'active' : ''}"
           onclick="setControlView('${id}')">${label}</button>`).join('')}
       </div>` : ''}
-      ${Ctrl.view !== 'tipi' ? `
+      ${!['tipi', 'collegamenti'].includes(Ctrl.view) ? `
         <div class="ctrl-daynav" role="group" aria-label="Giorno">
           <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, -1)}')" aria-label="Giorno prima">${Icons.chevronLeft(16)}</button>
           <label class="ctrl-day-label">
@@ -888,4 +891,142 @@ async function submitTaskTypeForm(id) {
     await Ctrl.load();
     refreshControlPage();
   } catch (e) { showToast(e.message, 'error'); btn.disabled = false; }
+}
+
+// ─────────────────────────────────────────────
+// COLLEGAMENTI (admin): negozi Shopify e ricerca ordini
+// ─────────────────────────────────────────────
+
+const ShopLinks = {
+  negozi: null,      // stato dei negozi (tc_shopify_stato)
+  ordini: null,      // risultati della ricerca o ultimi ordini
+  query: '',
+  error: null,
+  syncing: new Set(),
+};
+
+const SHOP_PAGAMENTO = { PAID: 'Pagato', PENDING: 'In attesa', AUTHORIZED: 'Autorizzato', PARTIALLY_PAID: 'Pagato in parte',
+  REFUNDED: 'Rimborsato', PARTIALLY_REFUNDED: 'Rimborsato in parte', VOIDED: 'Annullato', EXPIRED: 'Scaduto' };
+const SHOP_EVASIONE = { UNFULFILLED: 'Da evadere', FULFILLED: 'Evaso', PARTIALLY_FULFILLED: 'Evaso in parte', ON_HOLD: 'In sospeso',
+  IN_PROGRESS: 'In lavorazione', SCHEDULED: 'Programmato', RESTOCKED: 'Rifornito', PENDING_FULFILLMENT: 'In attesa di evasione', OPEN: 'Aperto' };
+
+async function loadShopifyLinks() {
+  try {
+    const { data, error } = await supabaseClient.rpc('tc_shopify_stato');
+    if (error) throw Ctrl._fail(error);
+    if (!data?.success) throw new Error(data?.error || 'Errore');
+    ShopLinks.negozi = data.negozi || [];
+    ShopLinks.error = null;
+  } catch (e) { ShopLinks.error = e; }
+  await searchShopifyOrders(ShopLinks.query, false);
+  refreshControlPage();
+}
+
+async function searchShopifyOrders(q, render = true) {
+  ShopLinks.query = q = (q || '').trim();
+  let req = supabaseClient.from('shopify_orders')
+    .select('id, store_id, numero, creato_at, annullato_at, cliente, email, telefono, totale, valuta, stato_pagamento, stato_evasione, tracking, righe')
+    .order('creato_at', { ascending: false }).limit(q ? 40 : 15);
+  if (q) {
+    const safe = q.replace(/[,()%*]/g, ' ').trim();
+    const cifre = q.replace(/\D/g, '');
+    const parti = [`email.ilike.*${safe}*`, `cliente.ilike.*${safe}*`, `numero.ilike.*${safe}*`];
+    if (cifre.length >= 6) parti.push(`telefono_cifre.like.*${cifre.slice(-9)}*`);
+    req = req.or(parti.join(','));
+  }
+  const { data, error } = await req;
+  ShopLinks.ordini = error ? [] : (data || []);
+  if (render) refreshControlPage();
+}
+
+async function syncShopify(storeId = null) {
+  const key = storeId || '*';
+  ShopLinks.syncing.add(key);
+  refreshControlPage();
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('shopify-sync', { body: storeId ? { store: storeId } : {} });
+    if (error) throw new Error(error.message || 'Sincronizzazione non riuscita');
+    if (!data?.success) throw new Error(data?.error || 'Sincronizzazione non riuscita');
+    const errori = data.risultati.filter(r => r.errore);
+    const letti = data.risultati.reduce((n, r) => n + (r.letti || 0), 0);
+    showToast(errori.length ? `${errori.length} negozi con errori — vedi la scheda` : `Sincronizzato: ${letti} ordini letti`, errori.length ? 'error' : 'success');
+  } catch (e) { showToast(e.message, 'error'); }
+  ShopLinks.syncing.delete(key);
+  await loadShopifyLinks();
+}
+
+function renderControlLinks() {
+  if (ShopLinks.error?.notInstalled) return `<div class="glass-card page-card"><div class="empty-list">Collegamento Shopify da attivare: esegui <strong>sql/shopify.sql</strong>.</div></div>`;
+  if (!ShopLinks.negozi) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
+  const nomeNegozio = (id) => ShopLinks.negozi.find(n => n.id === id)?.nome || id;
+
+  const negozio = (n) => {
+    const secretMancante = /Manca il secret/.test(n.ultimo_errore || '');
+    const stato = !n.ultimo_sync_at ? ['In attesa del primo collegamento', '#94a3b8']
+      : n.ultimo_errore ? [secretMancante ? 'Manca il secret' : 'Errore', '#ef4444']
+      : ['Collegato', '#22c55e'];
+    const busy = ShopLinks.syncing.has(n.id) || ShopLinks.syncing.has('*');
+    return `
+      <article class="glass-card ctrl-person ctrl-shop" style="--st:${stato[1]};">
+        <header>
+          <div><h3>${escapeHtml(n.nome)}</h3><div class="ctrl-cell-sub">${escapeHtml(n.dominio)}</div></div>
+          <span class="task-state">${stato[0]}</span>
+        </header>
+        <div class="ctrl-person-meta">
+          <span><strong>${n.ordini}</strong> ordini</span>
+          <span><strong>${n.da_evadere}</strong> da evadere</span>
+          ${n.ultimo_sync_at ? `<span>controllato ${ctrlFmtQuando(n.ultimo_sync_at)}</span>` : ''}
+        </div>
+        ${n.ultimo_errore ? `<div class="ctrl-shop-error">${escapeHtml(n.ultimo_errore)}</div>` : ''}
+        <button class="btn btn-secondary btn-sm" ${busy ? 'disabled' : ''} onclick="syncShopify('${n.id}')">${busy ? 'Sincronizzo…' : '↻ Sincronizza ora'}</button>
+      </article>`;
+  };
+
+  const ordine = (o) => {
+    const track = (o.tracking || []).find(t => t.numero || t.url);
+    const righe = (o.righe || []).map(r => `${r.qnt}× ${r.titolo}${r.variante ? ` (${r.variante})` : ''}`).join(' · ');
+    return `
+      <article class="task-row ctrl-order" style="--p:${o.annullato_at ? '#94a3b8' : o.stato_evasione === 'FULFILLED' ? '#22c55e' : '#f59e0b'};">
+        <div class="task-main" style="cursor:default;">
+          <span class="task-title">${escapeHtml(o.numero)} · ${escapeHtml(o.cliente || 'Cliente senza nome')}
+            <span class="ctrl-cell-sub">${escapeHtml(nomeNegozio(o.store_id))}</span></span>
+          <span class="task-meta">${[
+            ctrlFmtQuando(o.creato_at),
+            o.totale != null ? `${Number(o.totale).toLocaleString('it-IT', { minimumFractionDigits: 2 })} ${o.valuta || ''}` : '',
+            SHOP_PAGAMENTO[o.stato_pagamento] || o.stato_pagamento || '',
+            o.annullato_at ? '<span class="task-late">Annullato</span>' : (SHOP_EVASIONE[o.stato_evasione] || o.stato_evasione || ''),
+            o.email ? escapeHtml(o.email) : '', o.telefono ? escapeHtml(o.telefono) : '',
+          ].filter(Boolean).join('<span aria-hidden="true"> · </span>')}</span>
+          ${righe ? `<span class="task-motivo" style="font-style:normal;">${escapeHtml(righe)}</span>` : ''}
+        </div>
+        ${track ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(track.url || '#')}" target="_blank" rel="noopener"
+            ${track.url ? '' : 'onclick="return false"'}>${Icons.truck(14)} ${escapeHtml(track.corriere || 'Tracking')}${track.numero ? ` ${escapeHtml(track.numero)}` : ''}</a>` : '<span></span>'}
+      </article>`;
+  };
+
+  const anySync = ShopLinks.syncing.has('*');
+  return `
+    <section class="ctrl-group">
+      <div class="ctrl-bar" style="margin-bottom:10px;">
+        <h2 class="ctrl-section-title">Negozi Shopify</h2>
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto;" ${anySync ? 'disabled' : ''} onclick="syncShopify()">${anySync ? 'Sincronizzo…' : '↻ Sincronizza tutti'}</button>
+      </div>
+      <div class="ctrl-team">${ShopLinks.negozi.map(negozio).join('')}</div>
+      <p class="settings-section-hint ctrl-note">Gli ordini si aggiornano da soli ogni 5 minuti. Al primo collegamento vengono importati quelli degli ultimi 60 giorni.</p>
+    </section>
+
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>${ShopLinks.query ? 'Ordini trovati' : 'Ultimi ordini'}</h2>
+        <span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
+      <form class="ctrl-search" onsubmit="event.preventDefault();searchShopifyOrders(this.q.value)" role="search">
+        <label class="sr-only" for="shop-q">Cerca ordine</label>
+        <input id="shop-q" name="q" class="form-input" value="${escapeHtml(ShopLinks.query)}"
+          placeholder="Email, telefono, nome o numero d'ordine (es. #1043) — in tutti i negozi">
+        <button class="btn btn-primary btn-sm" type="submit">${Icons.search(14)} Cerca</button>
+        ${ShopLinks.query ? `<button class="btn btn-ghost btn-sm" type="button" onclick="searchShopifyOrders('')">Azzera</button>` : ''}
+      </form>
+      ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
+        : ShopLinks.ordini.length ? `<div class="task-list">${ShopLinks.ordini.map(ordine).join('')}</div>`
+        : `<div class="empty-list">${ShopLinks.query ? 'Nessun ordine trovato.' : 'Ancora nessun ordine importato.'}</div>`}
+    </section>`;
 }
