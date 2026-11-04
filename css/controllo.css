@@ -1,0 +1,122 @@
+/* ════════════════════════════════════════════════════════
+   Centro di controllo — task del giorno, squadra, tipi di task
+   ════════════════════════════════════════════════════════ */
+
+.ctrl-page { display: flex; flex-direction: column; gap: var(--space-md, 16px); }
+
+.ctrl-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: var(--space-md, 16px);
+}
+.ctrl-daynav { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.ctrl-day-label {
+  position: relative; min-width: 120px; text-align: center;
+  font-weight: 650; font-size: 0.92rem; cursor: pointer;
+  padding: 6px 12px; border-radius: 12px;
+}
+.ctrl-day-label:hover { background: var(--fill-hover); }
+.ctrl-day-label input[type="date"] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%;
+}
+.ctrl-day-label input[type="date"]::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+
+.ctrl-stats { margin-bottom: var(--space-md, 16px); }
+.ctrl-stats .stat-card-value small { font-size: 0.55em; color: var(--text-muted); font-weight: 600; }
+.ctrl-stat-sub {
+  position: relative; font-size: 0.78rem; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.ctrl-group { margin-bottom: var(--space-md, 16px); }
+.ctrl-group .page-card-head { flex-wrap: wrap; }
+.ctrl-group-hint { font-size: 0.78rem; color: var(--text-muted); margin-left: auto; }
+
+/* ── Riga del task ── */
+
+.task-list { display: flex; flex-direction: column; }
+.task-row {
+  display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px;
+  padding: 10px 16px 10px 14px;
+  border-top: 1px solid var(--border-light, var(--border));
+  box-shadow: inset 3px 0 0 var(--p);
+}
+.task-row:first-child { border-top: none; }
+.task-row.is-done .task-title { text-decoration: line-through; color: var(--text-muted); }
+
+.task-main {
+  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+  background: none; border: none; padding: 2px 0; text-align: left; color: inherit; cursor: pointer;
+  font: inherit;
+}
+.task-main:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 8px; }
+.task-title { font-weight: 650; font-size: 0.92rem; }
+.task-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px;
+  font-size: 0.78rem; color: var(--text-muted);
+}
+.task-meta svg { vertical-align: -2px; }
+.task-motivo { font-size: 0.78rem; color: var(--text-secondary); font-style: italic; }
+.task-late { color: var(--priority-urgent); font-weight: 600; }
+.task-timer { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; color: #d97706; font-weight: 700; }
+
+.task-state {
+  font-size: 0.72rem; font-weight: 700; white-space: nowrap;
+  padding: 3px 9px; border-radius: 999px;
+  color: var(--st); background: color-mix(in srgb, var(--st) 14%, transparent);
+}
+.task-actions { display: flex; align-items: center; gap: 6px; }
+.task-actions .btn svg { flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  .task-row { grid-template-columns: 1fr auto; }
+  .task-state { grid-column: 2; grid-row: 1; }
+  .task-actions { grid-column: 1 / -1; justify-content: flex-end; }
+  .ctrl-daynav { margin-left: 0; }
+}
+
+/* ── Dettaglio ── */
+
+.task-detail-state { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.task-detail-desc { margin: 0; white-space: pre-wrap; font-size: 0.9rem; color: var(--text-secondary); }
+.task-detail-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.task-motivo-form {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px; border-radius: 14px; background: var(--fill-hover);
+}
+.task-history ol { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.task-history li { display: flex; gap: 8px; align-items: baseline; font-size: 0.82rem; }
+.task-history em { display: block; color: var(--text-muted); }
+.task-history-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; transform: translateY(-1px); }
+
+/* ── Squadra ── */
+
+.ctrl-team {
+  display: grid; gap: 12px; margin-bottom: var(--space-md, 16px);
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+}
+.ctrl-person { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.ctrl-person header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.ctrl-person h3 { margin: 0; font-size: 1rem; font-weight: 700; text-transform: capitalize; }
+.ctrl-score { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+.ctrl-score strong { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.ctrl-score small { font-size: 0.7rem; color: var(--text-muted); }
+.ctrl-progress { height: 6px; border-radius: 999px; background: var(--fill-hover); overflow: hidden; }
+.ctrl-progress span { display: block; height: 100%; border-radius: inherit; background: #22c55e; transition: width .4s var(--ease-out, ease); }
+.ctrl-person-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.78rem; color: var(--text-secondary); }
+.ctrl-person-now { font-size: 0.82rem; display: flex; align-items: center; gap: 6px; min-height: 1.3em; }
+.ctrl-idle { color: var(--text-muted); }
+.ctrl-live {
+  width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; flex-shrink: 0;
+  animation: ctrl-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ctrl-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .ctrl-live { animation: none; } }
+
+.ctrl-note { margin: 4px 4px var(--space-md, 16px); }
+
+/* ── Tipi di task ── */
+
+.ctrl-types td { vertical-align: top; }
+.ctrl-types tr.ctrl-off td { opacity: .5; }
+.ctrl-cell-sub { font-size: 0.76rem; color: var(--text-muted); font-weight: 400; }
+.ctrl-cell-actions { text-align: right; white-space: nowrap; }

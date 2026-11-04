@@ -3219,6 +3219,7 @@ async function startApp() {
   initCalendar();
   Tickets.startPolling();
   Messages.start();
+  Ctrl.start();
 }
 
 async function doLogout() {
@@ -3226,7 +3227,8 @@ async function doLogout() {
   Tickets.stopPolling();
   Object.assign(Tickets, { _list: [], loaded: false, error: null });
   Messages.stop();
-  ['msg-modal', 'msg-compose-modal'].forEach(closeModal);
+  Ctrl.stop();
+  ['msg-modal', 'msg-compose-modal', 'ctrl-modal'].forEach(closeModal);
   TCFactory.reset();
   await TCAuth.logout();
   renderLoginScreen();

@@ -1,0 +1,891 @@
+/**
+ * T&C Factory — Centro di controllo (fase 0: motore dei task)
+ *
+ *   • Il mio giorno: i task della persona collegata, la coda comune e gli arretrati
+ *   • Squadra (admin): carico, task in corso e punteggio di ogni operatore
+ *   • Tipi di task (admin): catalogo con tempo standard e tempo reale misurato
+ *
+ * Dati: tabelle task_tipi / tasks / task_storico (sql/centro-controllo.sql).
+ * Il tempo di lavoro lo conta il database a ogni cambio di stato (tc_task_stato).
+ * Per ora la sezione la vedono solo gli admin (vedi NAV_ITEMS in nav.js).
+ */
+
+const TASK_STATI = [
+  { id: 'da_fare',        label: 'Da fare',        color: '#94a3b8' },
+  { id: 'in_lavorazione', label: 'In lavorazione', color: '#f59e0b' },
+  { id: 'in_pausa',       label: 'In pausa',       color: '#a78bfa' },
+  { id: 'completato',     label: 'Completato',     color: '#22c55e' },
+  { id: 'rimandato',      label: 'Rimandato',      color: '#38bdf8' },
+  { id: 'bloccato',       label: 'Bloccato',       color: '#ef4444' },
+  { id: 'non_completato', label: 'Non completato', color: '#f43f5e' },
+];
+const TASK_PRIORITA = [
+  { id: 'urgente', label: 'Urgente', color: '#ef4444' },
+  { id: 'alta',    label: 'Alta',    color: '#f97316' },
+  { id: 'normale', label: 'Normale', color: '#6366f1' },
+  { id: 'bassa',   label: 'Bassa',   color: '#94a3b8' },
+];
+const TASK_AUTONOMIA = [
+  { id: 'solo_task',  label: 'Solo task',  hint: 'Il cervello crea il task per un operatore' },
+  { id: 'bozza',      label: 'Bozza',      hint: 'Il cervello prepara la risposta, l\'operatore la approva' },
+  { id: 'automatico', label: 'Automatico', hint: 'Il cervello esegue da solo' },
+];
+// Stati ancora da lavorare: se il giorno passa, il task diventa arretrato
+const TASK_APERTI = ['da_fare', 'in_lavorazione', 'in_pausa', 'rimandato'];
+// Stati che chiedono il motivo
+const TASK_CON_MOTIVO = ['rimandato', 'bloccato', 'non_completato'];
+// Campioni minimi prima di proporre il tempo reale come nuovo standard
+const TASK_CAMPIONI_MIN = 5;
+
+const taskStato = (id) => TASK_STATI.find(s => s.id === id) || TASK_STATI[0];
+const taskPrio  = (id) => TASK_PRIORITA.find(p => p.id === id) || TASK_PRIORITA[2];
+const taskPrioRank = (id) => Math.max(0, TASK_PRIORITA.findIndex(p => p.id === id));
+
+// Date in ora italiana, come 'YYYY-MM-DD'
+const ctrlOggi = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+const ctrlAddDays = (iso, n) => {
+  const d = new Date(iso + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const ctrlFmtGiorno = (iso) => {
+  const oggi = ctrlOggi();
+  if (iso === oggi) return 'Oggi';
+  if (iso === ctrlAddDays(oggi, -1)) return 'Ieri';
+  if (iso === ctrlAddDays(oggi, 1)) return 'Domani';
+  return new Date(iso + 'T12:00:00Z').toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+};
+const ctrlFmtOra = (iso) => new Date(iso).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+const ctrlFmtQuando = (iso) => new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+// Durata in secondi → "1:05:09" o "5:09"
+const ctrlFmtDur = (sec) => {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+};
+const ctrlFmtMin = (min) => {
+  min = Math.round(min || 0);
+  return min >= 60 ? `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60}′` : ''}` : `${min}′`;
+};
+// Secondi lavorati, compresa la sessione in corso
+const taskLavoratoSec = (t) => (t.lavorato_sec || 0) + (t.lavoro_dal ? (Date.now() - new Date(t.lavoro_dal)) / 1000 : 0);
+
+const CtrlIcons = {
+  play:  (s = 14) => `<svg viewBox="0 0 24 24" fill="currentColor" width="${s}" height="${s}" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/></svg>`,
+  pause: (s = 14) => `<svg viewBox="0 0 24 24" fill="currentColor" width="${s}" height="${s}" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1.2"/><rect x="14" y="4" width="4" height="16" rx="1.2"/></svg>`,
+  check: (s = 14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>`,
+  undo:  (s = 14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`,
+  more:  (s = 16) => `<svg viewBox="0 0 24 24" fill="currentColor" width="${s}" height="${s}" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>`,
+  hand:  (s = 14) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>`,
+};
+
+// ─────────────────────────────────────────────
+// DATI
+// ─────────────────────────────────────────────
+
+const Ctrl = {
+  view: 'giorno',        // giorno | squadra | tipi
+  giorno: ctrlOggi(),    // giorno mostrato
+  tasks: [],             // task del giorno + arretrati aperti dei giorni prima
+  tipi: [],
+  users: [],             // nickname dello staff
+  punteggi: {},          // operatore → punteggio del giorno mostrato
+  punteggi7: {},         // operatore → punteggio degli ultimi 7 giorni
+  tempi: {},             // tipo_id → { campioni, mediana_minuti }
+  loaded: false,
+  error: null,
+  badge: 0,              // task aperti di oggi della persona collegata
+  _channel: null,
+  _reloadTimer: null,
+  _tick: null,
+
+  _me() { return TCAuth.getNickname(); },
+
+  _fail(error) {
+    // Tabelle assenti: lo script SQL non è ancora stato eseguito
+    if (['42P01', 'PGRST205', 'PGRST202'].includes(error.code) || /does not exist|schema cache|Could not find/i.test(error.message || '')) {
+      return Object.assign(new Error('Centro di controllo non ancora attivato sul database'), { notInstalled: true });
+    }
+    return new Error(error.message || 'Errore di connessione');
+  },
+
+  async _rpc(fn, args = {}) {
+    const { data, error } = await supabaseClient.rpc(fn, args);
+    if (error) throw this._fail(error);
+    if (!data?.success) throw new Error(data?.error || 'Errore');
+    return data;
+  },
+
+  async load() {
+    const d = this.giorno;
+    try {
+      const aperti = TASK_APERTI.join(',');
+      const [tasks, tipi, users] = await Promise.all([
+        supabaseClient.from('tasks').select('*')
+          .or(`giorno.eq.${d},and(giorno.lt.${d},stato.in.(${aperti}))`)
+          .order('created_at'),
+        supabaseClient.from('task_tipi').select('*').order('nome'),
+        this.users.length ? null : TCAuth.listUsers().catch(() => []),
+      ]);
+      if (tasks.error) throw this._fail(tasks.error);
+      if (tipi.error)  throw this._fail(tipi.error);
+      this.tasks = tasks.data || [];
+      this.tipi  = tipi.data || [];
+      if (users) this.users = users.map(u => u.nickname);
+
+      if (TCAuth.isAdmin()) {
+        const [oggi, sette, tempi] = await Promise.all([
+          this._rpc('tc_task_punteggi', { p_dal: d, p_al: d }),
+          this._rpc('tc_task_punteggi', { p_dal: ctrlAddDays(d, -6), p_al: d }),
+          this._rpc('tc_task_tempi_reali'),
+        ]);
+        this.punteggi  = Object.fromEntries((oggi.punteggi || []).map(p => [p.operatore, p]));
+        this.punteggi7 = Object.fromEntries((sette.punteggi || []).map(p => [p.operatore, p]));
+        this.tempi     = Object.fromEntries((tempi.tempi || []).map(t => [t.tipo_id, t]));
+      }
+      this.error = null;
+    } catch (e) {
+      this.error = e;
+    }
+    this.loaded = true;
+  },
+
+  async loadBadge() {
+    const { count, error } = await supabaseClient.from('tasks').select('id', { count: 'exact', head: true })
+      .eq('assegnato_a', this._me()).lte('giorno', ctrlOggi()).in('stato', TASK_APERTI);
+    const n = error ? 0 : (count || 0);
+    if (n !== this.badge) { this.badge = n; renderSidebar(); }
+  },
+
+  // Aggiornamento in tempo reale: qualsiasi modifica ai task ricarica la pagina aperta
+  start() {
+    if (!Nav.isAllowed('controllo')) return;
+    this.loadBadge();
+    this._channel = supabaseClient.channel('tasks')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => this._scheduleReload())
+      .subscribe();
+  },
+
+  stop() {
+    if (this._channel) supabaseClient.removeChannel(this._channel);
+    clearTimeout(this._reloadTimer);
+    clearInterval(this._tick);
+    Object.assign(this, { _channel: null, _tick: null, tasks: [], tipi: [], users: [], punteggi: {}, punteggi7: {},
+      tempi: {}, loaded: false, error: null, badge: 0, view: 'giorno', giorno: ctrlOggi() });
+  },
+
+  _scheduleReload() {
+    clearTimeout(this._reloadTimer);
+    this._reloadTimer = setTimeout(async () => {
+      this.loadBadge();
+      if (Nav.current !== 'controllo') return;
+      await this.load();
+      refreshControlPage();
+    }, 400);
+  },
+
+  // ── Azioni ──
+
+  async setStato(id, stato, motivo = null, giorno = null) {
+    await this._rpc('tc_task_stato', { p_id: id, p_stato: stato, p_motivo: motivo, p_giorno: giorno });
+  },
+  async prendi(id) { await this._rpc('tc_task_prendi', { p_id: id }); },
+
+  async saveTask(id, row) {
+    const q = id ? supabaseClient.from('tasks').update(row).eq('id', id)
+                 : supabaseClient.from('tasks').insert(row);
+    const { error } = await q;
+    if (error) throw this._fail(error);
+  },
+  async deleteTask(id) {
+    const { error } = await supabaseClient.from('tasks').delete().eq('id', id);
+    if (error) throw this._fail(error);
+  },
+
+  async saveTipo(id, row) {
+    const q = id ? supabaseClient.from('task_tipi').update(row).eq('id', id)
+                 : supabaseClient.from('task_tipi').insert(row);
+    const { error } = await q;
+    if (error) throw error.code === '23505' ? new Error('Esiste già un tipo con questo nome') : this._fail(error);
+  },
+  async deleteTipo(id) {
+    const { error } = await supabaseClient.from('task_tipi').delete().eq('id', id);
+    if (error) throw this._fail(error);
+  },
+
+  async storico(id) {
+    const { data, error } = await supabaseClient.from('task_storico').select('*').eq('task_id', id).order('at');
+    if (error) throw this._fail(error);
+    return data || [];
+  },
+
+  get(id)     { return this.tasks.find(t => t.id === id); },
+  tipo(id)    { return this.tipi.find(t => t.id === id); },
+  canAct(t)   { return TCAuth.isAdmin() || !t.assegnato_a || t.assegnato_a === this._me(); },
+};
+
+window.Ctrl = Ctrl;
+
+// Ordine dentro un gruppo: in corso, poi priorità, poi scadenza, poi arrivo
+function sortTasks(list) {
+  return list.slice().sort((a, b) =>
+    (b.stato === 'in_lavorazione') - (a.stato === 'in_lavorazione')
+    || taskPrioRank(a.priorita) - taskPrioRank(b.priorita)
+    || (a.scadenza || '9').localeCompare(b.scadenza || '9')
+    || a.created_at.localeCompare(b.created_at));
+}
+
+// ─────────────────────────────────────────────
+// PAGINA
+// ─────────────────────────────────────────────
+
+async function openControlPage() {
+  if (!TCAuth.isAdmin() && Ctrl.view !== 'giorno') Ctrl.view = 'giorno';
+  refreshControlPage();
+  await Ctrl.load();
+  refreshControlPage();
+}
+
+function refreshControlPage() {
+  if (Nav.current !== 'controllo') return;
+  renderControlPage();
+  renderHeader();
+}
+
+function setControlView(view) {
+  Ctrl.view = view;
+  refreshControlPage();
+}
+
+async function setControlDay(iso) {
+  Ctrl.giorno = iso || ctrlOggi();
+  Ctrl.loaded = false;
+  refreshControlPage();
+  await Ctrl.load();
+  refreshControlPage();
+}
+
+function renderControlPage() {
+  const root = document.getElementById('controllo-root');
+  if (!root) return;
+
+  if (Ctrl.error?.notInstalled) {
+    root.innerHTML = `
+      <div class="glass-card empty-state">
+        <div class="empty-state-icon" aria-hidden="true">${Icons.zap(28)}</div>
+        <h2>Centro di controllo da attivare</h2>
+        <p>Esegui lo script <strong>sql/centro-controllo.sql</strong> su Supabase, poi ricarica la pagina.</p>
+      </div>`;
+    return;
+  }
+
+  const tabs = [['giorno', 'Il mio giorno'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['tipi', 'Tipi di task']] : [])];
+  const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
+    : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
+    : Ctrl.view === 'squadra' ? renderControlTeam()
+    : Ctrl.view === 'tipi' ? renderControlTypes()
+    : renderControlMyDay();
+
+  root.innerHTML = `
+    <div class="ctrl-bar">
+      ${tabs.length > 1 ? `<div class="segmented" role="tablist" aria-label="Vista">
+        ${tabs.map(([id, label]) => `<button role="tab" aria-selected="${Ctrl.view === id}" class="${Ctrl.view === id ? 'active' : ''}"
+          onclick="setControlView('${id}')">${label}</button>`).join('')}
+      </div>` : ''}
+      ${Ctrl.view !== 'tipi' ? `
+        <div class="ctrl-daynav" role="group" aria-label="Giorno">
+          <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, -1)}')" aria-label="Giorno prima">${Icons.chevronLeft(16)}</button>
+          <label class="ctrl-day-label">
+            <span>${ctrlFmtGiorno(Ctrl.giorno)}</span>
+            <input type="date" value="${Ctrl.giorno}" onchange="setControlDay(this.value)" aria-label="Scegli il giorno">
+          </label>
+          <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, 1)}')" aria-label="Giorno dopo">${Icons.chevronRight(16)}</button>
+          ${Ctrl.giorno !== ctrlOggi() ? `<button class="btn btn-ghost btn-sm" onclick="setControlDay()">Oggi</button>` : ''}
+        </div>` : ''}
+    </div>
+    ${body}`;
+
+  startControlTicker();
+}
+
+// Aggiorna ogni secondo i cronometri dei task in lavorazione
+function startControlTicker() {
+  clearInterval(Ctrl._tick);
+  if (!document.querySelector('[data-task-timer]')) { Ctrl._tick = null; return; }
+  Ctrl._tick = setInterval(() => {
+    if (Nav.current !== 'controllo') { clearInterval(Ctrl._tick); Ctrl._tick = null; return; }
+    document.querySelectorAll('[data-task-timer]').forEach(el => {
+      const t = Ctrl.get(el.dataset.taskTimer);
+      if (t) el.textContent = ctrlFmtDur(taskLavoratoSec(t));
+    });
+  }, 1000);
+}
+
+// ── Il mio giorno ──
+
+function renderControlMyDay() {
+  const me = Ctrl._me(), d = Ctrl.giorno;
+  const mine = Ctrl.tasks.filter(t => t.assegnato_a === me);
+  const delGiorno = mine.filter(t => t.giorno === d);
+  const arretrati = mine.filter(t => t.giorno < d);
+  const coda = Ctrl.tasks.filter(t => !t.assegnato_a);
+
+  const inCorso  = delGiorno.filter(t => t.stato === 'in_lavorazione');
+  const daFare   = delGiorno.filter(t => ['da_fare', 'in_pausa', 'rimandato'].includes(t.stato));
+  const bloccati = delGiorno.filter(t => t.stato === 'bloccato');
+  const chiusi   = delGiorno.filter(t => ['completato', 'non_completato'].includes(t.stato));
+
+  const minTot  = delGiorno.filter(t => t.stato !== 'bloccato').reduce((s, t) => s + (t.minuti_stimati || 0), 0);
+  const minFatti = delGiorno.filter(t => t.stato === 'completato').reduce((s, t) => s + (t.minuti_stimati || 0), 0);
+  const lavorati = delGiorno.reduce((s, t) => s + taskLavoratoSec(t), 0);
+  const corrente = inCorso[0] || arretrati.find(t => t.stato === 'in_lavorazione');
+  const score = Ctrl.punteggi[me];
+
+  const stat = (label, value, sub = '', glow = 'var(--brand-gold)') => `
+    <div class="glass-card stat-card">
+      <div class="stat-card-glow" style="background:${glow};"></div>
+      <div class="stat-card-label">${label}</div>
+      <div class="stat-card-value">${value}</div>
+      ${sub ? `<div class="ctrl-stat-sub">${sub}</div>` : ''}
+    </div>`;
+
+  return `
+    <div class="stat-grid ctrl-stats">
+      ${stat('Task', `${chiusi.filter(t => t.stato === 'completato').length}/${delGiorno.length}`, 'completati', '#22c55e')}
+      ${stat('Tempo', `${ctrlFmtMin(minFatti)} <small>/ ${ctrlFmtMin(minTot)}</small>`, `lavorato ${ctrlFmtDur(lavorati)}`, '#6366f1')}
+      ${stat('In corso', corrente ? `<span data-task-timer="${corrente.id}">${ctrlFmtDur(taskLavoratoSec(corrente))}</span>` : '—',
+             corrente ? escapeHtml(corrente.titolo) : 'nessun task avviato', '#f59e0b')}
+      ${TCAuth.isAdmin() ? stat('Punteggio', score ? score.punteggio : '—', 'oggi · solo admin', 'var(--brand-gold)') : ''}
+    </div>
+
+    ${taskGroup('In corso', inCorso)}
+    ${taskGroup('Da fare', daFare, d === ctrlOggi() ? 'Niente da fare per oggi. 🎉' : 'Nessun task per questo giorno.')}
+    ${taskGroup('Arretrati', arretrati, '', 'Task dei giorni prima non ancora chiusi')}
+    ${taskGroup('Bloccati', bloccati, '', 'In attesa di qualcun altro: non pesano sul punteggio')}
+    ${taskGroup('Coda comune', coda, '', 'Non assegnati: prendili tu')}
+    ${taskGroup('Chiusi', chiusi)}`;
+}
+
+function taskGroup(title, list, emptyText = '', hint = '') {
+  if (!list.length && !emptyText) return '';
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>${title}</h2><span class="table-count">${list.length}</span>
+        ${hint ? `<span class="ctrl-group-hint">${hint}</span>` : ''}</div>
+      ${list.length ? `<div class="task-list">${sortTasks(list).map(t => renderTaskRow(t)).join('')}</div>`
+                    : `<div class="empty-list">${emptyText}</div>`}
+    </section>`;
+}
+
+function renderTaskRow(t, { showOwner = false } = {}) {
+  const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id);
+  const lav = taskLavoratoSec(t);
+  const scaduto = t.scadenza && !['completato', 'non_completato'].includes(t.stato) && new Date(t.scadenza) < new Date();
+  const meta = [
+    showOwner ? `<strong>${t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune'}</strong>` : '',
+    tipo ? escapeHtml(tipo.nome) : '',
+    `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}`,
+    t.stato === 'in_lavorazione' ? `<span class="task-timer" data-task-timer="${t.id}">${ctrlFmtDur(lav)}</span>`
+      : lav >= 1 ? `lavorato ${ctrlFmtDur(lav)}` : '',
+    t.scadenza ? `<span class="${scaduto ? 'task-late' : ''}">entro ${new Date(t.scadenza).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }) === t.giorno ? ctrlFmtOra(t.scadenza) : ctrlFmtQuando(t.scadenza)}</span>` : '',
+    t.giorno < Ctrl.giorno ? `<span class="task-late">dal ${ctrlFmtGiorno(t.giorno).toLowerCase()}</span>` : '',
+    t.rinvii ? `rimandato ${t.rinvii}×` : '',
+  ].filter(Boolean).join('<span aria-hidden="true"> · </span>');
+
+  return `
+    <article class="task-row ${t.stato === 'completato' ? 'is-done' : ''}" style="--p:${pr.color};--st:${st.color};">
+      <button type="button" class="task-main" onclick="openTaskDetail('${t.id}')" aria-label="${escapeHtml(t.titolo)}: dettagli">
+        <span class="task-title">${escapeHtml(t.titolo)}</span>
+        <span class="task-meta">${meta}</span>
+        ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<span class="task-motivo">${escapeHtml(t.motivo)}</span>` : ''}
+      </button>
+      <span class="task-state" title="Priorità ${pr.label}">${st.label}</span>
+      <div class="task-actions">${Ctrl.canAct(t) ? taskQuickActions(t) : ''}
+        <button class="btn-icon" onclick="openTaskDetail('${t.id}')" aria-label="Altre azioni">${CtrlIcons.more()}</button>
+      </div>
+    </article>`;
+}
+
+function taskQuickActions(t) {
+  const btn = (stato, icon, label, cls = 'btn-secondary') =>
+    `<button class="btn ${cls} btn-sm" onclick="taskSetStato('${t.id}','${stato}')">${icon} <span>${label}</span></button>`;
+  const prendi = !t.assegnato_a ? `<button class="btn btn-secondary btn-sm" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
+  switch (t.stato) {
+    case 'in_lavorazione': return btn('in_pausa', CtrlIcons.pause(), 'Pausa') + btn('completato', CtrlIcons.check(), 'Fatto', 'btn-primary');
+    case 'completato':     return btn('da_fare', CtrlIcons.undo(), 'Riapri', 'btn-ghost');
+    case 'non_completato': return btn('da_fare', CtrlIcons.undo(), 'Riapri', 'btn-ghost');
+    case 'in_pausa':
+    case 'bloccato':       return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Riprendi', 'btn-primary');
+    default:               return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Inizia', 'btn-primary');
+  }
+}
+
+async function taskSetStato(id, stato, motivo = null, giorno = null) {
+  try {
+    await Ctrl.setStato(id, stato, motivo, giorno);
+    await Ctrl.load();
+    refreshControlPage();
+    Ctrl.loadBadge();
+    return true;
+  } catch (e) { showToast(e.message, 'error'); return false; }
+}
+
+async function taskPrendi(id) {
+  try {
+    await Ctrl.prendi(id);
+    showToast('Task preso in carico');
+    await Ctrl.load();
+    refreshControlPage();
+    Ctrl.loadBadge();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+// ── Squadra (admin) ──
+
+function renderControlTeam() {
+  const d = Ctrl.giorno;
+  const people = [...new Set([...Ctrl.users, ...Ctrl.tasks.map(t => t.assegnato_a).filter(Boolean)])];
+  const coda = Ctrl.tasks.filter(t => !t.assegnato_a);
+  const inRitardo = Ctrl.tasks.filter(t => t.assegnato_a && (t.giorno < d
+    || (t.scadenza && TASK_APERTI.includes(t.stato) && new Date(t.scadenza) < new Date())));
+
+  const card = (nick) => {
+    const list = Ctrl.tasks.filter(t => t.assegnato_a === nick && t.giorno === d);
+    const p = Ctrl.punteggi[nick], p7 = Ctrl.punteggi7[nick];
+    const fatti = list.filter(t => t.stato === 'completato').length;
+    const minTot = p ? p.minuti_assegnati : 0, minFatti = p ? p.minuti_completati : 0;
+    const pct = minTot ? Math.min(100, Math.round(minFatti / minTot * 100)) : 0;
+    const corrente = Ctrl.tasks.find(t => t.assegnato_a === nick && t.stato === 'in_lavorazione');
+    const arretrati = Ctrl.tasks.filter(t => t.assegnato_a === nick && t.giorno < d).length;
+    const bloccati = list.filter(t => t.stato === 'bloccato').length;
+    return `
+      <article class="glass-card ctrl-person">
+        <header>
+          <h3>${escapeHtml(nick)}</h3>
+          <div class="ctrl-score" title="Punteggio del giorno">
+            <strong>${p ? p.punteggio : '—'}</strong><small>7 gg: ${p7 ? p7.punteggio : '—'}</small>
+          </div>
+        </header>
+        <div class="ctrl-progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"
+          aria-label="Minuti completati"><span style="width:${pct}%"></span></div>
+        <div class="ctrl-person-meta">
+          <span>${fatti}/${list.length} task</span>
+          <span>${ctrlFmtMin(minFatti)} / ${ctrlFmtMin(minTot)}</span>
+          ${arretrati ? `<span class="task-late">${arretrati} arretrati</span>` : ''}
+          ${bloccati ? `<span>${bloccati} bloccati</span>` : ''}
+        </div>
+        <div class="ctrl-person-now">
+          ${corrente ? `<span class="ctrl-live" aria-hidden="true"></span> ${escapeHtml(corrente.titolo)}
+              <span class="task-timer" data-task-timer="${corrente.id}">${ctrlFmtDur(taskLavoratoSec(corrente))}</span>`
+            : `<span class="ctrl-idle">Nessun task in corso</span>`}
+        </div>
+      </article>`;
+  };
+
+  const tutti = Ctrl.tasks.filter(t => t.giorno === d && t.assegnato_a);
+  return `
+    <div class="ctrl-team">${people.map(card).join('')}</div>
+    ${taskGroupOwner('Coda comune', coda, 'Nessun task in coda.')}
+    ${taskGroupOwner('In ritardo', inRitardo, '', 'Arretrati dei giorni prima o scadenza passata')}
+    ${taskGroupOwner('Tutti i task del giorno', tutti, 'Nessun task assegnato per questo giorno.')}
+    <p class="settings-section-hint ctrl-note">Punteggio: 70% minuti standard completati sui minuti assegnati, 20% puntualità, 10% task non riaperti.
+      I bloccati non contano, i rimandati contano dal nuovo giorno. Visibile solo agli admin.</p>`;
+}
+
+function taskGroupOwner(title, list, emptyText = '', hint = '') {
+  if (!list.length && !emptyText) return '';
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>${title}</h2><span class="table-count">${list.length}</span>
+        ${hint ? `<span class="ctrl-group-hint">${hint}</span>` : ''}</div>
+      ${list.length ? `<div class="task-list">${sortTasks(list).map(t => renderTaskRow(t, { showOwner: true })).join('')}</div>`
+                    : `<div class="empty-list">${emptyText}</div>`}
+    </section>`;
+}
+
+// ── Tipi di task (admin) ──
+
+function renderControlTypes() {
+  const rows = Ctrl.tipi.map(tp => {
+    const r = Ctrl.tempi[tp.id];
+    const propone = r && r.campioni >= TASK_CAMPIONI_MIN && Math.round(r.mediana_minuti) !== tp.minuti_standard
+      && Math.round(r.mediana_minuti) >= 1;
+    const aut = TASK_AUTONOMIA.find(a => a.id === tp.autonomia) || TASK_AUTONOMIA[0];
+    return `
+      <tr class="${tp.attivo ? '' : 'ctrl-off'}">
+        <td><strong>${escapeHtml(tp.nome)}</strong>${tp.descrizione ? `<div class="ctrl-cell-sub">${escapeHtml(tp.descrizione)}</div>` : ''}</td>
+        <td>${ctrlFmtMin(tp.minuti_standard)}</td>
+        <td>${r ? `${ctrlFmtMin(r.mediana_minuti)} <span class="ctrl-cell-sub">su ${r.campioni}</span>` : '<span class="ctrl-cell-sub">nessun dato</span>'}
+          ${propone ? `<button class="btn btn-ghost btn-sm" onclick="applyRealTime('${tp.id}', ${Math.round(r.mediana_minuti)})">Usa ${Math.round(r.mediana_minuti)}′</button>` : ''}</td>
+        <td>${tp.competenza ? escapeHtml(tp.competenza) : '<span class="ctrl-cell-sub">—</span>'}</td>
+        <td title="${aut.hint}">${aut.label}</td>
+        <td class="ctrl-cell-actions">
+          <button class="btn-icon" onclick="openTaskTypeForm('${tp.id}')" aria-label="Modifica ${escapeHtml(tp.nome)}">${Icons.edit()}</button>
+          <button class="btn-icon" onclick="removeTaskType('${tp.id}')" aria-label="Elimina ${escapeHtml(tp.nome)}">${Icons.trash()}</button>
+        </td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <section class="glass-card page-card">
+      <div class="page-card-head"><h2>Tipi di task</h2><span class="table-count">${Ctrl.tipi.length}</span>
+        <span class="ctrl-group-hint">Il tempo reale è la mediana degli ultimi 90 giorni; dopo ${TASK_CAMPIONI_MIN} task completati puoi usarlo come standard.</span></div>
+      ${Ctrl.tipi.length ? `
+        <div class="table-scroll"><table class="data-table ctrl-types">
+          <thead><tr><th>Tipo</th><th>Standard</th><th>Reale</th><th>Competenza</th><th>Autonomia</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>`
+      : `<div class="empty-list">Nessun tipo ancora. Crea i tipi di lavoro ricorrenti (es. "Risposta a un cliente", "Preparare una spedizione") con il loro tempo standard.</div>`}
+    </section>`;
+}
+
+async function applyRealTime(id, minuti) {
+  try {
+    await Ctrl.saveTipo(id, { minuti_standard: minuti });
+    showToast(`Tempo standard aggiornato a ${minuti} minuti`);
+    await Ctrl.load();
+    refreshControlPage();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function removeTaskType(id) {
+  const tp = Ctrl.tipo(id);
+  if (!confirm(`Eliminare il tipo "${tp?.nome}"? I task già creati restano, senza tipo.`)) return;
+  try {
+    await Ctrl.deleteTipo(id);
+    showToast('Tipo eliminato');
+    await Ctrl.load();
+    refreshControlPage();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+// ─────────────────────────────────────────────
+// FINESTRE
+// ─────────────────────────────────────────────
+
+const CTRL_MODAL = 'ctrl-modal';
+
+function ctrlModal(html, width = 520) {
+  const modal = document.getElementById(CTRL_MODAL);
+  modal.innerHTML = `<div class="modal" style="max-width:${width}px;" role="dialog" aria-modal="true" aria-labelledby="ctrl-modal-title">${html}</div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal(CTRL_MODAL); };
+}
+
+const ctrlModalHead = (title) => `
+  <div class="modal-header">
+    <h2 id="ctrl-modal-title">${title}</h2>
+    <button class="btn-icon" onclick="closeModal('${CTRL_MODAL}')" aria-label="Chiudi">${Icons.x()}</button>
+  </div>`;
+
+// ── Dettaglio task: stato, motivo, storico ──
+
+let _taskAction = null;   // stato con motivo in compilazione
+
+async function openTaskDetail(id, action = null) {
+  _taskAction = action;
+  renderTaskDetail(id, null);
+  try { renderTaskDetail(id, await Ctrl.storico(id)); }
+  catch { renderTaskDetail(id, []); }
+}
+
+function renderTaskDetail(id, storico) {
+  const t = Ctrl.get(id);
+  if (!t) { closeModal(CTRL_MODAL); return; }
+  const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id);
+  const can = Ctrl.canAct(t);
+  const a = _taskAction;
+
+  const row = (label, value) => value ? `<div class="def-row"><dt>${label}</dt><dd>${value}</dd></div>` : '';
+  const stateBtn = (stato, label) => t.stato === stato ? '' :
+    `<button type="button" class="btn btn-secondary btn-sm" onclick="${TASK_CON_MOTIVO.includes(stato)
+      ? `_taskAction='${stato}';renderTaskDetail('${id}', _taskStoricoCache)` : `taskDetailStato('${id}','${stato}')`}">${label}</button>`;
+
+  window._taskStoricoCache = storico;
+  ctrlModal(`
+    ${ctrlModalHead(escapeHtml(t.titolo))}
+    <div class="modal-body" style="gap:14px;">
+      <div class="task-detail-state" style="--st:${st.color};--p:${pr.color};">
+        <span class="task-state">${st.label}</span>
+        <span class="chip" style="color:${pr.color};background:color-mix(in srgb, ${pr.color} 14%, transparent);">${pr.label}</span>
+        ${t.stato === 'in_lavorazione' ? `<span class="task-timer" data-task-timer="${t.id}">${ctrlFmtDur(taskLavoratoSec(t))}</span>` : ''}
+      </div>
+      ${t.descrizione ? `<p class="task-detail-desc">${escapeHtml(t.descrizione)}</p>` : ''}
+      <dl class="def-list">
+        ${row('Assegnato a', t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune')}
+        ${row('Tipo', tipo ? escapeHtml(tipo.nome) : '')}
+        ${row('Giorno', ctrlFmtGiorno(t.giorno))}
+        ${row('Scadenza', t.scadenza ? ctrlFmtQuando(t.scadenza) : '')}
+        ${row('Tempo', `${ctrlFmtMin(t.minuti_stimati)} stimati · ${ctrlFmtDur(taskLavoratoSec(t))} lavorati`)}
+        ${row('Motivo', t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? escapeHtml(t.motivo) : '')}
+        ${row('Origine', t.fonte !== 'manuale' ? escapeHtml(t.fonte) : '')}
+        ${row('Creato', `${ctrlFmtQuando(t.created_at)}${t.creato_da ? ` da ${escapeHtml(t.creato_da)}` : ''}`)}
+      </dl>
+
+      ${can && !a ? `
+        <div class="task-detail-actions">
+          ${taskQuickActions(t).replaceAll('taskSetStato(', 'taskDetailStato(').replaceAll('taskPrendi(', 'taskDetailPrendi(')}
+          ${stateBtn('rimandato', 'Rimanda')}
+          ${stateBtn('bloccato', 'Bloccato')}
+          ${stateBtn('non_completato', 'Non completato')}
+          ${t.stato !== 'completato' && t.stato !== 'in_lavorazione' ? stateBtn('completato', 'Segna completato') : ''}
+        </div>` : ''}
+
+      ${can && a ? `
+        <form class="task-motivo-form" onsubmit="event.preventDefault();submitTaskMotivo('${id}')">
+          <strong>${taskStato(a).label}</strong>
+          ${a === 'rimandato' ? `
+            <div class="form-group">
+              <label class="form-label" for="tm-giorno">A quale giorno</label>
+              <input id="tm-giorno" type="date" class="form-input" min="${ctrlAddDays(ctrlOggi(), 1)}" value="${ctrlAddDays(ctrlOggi(), 1)}" required>
+            </div>` : ''}
+          <div class="form-group">
+            <label class="form-label" for="tm-motivo">Motivo *</label>
+            <textarea id="tm-motivo" class="form-textarea" rows="2" maxlength="500" required
+              placeholder="${a === 'bloccato' ? 'es. in attesa della conferma del cliente' : a === 'rimandato' ? 'es. manca la merce, arriva giovedì' : 'es. il cliente ha annullato'}"></textarea>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="_taskAction=null;renderTaskDetail('${id}', _taskStoricoCache)">Annulla</button>
+            <button type="submit" class="btn btn-primary btn-sm">Conferma</button>
+          </div>
+        </form>` : ''}
+
+      <div class="task-history">
+        <span class="form-label">Storico</span>
+        ${storico === null ? `<div class="ctrl-cell-sub">Caricamento…</div>` :
+          storico.length ? `<ol>${storico.map(h => `
+            <li><span class="task-history-dot" style="background:${taskStato(h.a_stato).color};"></span>
+              <span><strong>${taskStato(h.a_stato).label}</strong>${h.utente ? ` · ${escapeHtml(h.utente)}` : ''} · ${ctrlFmtQuando(h.at)}
+              ${h.motivo && TASK_CON_MOTIVO.includes(h.a_stato) ? `<em>${escapeHtml(h.motivo)}</em>` : ''}</span></li>`).join('')}</ol>`
+          : `<div class="ctrl-cell-sub">Nessun passaggio registrato.</div>`}
+      </div>
+
+      ${TCAuth.isAdmin() ? `
+        <div style="display:flex;gap:8px;justify-content:space-between;border-top:1px solid var(--border);padding-top:12px;">
+          <button class="btn btn-ghost btn-sm" style="color:var(--priority-urgent);" onclick="removeTask('${id}')">${Icons.trash(14)} Elimina</button>
+          <button class="btn btn-secondary btn-sm" onclick="openTaskForm('${id}')">${Icons.edit(14)} Modifica</button>
+        </div>` : ''}
+    </div>`, 540);
+
+  if (a) setTimeout(() => document.getElementById(a === 'rimandato' ? 'tm-giorno' : 'tm-motivo')?.focus(), 30);
+  startControlTicker();
+}
+
+async function taskDetailStato(id, stato) {
+  if (await taskSetStato(id, stato)) {
+    showToast(`Task: ${taskStato(stato).label.toLowerCase()}`);
+    openTaskDetail(id);
+  }
+}
+
+async function taskDetailPrendi(id) {
+  await taskPrendi(id);
+  openTaskDetail(id);
+}
+
+async function submitTaskMotivo(id) {
+  const stato = _taskAction;
+  const motivo = document.getElementById('tm-motivo')?.value.trim();
+  const giorno = document.getElementById('tm-giorno')?.value || null;
+  if (!motivo) { document.getElementById('tm-motivo')?.focus(); showToast('Scrivi il motivo', 'error'); return; }
+  if (await taskSetStato(id, stato, motivo, giorno)) {
+    showToast(stato === 'rimandato' ? `Rimandato a ${ctrlFmtGiorno(giorno).toLowerCase()}` : `Task: ${taskStato(stato).label.toLowerCase()}`);
+    _taskAction = null;
+    if (Ctrl.get(id)) openTaskDetail(id); else closeModal(CTRL_MODAL);
+  }
+}
+
+async function removeTask(id) {
+  const t = Ctrl.get(id);
+  if (!confirm(`Eliminare il task "${t?.titolo}"? Impossibile annullare.`)) return;
+  try {
+    await Ctrl.deleteTask(id);
+    closeModal(CTRL_MODAL);
+    showToast('Task eliminato');
+    await Ctrl.load();
+    refreshControlPage();
+    Ctrl.loadBadge();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+// ── Nuovo / modifica task (admin) ──
+
+let _taskDraft = null;
+
+function openTaskForm(id = null) {
+  const t = id ? Ctrl.get(id) : null;
+  _taskDraft = {
+    id,
+    priorita: t?.priorita || 'normale',
+    minutiToccati: !!t,     // se l'admin non li ha cambiati, i minuti seguono il tipo scelto
+  };
+  const scad = t?.scadenza ? new Date(t.scadenza) : null;
+  const scadLocal = scad ? new Date(scad.getTime() - scad.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+  const tipiAttivi = Ctrl.tipi.filter(tp => tp.attivo || tp.id === t?.tipo_id);
+  const people = Ctrl.users.length ? Ctrl.users : [Ctrl._me()];
+
+  ctrlModal(`
+    ${ctrlModalHead(t ? 'Modifica task' : 'Nuovo task')}
+    <form class="modal-body" style="gap:14px;" onsubmit="event.preventDefault();submitTaskForm()">
+      <div class="form-group">
+        <label class="form-label" for="tf-titolo">Titolo *</label>
+        <input id="tf-titolo" class="form-input" maxlength="200" required value="${escapeHtml(t?.titolo || '')}" placeholder="es. Rispondere a Mario Rossi sull'ordine #1043">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="tf-tipo">Tipo</label>
+          <select id="tf-tipo" class="form-select" onchange="taskFormTipo(this.value)">
+            <option value="">Nessun tipo</option>
+            ${tipiAttivi.map(tp => `<option value="${tp.id}" ${t?.tipo_id === tp.id ? 'selected' : ''}>${escapeHtml(tp.nome)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="tf-minuti">Minuti stimati</label>
+          <input id="tf-minuti" type="number" class="form-input" min="1" max="960" value="${t?.minuti_stimati || 15}" oninput="_taskDraft.minutiToccati=true">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="tf-chi">Assegnato a</label>
+          <select id="tf-chi" class="form-select">
+            <option value="">Coda comune</option>
+            ${people.map(u => `<option value="${escapeHtml(u)}" ${t?.assegnato_a === u ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="tf-giorno">Giorno</label>
+          <input id="tf-giorno" type="date" class="form-input" required value="${t?.giorno || Ctrl.giorno}">
+        </div>
+      </div>
+      <div class="form-group">
+        <span class="form-label" id="tf-prio-label">Priorità</span>
+        <div class="segmented" role="radiogroup" aria-labelledby="tf-prio-label">
+          ${TASK_PRIORITA.map(p => `<button type="button" role="radio" aria-checked="${_taskDraft.priorita === p.id}"
+            class="${_taskDraft.priorita === p.id ? 'active' : ''}" onclick="taskFormPrio('${p.id}')">${p.label}</button>`).join('')}
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="tf-scadenza">Scadenza <span class="ctrl-cell-sub">(facoltativa)</span></label>
+        <input id="tf-scadenza" type="datetime-local" class="form-input" value="${scadLocal}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="tf-desc">Descrizione</label>
+        <textarea id="tf-desc" class="form-textarea" rows="3" maxlength="5000" placeholder="Cosa fare, link, dettagli utili">${escapeHtml(t?.descrizione || '')}</textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('${CTRL_MODAL}')">Annulla</button>
+        <button type="submit" class="btn btn-primary" id="tf-save">${t ? 'Salva' : 'Crea task'}</button>
+      </div>
+    </form>`);
+  setTimeout(() => document.getElementById('tf-titolo')?.focus(), 30);
+}
+
+function taskFormTipo(id) {
+  const tp = Ctrl.tipo(id);
+  if (tp && !_taskDraft.minutiToccati) document.getElementById('tf-minuti').value = tp.minuti_standard;
+}
+
+function taskFormPrio(id) {
+  _taskDraft.priorita = id;
+  document.querySelectorAll('[aria-labelledby="tf-prio-label"] button').forEach((b, i) => {
+    const on = TASK_PRIORITA[i].id === id;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', on);
+  });
+}
+
+async function submitTaskForm() {
+  const val = (id) => document.getElementById(id)?.value.trim() || '';
+  const titolo = val('tf-titolo');
+  const minuti = parseInt(val('tf-minuti'), 10);
+  if (!titolo) { document.getElementById('tf-titolo')?.focus(); showToast('Scrivi il titolo', 'error'); return; }
+  if (!(minuti >= 1 && minuti <= 960)) { document.getElementById('tf-minuti')?.focus(); showToast('Minuti tra 1 e 960', 'error'); return; }
+  const scad = val('tf-scadenza');
+  const row = {
+    titolo,
+    tipo_id: val('tf-tipo') || null,
+    minuti_stimati: minuti,
+    assegnato_a: val('tf-chi') || null,
+    giorno: val('tf-giorno') || Ctrl.giorno,
+    priorita: _taskDraft.priorita,
+    scadenza: scad ? new Date(scad).toISOString() : null,
+    descrizione: val('tf-desc'),
+  };
+  const btn = document.getElementById('tf-save');
+  btn.disabled = true;
+  try {
+    await Ctrl.saveTask(_taskDraft.id, row);
+    closeModal(CTRL_MODAL);
+    showToast(_taskDraft.id ? 'Task salvato' : `Task creato${row.assegnato_a ? ` per ${row.assegnato_a}` : ' in coda comune'}`);
+    await Ctrl.load();
+    refreshControlPage();
+    Ctrl.loadBadge();
+  } catch (e) { showToast(e.message, 'error'); btn.disabled = false; }
+}
+
+// ── Nuovo / modifica tipo di task (admin) ──
+
+function openTaskTypeForm(id = null) {
+  const tp = id ? Ctrl.tipo(id) : null;
+  ctrlModal(`
+    ${ctrlModalHead(tp ? 'Modifica tipo di task' : 'Nuovo tipo di task')}
+    <form class="modal-body" style="gap:14px;" onsubmit="event.preventDefault();submitTaskTypeForm(${tp ? `'${tp.id}'` : 'null'})">
+      <div class="form-group">
+        <label class="form-label" for="tt-nome">Nome *</label>
+        <input id="tt-nome" class="form-input" maxlength="80" required value="${escapeHtml(tp?.nome || '')}" placeholder="es. Risposta a un cliente">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="tt-minuti">Tempo standard (minuti) *</label>
+          <input id="tt-minuti" type="number" class="form-input" min="1" max="960" required value="${tp?.minuti_standard || 15}">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="tt-comp">Competenza</label>
+          <input id="tt-comp" class="form-input" maxlength="60" value="${escapeHtml(tp?.competenza || '')}" placeholder="es. customer care">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="tt-aut">Autonomia del cervello</label>
+        <select id="tt-aut" class="form-select">
+          ${TASK_AUTONOMIA.map(a => `<option value="${a.id}" ${(tp?.autonomia || 'solo_task') === a.id ? 'selected' : ''}>${a.label} — ${a.hint}</option>`).join('')}
+        </select>
+        <span class="settings-section-hint" style="margin:4px 0 0;">Entrerà in funzione con i collegamenti a mail, WhatsApp e Shopify.</span>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="tt-desc">Descrizione</label>
+        <textarea id="tt-desc" class="form-textarea" rows="2" maxlength="1000">${escapeHtml(tp?.descrizione || '')}</textarea>
+      </div>
+      <label class="switch-row" style="padding:0;">
+        <span><strong>Attivo</strong><small>I tipi disattivati non si possono scegliere per i nuovi task</small></span>
+        <input id="tt-attivo" type="checkbox" class="switch" ${tp?.attivo === false ? '' : 'checked'}>
+      </label>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('${CTRL_MODAL}')">Annulla</button>
+        <button type="submit" class="btn btn-primary" id="tt-save">${tp ? 'Salva' : 'Crea tipo'}</button>
+      </div>
+    </form>`);
+  setTimeout(() => document.getElementById('tt-nome')?.focus(), 30);
+}
+
+async function submitTaskTypeForm(id) {
+  const val = (k) => document.getElementById(k)?.value.trim() || '';
+  const nome = val('tt-nome');
+  const minuti = parseInt(val('tt-minuti'), 10);
+  if (!nome) { document.getElementById('tt-nome')?.focus(); showToast('Scrivi il nome', 'error'); return; }
+  if (!(minuti >= 1 && minuti <= 960)) { document.getElementById('tt-minuti')?.focus(); showToast('Minuti tra 1 e 960', 'error'); return; }
+  const btn = document.getElementById('tt-save');
+  btn.disabled = true;
+  try {
+    await Ctrl.saveTipo(id, {
+      nome, minuti_standard: minuti,
+      competenza: val('tt-comp') || null,
+      autonomia: val('tt-aut') || 'solo_task',
+      descrizione: val('tt-desc'),
+      attivo: document.getElementById('tt-attivo').checked,
+    });
+    closeModal(CTRL_MODAL);
+    showToast(id ? 'Tipo salvato' : 'Tipo creato');
+    await Ctrl.load();
+    refreshControlPage();
+  } catch (e) { showToast(e.message, 'error'); btn.disabled = false; }
+}

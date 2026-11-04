@@ -11,6 +11,7 @@
 // ─────────────────────────────────────────────
 
 const NAV_ITEMS = [
+  { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Task del giorno di ogni persona del team', icon: () => Icons.zap(19), allowed: () => TCAuth.isAdmin(), note: 'Per ora solo admin' },
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
   { id: 'dtf',          label: 'Interne',       subtitle: 'Lavorazioni fatte in casa',     icon: () => Icons.printer(19) },
@@ -138,6 +139,7 @@ function renderCurrentView() {
     case 'impostazioni': renderSettingsPage(); break;
     case 'cestino':      renderCestinoPage(); break;
     case 'supporto':     openSupportPage(); break;
+    case 'controllo':    openControlPage(); break;
   }
 }
 
@@ -150,6 +152,7 @@ function navBadges() {
     ordini:  TCFactory.getActiveOrders().length,
     cestino: TCFactory.getTrashedOrders().length,
     supporto: TCAuth.isAdmin() ? Tickets.countOpen() : 0,   // ticket da fare
+    controllo: Ctrl.badge,                                   // miei task ancora aperti fino a oggi
   };
 }
 
@@ -306,7 +309,11 @@ function renderHeader() {
   if (!root) return;
   const item = Nav._item(Nav.current) || Nav._item(Nav.home());
 
-  const actions = Nav.current === 'ordini'
+  const actions = Nav.current === 'controllo' && TCAuth.isAdmin() && Ctrl.view === 'tipi'
+    ? `<button class="btn btn-primary" onclick="openTaskTypeForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo tipo</span></button>`
+    : Nav.current === 'controllo' && TCAuth.isAdmin()
+    ? `<button class="btn btn-primary" onclick="openTaskForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo task</span></button>`
+    : Nav.current === 'ordini'
     ? `<button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>`
     : Nav.current === 'planner'
     ? `<button class="btn btn-primary" onclick="openCalEventDialog(null,null)">${Icons.plus()} <span class="new-order-btn-text">Nuovo evento</span></button>`
