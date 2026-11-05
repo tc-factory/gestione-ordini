@@ -132,7 +132,7 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
   try {
     await imap.apri(c.imap_host);
     await imap.comando(`LOGIN ${quota(c.indirizzo)} ${quota(pass)}`, 20_000, 'LOGIN').catch((e: Error) => {
-      throw new Error(/LOGIN:/.test(e.message) ? 'Accesso rifiutato da Aruba: password sbagliata?' : e.message);
+      throw new Error(/LOGIN:/.test(e.message) ? `Accesso rifiutato da Aruba (${e.message.replace(/^.*LOGIN:\s*/, '').slice(0, 120)})` : e.message);
     });
 
     const aperta = (await imap.comando('EXAMINE INBOX', 20_000)).map(r => r.testo).join('\n');
