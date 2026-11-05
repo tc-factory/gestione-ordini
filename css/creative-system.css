@@ -190,8 +190,63 @@ body::before {
   -webkit-backdrop-filter: blur(26px); backdrop-filter: blur(26px);
 }
 @media (min-width: 641px) { .app-toolbar { margin: 0 -30px; padding: 24px 30px 14px; } }
-.toolbar-title h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.015em; }
-.toolbar-title p { font-size: 0.84rem; font-weight: 600; color: var(--text-muted); }
+
+/* Titolo della pagina: box di vetro con l'icona della sezione.
+   Niente backdrop-filter: la barra sotto sfoca già, qui bastano riempimento e bordo di luce */
+.toolbar-title-box {
+  position: relative; overflow: hidden;
+  display: inline-flex; align-items: center; gap: 12px;
+  max-width: 100%; padding: 7px 22px 7px 7px; vertical-align: top;
+  border-radius: 22px;
+  background: var(--lq-fill); box-shadow: var(--lq-rim), var(--lq-drop);
+}
+.toolbar-title-icon {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; border-radius: 16px;
+  background: linear-gradient(180deg, #FFE38F, var(--lq-yellow) 55%, var(--lq-yellow-2));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 -2px 6px rgba(190, 130, 0, 0.2);
+  color: var(--lq-on-yellow);
+}
+.toolbar-title-icon svg { width: 21px; height: 21px; }
+.toolbar-title-text { min-width: 0; }
+.toolbar-title h1, .toolbar-title p { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.toolbar-title h1 { font-size: 1.35rem; font-weight: 800; line-height: 1.2; letter-spacing: -0.015em; }
+.toolbar-title p { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+
+/* Riflesso che attraversa il vetro: all'arrivo sulla pagina e al passaggio del mouse */
+.toolbar-title-box::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.75) 50%, transparent 65%);
+  transform: translateX(-110%);
+}
+html.dark .toolbar-title-box::after { background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.16) 50%, transparent 65%); }
+.toolbar-title-box:hover::after { animation: title-sheen 0.9s ease-out; }
+.toolbar-title-box.is-entering { animation: title-box-in 0.5s cubic-bezier(0.34, 1.4, 0.64, 1) both; }
+.toolbar-title-box.is-entering::after { animation: title-sheen 1s 0.18s ease-out; }
+.toolbar-title-box.is-entering .toolbar-title-icon { animation: title-icon-in 0.55s 0.06s cubic-bezier(0.34, 1.7, 0.64, 1) both; }
+.toolbar-title-box.is-entering .toolbar-title-text { animation: title-text-in 0.42s 0.1s ease-out both; }
+@keyframes title-box-in { from { opacity: 0; transform: translateY(-6px) scale(0.97); } }
+@keyframes title-icon-in { from { opacity: 0; transform: scale(0.6) rotate(-12deg); } }
+@keyframes title-text-in { from { opacity: 0; transform: translateX(-8px); } }
+@keyframes title-sheen { from { transform: translateX(-110%); } to { transform: translateX(110%); } }
+@media (prefers-reduced-motion: reduce) {
+  .toolbar-title-box, .toolbar-title-box *, .toolbar-title-box::after { animation: none !important; }
+}
+html.reduce-motion .toolbar-title-box, html.reduce-motion .toolbar-title-box *, html.reduce-motion .toolbar-title-box::after { animation: none !important; }
+/* Barre con molte azioni (Prodotti): il titolo non si schiaccia, i bottoni vanno a capo se non c'è spazio */
+.app-toolbar:has(.app-header-actions > :nth-child(3)) { flex-wrap: wrap; }
+.app-toolbar:has(.app-header-actions > :nth-child(3)) .toolbar-title { flex: 1 0 auto; max-width: 100%; }
+.app-toolbar:has(.app-header-actions > :nth-child(3)) .toolbar-title p { display: none; }
+.app-toolbar:has(.app-header-actions > :nth-child(3)) .app-header-actions { flex-wrap: wrap; min-width: 0; }
+@media (max-width: 640px) {
+  html .app-toolbar:has(.app-header-actions > :nth-child(3)) .app-header-actions .btn:not(.btn-primary) { padding-inline: 11px; }
+}
+@media (max-width: 860px) {
+  .toolbar-title-box { gap: 9px; padding: 5px 16px 5px 5px; border-radius: 18px; }
+  .toolbar-title-icon { width: 34px; height: 34px; border-radius: 13px; }
+  .toolbar-title-icon svg { width: 17px; height: 17px; }
+  .toolbar-title h1 { font-size: 1.1rem; }
+}
 
 /* Orologio in alto: come i tasselli del riferimento */
 .toolbar-clock { display: none; align-items: center; gap: 6px; margin-right: 8px; color: var(--text-muted); font-weight: 800; }
