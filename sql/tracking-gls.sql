@@ -35,10 +35,11 @@ insert into task_tipi (nome, minuti_standard, autonomia, competenza, descrizione
 on conflict (nome) do nothing;
 
 -- Spedizioni da controllare: prima quelle controllate da più tempo
-create or replace function _tc_spedizioni_da_controllare(p_n int)
-returns table (ordine_id uuid, store_id text, nome text, numero_ordine text, cliente text, tracking text, spedito_at timestamptz)
+drop function if exists _tc_spedizioni_da_controllare(int);
+create function _tc_spedizioni_da_controllare(p_n int)
+returns table (ordine_id uuid, store_id text, nome text, numero_ordine text, cliente text, email text, telefono text, citta text, tracking text, spedito_at timestamptz)
 security definer set search_path = public language sql stable as $$
-  select s.id, s.store_id, st.nome, s.numero, s.cliente, x.numero, x.at
+  select s.id, s.store_id, st.nome, s.numero, s.cliente, s.email, s.telefono, s.indirizzo->>'citta', x.numero, x.at
     from shopify_orders s
     join shopify_stores st on st.id = s.store_id
     cross join lateral (
@@ -58,6 +59,8 @@ create or replace function _tc_tracking_call()
 returns void security definer set search_path = public language plpgsql as $$
 declare v_key text;
 begin
+  -- Solo dalle 7 alle 17 ora italiana: il cron gira ogni ora in UTC e l'ora legale cambia
+  if extract(hour from now() at time zone 'Europe/Rome') not between 7 and 17 then return; end if;
   select decrypted_secret into v_key from vault.decrypted_secrets where name = 'shopify_sync_key';
   if v_key is null then return; end if;
   perform net.http_post(
@@ -83,8 +86,9 @@ returns table (chiave text, testo text) security definer set search_path = publi
     from eventi where fonte = 'mail' and elaborato_at is null and ricevuto_at < now() - interval '30 minutes'
   having count(*) > 0
   union all
-  select 'tracking', 'Tracking GLS: nessun controllo da più di 2 ore'
+  select 'tracking', 'Tracking GLS: nessun controllo da più di 2 ore, in orario di lavoro'
    where exists (select 1 from spedizioni_tracking) and (select max(controllata_at) from spedizioni_tracking) < now() - interval '2 hours'
+     and extract(hour from now() at time zone 'Europe/Rome') between 9 and 17
   union all
   select 'tracking-lettura', 'Tracking GLS: ' || count(*) || ' spedizioni senza dati, la pagina GLS potrebbe essere cambiata'
     from spedizioni_tracking where stato = 'senza_dati' and controllata_at > now() - interval '2 hours'
@@ -95,5 +99,5 @@ revoke execute on function _tc_problemi() from public, anon, authenticated;
 do $$
 begin
   if exists (select 1 from cron.job where jobname = 'tracking-check') then perform cron.unschedule('tracking-check'); end if;
-  perform cron.schedule('tracking-check', '4-59/15 * * * *', 'select _tc_tracking_call()');
+  perform cron.schedule('tracking-check', '4 * * * *', 'select _tc_tracking_call()');
 end $$;

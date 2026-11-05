@@ -122,6 +122,8 @@ const Ctrl = {
   tipi: [],
   users: [],             // nickname dello staff
   operatori: [],         // impostazioni del piano del giorno (task_operatori)
+  problemi: [],          // collegamenti con problemi, in cima alla pagina (solo admin)
+  soloUrgenti: false,    // lista dei task urgenti al posto della coda
   punteggi: {},          // operatore → punteggio del giorno mostrato
   punteggi7: {},         // operatore → punteggio degli ultimi 7 giorni
   tempi: {},             // tipo_id → { campioni, mediana_minuti }
@@ -167,13 +169,15 @@ const Ctrl = {
       if (users) this.users = users.filter(u => !u.is_admin).map(u => u.nickname);   // l'admin non riceve task
 
       if (TCAuth.isAdmin()) {
-        const [oggi, sette, tempi, operatori] = await Promise.all([
+        const [oggi, sette, tempi, operatori, problemi] = await Promise.all([
           this._rpc('tc_task_punteggi', { p_dal: d, p_al: d }),
           this._rpc('tc_task_punteggi', { p_dal: ctrlAddDays(d, -6), p_al: d }),
           this._rpc('tc_task_tempi_reali'),
           supabaseClient.from('task_operatori').select('*'),
+          this._rpc('tc_problemi_collegamenti').catch(() => ({ problemi: [] })),
         ]);
         this.operatori = operatori.data || [];
+        this.problemi = problemi.problemi || [];
         this.punteggi  = Object.fromEntries((oggi.punteggi || []).map(p => [p.operatore, p]));
         this.punteggi7 = Object.fromEntries((sette.punteggi || []).map(p => [p.operatore, p]));
         this.tempi     = Object.fromEntries((tempi.tempi || []).map(t => [t.tipo_id, t]));
@@ -360,6 +364,12 @@ function renderControlPage() {
           onclick="setControlView('${id}')">${label}</button>`).join('')}
       </div>` : ''}
     </div>
+    ${TCAuth.isAdmin() && Ctrl.problemi.length ? `
+      <div class="ctrl-alert" role="alert">
+        <div><strong>${Ctrl.problemi.length === 1 ? 'Un collegamento ha un problema' : `${Ctrl.problemi.length} collegamenti hanno un problema`}</strong>
+          ${Ctrl.problemi.map(p => `<span>${escapeHtml(p)}</span>`).join('')}</div>
+        ${Ctrl.view !== 'collegamenti' ? `<button class="ctrl-btn" onclick="setControlView('collegamenti')">Vai a Collegamenti</button>` : ''}
+      </div>` : ''}
     ${body}`;
 
   root.querySelectorAll?.('.ctrl-rule textarea').forEach(ctrlGrow);
@@ -440,15 +450,24 @@ function renderControlAdminTasks() {
   const stat = (label, value, sub = '') => `
     <div class="glass-card stat-card"><div class="stat-card-label">${label}</div>
       <div class="stat-card-value">${value}</div>${sub ? `<div class="ctrl-stat-sub">${sub}</div>` : ''}</div>`;
+  const urgenti = aperti.filter(t => t.priorita === 'urgente');
   return `
     <div class="stat-grid ctrl-stats">
-      ${stat('Task aperti', aperti.length, `${aperti.filter(t => t.assegnato_a).length} assegnati`)}
-      ${stat('In coda', coda.length, 'da assegnare')}
-      ${stat('Urgenti', aperti.filter(t => t.priorita === 'urgente').length)}
+      ${stat('Task aperti', aperti.length, `${coda.length} da assegnare`)}
+      <button type="button" class="glass-card stat-card ctrl-stat-link ${Ctrl.soloUrgenti ? 'is-on' : ''}" aria-pressed="${Ctrl.soloUrgenti}" onclick="toggleUrgentTasks()">
+        <div class="stat-card-label">Urgenti</div>
+        <div class="stat-card-value" style="color:${urgenti.length ? '#dc2626' : 'inherit'};">${urgenti.length}</div>
+        <div class="ctrl-stat-sub">${Ctrl.soloUrgenti ? 'Torna alla coda' : 'Vedi la lista'}</div>
+      </button>
       ${stat('Arretrati', aperti.filter(t => t.giorno < d).length, 'dai giorni prima')}
       ${stat('Chiusi', chiusi.length, ctrlFmtGiorno(d).toLowerCase())}
     </div>
-    ${renderTaskQueue(coda, 'Nessun task in coda.')}`;
+    ${Ctrl.soloUrgenti ? taskGroupOwner('Task urgenti', urgenti, 'Nessun task urgente.') : renderTaskQueue(coda, 'Nessun task in coda.')}`;
+}
+
+function toggleUrgentTasks() {
+  Ctrl.soloUrgenti = !Ctrl.soloUrgenti;
+  refreshControlPage();
 }
 
 async function taskAssign(id, nick) {
@@ -466,14 +485,18 @@ function taskSub(title, list) {
   return `<div class="ctrl-sub">${title}</div><div class="task-list">${sortTasks(list).map(t => renderTaskRow(t)).join('')}</div>`;
 }
 
+// Pulsante di filtro per negozio
+function ctrlFilter(attivo, label, n, color, onclick) {
+  return `<button type="button" class="ctrl-filter ${attivo ? 'is-on' : ''}" aria-pressed="${attivo}" style="--m:${color || 'var(--text-primary)'};" onclick="${onclick}">
+    ${color ? '<i aria-hidden="true"></i>' : ''}<span>${label}</span>${n != null ? `<b>${n}</b>` : ''}</button>`;
+}
+
 // Coda comune con il filtro per macroarea
 function renderTaskQueue(coda, emptyText = '') {
   if (!coda.length && !emptyText) return '';
   const conta = (id) => coda.filter(t => t.macroarea === id).length;
   const list = Ctrl.macroarea ? coda.filter(t => t.macroarea === Ctrl.macroarea) : coda;
-  const chip = (id, label, n, color) => `
-    <button type="button" class="chip chip-btn ctrl-macro ${Ctrl.macroarea === id ? 'active' : ''}" aria-pressed="${Ctrl.macroarea === id}"
-      ${color ? `style="--m:${color};"` : ''} onclick="setControlMacro(${id ? `'${id}'` : 'null'})">${label} · ${n}</button>`;
+  const chip = (id, label, n, color) => ctrlFilter(Ctrl.macroarea === id, label, n, color, `setControlMacro(${id ? `'${id}'` : 'null'})`);
   return `
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Coda comune</h2><span class="table-count">${list.length}</span>
@@ -803,50 +826,85 @@ async function sendTaskReply(id) {
   }
 }
 
+const TASK_ORIGINI = { manuale: 'Inserito a mano', mail: 'Mail', shopify: 'Shopify', gestionale: 'Gestionale' };
+
+// Spedizione del task: storico GLS come linea del tempo
+function renderTaskShipment(t) {
+  const sp = t.analisi?.spedizione;
+  if (!sp) return '';
+  const quando = (e) => {
+    const f = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+    return e.volte > 1 ? `dal ${f(e.dal)} al ${f(e.al)}` : `${f(e.al)} · ${e.al.slice(11, 16)}`;
+  };
+  return `
+    <section class="td-box">
+      <div class="td-box-head">
+        <h3>Spedizione GLS</h3>
+        <span class="td-mono">${escapeHtml(sp.tracking)}</span>
+        <a class="ctrl-btn td-push" href="${escapeHtml(sp.url)}" target="_blank" rel="noopener">${Icons.truck(14)} Apri su GLS</a>
+      </div>
+      ${(sp.storico || []).length ? `<ol class="td-time">${sp.storico.map((e, i) => `
+        <li class="${i === 0 ? 'is-now' : ''}">
+          <strong>${escapeHtml(e.stato)}</strong>
+          <span>${quando(e)}${e.luogo ? ` · ${escapeHtml(e.luogo)}` : ''}</span>
+        </li>`).join('')}</ol>` : `<p class="td-empty">GLS non ha ancora dati su questa spedizione.</p>`}
+    </section>`;
+}
+
+function renderTaskCustomer(t) {
+  const c = t.analisi?.cliente;
+  if (!c || !(c.email || c.telefono)) return '';
+  return `
+    <section class="td-box td-customer">
+      <div><h3>Cliente</h3><span>${escapeHtml(c.nome || '')}${c.citta ? ` · ${escapeHtml(c.citta)}` : ''}</span></div>
+      <div class="td-contacts">
+        ${c.telefono ? `<a class="ctrl-btn" href="tel:${escapeHtml(c.telefono)}">${escapeHtml(c.telefono)}</a>` : ''}
+        ${c.email ? `<a class="ctrl-btn" href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>` : ''}
+      </div>
+    </section>`;
+}
+
 function renderTaskDetail(id, storico) {
   const t = Ctrl.get(id);
   if (!t) { closeModal(CTRL_MODAL); return; }
-  const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id);
+  const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id), macro = taskMacro(t.macroarea);
   const can = Ctrl.canAct(t);
   const a = _taskAction;
+  const chiuso = ['completato', 'non_completato'].includes(t.stato);
 
-  const row = (label, value) => value ? `<div class="def-row"><dt>${label}</dt><dd>${value}</dd></div>` : '';
-  const stateBtn = (stato, label) => t.stato === stato ? '' :
-    `<button type="button" class="ctrl-btn" onclick="${TASK_CON_MOTIVO.includes(stato)
-      ? `_taskAction='${stato}';renderTaskDetail('${id}', _taskStoricoCache)` : `taskDetailStato('${id}','${stato}')`}">${label}</button>`;
+  const info = (label, value) => value ? `<div><dt>${label}</dt><dd>${value}</dd></div>` : '';
+  const motivoBtn = (stato, label) => t.stato === stato ? '' :
+    `<button type="button" class="td-act" onclick="_taskAction='${stato}';renderTaskDetail('${id}', _taskStoricoCache)">${label}</button>`;
+  const tag = (label, color) => `<span class="td-tag" style="--c:${color};">${label}</span>`;
 
   window._taskStoricoCache = storico;
   ctrlModal(`
     ${ctrlModalHead(escapeHtml(t.titolo))}
-    <div class="modal-body" style="gap:14px;">
-      <div class="task-detail-state" style="--st:${st.color};--p:${pr.color};">
-        <span class="task-state">${st.label}</span>
-        <span class="chip" style="color:${pr.color};background:color-mix(in srgb, ${pr.color} 14%, transparent);">${pr.label}</span>
+    <div class="modal-body td-body">
+      <div class="td-tags">
+        ${tag(st.label, st.color)}
+        ${t.priorita !== 'normale' ? tag(pr.label, pr.color) : ''}
+        ${macro ? tag(macro.label, macro.color) : ''}
         ${t.stato === 'in_lavorazione' ? `<span class="task-timer" data-task-timer="${t.id}">${ctrlFmtDur(taskLavoratoSec(t))}</span>` : ''}
       </div>
-      ${t.descrizione ? `<p class="task-detail-desc">${escapeHtml(t.descrizione)}</p>` : ''}
-      ${t.riferimento ? `<div>${MsgRef.chip(t.riferimento, `closeModal('${CTRL_MODAL}');MsgRef.open(Ctrl.get('${t.id}').riferimento)`)}</div>` : ''}
-      ${renderTaskMail(t, can)}
-      <dl class="def-list">
-        ${row('Macroarea', taskMacro(t.macroarea)?.label || '')}
-        ${row('Assegnato a', t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune')}
-        ${row('Tipo', tipo ? escapeHtml(tipo.nome) : '')}
-        ${row('Giorno', ctrlFmtGiorno(t.giorno))}
-        ${row('Scadenza', t.scadenza ? ctrlFmtQuando(t.scadenza) : '')}
-        ${row('Tempo', `${ctrlFmtMin(t.minuti_stimati)} stimati · ${ctrlFmtDur(taskLavoratoSec(t))} lavorati`)}
-        ${row('Motivo', t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? escapeHtml(t.motivo) : '')}
-        ${row('Origine', t.fonte !== 'manuale' ? escapeHtml(t.fonte) : '')}
-        ${row('Creato', `${ctrlFmtQuando(t.created_at)}${t.creato_da ? ` da ${escapeHtml(t.creato_da)}` : ''}`)}
-      </dl>
 
-      ${can && !a ? `
-        <div class="task-detail-actions">
-          ${taskQuickActions(t).replaceAll('taskSetStato(', 'taskDetailStato(').replaceAll('taskPrendi(', 'taskDetailPrendi(')}
-          ${stateBtn('rimandato', 'Rimanda')}
-          ${stateBtn('bloccato', 'Bloccato')}
-          ${stateBtn('non_completato', 'Non completato')}
-          ${t.stato !== 'completato' && t.stato !== 'in_lavorazione' ? stateBtn('completato', 'Segna completato') : ''}
-        </div>` : ''}
+      ${t.descrizione ? `<p class="td-todo ${t.analisi?.spedizione ? 'is-advice' : ''}">${escapeHtml(t.descrizione)}</p>` : ''}
+      ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
+      ${t.riferimento ? `<div>${MsgRef.chip(t.riferimento, `closeModal('${CTRL_MODAL}');MsgRef.open(Ctrl.get('${t.id}').riferimento)`)}</div>` : ''}
+      ${renderTaskShipment(t)}
+      ${renderTaskCustomer(t)}
+      ${renderTaskMail(t, can)}
+
+      <dl class="td-info">
+        ${info('Assegnato a', t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune')}
+        ${info('Tipo', tipo ? escapeHtml(tipo.nome) : '')}
+        ${info('Giorno', ctrlFmtGiorno(t.giorno))}
+        ${info('Scadenza', t.scadenza ? ctrlFmtQuando(t.scadenza) : '')}
+        ${info('Tempo stimato', ctrlFmtMin(t.minuti_stimati))}
+        ${info('Tempo lavorato', taskLavoratoSec(t) >= 1 ? ctrlFmtDur(taskLavoratoSec(t)) : '')}
+        ${info('Origine', TASK_ORIGINI[t.fonte] || escapeHtml(t.fonte))}
+        ${info('Creato', `${ctrlFmtQuando(t.created_at)}${t.creato_da ? ` · ${escapeHtml(t.creato_da)}` : ''}`)}
+      </dl>
 
       ${can && a ? `
         <form class="task-motivo-form" onsubmit="event.preventDefault();submitTaskMotivo('${id}')">
@@ -862,27 +920,36 @@ function renderTaskDetail(id, storico) {
               placeholder="${a === 'bloccato' ? 'es. in attesa della conferma del cliente' : a === 'rimandato' ? 'es. manca la merce, arriva giovedì' : 'es. il cliente ha annullato'}"></textarea>
           </div>
           <div style="display:flex;justify-content:flex-end;gap:8px;">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="_taskAction=null;renderTaskDetail('${id}', _taskStoricoCache)">Annulla</button>
-            <button type="submit" class="btn btn-primary btn-sm">Conferma</button>
+            <button type="button" class="ctrl-btn" onclick="_taskAction=null;renderTaskDetail('${id}', _taskStoricoCache)">Annulla</button>
+            <button type="submit" class="ctrl-btn is-primary">Conferma</button>
           </div>
         </form>` : ''}
 
-      <div class="task-history">
-        <span class="form-label">Storico</span>
-        ${storico === null ? `<div class="ctrl-cell-sub">Caricamento…</div>` :
+      ${can && !a ? `
+        <div class="td-actions">
+          <div class="td-actions-main">
+            ${taskQuickActions(t).replaceAll('taskSetStato(', 'taskDetailStato(').replaceAll('taskPrendi(', 'taskDetailPrendi(')}
+            ${!chiuso && t.stato !== 'in_lavorazione' ? `<button type="button" class="td-act is-done" onclick="taskDetailStato('${id}','completato')">${CtrlIcons.check()} Completato</button>` : ''}
+          </div>
+          ${!chiuso ? `<div class="td-actions-more">${motivoBtn('rimandato', 'Rimanda')}${motivoBtn('bloccato', 'Bloccato')}${motivoBtn('non_completato', 'Non completato')}</div>` : ''}
+        </div>` : ''}
+
+      <details class="td-log">
+        <summary>Attività del task${storico?.length ? ` · ${storico.length}` : ''}</summary>
+        ${storico === null ? `<p class="td-empty">Caricamento…</p>` :
           storico.length ? `<ol>${storico.map(h => `
             <li><span class="task-history-dot" style="background:${taskStato(h.a_stato).color};"></span>
               <span><strong>${taskStato(h.a_stato).label}</strong>${h.utente ? ` · ${escapeHtml(h.utente)}` : ''} · ${ctrlFmtQuando(h.at)}
               ${h.motivo && TASK_CON_MOTIVO.includes(h.a_stato) ? `<em>${escapeHtml(h.motivo)}</em>` : ''}</span></li>`).join('')}</ol>`
-          : `<div class="ctrl-cell-sub">Nessun passaggio registrato.</div>`}
-      </div>
+          : `<p class="td-empty">Nessun passaggio registrato.</p>`}
+      </details>
 
       ${TCAuth.isAdmin() ? `
-        <div style="display:flex;gap:8px;justify-content:space-between;border-top:1px solid var(--border);padding-top:12px;">
-          <button class="btn btn-ghost btn-sm" style="color:var(--priority-urgent);" onclick="removeTask('${id}')">${Icons.trash(14)} Elimina</button>
-          <button class="btn btn-secondary btn-sm" onclick="openTaskForm('${id}')">${Icons.edit(14)} Modifica</button>
+        <div class="td-admin">
+          <button class="td-link" onclick="openTaskForm('${id}')">${Icons.edit(13)} Modifica</button>
+          <button class="td-link is-danger" onclick="removeTask('${id}')">${Icons.trash(13)} Elimina</button>
         </div>` : ''}
-    </div>`, 540);
+    </div>`, 620);
 
   if (a) setTimeout(() => document.getElementById(a === 'rimandato' ? 'tm-giorno' : 'tm-motivo')?.focus(), 30);
   startControlTicker();
@@ -1264,7 +1331,7 @@ function renderControlOrders() {
     ${ShopLinks.consegne.length ? `
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Problemi di consegna</h2><span class="table-count">${ShopLinks.consegne.length}</span>
-        <span class="ctrl-group-hint">Dallo storico del tracking GLS, controllato ogni 15 minuti</span></div>
+        <span class="ctrl-group-hint">Dallo storico del tracking GLS, controllato ogni ora dalle 7 alle 17</span></div>
       <div class="task-list">${ShopLinks.consegne.map(c => `
         <article class="task-row ctrl-order" style="--p:${c.stato === 'problema' ? '#ef4444' : '#f59e0b'};">
           <div class="task-main" style="cursor:default;">
@@ -1304,9 +1371,7 @@ function renderControlComms() {
 function renderCommsMail() {
   const tutte = ShopLinks.mail || [];
   const list = CtrlComms.macroarea ? tutte.filter(m => m.casella_id === CtrlComms.macroarea) : tutte;
-  const chip = (id, label, n, color) => `
-    <button type="button" class="chip chip-btn ctrl-macro ${CtrlComms.macroarea === id ? 'active' : ''}" aria-pressed="${CtrlComms.macroarea === id}"
-      ${color ? `style="--m:${color};"` : ''} onclick="setCommsMacro(${id ? `'${id}'` : 'null'})">${label} · ${n}</button>`;
+  const chip = (id, label, n, color) => ctrlFilter(CtrlComms.macroarea === id, label, n, color, `setCommsMacro(${id ? `'${id}'` : 'null'})`);
   const riga = (m) => `
     <article class="task-row ctrl-order" style="--p:${taskMacro(m.casella_id)?.color || '#6366f1'};">
       <div class="task-main" style="cursor:default;">
@@ -1408,8 +1473,7 @@ function renderBrainRules() {
   };
   return `
     <div class="ctrl-macro-bar ctrl-rule-stores" role="group" aria-label="Negozio">
-      ${TASK_MACROAREE.map(m => `<button type="button" class="chip chip-btn ctrl-macro ${CtrlBrain.negozio === m.id ? 'active' : ''}" aria-pressed="${CtrlBrain.negozio === m.id}"
-        style="--m:${m.color};" onclick="setBrainStore('${m.id}')">${m.label}</button>`).join('')}
+      ${TASK_MACROAREE.map(m => ctrlFilter(CtrlBrain.negozio === m.id, m.label, null, m.color, `setBrainStore('${m.id}')`)).join('')}
     </div>
     <form onsubmit="event.preventDefault();saveBrainRules()">
       <div class="ctrl-rules">
