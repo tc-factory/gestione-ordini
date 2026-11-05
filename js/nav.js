@@ -329,7 +329,8 @@ function renderHeader() {
   const actions = Nav.current === 'controllo' && TCAuth.isAdmin() && Ctrl.view === 'cervello'
     ? (CtrlBrain.sez === 'tipi' ? `<button class="btn btn-primary" onclick="openTaskTypeForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo tipo</span></button>` : '')
     : Nav.current === 'controllo' && TCAuth.isAdmin() && ['giorno', 'squadra'].includes(Ctrl.view)
-    ? `<button class="btn btn-primary" onclick="openTaskForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo task</span></button>`
+    ? `${Ctrl.view === 'giorno' ? `<button class="btn btn-secondary" ${Ctrl.operatori.some(o => o.attivo) ? '' : 'disabled title="Nessuna persona nel piano del giorno"'} onclick="distributeQueue()"><span class="new-order-btn-text">Distribuisci coda</span></button>` : ''}
+       <button class="btn btn-primary" onclick="openTaskForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo task</span></button>`
     : Nav.current === 'ordini'
     ? `<button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>`
     : Nav.current === 'planner'
@@ -364,6 +365,7 @@ function renderHeader() {
   // Stessa pagina (aggiornamento in tempo reale): cambiano solo le azioni, così l'animazione del titolo non si interrompe
   if (root.querySelector('#toolbar-title')?.textContent === title) {
     root.querySelector('.app-header-actions').innerHTML = actions;
+    root.querySelector('.toolbar-center').innerHTML = controlDayNav();
     return;
   }
   root.innerHTML = `
@@ -374,6 +376,7 @@ function renderHeader() {
         <h1 id="toolbar-title" tabindex="-1">${title}</h1>
       </div>
     </div>
+    <div class="toolbar-center">${controlDayNav()}</div>
     <div class="toolbar-clock" aria-hidden="true">
       <span class="toolbar-clock-date"></span><b></b>:<b></b>:<b></b>
     </div>
