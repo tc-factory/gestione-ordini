@@ -6,15 +6,16 @@
 //      da attiva_dal, poi solo quelle con UID maggiore dell'ultimo letto
 //   3. le salva in mail_messaggi; quelle scritte da persone diventano `eventi` per il cervello
 //
-// Solo lettura: le mail non vengono segnate come lette né spostate (BODY.PEEK).
+// Solo lettura: la casella si apre con EXAMINE e il contenuto con BODY.PEEK, quindi le mail
+// non vengono segnate come lette né spostate.
 //
 // Chi la può chiamare: il cron del database ogni 2 minuti (x-sync-key, stessa
 // chiave di shopify-sync: SHOPIFY_SYNC_KEY) oppure un admin collegato.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { ImapFlow } from 'npm:imapflow@1';
-import { simpleParser } from 'npm:mailparser@3';
+import PostalMime from 'npm:postal-mime@2';
+import { Imap, quota } from '../_shared/imap.ts';
 
 const MAX_PER_GIRO = 15;          // mail per casella a ogni giro: le altre al giro dopo
 const MAX_SORGENTE = 2_000_000;   // oltre questa dimensione si scaricano solo intestazioni e testo, non gli allegati
@@ -49,6 +50,10 @@ function mappaIntestazioni(raw: Uint8Array | undefined): Map<string, string> {
   return map;
 }
 
+// Modulo contatti del sito: Shopify inoltra il messaggio del cliente, il suo indirizzo è nel Reply-To
+const isModuloContatti = (from: string, oggetto: string) =>
+  /@shopify\.com$/i.test(from) && /(messaggio cliente|customer message|mensaje de cliente|contact form)/i.test(oggetto);
+
 function isAutomatica(h: Map<string, string>, from: string, casella: Casella): boolean {
   const get = (k: string) => (h.get(k) || '').toLowerCase();
   from = from.toLowerCase();
@@ -72,24 +77,49 @@ function senzaCitazione(testo: string): string {
   return tenute.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-// ── Lettura di una mail ──
+const MESI = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// Si scarica la sorgente solo delle mail scritte da persone (al massimo 2 MB: oltre, gli allegati
-// restano fuori). Solo letture a flusso: fetchOne e bodyStructure restano appesi con Aruba.
-// deno-lint-ignore no-explicit-any
-async function leggiSorgente(client: ImapFlow, m: Meta): Promise<any | null> {
-  let source: Uint8Array | null = null;
-  const query = m.size <= MAX_SORGENTE ? { uid: true, source: true } : { uid: true, source: { start: 0, maxLength: MAX_SORGENTE } };
-  // deno-lint-ignore no-explicit-any
-  for await (const f of client.fetch([m.uid], query as any, { uid: true })) source = f.source as Uint8Array;
-  if (!source) return null;
-  return await simpleParser(source, { skipImageLinks: true, skipTextLinks: true });
+const daHtml = (html: string) => html
+  .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, '')
+  .replace(/<br\s*\/?>|<\/(p|div|tr|li|h\d)>/gi, '\n')
+  .replace(/<[^>]+>/g, '')
+  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+  .replace(/[ \t]+\n/g, '\n').trim();
+
+type Meta = { uid: number; arrivata: Date; size: number; intestazioni: Uint8Array };
+
+// Date, dimensione e intestazioni delle mail: il contenuto si scarica solo per quelle di persone
+async function elencoMail(imap: Imap, uids: number[]): Promise<Meta[]> {
+  const risposte = await imap.comando(`UID FETCH ${uids.join(',')} (UID INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])`, 40_000, 'elenco mail nuove');
+  return risposte.flatMap(r => {
+    const uid = r.testo.match(/\bUID (\d+)/)?.[1];
+    if (!uid || !r.literal[0]) return [];
+    const data = r.testo.match(/INTERNALDATE "([^"]+)"/)?.[1];
+    return [{
+      uid: Number(uid),
+      arrivata: data ? new Date(data.trim().replace(/^(\d+)-(\w+)-(\d+) /, '$1 $2 $3 ')) : new Date(),
+      size: Number(r.testo.match(/RFC822\.SIZE (\d+)/)?.[1]) || 0,
+      intestazioni: r.literal[0],
+    }];
+  }).sort((a, b) => a.uid - b.uid);
+}
+
+// Al massimo 2 MB: oltre, gli allegati restano fuori ma il testo c'è
+async function scaricaSorgente(imap: Imap, m: Meta): Promise<Uint8Array | null> {
+  const risposte = await imap.comando(`UID FETCH ${m.uid} (BODY.PEEK[]<0.${MAX_SORGENTE}>)`, 40_000, `scaricamento mail ${m.uid}`);
+  return risposte.find(r => r.literal.length)?.literal[0] || null;
 }
 
 // deno-lint-ignore no-explicit-any
-type Meta = { uid: number; arrivata: Date; size: number; envelope: any; headers: Map<string, string> };
-
-const HEADER_AUTO = ['auto-submitted', 'precedence', 'list-unsubscribe', 'list-id', 'x-autoreply', 'x-autorespond'];
+async function decodifica(source: Uint8Array): Promise<any> {
+  const p = await PostalMime.parse(source);
+  return {
+    references: p.references,
+    text: p.text?.trim() ? p.text : (p.html ? daHtml(p.html) : ''),
+    attachments: (p.attachments || []).filter(a => a.disposition !== 'inline')
+      .map(a => ({ filename: a.filename, contentType: a.mimeType, size: (a.content as ArrayBuffer)?.byteLength || 0 })),
+  };
+}
 
 // ── Una casella ──
 
@@ -97,98 +127,96 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
   const pass = Deno.env.get(`MAIL_PASSWORD_${c.id.toUpperCase()}`);
   if (!pass) throw new Error(`Manca il secret MAIL_PASSWORD_${c.id.toUpperCase()}`);
 
-  const client = new ImapFlow({
-    host: c.imap_host, port: 993, secure: true,
-    auth: { user: c.indirizzo, pass },
-    logger: false, emitLogs: false,
-  });
-  await client.connect().catch((e: Error & { responseText?: string }) => {
-    throw new Error(/auth/i.test(e.message + (e.responseText || '')) ? 'Accesso rifiutato da Aruba: password sbagliata?' : `IMAP: ${e.message}`);
-  });
-
+  const imap = new Imap();
   let salvate = 0, perCervello = 0, ultimoUid = c.ultimo_uid || 0, uidvalidity = c.uidvalidity;
   try {
-    const lock = await client.getMailboxLock('INBOX');
-    try {
-      // deno-lint-ignore no-explicit-any
-      const mb = client.mailbox as any;
-      const validity = Number(mb.uidValidity);
-      const ripartenza = !c.ultimo_uid || (c.uidvalidity && c.uidvalidity !== validity);
-      uidvalidity = validity;
-      if (ripartenza) ultimoUid = 0;
+    await imap.apri(c.imap_host);
+    await imap.comando(`LOGIN ${quota(c.indirizzo)} ${quota(pass)}`, 20_000, 'LOGIN').catch((e: Error) => {
+      throw new Error(/LOGIN:/.test(e.message) ? 'Accesso rifiutato da Aruba: password sbagliata?' : e.message);
+    });
 
-      const dal = new Date(c.attiva_dal);
-      let uids: number[] = ripartenza
-        ? await client.search({ since: dal }, { uid: true }) || []
-        : await client.search({ uid: `${ultimoUid + 1}:*` }, { uid: true }) || [];
-      uids = uids.filter(u => u > ultimoUid).sort((a, b) => a - b).slice(0, MAX_PER_GIRO);
+    const aperta = (await imap.comando('EXAMINE INBOX', 20_000)).map(r => r.testo).join('\n');
+    const validity = Number(aperta.match(/UIDVALIDITY (\d+)/)?.[1]) || null;
+    const uidNext = Number(aperta.match(/UIDNEXT (\d+)/)?.[1]) || 1;
+    const ripartenza = !c.ultimo_uid || (c.uidvalidity && c.uidvalidity !== validity);
+    uidvalidity = validity;
+    if (ripartenza) ultimoUid = 0;
 
-      // Prima volta senza mail nuove: si parte dall'ultima mail già presente
-      if (!uids.length && ripartenza) ultimoUid = Math.max(0, Number(mb.uidNext || 1) - 1);
+    const dal = new Date(c.attiva_dal);
+    const criterio = ripartenza ? `SINCE ${dal.getUTCDate()}-${MESI[dal.getUTCMonth()]}-${dal.getUTCFullYear()}` : `UID ${ultimoUid + 1}:*`;
+    const trovate = await imap.comando(`UID SEARCH ${criterio}`, 20_000, 'ricerca');
+    const uids = (trovate.find(r => r.testo.startsWith('* SEARCH'))?.testo.match(/\d+/g) || []).map(Number)
+      .filter(u => u > ultimoUid).sort((a, b) => a - b).slice(0, MAX_PER_GIRO);
 
-      // Prima solo data e dimensione: si scarica il contenuto solo di quello che serve
-      const meta: Meta[] = [];
-      if (uids.length) for await (const m of client.fetch(uids, { uid: true, internalDate: true, size: true, envelope: true, headers: HEADER_AUTO }, { uid: true })) {
-        meta.push({ uid: m.uid, arrivata: m.internalDate ? new Date(m.internalDate) : new Date(), size: Number(m.size) || 0,
-                    envelope: m.envelope, headers: mappaIntestazioni(m.headers as Uint8Array) });
-      }
-      meta.sort((a, b) => a.uid - b.uid);
+    // Prima volta senza mail nuove: si parte dall'ultima mail già presente
+    if (!uids.length && ripartenza) ultimoUid = Math.max(0, uidNext - 1);
 
-      for (const msg of meta) {
-        if (Date.now() > deadline) break;
-        const arrivata = msg.arrivata;
-        if (arrivata < dal) { ultimoUid = Math.max(ultimoUid, msg.uid); continue; }   // "since" è a giorni interi
+    const meta = uids.length ? await elencoMail(imap, uids) : [];
 
-        const env = msg.envelope || {};
-        const from = env.from?.[0] || {};
-        const automatica = isAutomatica(msg.headers, from.address || '', c);
-        const parsed = automatica ? null : await leggiSorgente(client, msg);
-        const testoPieno = (parsed?.text || '').trim();
-        const row = {
-          casella_id: c.id,
-          direzione: 'in',
-          uid: msg.uid,
-          message_id: env.messageId || parsed?.messageId || null,
-          in_reply_to: env.inReplyTo || parsed?.inReplyTo || null,
-          riferimenti: parsed ? (Array.isArray(parsed.references) ? parsed.references.join(' ') : (parsed.references || null)) : null,
-          da_email: from.address?.toLowerCase() || null,
-          da_nome: from.name || null,
-          // deno-lint-ignore no-explicit-any
-          a: (env.to || []).map((t: any) => t.name ? `${t.name} <${t.address}>` : t.address).join(', ') || null,
-          oggetto: env.subject || parsed?.subject || null,
-          ricevuto_at: (env.date ? new Date(env.date) : arrivata).toISOString(),
-          testo: testoPieno ? (senzaCitazione(testoPieno) || testoPieno).slice(0, MAX_TESTO) : null,
-          // deno-lint-ignore no-explicit-any
-          allegati: (parsed?.attachments || []).filter((a: any) => !a.related)
-            // deno-lint-ignore no-explicit-any
-            .map((a: any) => ({ nome: a.filename || 'allegato', tipo: a.contentType, dimensione: a.size })),
-          automatica,
-        };
+    for (const msg of meta) {
+      if (Date.now() > deadline) break;
+      const arrivata = msg.arrivata;
+      if (arrivata < dal) { ultimoUid = Math.max(ultimoUid, msg.uid); continue; }   // SINCE è a giorni interi
 
-        const { data: ins, error } = await db.from('mail_messaggi')
-          .upsert(row, { onConflict: 'casella_id,uid', ignoreDuplicates: true }).select('id');
-        if (error) throw new Error(`Salvataggio mail: ${error.message}`);
-        const nuova = ins?.[0]?.id;
-        if (nuova) {
-          salvate++;
-          if (!automatica) {
-            perCervello++;
-            await db.from('eventi').upsert({
-              fonte: 'mail', account: c.id, tipo: 'mail_ricevuta', id_esterno: row.message_id || `uid:${msg.uid}`,
-              payload: { mail_id: nuova, da: row.da_email, nome: row.da_nome, oggetto: row.oggetto },
-            }, { onConflict: 'fonte,account,id_esterno', ignoreDuplicates: true });
-          }
+      const env = await PostalMime.parse(msg.intestazioni);
+      const modulo = isModuloContatti(env.from?.address || '', env.subject || '');
+      const from = (modulo && env.replyTo?.[0]) || env.from || {} as { address?: string; name?: string };
+      const automatica = !modulo && isAutomatica(mappaIntestazioni(msg.intestazioni), from.address || '', c);
+
+      // Mail illeggibile: si salva con una nota e diventa comunque un task
+      let motivoIlleggibile = '';
+      const parsed = automatica ? null : await (async () => {
+        const source = await scaricaSorgente(imap, msg);
+        return source ? await decodifica(source) : null;
+      })().catch((e) => {
+        console.error('Mail illeggibile', c.id, msg.uid, e);
+        motivoIlleggibile = e instanceof Error ? e.message : String(e);
+        return null;
+      });
+
+      const testoPieno = (parsed?.text || '').trim();
+      const row = {
+        casella_id: c.id,
+        direzione: 'in',
+        uid: msg.uid,
+        message_id: env.messageId || null,
+        in_reply_to: env.inReplyTo || null,
+        riferimenti: parsed?.references || env.references || null,
+        da_email: from.address?.toLowerCase() || null,
+        da_nome: from.name || null,
+        a: (env.to || []).map(t => t.name ? `${t.name} <${t.address}>` : t.address).join(', ') || null,
+        oggetto: env.subject || null,
+        ricevuto_at: (env.date && !isNaN(new Date(env.date).getTime()) ? new Date(env.date) : arrivata).toISOString(),
+        testo: motivoIlleggibile ? `(Testo non letto da CS: ${motivoIlleggibile}. Apri la mail nella casella.)`
+          : testoPieno ? (senzaCitazione(testoPieno) || testoPieno).slice(0, MAX_TESTO) : null,
+        // deno-lint-ignore no-explicit-any
+        allegati: (parsed?.attachments || []).map((a: any) => ({ nome: a.filename || 'allegato', tipo: a.contentType, dimensione: a.size })),
+        automatica,
+      };
+
+      const { data: ins, error } = await db.from('mail_messaggi')
+        .upsert(row, { onConflict: 'casella_id,uid', ignoreDuplicates: true }).select('id');
+      if (error) throw new Error(`Salvataggio mail: ${error.message}`);
+      const nuova = ins?.[0]?.id;
+      if (nuova) {
+        salvate++;
+        if (!automatica) {
+          perCervello++;
+          await db.from('eventi').upsert({
+            fonte: 'mail', account: c.id, tipo: 'mail_ricevuta', id_esterno: row.message_id || `uid:${msg.uid}`,
+            payload: { mail_id: nuova, da: row.da_email, nome: row.da_nome, oggetto: row.oggetto },
+          }, { onConflict: 'fonte,account,id_esterno', ignoreDuplicates: true });
         }
-        ultimoUid = Math.max(ultimoUid, msg.uid);
-        // Il punto raggiunto si salva subito: se la funzione si interrompe, si riparte da qui
-        await db.from('mail_caselle').update({ uidvalidity, ultimo_uid: ultimoUid }).eq('id', c.id);
       }
-      if (ripartenza && meta.length && meta.every(m => m.arrivata < dal)) ultimoUid = Math.max(ultimoUid, Number(mb.uidNext || 1) - 1);
-    } finally {
-      lock.release();
+      ultimoUid = Math.max(ultimoUid, msg.uid);
+      // Il punto raggiunto si salva subito: se la funzione si interrompe, si riparte da qui
+      await db.from('mail_caselle').update({ uidvalidity, ultimo_uid: ultimoUid }).eq('id', c.id);
+      if (motivoIlleggibile) break;   // la connessione è da rifare: si riprende al giro dopo
     }
+    if (ripartenza && meta.length && meta.every(m => m.arrivata < dal)) ultimoUid = Math.max(ultimoUid, uidNext - 1);
+    await imap.comando('LOGOUT', 3_000).catch(() => {});
   } finally {
-    await client.logout().catch(() => {});
+    imap.chiudi();
   }
 
   await db.from('mail_caselle').update({

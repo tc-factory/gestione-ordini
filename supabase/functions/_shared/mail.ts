@@ -2,7 +2,7 @@
 // Stessa conversazione del cliente, copia nella cartella Inviata, riga "out" in mail_messaggi.
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { ImapFlow } from 'npm:imapflow@1';
+import { Imap, quota } from './imap.ts';
 import nodemailer from 'npm:nodemailer@6';
 import MailComposer from 'npm:nodemailer@6/lib/mail-composer/index.js';
 
@@ -11,18 +11,23 @@ type Row = Record<string, any>;
 
 // Copia in Inviata: se non riesce la mail è comunque partita
 async function copiaInInviata(host: string, user: string, pass: string, raw: Uint8Array) {
-  const client = new ImapFlow({ host, port: 993, secure: true, auth: { user, pass }, logger: false });
-  const lavoro = (async () => {
-    await client.connect();
-    const cartelle = await client.list();
-    const inviata = cartelle.find(c => c.specialUse === '\\Sent') || cartelle.find(c => /^(inbox[./])?(sent|inviata|posta inviata)/i.test(c.path));
-    if (inviata) await client.append(inviata.path, raw, ['\\Seen']);
-    return !!inviata;
-  })();
-  const limite = new Promise<boolean>(r => setTimeout(() => r(false), 15_000));
-  const fatto = await Promise.race([lavoro, limite]).catch(() => false);
-  client.logout().catch(() => {});
-  return fatto;
+  const imap = new Imap();
+  try {
+    await imap.apri(host);
+    await imap.comando(`LOGIN ${quota(user)} ${quota(pass)}`, 15_000, 'LOGIN');
+    const righe = (await imap.comando('LIST "" "*"', 15_000)).map(r => r.testo);
+    const nome = (r: string) => r.match(/"([^"]+)"$/)?.[1] || r.split(' ').pop() || '';
+    const riga = righe.find(r => /\\Sent\b/i.test(r)) || righe.find(r => /^(inbox[./])?(sent|inviata|posta inviata)/i.test(nome(r)));
+    if (!riga) return false;
+    await imap.append(nome(riga), raw);
+    await imap.comando('LOGOUT', 3_000).catch(() => {});
+    return true;
+  } catch (e) {
+    console.error('Copia in Inviata', e);
+    return false;
+  } finally {
+    imap.chiudi();
+  }
 }
 
 export async function inviaRisposta(db: SupabaseClient, casella: Row, mail: Row, testo: string) {
