@@ -313,8 +313,14 @@ function tickToolbarClock() {
 }
 setInterval(tickToolbarClock, 1000);
 
+// Gesto dell'icona nel titolo, per pagina (css/creative-system.css → ico-*); le lavorazioni nuove usano "tag"
+const TITLE_ICON_ANIM = {
+  controllo: 'zap', ordini: 'package', planner: 'calendar', dtf: 'printer', esterne: 'truck', prodotti: 'shirt',
+  cataloghi: 'book', clienti: 'users', cassa: 'wallet', impostazioni: 'gear', cestino: 'trash', supporto: 'buoy',
+  interno: 'printer', terzi: 'users', uv: 'sun', laser: 'zap', stampa: 'image', fornitori: 'truck', 'da-inserire': 'plus',
+};
+
 // Barra in alto: titolo della sezione + azioni contestuali
-let lastToolbarTitle = null;
 function renderHeader() {
   const root = document.getElementById('header-root');
   if (!root) return;
@@ -352,20 +358,20 @@ function renderHeader() {
   const fornitoriPage = Nav.current === 'prodotti' && Nav.param === 'fornitori';
   const daInserirePage = Nav.current === 'prodotti' && Nav.param === 'da-inserire';
   const title = sub ? sub.label : fornitoriPage ? 'Fornitori' : daInserirePage ? 'Prodotti da inserire' : item.label;
-  const subtitle = sub ? sub.subtitle : fornitoriPage ? 'Anagrafica fornitori dei prodotti' : daInserirePage ? 'Articoli trovati negli ordini e non ancora in anagrafica' : item.subtitle;
   const icon = sub ? sub.icon() : fornitoriPage ? Icons.truck(20) : daInserirePage ? Icons.plus(20) : item.icon();
-  // La barra si ridisegna anche a ogni aggiornamento in tempo reale: l'animazione parte solo se cambia pagina
-  const entering = title !== lastToolbarTitle;
-  lastToolbarTitle = title;
+  const anim = TITLE_ICON_ANIM[sub ? sub.id : fornitoriPage ? 'fornitori' : daInserirePage ? 'da-inserire' : item.id] || 'tag';
+
+  // Stessa pagina (aggiornamento in tempo reale): cambiano solo le azioni, così l'animazione del titolo non si interrompe
+  if (root.querySelector('#toolbar-title')?.textContent === title) {
+    root.querySelector('.app-header-actions').innerHTML = actions;
+    return;
+  }
   root.innerHTML = `
     <button class="btn-icon menu-toggle" onclick="Nav.openDrawer()" aria-label="Apri menu">${Icons.menu()}</button>
     <div class="toolbar-title">
-      <div class="toolbar-title-box${entering ? ' is-entering' : ''}">
-        <span class="toolbar-title-icon" aria-hidden="true">${icon}</span>
-        <div class="toolbar-title-text">
-          <h1 id="toolbar-title" tabindex="-1">${title}</h1>
-          <p>${subtitle}</p>
-        </div>
+      <div class="toolbar-title-box is-entering">
+        <span class="toolbar-title-icon" data-anim="${anim}" aria-hidden="true">${icon}</span>
+        <h1 id="toolbar-title" tabindex="-1">${title}</h1>
       </div>
     </div>
     <div class="toolbar-clock" aria-hidden="true">
@@ -376,6 +382,15 @@ function renderHeader() {
     </div>
   `;
   tickToolbarClock();
+
+  // Tracciato dell'icona: ogni forma si disegna dopo la precedente
+  root.querySelectorAll('.toolbar-title-icon svg > *').forEach((el, i) => {
+    el.style.setProperty('--len', el.getTotalLength());
+    el.style.setProperty('--i', i);
+  });
+  // Finito l'ingresso il gesto dell'icona può ripartire al passaggio del mouse
+  clearTimeout(renderHeader.settle);
+  renderHeader.settle = setTimeout(() => root.querySelector('.toolbar-title-box')?.classList.remove('is-entering'), 1800);
 }
 
 // Menu del profilo (in fondo alla navbar): cambio password ed esci
