@@ -941,7 +941,7 @@ const TCFactory = {
         ? { fornitore: old.fornitore || it.fornitore, descrizione: old.descrizione || it.descrizione,
             colori: merge(old.colori, it.colori), taglie: merge(old.taglie, it.taglie),
             ordini: [...new Set([...(old.ordini || []), orderId].filter(Boolean))] }
-        : { ...it, ordini: orderId ? [orderId] : [], created_by: window.TCAuth?.getNickname() || 'Compila da foto' };
+        : { ...it, ordini: orderId ? [orderId] : [], created_by: window.TCAuth?.getNickname() || 'Compila da file' };
       const res = old
         ? await supabaseClient.from('products_pending').update(row).eq('id', old.id).select().single()
         : await supabaseClient.from('products_pending').insert(row).select().single();
