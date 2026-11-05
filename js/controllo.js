@@ -110,7 +110,7 @@ const CtrlIcons = {
 // ─────────────────────────────────────────────
 
 const Ctrl = {
-  view: 'giorno',        // giorno | squadra | ordini | cervello | report | collegamenti
+  view: 'giorno',        // giorno | squadra | ordini | comunicazioni | cervello | report | collegamenti
   giorno: ctrlOggi(),    // giorno mostrato
   macroarea: null,       // filtro della coda comune (null = tutte)
   tasks: [],             // task del giorno + arretrati aperti dei giorni prima
@@ -295,7 +295,7 @@ function setControlView(view) {
 
 // Dati delle schede che li caricano quando si aprono
 function loadControlExtras() {
-  if (['ordini', 'cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
+  if (['ordini', 'comunicazioni', 'cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
   if (Ctrl.view === 'cervello') loadBrainRules();
   if (Ctrl.view === 'report') loadControlReport();
 }
@@ -322,11 +322,12 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['ordini', 'Ordini e mail'], ['cervello', 'Cervello'], ['report', 'Report'], ['collegamenti', 'Collegamenti']] : [])];
+  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['ordini', 'Ordini'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['report', 'Report'], ['collegamenti', 'Collegamenti']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
     : Ctrl.view === 'ordini' ? renderControlOrders()
+    : Ctrl.view === 'comunicazioni' ? renderControlComms()
     : Ctrl.view === 'cervello' ? renderControlBrain()
     : Ctrl.view === 'collegamenti' ? renderControlLinks()
     : Ctrl.view === 'report' ? renderControlReport()
@@ -338,7 +339,10 @@ function renderControlPage() {
         ${tabs.map(([id, label]) => `<button role="tab" aria-selected="${Ctrl.view === id}" class="${Ctrl.view === id ? 'active' : ''}"
           onclick="setControlView('${id}')">${label}</button>`).join('')}
       </div>` : ''}
-      ${['giorno', 'squadra'].includes(Ctrl.view) ? `
+    </div>
+    ${['giorno', 'squadra'].includes(Ctrl.view) ? `
+      <div class="ctrl-dayrow">
+        <span></span>
         <div class="ctrl-daynav" role="group" aria-label="Giorno">
           <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, -1)}')" aria-label="Giorno prima">${Icons.chevronLeft(16)}</button>
           <label class="ctrl-day-label">
@@ -346,9 +350,12 @@ function renderControlPage() {
             <input type="date" value="${Ctrl.giorno}" onchange="setControlDay(this.value)" aria-label="Scegli il giorno">
           </label>
           <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, 1)}')" aria-label="Giorno dopo">${Icons.chevronRight(16)}</button>
-          ${Ctrl.giorno !== ctrlOggi() ? `<button class="btn btn-ghost btn-sm" onclick="setControlDay()">Oggi</button>` : ''}
-        </div>` : ''}
-    </div>
+          ${Ctrl.giorno !== ctrlOggi() ? `<button class="ctrl-btn" onclick="setControlDay()">Oggi</button>` : ''}
+        </div>
+        <div class="ctrl-dayrow-end">
+          ${Ctrl.view === 'giorno' && TCAuth.isAdmin() ? `<button class="ctrl-btn is-primary" ${Ctrl.operatori.some(o => o.attivo) ? '' : 'disabled title="Nessuna persona nel piano del giorno"'} onclick="distributeQueue()">Distribuisci coda</button>` : ''}
+        </div>
+      </div>` : ''}
     ${body}`;
 
   root.querySelectorAll?.('.ctrl-rule textarea').forEach(ctrlGrow);
@@ -596,15 +603,9 @@ function renderControlTeam() {
   };
 
   const tutti = Ctrl.tasks.filter(t => t.giorno === d && t.assegnato_a);
-  const attivi = Ctrl.operatori.filter(o => o.attivo).length;
   const haTask = (nick) => Ctrl.tasks.some(t => t.assegnato_a === nick);
   const attiviOggi = people.filter(haTask);
   return `
-    <div class="ctrl-bar" style="margin-bottom:10px;">
-      <span class="ctrl-group-hint" style="margin:0;">${attivi ? `${attivi} persone nel piano del giorno: la coda si distribuisce ogni mattina` : 'Nessuno nel piano del giorno: la coda resta comune'}</span>
-      <span style="margin-left:auto;"></span>
-      <button class="ctrl-btn is-primary" ${attivi ? '' : 'disabled'} onclick="distributeQueue()">Distribuisci coda</button>
-    </div>
     <div class="ctrl-team">${attiviOggi.map(card).join('')}</div>
     ${renderTeamTable(people)}
     ${taskGroupOwner('In ritardo', inRitardo, '', 'Arretrati dei giorni prima o scadenza passata')}
@@ -1145,7 +1146,7 @@ async function loadShopifyLinks() {
   const [caselle, mail, scartate, regole] = await Promise.all([
     supabaseClient.rpc('tc_mail_stato'),
     supabaseClient.from('mail_messaggi').select('id, casella_id, da_email, da_nome, oggetto, ricevuto_at, testo, allegati')
-      .eq('direzione', 'in').eq('automatica', false).order('ricevuto_at', { ascending: false }).limit(15),
+      .eq('direzione', 'in').eq('automatica', false).order('ricevuto_at', { ascending: false }).limit(50),
     supabaseClient.from('eventi').select('id, account, payload, esito, elaborato_at')
       .eq('fonte', 'mail').not('elaborato_at', 'is', null).is('task_id', null)
       .order('elaborato_at', { ascending: false }).limit(15),
@@ -1244,16 +1245,6 @@ function renderControlOrders() {
         ${track?.url ? `<a class="ctrl-btn" href="${escapeHtml(track.url)}" target="_blank" rel="noopener">${Icons.truck(14)} ${escapeHtml(track.corriere || 'Tracking')}</a>` : '<span></span>'}
       </article>`;
   };
-  const mailRow = (m) => `
-    <article class="task-row ctrl-order" style="--p:${taskMacro(m.casella_id)?.color || '#6366f1'};">
-      <div class="task-main" style="cursor:default;">
-        <span class="task-title">${escapeHtml(m.oggetto || '(senza oggetto)')}</span>
-        <span class="task-meta"><span class="ctrl-macro-tag" style="--m:${taskMacro(m.casella_id)?.color || '#6366f1'};">${escapeHtml(shopNome(m.casella_id))}</span><span aria-hidden="true"> · </span>${escapeHtml(m.da_nome || m.da_email || '')}<span aria-hidden="true"> · </span>${ctrlFmtQuando(m.ricevuto_at)}${(m.allegati || []).length ? `<span aria-hidden="true"> · </span>${Icons.paperclip(12)} ${m.allegati.length}` : ''}</span>
-        ${m.testo ? `<span class="ctrl-row-text">${escapeHtml(m.testo.slice(0, 180))}${m.testo.length > 180 ? '…' : ''}</span>` : ''}
-      </div>
-      <span></span>
-    </article>`;
-
   return `
     <form class="ctrl-search glass-card" onsubmit="event.preventDefault();searchShopifyOrders(this.q.value)" role="search">
       <label class="sr-only" for="shop-q">Cerca ordine</label>
@@ -1262,17 +1253,69 @@ function renderControlOrders() {
       <button class="ctrl-btn is-primary" type="submit">${Icons.search(14)} Cerca</button>
       ${ShopLinks.query ? `<button class="ctrl-btn" type="button" onclick="searchShopifyOrders('')">Azzera</button>` : ''}
     </form>
-    <div class="ctrl-columns">
-      <section class="glass-card page-card ctrl-group">
-        <div class="page-card-head"><h2>${ShopLinks.query ? 'Ordini trovati' : 'Ultimi ordini'}</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
-        ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
-          : ShopLinks.ordini.length ? `<div class="task-list">${ShopLinks.ordini.map(ordine).join('')}</div>`
-          : `<div class="empty-list">${ShopLinks.query ? 'Nessun ordine trovato.' : 'Ancora nessun ordine.'}</div>`}
-      </section>
-      <section class="glass-card page-card ctrl-group">
-        <div class="page-card-head"><h2>Ultime mail dai clienti</h2><span class="table-count">${ShopLinks.mail?.length ?? 0}</span></div>
-        ${ShopLinks.mail?.length ? `<div class="task-list">${ShopLinks.mail.map(mailRow).join('')}</div>` : `<div class="empty-list">Nessuna mail.</div>`}
-      </section>
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>${ShopLinks.query ? 'Ordini trovati' : 'Ultimi ordini'}</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
+      ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
+        : ShopLinks.ordini.length ? `<div class="task-list">${ShopLinks.ordini.map(ordine).join('')}</div>`
+        : `<div class="empty-list">${ShopLinks.query ? 'Nessun ordine trovato.' : 'Ancora nessun ordine.'}</div>`}
+    </section>`;
+}
+
+// ── Comunicazioni: mail, WhatsApp, social ──
+
+const CtrlComms = { canale: 'mail', macroarea: null };
+
+function setCommsChannel(id) { CtrlComms.canale = id; refreshControlPage(); }
+function setCommsMacro(id) { CtrlComms.macroarea = id; refreshControlPage(); }
+
+function renderControlComms() {
+  const canali = [['mail', 'Mail'], ['whatsapp', 'WhatsApp'], ['social', 'Social']];
+  return `
+    <div class="ctrl-bar">
+      <div class="segmented" role="tablist" aria-label="Canale">
+        ${canali.map(([id, label]) => `<button role="tab" aria-selected="${CtrlComms.canale === id}" class="${CtrlComms.canale === id ? 'active' : ''}" onclick="setCommsChannel('${id}')">${label}</button>`).join('')}
+      </div>
+    </div>
+    ${CtrlComms.canale === 'mail' ? renderCommsMail() : renderCommsPending(CtrlComms.canale)}`;
+}
+
+function renderCommsMail() {
+  const tutte = ShopLinks.mail || [];
+  const list = CtrlComms.macroarea ? tutte.filter(m => m.casella_id === CtrlComms.macroarea) : tutte;
+  const chip = (id, label, n, color) => `
+    <button type="button" class="chip chip-btn ctrl-macro ${CtrlComms.macroarea === id ? 'active' : ''}" aria-pressed="${CtrlComms.macroarea === id}"
+      ${color ? `style="--m:${color};"` : ''} onclick="setCommsMacro(${id ? `'${id}'` : 'null'})">${label} · ${n}</button>`;
+  const riga = (m) => `
+    <article class="task-row ctrl-order" style="--p:${taskMacro(m.casella_id)?.color || '#6366f1'};">
+      <div class="task-main" style="cursor:default;">
+        <span class="task-title">${escapeHtml(m.oggetto || '(senza oggetto)')}</span>
+        <span class="task-meta"><span class="ctrl-macro-tag" style="--m:${taskMacro(m.casella_id)?.color || '#6366f1'};">${escapeHtml(shopNome(m.casella_id))}</span><span aria-hidden="true"> · </span>${escapeHtml(m.da_nome || m.da_email || '')}<span aria-hidden="true"> · </span>${ctrlFmtQuando(m.ricevuto_at)}${(m.allegati || []).length ? `<span aria-hidden="true"> · </span>${Icons.paperclip(12)} ${m.allegati.length}` : ''}</span>
+        ${m.testo ? `<span class="ctrl-row-text">${escapeHtml(m.testo.slice(0, 220))}${m.testo.length > 220 ? '…' : ''}</span>` : ''}
+      </div>
+      <span></span>
+    </article>`;
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Ultime mail dai clienti</h2><span class="table-count">${list.length}</span></div>
+      <div class="ctrl-macro-bar" role="group" aria-label="Filtra per negozio">
+        ${chip(null, 'Tutte', tutte.length)}
+        ${TASK_MACROAREE.map(m => chip(m.id, m.label, tutte.filter(x => x.casella_id === m.id).length, m.color)).join('')}
+      </div>
+      ${list.length ? `<div class="task-list">${list.map(riga).join('')}</div>` : `<div class="empty-list">Nessuna mail.</div>`}
+    </section>`;
+}
+
+function renderCommsPending(canale) {
+  const testi = {
+    whatsapp: ['WhatsApp da collegare', 'Qui arriveranno i messaggi dei 4 numeri. Il collegamento parte dopo la verifica di Meta Business.'],
+    social: ['Social da collegare', 'Qui arriveranno messaggi e commenti di Instagram e Facebook. Il collegamento parte dopo la verifica di Meta Business.'],
+  };
+  const [titolo, testo] = testi[canale];
+  return `
+    <div class="glass-card empty-state">
+      <div class="empty-state-icon" aria-hidden="true">${Icons.messageCircle(28)}</div>
+      <h2>${titolo}</h2>
+      <p>${testo}</p>
     </div>`;
 }
 
