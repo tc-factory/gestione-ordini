@@ -286,6 +286,21 @@ function refreshControlPage() {
   renderHeader();
 }
 
+// Scelta del giorno nella testata della pagina (la inserisce renderHeader)
+function controlDayNav() {
+  if (Nav.current !== 'controllo' || !['giorno', 'squadra'].includes(Ctrl.view)) return '';
+  return `
+    <div class="ctrl-daynav" role="group" aria-label="Giorno">
+      <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, -1)}')" aria-label="Giorno prima">${Icons.chevronLeft(16)}</button>
+      <label class="ctrl-day-label">
+        <span>${ctrlFmtGiorno(Ctrl.giorno)}</span>
+        <input type="date" value="${Ctrl.giorno}" onchange="setControlDay(this.value)" aria-label="Scegli il giorno">
+      </label>
+      <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, 1)}')" aria-label="Giorno dopo">${Icons.chevronRight(16)}</button>
+      ${Ctrl.giorno !== ctrlOggi() ? `<button class="ctrl-today" onclick="setControlDay()">${CtrlIcons.undo(13)} Oggi</button>` : ''}
+    </div>`;
+}
+
 function setControlView(view) {
   if (!leaveRulesOk()) return;
   Ctrl.view = view;
@@ -340,22 +355,6 @@ function renderControlPage() {
           onclick="setControlView('${id}')">${label}</button>`).join('')}
       </div>` : ''}
     </div>
-    ${['giorno', 'squadra'].includes(Ctrl.view) ? `
-      <div class="ctrl-dayrow">
-        <span></span>
-        <div class="ctrl-daynav" role="group" aria-label="Giorno">
-          <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, -1)}')" aria-label="Giorno prima">${Icons.chevronLeft(16)}</button>
-          <label class="ctrl-day-label">
-            <span>${ctrlFmtGiorno(Ctrl.giorno)}</span>
-            <input type="date" value="${Ctrl.giorno}" onchange="setControlDay(this.value)" aria-label="Scegli il giorno">
-          </label>
-          <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, 1)}')" aria-label="Giorno dopo">${Icons.chevronRight(16)}</button>
-          ${Ctrl.giorno !== ctrlOggi() ? `<button class="ctrl-btn" onclick="setControlDay()">Oggi</button>` : ''}
-        </div>
-        <div class="ctrl-dayrow-end">
-          ${Ctrl.view === 'giorno' && TCAuth.isAdmin() ? `<button class="ctrl-btn is-primary" ${Ctrl.operatori.some(o => o.attivo) ? '' : 'disabled title="Nessuna persona nel piano del giorno"'} onclick="distributeQueue()">Distribuisci coda</button>` : ''}
-        </div>
-      </div>` : ''}
     ${body}`;
 
   root.querySelectorAll?.('.ctrl-rule textarea').forEach(ctrlGrow);
