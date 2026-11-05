@@ -337,7 +337,7 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['ordini', 'Ordini'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['report', 'Report'], ['collegamenti', 'Collegamenti']] : [])];
+  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['ordini', 'Shopify'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['report', 'Report'], ['collegamenti', 'Collegamenti']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
@@ -1248,12 +1248,12 @@ function renderControlOrders() {
     <form class="ctrl-search glass-card" onsubmit="event.preventDefault();searchShopifyOrders(this.q.value)" role="search">
       <label class="sr-only" for="shop-q">Cerca ordine</label>
       <input id="shop-q" name="q" class="form-input" value="${escapeHtml(ShopLinks.query)}"
-        placeholder="Cerca per email, telefono, nome o numero d'ordine, in tutti i negozi">
+        placeholder="Cerca per email, telefono, nome o numero d'ordine, in tutti i negozi Shopify">
       <button class="ctrl-btn is-primary" type="submit">${Icons.search(14)} Cerca</button>
       ${ShopLinks.query ? `<button class="ctrl-btn" type="button" onclick="searchShopifyOrders('')">Azzera</button>` : ''}
     </form>
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>${ShopLinks.query ? 'Ordini trovati' : 'Ultimi ordini'}</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
+      <div class="page-card-head"><h2>${ShopLinks.query ? 'Ordini Shopify trovati' : 'Ultimi ordini Shopify'}</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
       ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
         : ShopLinks.ordini.length ? `<div class="task-list">${ShopLinks.ordini.map(ordine).join('')}</div>`
         : `<div class="empty-list">${ShopLinks.query ? 'Nessun ordine trovato.' : 'Ancora nessun ordine.'}</div>`}
