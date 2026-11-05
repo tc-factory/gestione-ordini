@@ -309,9 +309,9 @@ function renderHeader() {
   if (!root) return;
   const item = Nav._item(Nav.current) || Nav._item(Nav.home());
 
-  const actions = Nav.current === 'controllo' && TCAuth.isAdmin() && Ctrl.view === 'tipi'
-    ? `<button class="btn btn-primary" onclick="openTaskTypeForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo tipo</span></button>`
-    : Nav.current === 'controllo' && TCAuth.isAdmin()
+  const actions = Nav.current === 'controllo' && TCAuth.isAdmin() && Ctrl.view === 'cervello'
+    ? (CtrlBrain.sez === 'tipi' ? `<button class="btn btn-primary" onclick="openTaskTypeForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo tipo</span></button>` : '')
+    : Nav.current === 'controllo' && TCAuth.isAdmin() && ['giorno', 'squadra'].includes(Ctrl.view)
     ? `<button class="btn btn-primary" onclick="openTaskForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo task</span></button>`
     : Nav.current === 'ordini'
     ? `<button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>`

@@ -92,7 +92,7 @@ const CtrlIcons = {
 // ─────────────────────────────────────────────
 
 const Ctrl = {
-  view: 'giorno',        // giorno | squadra | tipi | collegamenti | report
+  view: 'giorno',        // giorno | squadra | ordini | cervello | report | collegamenti
   giorno: ctrlOggi(),    // giorno mostrato
   macroarea: null,       // filtro della coda comune (null = tutte)
   tasks: [],             // task del giorno + arretrati aperti dei giorni prima
@@ -256,21 +256,29 @@ async function openControlPage() {
   refreshControlPage();
   await Ctrl.load();
   refreshControlPage();
-  if (Ctrl.view === 'collegamenti') loadShopifyLinks();
-  if (Ctrl.view === 'report') loadControlReport();
+  loadControlExtras();
 }
 
 function refreshControlPage() {
   if (Nav.current !== 'controllo') return;
+  // Un aggiornamento in tempo reale non deve cancellare le regole in modifica
+  if (Ctrl.view === 'cervello' && CtrlBrain.sez === 'regole' && CtrlBrain.modificato) return;
   renderControlPage();
   renderHeader();
 }
 
 function setControlView(view) {
+  if (!leaveRulesOk()) return;
   Ctrl.view = view;
   refreshControlPage();
-  if (view === 'collegamenti') loadShopifyLinks();
-  if (view === 'report') loadControlReport();
+  loadControlExtras();
+}
+
+// Dati delle schede che li caricano quando si aprono
+function loadControlExtras() {
+  if (['ordini', 'cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
+  if (Ctrl.view === 'cervello') loadBrainRules();
+  if (Ctrl.view === 'report') loadControlReport();
 }
 
 async function setControlDay(iso) {
@@ -295,11 +303,12 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Il mio giorno'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['tipi', 'Tipi di task'], ['collegamenti', 'Collegamenti'], ['report', 'Report']] : [])];
+  const tabs = [['giorno', 'Il mio giorno'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['ordini', 'Ordini e mail'], ['cervello', 'Cervello'], ['report', 'Report'], ['collegamenti', 'Collegamenti']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
-    : Ctrl.view === 'tipi' ? renderControlTypes()
+    : Ctrl.view === 'ordini' ? renderControlOrders()
+    : Ctrl.view === 'cervello' ? renderControlBrain()
     : Ctrl.view === 'collegamenti' ? renderControlLinks()
     : Ctrl.view === 'report' ? renderControlReport()
     : renderControlMyDay();
@@ -310,7 +319,7 @@ function renderControlPage() {
         ${tabs.map(([id, label]) => `<button role="tab" aria-selected="${Ctrl.view === id}" class="${Ctrl.view === id ? 'active' : ''}"
           onclick="setControlView('${id}')">${label}</button>`).join('')}
       </div>` : ''}
-      ${!['tipi', 'collegamenti', 'report'].includes(Ctrl.view) ? `
+      ${['giorno', 'squadra'].includes(Ctrl.view) ? `
         <div class="ctrl-daynav" role="group" aria-label="Giorno">
           <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, -1)}')" aria-label="Giorno prima">${Icons.chevronLeft(16)}</button>
           <label class="ctrl-day-label">
@@ -323,6 +332,7 @@ function renderControlPage() {
     </div>
     ${body}`;
 
+  root.querySelectorAll?.('.ctrl-rule textarea').forEach(ctrlGrow);
   startControlTicker();
 }
 
@@ -376,12 +386,25 @@ function renderControlMyDay() {
       ${TCAuth.isAdmin() ? stat('Punteggio', score ? score.punteggio : '—', 'oggi · solo admin', 'var(--brand-gold)') : ''}
     </div>
 
-    ${taskGroup('In corso', inCorso)}
-    ${taskGroup('Da fare', daFare, d === ctrlOggi() ? 'Niente da fare per oggi. 🎉' : 'Nessun task per questo giorno.')}
-    ${taskGroup('Arretrati', arretrati, '', 'Task dei giorni prima non ancora chiusi')}
-    ${taskGroup('Bloccati', bloccati, '', 'In attesa di qualcun altro: non pesano sul punteggio')}
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>I miei task</h2><span class="table-count">${inCorso.length + daFare.length + arretrati.length + bloccati.length}</span></div>
+      ${taskSub('In corso', inCorso)}
+      ${taskSub('Da fare', daFare)}
+      ${taskSub('Arretrati', arretrati)}
+      ${taskSub('Bloccati', bloccati)}
+      ${inCorso.length + daFare.length + arretrati.length + bloccati.length ? '' : `<div class="empty-list">${d === ctrlOggi() ? 'Niente da fare per oggi.' : 'Nessun task per questo giorno.'}</div>`}
+    </section>
     ${renderTaskQueue(coda)}
-    ${taskGroup('Chiusi', chiusi)}`;
+    ${chiusi.length ? `
+      <details class="glass-card page-card ctrl-group ctrl-closed">
+        <summary class="page-card-head"><h2>Chiusi</h2><span class="table-count">${chiusi.length}</span></summary>
+        <div class="task-list">${sortTasks(chiusi).map(t => renderTaskRow(t)).join('')}</div>
+      </details>` : ''}`;
+}
+
+function taskSub(title, list) {
+  if (!list.length) return '';
+  return `<div class="ctrl-sub">${title}</div><div class="task-list">${sortTasks(list).map(t => renderTaskRow(t)).join('')}</div>`;
 }
 
 // Coda comune con il filtro per macroarea
@@ -410,17 +433,6 @@ function setControlMacro(id) {
   refreshControlPage();
 }
 
-function taskGroup(title, list, emptyText = '', hint = '') {
-  if (!list.length && !emptyText) return '';
-  return `
-    <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>${title}</h2><span class="table-count">${list.length}</span>
-        ${hint ? `<span class="ctrl-group-hint">${hint}</span>` : ''}</div>
-      ${list.length ? `<div class="task-list">${sortTasks(list).map(t => renderTaskRow(t)).join('')}</div>`
-                    : `<div class="empty-list">${emptyText}</div>`}
-    </section>`;
-}
-
 function renderTaskRow(t, { showOwner = false } = {}) {
   const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id);
   const lav = taskLavoratoSec(t);
@@ -446,7 +458,7 @@ function renderTaskRow(t, { showOwner = false } = {}) {
         <span class="task-meta">${meta}</span>
         ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<span class="task-motivo">${escapeHtml(t.motivo)}</span>` : ''}
       </button>
-      <span class="task-state" title="Priorità ${pr.label}">${st.label}</span>
+      ${t.stato === 'da_fare' ? '<span></span>' : `<span class="task-state">${st.label}</span>`}
       <div class="task-actions">${Ctrl.canAct(t) ? taskQuickActions(t) : ''}
         <button class="btn-icon" onclick="openTaskDetail('${t.id}')" aria-label="Altre azioni">${CtrlIcons.more()}</button>
       </div>
@@ -454,16 +466,16 @@ function renderTaskRow(t, { showOwner = false } = {}) {
 }
 
 function taskQuickActions(t) {
-  const btn = (stato, icon, label, cls = 'btn-secondary') =>
-    `<button class="btn ${cls} btn-sm" onclick="taskSetStato('${t.id}','${stato}')">${icon} <span>${label}</span></button>`;
-  const prendi = !t.assegnato_a ? `<button class="btn btn-secondary btn-sm" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
+  const btn = (stato, icon, label, cls = '') =>
+    `<button class="ctrl-btn ${cls}" onclick="taskSetStato('${t.id}','${stato}')">${icon} <span>${label}</span></button>`;
+  const prendi = !t.assegnato_a ? `<button class="ctrl-btn" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
   switch (t.stato) {
-    case 'in_lavorazione': return btn('in_pausa', CtrlIcons.pause(), 'Pausa') + btn('completato', CtrlIcons.check(), 'Fatto', 'btn-primary');
-    case 'completato':     return btn('da_fare', CtrlIcons.undo(), 'Riapri', 'btn-ghost');
-    case 'non_completato': return btn('da_fare', CtrlIcons.undo(), 'Riapri', 'btn-ghost');
+    case 'in_lavorazione': return btn('in_pausa', CtrlIcons.pause(), 'Pausa') + btn('completato', CtrlIcons.check(), 'Fatto', 'is-primary');
+    case 'completato':     return btn('da_fare', CtrlIcons.undo(), 'Riapri');
+    case 'non_completato': return btn('da_fare', CtrlIcons.undo(), 'Riapri');
     case 'in_pausa':
-    case 'bloccato':       return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Riprendi', 'btn-primary');
-    default:               return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Inizia', 'btn-primary');
+    case 'bloccato':       return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Riprendi', 'is-primary');
+    default:               return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Inizia', 'is-primary');
   }
 }
 
@@ -531,13 +543,16 @@ function renderControlTeam() {
 
   const tutti = Ctrl.tasks.filter(t => t.giorno === d && t.assegnato_a);
   const attivi = Ctrl.operatori.filter(o => o.attivo).length;
+  const haTask = (nick) => Ctrl.tasks.some(t => t.assegnato_a === nick);
+  const attiviOggi = people.filter(haTask), liberi = people.filter(n => !haTask(n));
   return `
     <div class="ctrl-bar" style="margin-bottom:10px;">
       <span class="ctrl-group-hint" style="margin:0;">${attivi ? `${attivi} operatori nel piano del giorno: la coda si distribuisce ogni mattina` : 'Nessun operatore nel piano: la coda resta comune'}</span>
-      <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="openOperatorsForm()">${Icons.users(14)} Operatori</button>
-      <button class="btn btn-primary btn-sm" ${attivi ? '' : 'disabled'} onclick="distributeQueue()">Distribuisci coda</button>
+      <button class="ctrl-btn" style="margin-left:auto;" onclick="openOperatorsForm()">${Icons.users(14)} Operatori</button>
+      <button class="ctrl-btn is-primary" ${attivi ? '' : 'disabled'} onclick="distributeQueue()">Distribuisci coda</button>
     </div>
-    <div class="ctrl-team">${people.map(card).join('')}</div>
+    <div class="ctrl-team">${attiviOggi.map(card).join('')}</div>
+    ${liberi.length ? `<p class="settings-section-hint ctrl-note">Senza task oggi: ${liberi.map(escapeHtml).join(', ')}</p>` : ''}
     ${renderTaskQueue(coda, 'Nessun task in coda.')}
     ${taskGroupOwner('In ritardo', inRitardo, '', 'Arretrati dei giorni prima o scadenza passata')}
     ${taskGroupOwner('Tutti i task del giorno', tutti, 'Nessun task assegnato per questo giorno.')}
@@ -569,7 +584,7 @@ function renderControlTypes() {
         <td><strong>${escapeHtml(tp.nome)}</strong>${tp.descrizione ? `<div class="ctrl-cell-sub">${escapeHtml(tp.descrizione)}</div>` : ''}</td>
         <td>${ctrlFmtMin(tp.minuti_standard)}</td>
         <td>${r ? `${ctrlFmtMin(r.mediana_minuti)} <span class="ctrl-cell-sub">su ${r.campioni}</span>` : '<span class="ctrl-cell-sub">nessun dato</span>'}
-          ${propone ? `<button class="btn btn-ghost btn-sm" onclick="applyRealTime('${tp.id}', ${Math.round(r.mediana_minuti)})">Usa ${Math.round(r.mediana_minuti)}′</button>` : ''}</td>
+          ${propone ? `<button class="ctrl-btn" onclick="applyRealTime('${tp.id}', ${Math.round(r.mediana_minuti)})">Usa ${Math.round(r.mediana_minuti)}′</button>` : ''}</td>
         <td>${tp.competenza ? escapeHtml(tp.competenza) : '<span class="ctrl-cell-sub">—</span>'}</td>
         <td title="${aut.hint}">${aut.label}</td>
         <td class="ctrl-cell-actions">
@@ -739,7 +754,7 @@ function renderTaskDetail(id, storico) {
 
   const row = (label, value) => value ? `<div class="def-row"><dt>${label}</dt><dd>${value}</dd></div>` : '';
   const stateBtn = (stato, label) => t.stato === stato ? '' :
-    `<button type="button" class="btn btn-secondary btn-sm" onclick="${TASK_CON_MOTIVO.includes(stato)
+    `<button type="button" class="ctrl-btn" onclick="${TASK_CON_MOTIVO.includes(stato)
       ? `_taskAction='${stato}';renderTaskDetail('${id}', _taskStoricoCache)` : `taskDetailStato('${id}','${stato}')`}">${label}</button>`;
 
   window._taskStoricoCache = storico;
@@ -1148,158 +1163,269 @@ async function syncShopify(storeId = null) {
   await loadShopifyLinks();
 }
 
-function renderControlLinks() {
-  if (ShopLinks.error?.notInstalled) return `<div class="glass-card page-card"><div class="empty-list">Collegamento Shopify da attivare: esegui <strong>sql/shopify.sql</strong>.</div></div>`;
-  if (!ShopLinks.negozi) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
-  const nomeNegozio = (id) => ShopLinks.negozi.find(n => n.id === id)?.nome || id;
+const shopNome = (id) => taskMacro(id)?.label || id;
 
-  const negozio = (n) => {
-    const secretMancante = /Manca il secret/.test(n.ultimo_errore || '');
-    const stato = !n.ultimo_sync_at ? ['In attesa del primo collegamento', '#94a3b8']
-      : n.ultimo_errore ? [secretMancante ? 'Manca il secret' : 'Errore', '#ef4444']
-      : ['Collegato', '#22c55e'];
-    const busy = ShopLinks.syncing.has(n.id) || ShopLinks.syncing.has('*');
-    return `
-      <article class="glass-card ctrl-person ctrl-shop" style="--st:${stato[1]};">
-        <header>
-          <div><h3>${escapeHtml(n.nome)}</h3><div class="ctrl-cell-sub">${escapeHtml(n.dominio)}</div></div>
-          <span class="task-state">${stato[0]}</span>
-        </header>
-        <div class="ctrl-person-meta">
-          <span><strong>${n.ordini}</strong> ordini</span>
-          <span><strong>${n.da_evadere}</strong> da evadere</span>
-          ${n.ultimo_sync_at ? `<span>controllato ${ctrlFmtQuando(n.ultimo_sync_at)}</span>` : ''}
-        </div>
-        ${n.ultimo_errore ? `<div class="ctrl-shop-error">${escapeHtml(n.ultimo_errore)}</div>` : ''}
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="btn btn-secondary btn-sm" ${busy ? 'disabled' : ''} onclick="syncShopify('${n.id}')">${busy ? 'Sincronizzo…' : '↻ Sincronizza ora'}</button>
-          <button class="btn btn-ghost btn-sm" onclick="openStoreKnowledge('${n.id}')">Regole per il cervello</button>
-        </div>
-      </article>`;
-  };
+// ── Ordini e mail ──
 
+function renderControlOrders() {
   const ordine = (o) => {
     const track = (o.tracking || []).find(t => t.numero || t.url);
     const righe = (o.righe || []).map(r => `${r.qnt}× ${r.titolo}${r.variante ? ` (${r.variante})` : ''}`).join(' · ');
     return `
       <article class="task-row ctrl-order" style="--p:${o.annullato_at ? '#94a3b8' : o.stato_evasione === 'FULFILLED' ? '#22c55e' : '#f59e0b'};">
         <div class="task-main" style="cursor:default;">
-          <span class="task-title">${escapeHtml(o.numero)} · ${escapeHtml(o.cliente || 'Cliente senza nome')}
-            <span class="ctrl-cell-sub">${escapeHtml(nomeNegozio(o.store_id))}</span></span>
+          <span class="task-title">${escapeHtml(o.numero)} · ${escapeHtml(o.cliente || 'Cliente senza nome')}</span>
           <span class="task-meta">${[
+            taskMacro(o.store_id) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(o.store_id).color};">${taskMacro(o.store_id).label}</span>` : '',
             ctrlFmtQuando(o.creato_at),
             o.totale != null ? `${Number(o.totale).toLocaleString('it-IT', { minimumFractionDigits: 2 })} ${o.valuta || ''}` : '',
             SHOP_PAGAMENTO[o.stato_pagamento] || o.stato_pagamento || '',
             o.annullato_at ? '<span class="task-late">Annullato</span>' : (SHOP_EVASIONE[o.stato_evasione] || o.stato_evasione || ''),
             o.email ? escapeHtml(o.email) : '', o.telefono ? escapeHtml(o.telefono) : '',
           ].filter(Boolean).join('<span aria-hidden="true"> · </span>')}</span>
-          ${righe ? `<span class="task-motivo" style="font-style:normal;">${escapeHtml(righe)}</span>` : ''}
+          ${righe ? `<span class="ctrl-row-text">${escapeHtml(righe)}</span>` : ''}
         </div>
-        ${track ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(track.url || '#')}" target="_blank" rel="noopener"
-            ${track.url ? '' : 'onclick="return false"'}>${Icons.truck(14)} ${escapeHtml(track.corriere || 'Tracking')}${track.numero ? ` ${escapeHtml(track.numero)}` : ''}</a>` : '<span></span>'}
+        ${track?.url ? `<a class="ctrl-btn" href="${escapeHtml(track.url)}" target="_blank" rel="noopener">${Icons.truck(14)} ${escapeHtml(track.corriere || 'Tracking')}</a>` : '<span></span>'}
       </article>`;
   };
-
-  const casella = (c) => {
-    const stato = !c.ultimo_sync_at ? ['In attesa del primo controllo', '#94a3b8']
-      : c.ultimo_errore ? [/Manca il secret/.test(c.ultimo_errore) ? 'Manca la password' : 'Errore', '#ef4444']
-      : ['Collegata', '#22c55e'];
-    const busy = ShopLinks.syncing.has('mail:' + c.id) || ShopLinks.syncing.has('mail:*');
-    return `
-      <article class="glass-card ctrl-person ctrl-shop" style="--st:${stato[1]};">
-        <header>
-          <div><h3>${escapeHtml(c.indirizzo)}</h3><div class="ctrl-cell-sub">${escapeHtml(c.nome)} · mail dal ${ctrlFmtQuando(c.attiva_dal)}</div></div>
-          <span class="task-state">${stato[0]}</span>
-        </header>
-        <div class="ctrl-person-meta">
-          <span><strong>${c.da_persone}</strong> da persone</span>
-          <span>${c.ricevute - c.da_persone} automatiche</span>
-          ${c.ultimo_sync_at ? `<span>controllata ${ctrlFmtQuando(c.ultimo_sync_at)}</span>` : ''}
-        </div>
-        ${c.ultimo_errore ? `<div class="ctrl-shop-error">${escapeHtml(c.ultimo_errore)}</div>` : ''}
-        <button class="btn btn-secondary btn-sm" ${busy ? 'disabled' : ''} onclick="syncMail('${c.id}')">${busy ? 'Controllo…' : '↻ Controlla ora'}</button>
-      </article>`;
-  };
-  const nomeCasella = (id) => ShopLinks.caselle?.find(c => c.id === id)?.nome || id;
   const mailRow = (m) => `
-    <article class="task-row ctrl-order" style="--p:#6366f1;">
+    <article class="task-row ctrl-order" style="--p:${taskMacro(m.casella_id)?.color || '#6366f1'};">
       <div class="task-main" style="cursor:default;">
-        <span class="task-title">${escapeHtml(m.oggetto || '(senza oggetto)')} <span class="ctrl-cell-sub">${escapeHtml(nomeCasella(m.casella_id))}</span></span>
-        <span class="task-meta">${escapeHtml(m.da_nome ? `${m.da_nome} <${m.da_email}>` : m.da_email || '')}<span aria-hidden="true"> · </span>${ctrlFmtQuando(m.ricevuto_at)}${(m.allegati || []).length ? `<span aria-hidden="true"> · </span>${Icons.paperclip(12)} ${m.allegati.length}` : ''}</span>
-        ${m.testo ? `<span class="task-motivo" style="font-style:normal;">${escapeHtml(m.testo.slice(0, 220))}${m.testo.length > 220 ? '…' : ''}</span>` : ''}
+        <span class="task-title">${escapeHtml(m.oggetto || '(senza oggetto)')}</span>
+        <span class="task-meta"><span class="ctrl-macro-tag" style="--m:${taskMacro(m.casella_id)?.color || '#6366f1'};">${escapeHtml(shopNome(m.casella_id))}</span><span aria-hidden="true"> · </span>${escapeHtml(m.da_nome || m.da_email || '')}<span aria-hidden="true"> · </span>${ctrlFmtQuando(m.ricevuto_at)}${(m.allegati || []).length ? `<span aria-hidden="true"> · </span>${Icons.paperclip(12)} ${m.allegati.length}` : ''}</span>
+        ${m.testo ? `<span class="ctrl-row-text">${escapeHtml(m.testo.slice(0, 180))}${m.testo.length > 180 ? '…' : ''}</span>` : ''}
       </div>
       <span></span>
     </article>`;
-  const anyMail = ShopLinks.syncing.has('mail:*');
 
-  const anySync = ShopLinks.syncing.has('*');
   return `
-    <section class="ctrl-group">
-      <div class="ctrl-bar" style="margin-bottom:10px;">
-        <h2 class="ctrl-section-title">Caselle email</h2>
-        <button class="btn btn-secondary btn-sm" style="margin-left:auto;" ${anyMail ? 'disabled' : ''} onclick="syncMail()">${anyMail ? 'Controllo…' : '↻ Controlla tutte'}</button>
+    <form class="ctrl-search glass-card" onsubmit="event.preventDefault();searchShopifyOrders(this.q.value)" role="search">
+      <label class="sr-only" for="shop-q">Cerca ordine</label>
+      <input id="shop-q" name="q" class="form-input" value="${escapeHtml(ShopLinks.query)}"
+        placeholder="Cerca per email, telefono, nome o numero d'ordine, in tutti i negozi">
+      <button class="ctrl-btn is-primary" type="submit">${Icons.search(14)} Cerca</button>
+      ${ShopLinks.query ? `<button class="ctrl-btn" type="button" onclick="searchShopifyOrders('')">Azzera</button>` : ''}
+    </form>
+    <div class="ctrl-columns">
+      <section class="glass-card page-card ctrl-group">
+        <div class="page-card-head"><h2>${ShopLinks.query ? 'Ordini trovati' : 'Ultimi ordini'}</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
+        ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
+          : ShopLinks.ordini.length ? `<div class="task-list">${ShopLinks.ordini.map(ordine).join('')}</div>`
+          : `<div class="empty-list">${ShopLinks.query ? 'Nessun ordine trovato.' : 'Ancora nessun ordine.'}</div>`}
+      </section>
+      <section class="glass-card page-card ctrl-group">
+        <div class="page-card-head"><h2>Ultime mail dai clienti</h2><span class="table-count">${ShopLinks.mail?.length ?? 0}</span></div>
+        ${ShopLinks.mail?.length ? `<div class="task-list">${ShopLinks.mail.map(mailRow).join('')}</div>` : `<div class="empty-list">Nessuna mail.</div>`}
+      </section>
+    </div>`;
+}
+
+// ── Cervello: regole dei negozi, tipi di task, mail scartate, correzioni ──
+
+const REGOLE_SEZIONI = [
+  { id: 'spedizioni', label: 'Spedizioni', voci: [['corriere', 'Corriere'], ['preparazione', 'Tempi di preparazione'], ['consegna', 'Tempi di consegna'], ['costi', 'Costi di spedizione'], ['gratuita', 'Spedizione gratuita'], ['destinazioni', 'Dove spediamo'], ['tracking', 'Tracking']] },
+  { id: 'resi', label: 'Resi', voci: [['tempo', 'Tempo per chiedere il reso'], ['condizioni', 'Condizioni'], ['esclusi', 'Articoli esclusi'], ['come', 'Come si chiede'], ['indirizzo', 'Indirizzo per i resi'], ['costi', 'Chi paga la spedizione del reso']] },
+  { id: 'cambi', label: 'Cambi', voci: [['possibile', 'Si può cambiare?'], ['come', 'Come funziona']] },
+  { id: 'rimborsi', label: 'Rimborsi', voci: [['tempi', 'Tempi'], ['metodo', 'Metodo'], ['trattenute', 'Trattenute']] },
+  { id: 'ordini', label: 'Ordini', voci: [['modifiche', 'Modifiche e annullamenti'], ['danni', 'Prodotto danneggiato o sbagliato'], ['minimo', 'Quantità minima'], ['personalizzati', 'Prodotti personalizzati']] },
+  { id: 'assistenza', label: 'Assistenza', voci: [['orari', 'Orari'], ['firma', 'Firma delle mail'], ['tono', 'Tono delle risposte']] },
+];
+
+const CtrlBrain = { sez: 'regole', negozio: TASK_MACROAREE[0].id, regole: null, modificato: false };
+
+async function loadBrainRules() {
+  const { data, error } = await supabaseClient.from('negozi_conoscenza').select('store_id, campi, aggiornato_at, aggiornato_da');
+  CtrlBrain.regole = error ? {} : Object.fromEntries((data || []).map(r => [r.store_id, r]));
+  refreshControlPage();
+}
+
+function setBrainSection(id) {
+  if (!leaveRulesOk()) return;
+  CtrlBrain.sez = id;
+  refreshControlPage();
+}
+
+function setBrainStore(id) {
+  if (!leaveRulesOk()) return;
+  CtrlBrain.negozio = id;
+  refreshControlPage();
+}
+
+function leaveRulesOk() {
+  if (CtrlBrain.modificato && !confirm('Ci sono modifiche non salvate alle regole. Uscire senza salvare?')) return false;
+  CtrlBrain.modificato = false;
+  return true;
+}
+
+function renderControlBrain() {
+  const sezioni = [['regole', 'Regole dei negozi'], ['tipi', 'Tipi di task'], ['scartate', `Mail scartate · ${ShopLinks.scartate.length}`], ['correzioni', `Correzioni · ${ShopLinks.regole.length}`]];
+  const body = CtrlBrain.sez === 'tipi' ? renderControlTypes()
+    : CtrlBrain.sez === 'scartate' ? renderBrainDiscarded()
+    : CtrlBrain.sez === 'correzioni' ? renderBrainCorrections()
+    : renderBrainRules();
+  return `
+    <div class="ctrl-bar">
+      <div class="segmented" role="tablist" aria-label="Sezione del cervello">
+        ${sezioni.map(([id, label]) => `<button role="tab" aria-selected="${CtrlBrain.sez === id}" class="${CtrlBrain.sez === id ? 'active' : ''}" onclick="setBrainSection('${id}')">${label}</button>`).join('')}
       </div>
-      <div class="ctrl-team">${(ShopLinks.caselle || []).map(casella).join('')}</div>
-      <p class="settings-section-hint ctrl-note">Le caselle si controllano da sole ogni 2 minuti, in sola lettura: le mail non vengono segnate come lette. Newsletter e notifiche automatiche non vanno al cervello.</p>
-    </section>
+    </div>
+    ${body}`;
+}
 
-    ${ShopLinks.scartate.length ? `
-    <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>Scartate dal cervello</h2><span class="table-count">${ShopLinks.scartate.length}</span>
-        <span class="ctrl-group-hint">Spam, phishing e mail senza richieste. Se una è di un cliente, recuperala.</span></div>
-      <div class="task-list">${ShopLinks.scartate.map(e => `
-        <article class="task-row ctrl-order" style="--p:#94a3b8;">
-          <div class="task-main" style="cursor:default;">
-            <span class="task-title">${escapeHtml(e.payload?.oggetto || '(senza oggetto)')} <span class="ctrl-cell-sub">${escapeHtml(nomeCasella(e.account))}</span></span>
-            <span class="task-meta">${escapeHtml(e.payload?.da || '')}<span aria-hidden="true"> · </span>${ctrlFmtQuando(e.elaborato_at)}</span>
-            <span class="task-motivo">${escapeHtml(e.esito || '')}</span>
+function renderBrainRules() {
+  if (!CtrlBrain.regole) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
+  const r = CtrlBrain.regole[CtrlBrain.negozio] || {};
+  const c = r.campi || {};
+  const riga = (sez, [k, label]) => {
+    const key = `${sez.id}.${k}`;
+    return `
+      <label class="ctrl-rule">
+        <span>${label}</span>
+        <textarea class="form-textarea" rows="1" data-rule="${key}" placeholder="Non indicato"
+          oninput="ctrlGrow(this);CtrlBrain.modificato=true">${escapeHtml(c[key] || '')}</textarea>
+      </label>`;
+  };
+  return `
+    <div class="ctrl-macro-bar ctrl-rule-stores" role="group" aria-label="Negozio">
+      ${TASK_MACROAREE.map(m => `<button type="button" class="chip chip-btn ctrl-macro ${CtrlBrain.negozio === m.id ? 'active' : ''}" aria-pressed="${CtrlBrain.negozio === m.id}"
+        style="--m:${m.color};" onclick="setBrainStore('${m.id}')">${m.label}</button>`).join('')}
+    </div>
+    <form onsubmit="event.preventDefault();saveBrainRules()">
+      <div class="ctrl-rules">
+        ${REGOLE_SEZIONI.map(sez => `
+          <section class="glass-card page-card">
+            <div class="page-card-head"><h2>${sez.label}</h2></div>
+            <div class="ctrl-rule-list">${sez.voci.map(v => riga(sez, v)).join('')}</div>
+          </section>`).join('')}
+        <section class="glass-card page-card">
+          <div class="page-card-head"><h2>Altre regole</h2>
+            <button type="button" class="ctrl-btn" style="margin-left:auto;" onclick="addBrainRule()">${Icons.plus(13)} Aggiungi</button></div>
+          <div class="ctrl-rule-list" id="ctrl-rule-extra">
+            ${(c.altre || []).map(ctrlExtraRule).join('')}
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="recoverDiscarded('${e.id}')">Crea task</button>
-        </article>`).join('')}</div>
-    </section>` : ''}
+        </section>
+      </div>
+      <div class="ctrl-rule-save">
+        <span class="settings-section-hint" style="margin:0;">Il cervello usa solo questi dati. Se un campo è vuoto lascia un segnaposto da completare.${r.aggiornato_da ? ` Ultima modifica: ${escapeHtml(r.aggiornato_da)}, ${ctrlFmtQuando(r.aggiornato_at)}.` : ''}</span>
+        <button class="ctrl-btn is-primary" id="rules-save" type="submit">Salva le regole di ${shopNome(CtrlBrain.negozio)}</button>
+      </div>
+    </form>`;
+}
 
-    ${ShopLinks.regole.length ? `
+const ctrlExtraRule = (x = {}) => `
+  <div class="ctrl-rule ctrl-rule-extra">
+    <input class="form-input" data-extra="voce" value="${escapeHtml(x.voce || '')}" placeholder="Argomento" oninput="CtrlBrain.modificato=true">
+    <textarea class="form-textarea" rows="1" data-extra="valore" placeholder="Regola" oninput="ctrlGrow(this);CtrlBrain.modificato=true">${escapeHtml(x.valore || '')}</textarea>
+    <button type="button" class="btn-icon" aria-label="Togli" onclick="this.parentElement.remove();CtrlBrain.modificato=true">${Icons.x(14)}</button>
+  </div>`;
+
+function ctrlGrow(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
+
+function addBrainRule() {
+  const box = document.getElementById('ctrl-rule-extra');
+  box.insertAdjacentHTML('beforeend', ctrlExtraRule());
+  box.lastElementChild.querySelector('input').focus();
+}
+
+// Il cervello legge la versione testuale, ricostruita a ogni salvataggio
+function brainRulesText(campi) {
+  const blocchi = REGOLE_SEZIONI.map(sez => {
+    const righe = sez.voci.filter(([k]) => campi[`${sez.id}.${k}`]).map(([k, label]) => `- ${label}: ${campi[`${sez.id}.${k}`]}`);
+    return righe.length ? `${sez.label.toUpperCase()}\n${righe.join('\n')}` : '';
+  });
+  if (campi.altre?.length) blocchi.push(`ALTRE REGOLE\n${campi.altre.map(x => `- ${x.voce}: ${x.valore}`).join('\n')}`);
+  return blocchi.filter(Boolean).join('\n\n');
+}
+
+async function saveBrainRules() {
+  const campi = {};
+  document.querySelectorAll('[data-rule]').forEach(el => { if (el.value.trim()) campi[el.dataset.rule] = el.value.trim(); });
+  const altre = [...document.querySelectorAll('.ctrl-rule-extra')].map(r => ({
+    voce: r.querySelector('[data-extra="voce"]').value.trim(), valore: r.querySelector('[data-extra="valore"]').value.trim(),
+  })).filter(x => x.voce && x.valore);
+  if (altre.length) campi.altre = altre;
+  const btn = document.getElementById('rules-save');
+  btn.disabled = true;
+  const { error } = await supabaseClient.from('negozi_conoscenza').upsert({
+    store_id: CtrlBrain.negozio, campi, testo: brainRulesText(campi),
+    aggiornato_at: new Date().toISOString(), aggiornato_da: Ctrl._me(),
+  });
+  btn.disabled = false;
+  if (error) { showToast(Ctrl._fail(error).message, 'error'); return; }
+  CtrlBrain.modificato = false;
+  showToast('Regole salvate');
+  await loadBrainRules();
+}
+
+function renderBrainDiscarded() {
+  if (!ShopLinks.scartate.length) return `<div class="glass-card page-card"><div class="empty-list">Nessuna mail scartata.</div></div>`;
+  return `
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>Correzioni al cervello</h2><span class="table-count">${ShopLinks.regole.length}</span>
-        <span class="ctrl-group-hint">Il cervello le usa anche per riconoscere mail simili da mittenti nuovi</span></div>
+      <div class="page-card-head"><h2>Mail scartate</h2><span class="ctrl-group-hint">Spam, phishing e mail senza richieste. Se una era di un cliente, recuperala: il cervello imparerà.</span></div>
+      <div class="task-list">${ShopLinks.scartate.map(e => `
+        <article class="task-row ctrl-order" style="--p:${taskMacro(e.account)?.color || '#94a3b8'};">
+          <div class="task-main" style="cursor:default;">
+            <span class="task-title">${escapeHtml(e.payload?.oggetto || '(senza oggetto)')}</span>
+            <span class="task-meta"><span class="ctrl-macro-tag" style="--m:${taskMacro(e.account)?.color || '#94a3b8'};">${escapeHtml(shopNome(e.account))}</span><span aria-hidden="true"> · </span>${escapeHtml(e.payload?.da || '')}<span aria-hidden="true"> · </span>${ctrlFmtQuando(e.elaborato_at)}</span>
+            <span class="ctrl-row-text">${escapeHtml((e.esito || '').replace(/^Scartata[^:]*:\s*/, ''))}</span>
+          </div>
+          <button class="ctrl-btn" onclick="recoverDiscarded('${e.id}')">Recupera</button>
+        </article>`).join('')}</div>
+    </section>`;
+}
+
+function renderBrainCorrections() {
+  if (!ShopLinks.regole.length) return `<div class="glass-card page-card"><div class="empty-list">Nessuna correzione. Si creano col pulsante "È spam" nei task e recuperando una mail scartata.</div></div>`;
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Correzioni</h2><span class="ctrl-group-hint">Valgono anche per mail simili da mittenti nuovi</span></div>
       <div class="task-list">${ShopLinks.regole.map(r => `
         <article class="task-row ctrl-order" style="--p:${r.azione === 'scarta' ? '#ef4444' : '#22c55e'};">
           <div class="task-main" style="cursor:default;">
-            <span class="task-title">${escapeHtml(r.mittente)} <span class="ctrl-cell-sub">${r.azione === 'scarta' ? 'spam' : 'mittente vero'}${r.creato_da ? ` · ${escapeHtml(r.creato_da)}` : ''}</span></span>
-            ${r.esempio ? `<span class="task-motivo">${escapeHtml(r.esempio.slice(0, 140))}</span>` : ''}
+            <span class="task-title">${escapeHtml(r.mittente)}</span>
+            <span class="task-meta">${r.azione === 'scarta' ? 'Sempre spam' : 'Mittente vero'}${r.creato_da ? `<span aria-hidden="true"> · </span>${escapeHtml(r.creato_da)}` : ''}</span>
+            ${r.esempio ? `<span class="ctrl-row-text">${escapeHtml(r.esempio.slice(0, 140))}</span>` : ''}
           </div>
           <button class="btn-icon" onclick="removeMailRule('${escapeHtml(r.mittente)}')" aria-label="Togli la correzione">${Icons.trash()}</button>
         </article>`).join('')}</div>
-    </section>` : ''}
+    </section>`;
+}
 
-    ${ShopLinks.mail?.length ? `
+// ── Collegamenti: solo lo stato ──
+
+function renderControlLinks() {
+  if (ShopLinks.error?.notInstalled) return `<div class="glass-card page-card"><div class="empty-list">Collegamento Shopify da attivare: esegui <strong>sql/shopify.sql</strong>.</div></div>`;
+  if (!ShopLinks.negozi) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
+
+  const stato = (x) => !x.ultimo_sync_at ? ['In attesa', '#94a3b8'] : x.ultimo_errore ? ['Errore', '#ef4444'] : ['Attivo', '#22c55e'];
+  const riga = (nome, sotto, x, dati, azione, busy) => {
+    const [label, color] = stato(x);
+    return `
+      <tr>
+        <td><strong>${escapeHtml(nome)}</strong><div class="ctrl-cell-sub">${escapeHtml(sotto)}</div>
+          ${x.ultimo_errore ? `<div class="ctrl-shop-error">${escapeHtml(x.ultimo_errore)}</div>` : ''}</td>
+        <td><span class="ctrl-status" style="--st:${color};">${label}</span></td>
+        <td class="ctrl-cell-sub">${x.ultimo_sync_at ? ctrlFmtQuando(x.ultimo_sync_at) : '—'}</td>
+        <td>${dati}</td>
+        <td class="ctrl-cell-actions"><button class="ctrl-btn" ${busy ? 'disabled' : ''} onclick="${azione}">${busy ? '…' : '↻ Controlla'}</button></td>
+      </tr>`;
+  };
+  const shopBusy = (id) => ShopLinks.syncing.has(id) || ShopLinks.syncing.has('*');
+  const mailBusy = (id) => ShopLinks.syncing.has('mail:' + id) || ShopLinks.syncing.has('mail:*');
+  const testa = `<thead><tr><th>Collegamento</th><th>Stato</th><th>Ultimo controllo</th><th>Dati</th><th><span class="sr-only">Azioni</span></th></tr></thead>`;
+
+  return `
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>Ultime mail dai clienti</h2><span class="table-count">${ShopLinks.mail.length}</span></div>
-      <div class="task-list">${ShopLinks.mail.map(mailRow).join('')}</div>
-    </section>` : ''}
-
-    <section class="ctrl-group">
-      <div class="ctrl-bar" style="margin-bottom:10px;">
-        <h2 class="ctrl-section-title">Negozi Shopify</h2>
-        <button class="btn btn-secondary btn-sm" style="margin-left:auto;" ${anySync ? 'disabled' : ''} onclick="syncShopify()">${anySync ? 'Sincronizzo…' : '↻ Sincronizza tutti'}</button>
-      </div>
-      <div class="ctrl-team">${ShopLinks.negozi.map(negozio).join('')}</div>
-      <p class="settings-section-hint ctrl-note">Gli ordini si aggiornano da soli ogni 5 minuti. Al primo collegamento vengono importati quelli degli ultimi 60 giorni.</p>
+      <div class="page-card-head"><h2>Negozi Shopify</h2><span class="ctrl-group-hint">Controllo automatico ogni 5 minuti</span></div>
+      <div class="table-scroll"><table class="data-table ctrl-links">${testa}<tbody>
+        ${ShopLinks.negozi.map(n => riga(n.nome, n.dominio, n, `${n.ordini} ordini · ${n.da_evadere} da evadere`, `syncShopify('${n.id}')`, shopBusy(n.id))).join('')}
+      </tbody></table></div>
     </section>
-
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>${ShopLinks.query ? 'Ordini trovati' : 'Ultimi ordini'}</h2>
-        <span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
-      <form class="ctrl-search" onsubmit="event.preventDefault();searchShopifyOrders(this.q.value)" role="search">
-        <label class="sr-only" for="shop-q">Cerca ordine</label>
-        <input id="shop-q" name="q" class="form-input" value="${escapeHtml(ShopLinks.query)}"
-          placeholder="Email, telefono, nome o numero d'ordine (es. #1043) — in tutti i negozi">
-        <button class="btn btn-primary btn-sm" type="submit">${Icons.search(14)} Cerca</button>
-        ${ShopLinks.query ? `<button class="btn btn-ghost btn-sm" type="button" onclick="searchShopifyOrders('')">Azzera</button>` : ''}
-      </form>
-      ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
-        : ShopLinks.ordini.length ? `<div class="task-list">${ShopLinks.ordini.map(ordine).join('')}</div>`
-        : `<div class="empty-list">${ShopLinks.query ? 'Nessun ordine trovato.' : 'Ancora nessun ordine importato.'}</div>`}
+      <div class="page-card-head"><h2>Caselle email</h2><span class="ctrl-group-hint">Controllo automatico ogni 5 minuti, in sola lettura</span></div>
+      <div class="table-scroll"><table class="data-table ctrl-links">${testa}<tbody>
+        ${(ShopLinks.caselle || []).map(c => riga(c.indirizzo, c.nome, c, `${c.da_persone} da persone · ${c.ricevute - c.da_persone} automatiche`, `syncMail('${c.id}')`, mailBusy(c.id))).join('')}
+      </tbody></table></div>
     </section>`;
 }
 
@@ -1371,32 +1497,6 @@ async function submitOperatorsForm() {
   refreshControlPage();
 }
 
-// ── Regole dei negozi e correzioni (admin) ──
-
-async function openStoreKnowledge(id) {
-  const n = ShopLinks.negozi.find(x => x.id === id);
-  const { data } = await supabaseClient.from('negozi_conoscenza').select('testo').eq('store_id', id).maybeSingle();
-  ctrlModal(`
-    ${ctrlModalHead(`Regole per il cervello · ${escapeHtml(n?.nome || id)}`)}
-    <form class="modal-body" style="gap:12px;" onsubmit="event.preventDefault();saveStoreKnowledge('${id}')">
-      <p class="settings-section-hint" style="margin:0;">Spedizioni, resi, cambi, tempi di lavorazione, quantità minime: il cervello usa solo questo testo per le bozze di questo negozio.</p>
-      <textarea id="kn-testo" class="form-textarea" rows="16" maxlength="20000">${escapeHtml(data?.testo || '')}</textarea>
-      <div style="display:flex;justify-content:flex-end;gap:8px;">
-        <button type="button" class="btn btn-secondary" onclick="closeModal('${CTRL_MODAL}')">Annulla</button>
-        <button type="submit" class="btn btn-primary">Salva</button>
-      </div>
-    </form>`, 680);
-}
-
-async function saveStoreKnowledge(id) {
-  const { error } = await supabaseClient.from('negozi_conoscenza').upsert({
-    store_id: id, testo: document.getElementById('kn-testo').value.trim(),
-    aggiornato_at: new Date().toISOString(), aggiornato_da: Ctrl._me(),
-  });
-  if (error) { showToast(Ctrl._fail(error).message, 'error'); return; }
-  closeModal(CTRL_MODAL);
-  showToast('Regole salvate');
-}
 
 async function removeMailRule(mittente) {
   if (!confirm(`Togliere la correzione per ${mittente}?`)) return;
