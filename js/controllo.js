@@ -53,11 +53,12 @@ const TASK_COMPETENZE = [
   { id: 'ext_serigrafia',  label: 'Esterna: Serigrafia' },
   { id: 'ext_manifattura', label: 'Esterna: Manifattura' },
   { id: 'ext_arti',        label: 'Esterna: Arti grafiche' },
+  { id: 'amministrazione', label: 'Fatture e incassi' },
 ];
 const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'ddt', 'preparazione', 'lavorazione', 'spedizione'];
 const TASK_AREE = [
   ...TASK_MACROAREE.map(m => ({ ...m, competenze: m.id === 'boxfactorylab' ? [...COMPETENZE_BASE, 'grafiche', 'catalogo'] : COMPETENZE_BASE })),
-  { id: 'produzione', label: 'Linea produttiva', color: '#64748b', competenze: ['preparazione', 'lavorazione', 'spedizione', 'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti'] },
+  { id: 'produzione', label: 'Linea produttiva', color: '#64748b', competenze: ['preparazione', 'lavorazione', 'spedizione', 'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti', 'amministrazione'] },
 ];
 const competenzaLabel = (id) => TASK_COMPETENZE.find(c => c.id === id)?.label || id;
 // Stati ancora da lavorare: se il giorno passa, il task diventa arretrato
