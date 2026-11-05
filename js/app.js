@@ -3169,8 +3169,8 @@ function renderLoginScreen() {
     <div class="login-card glass">
       <div class="login-brand">
         <span class="cs-logo cs-logo-login" role="img" aria-label="Creative System">
-          <img class="cs-logo-full cs-on-light" src="img/brand/cs-nero.png" alt="" width="1200" height="273">
-          <img class="cs-logo-full cs-on-dark" src="img/brand/cs-bianco.png" alt="" width="1200" height="273">
+          <img class="cs-logo-full cs-on-light" src="img/brand/cs-testo-nero.png" alt="" width="784" height="273">
+          <img class="cs-logo-full cs-on-dark" src="img/brand/cs-testo-bianco.png" alt="" width="784" height="273">
         </span>
       </div>
       <h1 class="sr-only">Creative System</h1>
