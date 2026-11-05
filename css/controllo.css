@@ -148,3 +148,9 @@
 .task-mail p { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; max-height: 280px; overflow: auto; }
 .task-dubbi { font-size: 0.82rem; padding: 8px 12px; border-radius: 12px; background: color-mix(in srgb, #f59e0b 12%, transparent); }
 .task-reply { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Operatori del piano ── */
+
+.ctrl-op { border: none; margin: 0; padding: 12px 0 0; border-top: 1px solid var(--border-light, var(--border)); display: flex; flex-direction: column; gap: 8px; }
+.ctrl-op-macro { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.82rem; }
+.ctrl-op-macro label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }

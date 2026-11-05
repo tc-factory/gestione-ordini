@@ -7,7 +7,7 @@
  *
  * Dati: tabelle task_tipi / tasks / task_storico (sql/centro-controllo.sql).
  * Il tempo di lavoro lo conta il database a ogni cambio di stato (tc_task_stato).
- * Per ora la sezione la vedono solo gli admin (vedi NAV_ITEMS in nav.js).
+ * La vede chi ha la scheda nei permessi; Squadra, Tipi di task, Collegamenti e il punteggio solo gli admin.
  */
 
 const TASK_STATI = [
@@ -28,7 +28,7 @@ const TASK_PRIORITA = [
 const TASK_AUTONOMIA = [
   { id: 'solo_task',  label: 'Solo task',  hint: 'Il cervello crea il task per un operatore' },
   { id: 'bozza',      label: 'Bozza',      hint: 'Il cervello prepara la risposta, l\'operatore la approva' },
-  { id: 'automatico', label: 'Automatico', hint: 'Il cervello esegue da solo' },
+  { id: 'automatico', label: 'Automatico', hint: 'Il cervello risponde da solo, solo se l\'ordine è del mittente e non ha dubbi' },
 ];
 // Macroaree: i negozi (id come in shopify_stores)
 const TASK_MACROAREE = [
@@ -98,6 +98,7 @@ const Ctrl = {
   tasks: [],             // task del giorno + arretrati aperti dei giorni prima
   tipi: [],
   users: [],             // nickname dello staff
+  operatori: [],         // impostazioni del piano del giorno (task_operatori)
   punteggi: {},          // operatore → punteggio del giorno mostrato
   punteggi7: {},         // operatore → punteggio degli ultimi 7 giorni
   tempi: {},             // tipo_id → { campioni, mediana_minuti }
@@ -143,11 +144,13 @@ const Ctrl = {
       if (users) this.users = users.map(u => u.nickname);
 
       if (TCAuth.isAdmin()) {
-        const [oggi, sette, tempi] = await Promise.all([
+        const [oggi, sette, tempi, operatori] = await Promise.all([
           this._rpc('tc_task_punteggi', { p_dal: d, p_al: d }),
           this._rpc('tc_task_punteggi', { p_dal: ctrlAddDays(d, -6), p_al: d }),
           this._rpc('tc_task_tempi_reali'),
+          supabaseClient.from('task_operatori').select('*'),
         ]);
+        this.operatori = operatori.data || [];
         this.punteggi  = Object.fromEntries((oggi.punteggi || []).map(p => [p.operatore, p]));
         this.punteggi7 = Object.fromEntries((sette.punteggi || []).map(p => [p.operatore, p]));
         this.tempi     = Object.fromEntries((tempi.tempi || []).map(t => [t.tipo_id, t]));
@@ -524,7 +527,13 @@ function renderControlTeam() {
   };
 
   const tutti = Ctrl.tasks.filter(t => t.giorno === d && t.assegnato_a);
+  const attivi = Ctrl.operatori.filter(o => o.attivo).length;
   return `
+    <div class="ctrl-bar" style="margin-bottom:10px;">
+      <span class="ctrl-group-hint" style="margin:0;">${attivi ? `${attivi} operatori nel piano del giorno: la coda si distribuisce ogni mattina` : 'Nessun operatore nel piano: la coda resta comune'}</span>
+      <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="openOperatorsForm()">${Icons.users(14)} Operatori</button>
+      <button class="btn btn-primary btn-sm" ${attivi ? '' : 'disabled'} onclick="distributeQueue()">Distribuisci coda</button>
+    </div>
     <div class="ctrl-team">${people.map(card).join('')}</div>
     ${renderTaskQueue(coda, 'Nessun task in coda.')}
     ${taskGroupOwner('In ritardo', inRitardo, '', 'Arretrati dei giorni prima o scadenza passata')}
@@ -632,9 +641,8 @@ async function openTaskDetail(id, action = null) {
   if (_taskMail?.taskId !== id) { _taskMail = null; _taskBozza = t?.bozza_risposta || ''; }
   renderTaskDetail(id, null);
   if (t?.mail_id && !_taskMail) {
-    const { data } = await supabaseClient.from('mail_messaggi')
-      .select('da_email, da_nome, oggetto, ricevuto_at, testo, allegati').eq('id', t.mail_id).maybeSingle();
-    _taskMail = { taskId: id, mail: data };
+    const { data } = await supabaseClient.rpc('tc_task_mail', { p_task: id });
+    _taskMail = { taskId: id, mail: data?.success ? data.mail : null };
   }
   try { renderTaskDetail(id, await Ctrl.storico(id)); }
   catch { renderTaskDetail(id, []); }
@@ -727,6 +735,7 @@ function renderTaskDetail(id, storico) {
         ${t.stato === 'in_lavorazione' ? `<span class="task-timer" data-task-timer="${t.id}">${ctrlFmtDur(taskLavoratoSec(t))}</span>` : ''}
       </div>
       ${t.descrizione ? `<p class="task-detail-desc">${escapeHtml(t.descrizione)}</p>` : ''}
+      ${t.riferimento ? `<div>${MsgRef.chip(t.riferimento, `closeModal('${CTRL_MODAL}');MsgRef.open(Ctrl.get('${t.id}').riferimento)`)}</div>` : ''}
       ${renderTaskMail(t, can)}
       <dl class="def-list">
         ${row('Macroarea', taskMacro(t.macroarea)?.label || '')}
@@ -1255,4 +1264,72 @@ function renderControlLinks() {
         : ShopLinks.ordini.length ? `<div class="task-list">${ShopLinks.ordini.map(ordine).join('')}</div>`
         : `<div class="empty-list">${ShopLinks.query ? 'Nessun ordine trovato.' : 'Ancora nessun ordine importato.'}</div>`}
     </section>`;
+}
+
+// ─────────────────────────────────────────────
+// PIANO DEL GIORNO (admin)
+// ─────────────────────────────────────────────
+
+async function distributeQueue() {
+  if (!confirm('Distribuire ora la coda comune tra gli operatori attivi?')) return;
+  try {
+    const data = await Ctrl._rpc('tc_task_distribuisci');
+    showToast(data.assegnati ? `${data.assegnati} task assegnati` : 'Nessun task assegnato: niente in coda o minuti esauriti');
+    await Ctrl.load();
+    refreshControlPage();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+function openOperatorsForm() {
+  const riga = (nick, i) => {
+    const o = Ctrl.operatori.find(x => x.nickname === nick) || {};
+    return `
+      <fieldset class="ctrl-op" data-nick="${escapeHtml(nick)}">
+        <label class="switch-row" style="padding:0;">
+          <span><strong>${escapeHtml(nick)}</strong></span>
+          <input type="checkbox" class="switch" data-f="attivo" ${o.attivo ? 'checked' : ''} aria-label="${escapeHtml(nick)} nel piano">
+        </label>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="op-min-${i}">Minuti al giorno</label>
+            <input id="op-min-${i}" type="number" class="form-input" data-f="minuti" min="30" max="720" value="${o.minuti_giorno || 420}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="op-comp-${i}">Competenze</label>
+            <input id="op-comp-${i}" class="form-input" data-f="competenze" value="${escapeHtml((o.competenze || []).join(', '))}" placeholder="es. customer care, spedizioni">
+          </div>
+        </div>
+        <div class="ctrl-op-macro" role="group" aria-label="Macroaree di ${escapeHtml(nick)}">
+          ${TASK_MACROAREE.map(m => `<label><input type="checkbox" data-macro="${m.id}" ${(o.macroaree || []).includes(m.id) ? 'checked' : ''}> ${m.label}</label>`).join('')}
+        </div>
+      </fieldset>`;
+  };
+  ctrlModal(`
+    ${ctrlModalHead('Operatori del piano')}
+    <form class="modal-body" style="gap:12px;" onsubmit="event.preventDefault();submitOperatorsForm()">
+      <p class="settings-section-hint" style="margin:0;">Ogni mattina la coda comune va agli operatori attivi: per priorità, a chi può fare il task e ha più tempo libero. Nessuna macroarea spuntata = tutte. Un tipo di task con competenza va solo a chi ha quella competenza, scritta uguale.</p>
+      ${Ctrl.users.map(riga).join('')}
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('${CTRL_MODAL}')">Annulla</button>
+        <button type="submit" class="btn btn-primary" id="op-save">Salva</button>
+      </div>
+    </form>`, 620);
+}
+
+async function submitOperatorsForm() {
+  const rows = [...document.querySelectorAll('.ctrl-op')].map(f => ({
+    nickname: f.dataset.nick,
+    attivo: f.querySelector('[data-f="attivo"]').checked,
+    minuti_giorno: Math.min(720, Math.max(30, parseInt(f.querySelector('[data-f="minuti"]').value, 10) || 420)),
+    competenze: f.querySelector('[data-f="competenze"]').value.split(',').map(x => x.trim()).filter(Boolean),
+    macroaree: [...f.querySelectorAll('[data-macro]:checked')].map(x => x.dataset.macro),
+  }));
+  const btn = document.getElementById('op-save');
+  btn.disabled = true;
+  const { error } = await supabaseClient.from('task_operatori').upsert(rows);
+  if (error) { showToast(Ctrl._fail(error).message, 'error'); btn.disabled = false; return; }
+  closeModal(CTRL_MODAL);
+  showToast('Operatori salvati');
+  await Ctrl.load();
+  refreshControlPage();
 }

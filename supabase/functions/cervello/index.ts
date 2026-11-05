@@ -8,17 +8,20 @@
 // Sicurezza:
 //   • la ricerca la fa il codice, non il modello: il testo di una mail non può chiedere dati di altri clienti
 //   • se il mittente non coincide con l'email dell'ordine, a Claude arriva solo lo stato, senza dati personali
-//   • nessuna risposta parte da qui: la invia una persona dal task (mail-send)
+//   • la risposta parte da sola solo se il tipo di task è impostato su "Automatico" e tutti i controlli
+//     di puòRispondereDaSolo passano; in ogni altro caso resta una bozza nel task
 //
 // Chi la può chiamare: il cron del database (x-sync-key) oppure un admin collegato.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import Anthropic from 'npm:@anthropic-ai/sdk';
+import { inviaRisposta } from '../_shared/mail.ts';
 
 const PER_GIRO = 6;              // mail per giro, elaborate in parallelo
 const MAX_TENTATIVI = 3;         // poi la mail diventa comunque un task, senza bozza
 const MAX_TESTO = 12_000;
+const MAX_AUTOMATICHE_GIORNO = 40;   // freno di sicurezza sulle risposte automatiche
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -177,6 +180,20 @@ async function creaTask(db: SupabaseClient, evento: Row, mail: Row, storeId: str
   return data?.id || null;
 }
 
+// Risposta automatica: il tipo lo consente, nessun dubbio, ordine del mittente, nessun segnaposto,
+// nessuna risposta allo stesso mittente nelle ultime 24 ore (evita i botta e risposta tra automatismi)
+async function puòRispondereDaSolo(db: SupabaseClient, tipo: Row | undefined, a: Row, ordini: Row[], mittente: string) {
+  if (tipo?.autonomia !== 'automatico' || (a.dubbi || '').trim() || !(a.bozza || '').trim()) return false;
+  if (!ordini.length || ordini.some(o => (o.email || '').toLowerCase() !== mittente)) return false;
+  if (/\[[^\]\n]{2,60}\]/.test(a.bozza)) return false;
+  const ieri = new Date(Date.now() - 86_400_000).toISOString();
+  const [recenti, oggi] = await Promise.all([
+    db.from('mail_messaggi').select('id', { count: 'exact', head: true }).eq('direzione', 'out').eq('a', mittente).gte('ricevuto_at', ieri),
+    db.from('tasks').select('id', { count: 'exact', head: true }).eq('analisi->>automatica', 'true').gte('created_at', ieri),
+  ]);
+  return (recenti.count ?? 1) === 0 && (oggi.count ?? MAX_AUTOMATICHE_GIORNO) < MAX_AUTOMATICHE_GIORNO;
+}
+
 const chiudi = (db: SupabaseClient, id: string, esito: string, taskId: string | null = null) =>
   db.from('eventi').update({ elaborato_at: new Date().toISOString(), in_elaborazione_at: null, esito: esito.slice(0, 500), task_id: taskId }).eq('id', id);
 
@@ -184,7 +201,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
   const { data: mail } = await db.from('mail_messaggi').select('*').eq('id', evento.payload?.mail_id).maybeSingle();
   if (!mail) { await chiudi(db, evento.id, 'Mail non trovata'); return { evento: evento.id, esito: 'mail non trovata' }; }
 
-  const { data: casella } = await db.from('mail_caselle').select('nome, store_id').eq('id', mail.casella_id).maybeSingle();
+  const { data: casella } = await db.from('mail_caselle').select('*').eq('id', mail.casella_id).maybeSingle();
   const storeId = casella?.store_id || null;
   const mittente = (mail.da_email || '').toLowerCase();
 
@@ -217,6 +234,21 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       bozza: a.bozza,
       analisi: { categoria: a.categoria, lingua: a.lingua, dubbi: a.dubbi, ordini: riferimenti },
     });
+    const tipoNome = TIPI[a.categoria] || TIPI.altro;
+    if (taskId && casella && await puòRispondereDaSolo(db, tipi.get(tipoNome), a, ordini, mittente)) {
+      const analisi = { categoria: a.categoria, lingua: a.lingua, dubbi: '', ordini: riferimenti };
+      try {
+        await inviaRisposta(db, casella, mail, a.bozza.trim());
+        await db.from('tasks').update({
+          stato: 'completato', risposta_inviata_at: new Date().toISOString(), analisi: { ...analisi, automatica: true },
+        }).eq('id', taskId);
+        await chiudi(db, evento.id, `Risposta automatica inviata (${a.categoria})`, taskId);
+        return { evento: evento.id, esito: 'risposta automatica', categoria: a.categoria };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await db.from('tasks').update({ analisi: { ...analisi, dubbi: `Invio automatico non riuscito: ${msg}`.slice(0, 300) } }).eq('id', taskId);
+      }
+    }
     await chiudi(db, evento.id, `Task creato (${a.categoria})`, taskId);
     return { evento: evento.id, esito: 'task', categoria: a.categoria };
   } catch (e) {
@@ -265,7 +297,7 @@ Deno.serve(async (req) => {
 
   const [{ data: stores }, { data: tipiRows }] = await Promise.all([
     db.from('shopify_stores').select('id, nome'),
-    db.from('task_tipi').select('id, nome'),
+    db.from('task_tipi').select('id, nome, autonomia'),
   ]);
   const negozi = new Map((stores || []).map(s => [s.id, s.nome]));
   const tipi = new Map((tipiRows || []).map(t => [t.nome, t]));

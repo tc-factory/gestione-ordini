@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Task del giorno di ogni persona del team', icon: () => Icons.zap(19), allowed: () => TCAuth.isAdmin(), note: 'Per ora solo admin' },
+  { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Task del giorno di ogni persona del team', icon: () => Icons.zap(19) },
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
   { id: 'dtf',          label: 'Interne',       subtitle: 'Lavorazioni fatte in casa',     icon: () => Icons.printer(19) },
