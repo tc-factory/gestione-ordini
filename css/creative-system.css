@@ -305,18 +305,6 @@ html.dark { --giallo-bg: rgba(255, 211, 92, 0.16); --giallo-bg-hover: rgba(255, 
 .stat-card-btn:hover { transform: translateY(-1px); box-shadow: var(--lq-rim), var(--lq-drop-hi); }
 .stat-card-btn.selected, html .stat-card-btn.selected { box-shadow: var(--lq-rim), inset 0 0 0 2px var(--lq-yellow), var(--lq-drop-hi); }
 
-/* Ordini: le tre card colorate del riferimento (vetro chiaro, nero, blu notte) */
-#stats-root .stat-card { min-height: 128px; display: flex; flex-direction: column; justify-content: space-between; }
-#stats-root .stat-card-glow { display: block; width: 130px; height: 130px; top: -36px; right: -30px; opacity: 0.55; filter: blur(14px); }
-#stats-root .stat-card:nth-child(1) .stat-card-glow { background: var(--lq-yellow) !important; }
-#stats-root .stat-card:nth-child(2),
-#stats-root .stat-card:nth-child(3) { box-shadow: var(--lq-dark-rim), var(--lq-drop-hi); }
-#stats-root .stat-card:nth-child(2) { background-image: linear-gradient(140deg, rgba(34, 38, 44, 0.94), rgba(34, 38, 44, 0.78)); }
-#stats-root .stat-card:nth-child(2) .stat-card-glow { background: var(--lq-blue) !important; }
-#stats-root .stat-card:nth-child(3) { background-image: linear-gradient(140deg, rgba(43, 52, 190, 0.94), rgba(30, 36, 130, 0.84)); }
-#stats-root .stat-card:nth-child(3) .stat-card-glow { background: #E5484D !important; }
-#stats-root .stat-card:nth-child(n+2) .stat-card-label { color: rgba(255, 255, 255, 0.78); }
-#stats-root .stat-card:nth-child(n+2) .stat-card-value { color: #FFFFFF !important; }
 
 /* ── Tabelle ── */
 .list-shell .data-table td { background: var(--lq-flat); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5); }
@@ -480,8 +468,6 @@ html :is(.btn-secondary:not(.btn-icon)).btn-solo.btn-solo { padding: 0; }
   .bn-item { color: var(--frame-muted); }
   .bn-item.active, html.dark .bn-item.active { background: var(--bn-active-bg); box-shadow: var(--lq-dark-rim); color: var(--lq-yellow); }
   .bn-badge { box-shadow: 0 0 0 2px var(--lq-frame); }
-  #stats-root .stat-card { min-height: 92px; padding: 14px; }
-  #stats-root .stat-card-value { font-size: 1.6rem; }
 }
 @media (max-width: 860px) {
   .sidebar { background: var(--lq-dark-glass); -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); }
