@@ -388,9 +388,21 @@ function renderHeader() {
     el.style.setProperty('--len', el.getTotalLength());
     el.style.setProperty('--i', i);
   });
-  // Finito l'ingresso il gesto dell'icona può ripartire al passaggio del mouse
-  clearTimeout(renderHeader.settle);
-  renderHeader.settle = setTimeout(() => root.querySelector('.toolbar-title-box')?.classList.remove('is-entering'), 1800);
+  clearTimeout(titleIconTimer);
+  titleIconTimer = setTimeout(playTitleIcon, TITLE_ICON_EVERY + 750);   // 750 ms: attesa del primo gesto, vedi --ico-wait
+}
+
+// Gesto dell'icona del titolo a ciclo continuo; fermo con la scheda in secondo piano
+const TITLE_ICON_EVERY = 3000;
+let titleIconTimer = null;
+function playTitleIcon() {
+  const box = document.querySelector('.toolbar-title-box');
+  if (box && !document.hidden) {
+    box.classList.remove('is-entering', 'is-playing');
+    void box.offsetWidth;   // senza questo il browser non riavvia l'animazione
+    box.classList.add('is-playing');
+  }
+  titleIconTimer = setTimeout(playTitleIcon, TITLE_ICON_EVERY);
 }
 
 // Menu del profilo (in fondo alla navbar): cambio password ed esci
