@@ -373,6 +373,7 @@ function renderControlPage() {
     ${body}`;
 
   root.querySelectorAll?.('.ctrl-rule textarea').forEach(ctrlGrow);
+  CtrlAnim.filtro = null;
   startControlTicker();
 }
 
@@ -486,8 +487,12 @@ function taskSub(title, list) {
 }
 
 // Pulsante di filtro per negozio
+// L'animazione parte solo sul filtro appena cliccato, non quando la pagina si aggiorna da sola
+const CtrlAnim = { filtro: null };
+
 function ctrlFilter(attivo, label, n, color, onclick) {
-  return `<button type="button" class="ctrl-filter ${attivo ? 'is-on' : ''}" aria-pressed="${attivo}" style="--m:${color || 'var(--text-primary)'};" onclick="${onclick}">
+  const appena = attivo && CtrlAnim.filtro === label;
+  return `<button type="button" class="ctrl-filter ${attivo ? 'is-on' : ''} ${appena ? 'is-just' : ''}" aria-pressed="${attivo}" style="--m:${color || 'var(--text-primary)'};" onclick="CtrlAnim.filtro='${label}';${onclick}">
     ${color ? '<i aria-hidden="true"></i>' : ''}<span>${label}</span>${n != null ? `<b>${n}</b>` : ''}</button>`;
 }
 
@@ -505,7 +510,7 @@ function renderTaskQueue(coda, emptyText = '') {
         ${chip(null, 'Tutte', coda.length)}
         ${TASK_MACROAREE.map(m => chip(m.id, m.label, conta(m.id), m.color)).join('')}
       </div>
-      ${list.length ? `<div class="task-list">${sortTasks(list).map(t => renderTaskRow(t)).join('')}</div>`
+      ${list.length ? `<div class="task-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${sortTasks(list).map(t => renderTaskRow(t)).join('')}</div>`
                     : `<div class="empty-list">${emptyText || 'Nessun task in questa macroarea.'}</div>`}
     </section>`;
 }
@@ -1388,7 +1393,7 @@ function renderCommsMail() {
         ${chip(null, 'Tutte', tutte.length)}
         ${TASK_MACROAREE.map(m => chip(m.id, m.label, tutte.filter(x => x.casella_id === m.id).length, m.color)).join('')}
       </div>
-      ${list.length ? `<div class="task-list">${list.map(riga).join('')}</div>` : `<div class="empty-list">Nessuna mail.</div>`}
+      ${list.length ? `<div class="task-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${list.map(riga).join('')}</div>` : `<div class="empty-list">Nessuna mail.</div>`}
     </section>`;
 }
 
