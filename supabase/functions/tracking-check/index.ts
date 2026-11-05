@@ -15,7 +15,7 @@ import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 const PER_GIRO = 120;
 const PAUSA_MS = 300;              // una richiesta alla volta, per non pesare sul sito GLS
-const GIORNI_RITARDO = 3;          // giorni lavorativi dalla spedizione oltre i quali è un ritardo
+const GIORNI_RITARDO = 3;          // giorni lavorativi dalla spedizione oltre i quali è un ritardo (sabato, domenica e festivi esclusi: li conta il database)
 const TIME_BUDGET_MS = 110_000;
 
 const cors = {
@@ -102,18 +102,7 @@ async function leggiStorico(numero: string): Promise<Evento[] | null> {
   return eventi;
 }
 
-function giorniLavorativi(da: Date, a: Date): number {
-  let n = 0;
-  const d = new Date(da);
-  while (d < a) {
-    d.setDate(d.getDate() + 1);
-    if (d <= a && d.getDay() !== 0 && d.getDay() !== 6) n++;
-  }
-  return n;
-}
-
-function classifica(eventi: Evento[] | null, speditoAt: string | null) {
-  const giorni = speditoAt ? giorniLavorativi(new Date(speditoAt), new Date()) : 0;
+function classifica(eventi: Evento[] | null, giorni: number, testoGiorni: string) {
   if (!eventi?.length) {
     return giorni >= GIORNI_RITARDO
       ? { stato: 'ritardo', problema: 'Tracking non attivo', priorita: 'alta', fare: 'Il pacco non risulta preso in carico da GLS: controlla che sia partito davvero.' }
@@ -125,7 +114,7 @@ function classifica(eventi: Evento[] | null, speditoAt: string | null) {
   if (p) return { stato: 'problema', problema: p.label, priorita: p.priorita, fare: p.fare };
   if (!NORMALI.test(ultimo)) return { stato: 'problema', problema: `Stato da controllare: ${ultimo.slice(0, 80)}`, priorita: 'alta', fare: 'Stato GLS mai visto prima: controlla lo storico.' };
   if (AFFIDATA_NO.test(ultimo) && giorni >= 2) return { stato: 'ritardo', problema: 'Non ancora ritirata da GLS', priorita: 'alta', fare: 'GLS non ha ancora preso il pacco: controlla il ritiro.' };
-  if (giorni >= GIORNI_RITARDO) return { stato: 'ritardo', problema: `In ritardo: ${giorni} giorni lavorativi dalla spedizione`, priorita: 'alta', fare: 'Controlla lo storico e avvisa il cliente del ritardo.' };
+  if (giorni >= GIORNI_RITARDO) return { stato: 'ritardo', problema: `In ritardo: ${testoGiorni} dalla spedizione`, priorita: 'alta', fare: 'Controlla lo storico e avvisa il cliente del ritardo.' };
   return { stato: 'in_viaggio', problema: null, priorita: null, fare: '' };
 }
 
@@ -188,7 +177,7 @@ Deno.serve(async (req) => {
     try { eventi = await leggiStorico(s.tracking); }
     catch (e) { console.error('Tracking', s.tracking, e); continue; }
 
-    const esito = classifica(eventi, s.spedito_at);
+    const esito = classifica(eventi, s.giorni_lav || 0, s.giorni_testo || '');
     const ultimo = eventi?.[0];
     await db.from('spedizioni_tracking').upsert({
       ordine_id: s.ordine_id, store_id: s.store_id, numero: s.tracking, spedito_at: s.spedito_at,

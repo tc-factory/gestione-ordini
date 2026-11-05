@@ -1,10 +1,10 @@
 -- ════════════════════════════════════════════════════════
 -- T&C Factory — Ordini fermi (Centro di controllo)
 --
--- Ogni negozio ha i suoi giorni massimi (shopify_stores.giorni_evasione). Superati:
+-- Ogni negozio ha i suoi giorni lavorativi massimi (shopify_stores.giorni_evasione). Superati:
 --   • ordine pagato non evaso    → il suo task diventa priorità alta, o ne nasce uno
 --   • pagamento in sospeso       → task "Pagamento in sospeso"
--- In più, ordine evaso da più di un giorno senza numero di tracking → task.
+-- In più, ordine evaso da più di un giorno lavorativo senza numero di tracking → task.
 -- I task si chiudono da soli quando il problema si risolve.
 -- Richiede cervello-2.sql già eseguito. Si può rieseguire.
 -- ════════════════════════════════════════════════════════
@@ -24,7 +24,9 @@ returns void security definer set search_path = public language plpgsql as $$
 declare o record; v_aperto uuid;
 begin
   for o in
-    select s.*, st.giorni_evasione lim, extract(day from now() - s.creato_at)::int eta
+    select s.*, st.giorni_evasione lim,
+           tc_giorni_lavorativi((s.creato_at at time zone 'Europe/Rome')::date, tc_oggi()) eta,
+           tc_testo_giorni((s.creato_at at time zone 'Europe/Rome')::date, tc_oggi()) testo
       from shopify_orders s join shopify_stores st on st.id = s.store_id
      where s.annullato_at is null and s.creato_at > now() - interval '60 days'
   loop
@@ -36,15 +38,15 @@ begin
          and stato not in ('completato', 'non_completato');
       if v_aperto is not null then
         update tasks set priorita = 'alta',
-               titolo = left('FERMO da ' || o.eta || ' giorni · ' || regexp_replace(titolo, '^FERMO da \d+ giorni · ', ''), 200)
+               titolo = left('FERMO da ' || o.testo || ' · ' || regexp_replace(titolo, '^FERMO da [^·]+· ', ''), 200)
          where id = v_aperto and priorita not in ('urgente');
       else
         insert into tasks (tipo_id, titolo, descrizione, priorita, macroarea, fonte, fonte_rif, creato_da)
         values ((select id from task_tipi where nome = 'Ordine fermo'),
-                left('FERMO da ' || o.eta || ' giorni · ordine ' || o.numero || coalesce(' · ' || o.cliente, ''), 200),
+                left('FERMO da ' || o.testo || ' · ordine ' || o.numero || coalesce(' · ' || o.cliente, ''), 200),
                 coalesce((select string_agg((r->>'qnt') || '× ' || (r->>'titolo') || coalesce(' (' || (r->>'variante') || ')', ''), E'\n') from jsonb_array_elements(o.righe) r), ''),
                 'alta', o.store_id, 'shopify', jsonb_build_object('evento_id', 'fermo:' || o.id, 'ordine', o.id), 'cervello')
-        on conflict do nothing;
+        on conflict (((fonte_rif->>'evento_id'))) where fonte_rif ? 'evento_id' do update set titolo = excluded.titolo;
       end if;
     end if;
 
@@ -52,14 +54,14 @@ begin
     if o.eta >= o.lim and o.stato_pagamento in ('PENDING', 'AUTHORIZED') then
       insert into tasks (tipo_id, titolo, descrizione, macroarea, fonte, fonte_rif, creato_da)
       values ((select id from task_tipi where nome = 'Pagamento in sospeso'),
-              left('Pagamento in sospeso da ' || o.eta || ' giorni · ordine ' || o.numero || coalesce(' · ' || o.cliente, ''), 200),
+              left('Pagamento in sospeso da ' || o.testo || ' · ordine ' || o.numero || coalesce(' · ' || o.cliente, ''), 200),
               'Sollecitare il cliente o annullare l''ordine.',
               o.store_id, 'shopify', jsonb_build_object('evento_id', 'pagamento:' || o.id, 'ordine', o.id, 'motivo', 'pagamento'), 'cervello')
-      on conflict do nothing;
+      on conflict (((fonte_rif->>'evento_id'))) where fonte_rif ? 'evento_id' do update set titolo = excluded.titolo;
     end if;
 
     -- Evaso senza tracking (solo ordini recenti)
-    if o.stato_evasione = 'FULFILLED' and o.eta between 1 and 14
+    if o.stato_evasione = 'FULFILLED' and o.eta >= 1 and o.creato_at > now() - interval '14 days'
        and not exists (select 1 from jsonb_array_elements(o.tracking) t where coalesce(t->>'numero', t->>'url') is not null) then
       insert into tasks (tipo_id, titolo, descrizione, macroarea, fonte, fonte_rif, creato_da)
       values ((select id from task_tipi where nome = 'Tracking mancante'),

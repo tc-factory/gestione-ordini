@@ -29,10 +29,10 @@ insert into task_tipi (nome, minuti_standard, autonomia, competenza, descrizione
   ('Inviare a Serigrafia',    15, 'solo_task', 'ext_serigrafia', ''),
   ('Inviare a Manifattura',   15, 'solo_task', 'ext_manifattura', ''),
   ('Inviare ad Arti grafiche',15, 'solo_task', 'ext_arti',       ''),
-  ('Controllare Ricamo',       5, 'solo_task', 'ext_ricamo',     'Lavorazione esterna in corso da più di 5 giorni'),
-  ('Controllare Serigrafia',   5, 'solo_task', 'ext_serigrafia', 'Lavorazione esterna in corso da più di 5 giorni'),
-  ('Controllare Manifattura',  5, 'solo_task', 'ext_manifattura', 'Lavorazione esterna in corso da più di 5 giorni'),
-  ('Controllare Arti grafiche',5, 'solo_task', 'ext_arti',       'Lavorazione esterna in corso da più di 5 giorni'),
+  ('Controllare Ricamo',       5, 'solo_task', 'ext_ricamo',     'Lavorazione esterna in corso da più di 5 giorni lavorativi'),
+  ('Controllare Serigrafia',   5, 'solo_task', 'ext_serigrafia', 'Lavorazione esterna in corso da più di 5 giorni lavorativi'),
+  ('Controllare Manifattura',  5, 'solo_task', 'ext_manifattura', 'Lavorazione esterna in corso da più di 5 giorni lavorativi'),
+  ('Controllare Arti grafiche',5, 'solo_task', 'ext_arti',       'Lavorazione esterna in corso da più di 5 giorni lavorativi'),
   ('Controllo e confezionamento', 15, 'solo_task', 'spedizione', 'Tutte le lavorazioni finite'),
   ('Spedire o consegnare',    10, 'solo_task', 'spedizione',   ''),
   ('Stampa DDT',               2, 'solo_task', 'ddt',          'Lotto di ordini Shopify: minuti per ordine'),
@@ -51,7 +51,7 @@ returns void security definer set search_path = public language sql as $$
   insert into tasks (tipo_id, titolo, descrizione, priorita, scadenza, fonte, fonte_rif, riferimento, creato_da)
   values ((select id from task_tipi where nome = p_tipo),
           left(p_titolo || ' · ' || coalesce(o.nome, o.id), 200), coalesce(o.notes, ''),
-          case when o.deadline <= tc_oggi() + 1 then 'alta' else 'normale' end,
+          case when o.deadline <= tc_oggi() or tc_giorni_lavorativi(tc_oggi(), o.deadline) <= 1 then 'alta' else 'normale' end,
           case when o.deadline is not null then ((o.deadline + 1)::timestamp at time zone 'Europe/Rome') end,
           'gestionale', jsonb_build_object('evento_id', 'prod:' || o.id || ':' || p_chiave, 'ordine', o.id),
           jsonb_build_object('tipo', 'ordine', 'id', o.id, 'label', coalesce(o.nome, o.id)), 'cervello')
@@ -140,7 +140,7 @@ begin
       end if;
     end loop;
 
-    -- Lavorazioni esterne: invio, poi controllo se resta gialla più di 5 giorni
+    -- Lavorazioni esterne: invio, poi controllo se resta gialla 5 giorni lavorativi
     for l in select * from (values ('le-mv0p0i6j', 'Ricamo', 'a Ricamo'), ('le-mv0p0mdm', 'Serigrafia', 'a Serigrafia'),
                                    ('le-mv0p1m01', 'Manifattura', 'a Manifattura'), ('le-mv0p2p9a', 'Arti grafiche', 'ad Arti grafiche')) v(id, nome, a)
               where id = any(v_esterne) loop
@@ -152,7 +152,7 @@ begin
         v_finite := false;
         if v_mezzo is not null then
           perform _tc_prod_chiudi(o, 'invio:' || l.id);
-          if (v_mezzo->>'date')::date <= tc_oggi() - 5 then
+          if tc_giorni_lavorativi((v_mezzo->>'date')::date, tc_oggi()) >= 5 then
             perform _tc_prod_apri(o, 'controllo:' || l.id, 'Controllare ' || l.nome, 'Controllare ' || l.nome);
           end if;
         elsif v_merce then

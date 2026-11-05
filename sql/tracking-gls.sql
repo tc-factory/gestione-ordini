@@ -37,9 +37,11 @@ on conflict (nome) do nothing;
 -- Spedizioni da controllare: prima quelle controllate da più tempo
 drop function if exists _tc_spedizioni_da_controllare(int);
 create function _tc_spedizioni_da_controllare(p_n int)
-returns table (ordine_id uuid, store_id text, nome text, numero_ordine text, cliente text, email text, telefono text, citta text, tracking text, spedito_at timestamptz)
+returns table (ordine_id uuid, store_id text, nome text, numero_ordine text, cliente text, email text, telefono text, citta text, tracking text, spedito_at timestamptz, giorni_lav int, giorni_testo text)
 security definer set search_path = public language sql stable as $$
-  select s.id, s.store_id, st.nome, s.numero, s.cliente, s.email, s.telefono, s.indirizzo->>'citta', x.numero, x.at
+  select s.id, s.store_id, st.nome, s.numero, s.cliente, s.email, s.telefono, s.indirizzo->>'citta', x.numero, x.at,
+         tc_giorni_lavorativi((x.at at time zone 'Europe/Rome')::date, tc_oggi()),
+         tc_testo_giorni((x.at at time zone 'Europe/Rome')::date, tc_oggi())
     from shopify_orders s
     join shopify_stores st on st.id = s.store_id
     cross join lateral (

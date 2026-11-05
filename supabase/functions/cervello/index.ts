@@ -83,6 +83,7 @@ Campi:
 Regole della bozza:
 - Usa solo i dati degli ordini e la conoscenza del negozio. Le regole di resi e spedizioni sono diverse da negozio a negozio: usa solo quelle del negozio che ha ricevuto la mail. Non inventare date di consegna, tempi, politiche di reso, prezzi o disponibilità: se servono e non li hai, lascia un segnaposto tra parentesi quadre, ad esempio [tempi di consegna], e citalo in "dubbi".
 - Se un ordine ha il campo "spedizione", è lo stato reale dallo storico GLS e vale più di "evasione". Se c'è un problema (giacenza, indirizzo errato, consegna non riuscita) dillo al cliente con chiarezza e scrivi cosa gli serve fare.
+- I tempi si contano in giorni lavorativi: sabato, domenica e festivi non contano. Se indichi da quanti giorni è in corso qualcosa e il conteggio cambia, scrivi sia i giorni totali sia quelli lavorativi.
 - Se il cliente chiede di un ordine e non ne risulta nessuno, chiedigli il numero d'ordine e l'email usata per l'acquisto.
 - Gli ordini segnati "non verificato" hanno un'email diversa dal mittente: puoi dire lo stato generale dell'ordine, ma non citare indirizzi, articoli o tracking; se serve altro, chiedi di scrivere dall'email usata per l'ordine.
 - Non promettere rimborsi, sconti o cambi: quelli li decide l'operatore. Scrivi che la richiesta è stata presa in carico.`;
