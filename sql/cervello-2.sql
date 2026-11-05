@@ -181,7 +181,7 @@ begin
         || ' (circa ' || (u.minuti / 60) || ' h ' || (u.minuti % 60) || ' min)'
         || case when u.urgenti > 0 then ', ' || u.urgenti || ' urgenti' else '' end
         || case when u.arretrati > 0 then ', ' || u.arretrati || ' arretrati dai giorni scorsi' else '' end || '.',
-      jsonb_build_object('tipo', 'pagina', 'id', 'controllo', 'label', 'Il mio giorno', 'hash', '#/controllo'));
+      jsonb_build_object('tipo', 'pagina', 'id', 'controllo', 'label', 'Tasks', 'hash', '#/controllo'));
   end loop;
 
   -- Agli admin: il quadro generale

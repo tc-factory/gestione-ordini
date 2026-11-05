@@ -1,7 +1,7 @@
 /**
  * T&C Factory — Centro di controllo (fase 0: motore dei task)
  *
- *   • Il mio giorno: i task della persona collegata, la coda comune e gli arretrati
+ *   • Tasks: all'operatore i suoi task e la coda comune; all'admin la coda comune da assegnare
  *   • Squadra (admin): carico, task in corso e punteggio di ogni operatore
  *   • Tipi di task (admin): catalogo con tempo standard e tempo reale misurato
  *
@@ -38,6 +38,24 @@ const TASK_MACROAREE = [
   { id: 'asteroidi',         label: 'Asteroidi Store',      color: '#14b8a6' },
 ];
 const taskMacro = (id) => TASK_MACROAREE.find(m => m.id === id);
+// Competenze: voci "area:competenza" in task_operatori.competenze; i task senza negozio sono dell'area "produzione"
+const TASK_COMPETENZE = [
+  { id: 'whatsapp',     label: 'WhatsApp' },
+  { id: 'social',       label: 'Messaggi social' },
+  { id: 'email',        label: 'Email' },
+  { id: 'ddt',          label: 'Stampa DDT ordini Shopify' },
+  { id: 'preparazione', label: 'Preparazione per la lavorazione' },
+  { id: 'lavorazione',  label: 'Lavorazione' },
+  { id: 'spedizione',   label: 'Spedizione' },
+  { id: 'grafiche',     label: 'Creazione grafiche' },
+  { id: 'catalogo',     label: 'Creazione catalogo' },
+];
+const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'ddt', 'preparazione', 'lavorazione', 'spedizione'];
+const TASK_AREE = [
+  ...TASK_MACROAREE.map(m => ({ ...m, competenze: m.id === 'boxfactorylab' ? [...COMPETENZE_BASE, 'grafiche', 'catalogo'] : COMPETENZE_BASE })),
+  { id: 'produzione', label: 'Linea produttiva', color: '#64748b', competenze: ['preparazione', 'lavorazione', 'spedizione'] },
+];
+const competenzaLabel = (id) => TASK_COMPETENZE.find(c => c.id === id)?.label || id;
 // Stati ancora da lavorare: se il giorno passa, il task diventa arretrato
 const TASK_APERTI = ['da_fare', 'in_lavorazione', 'in_pausa', 'rimandato'];
 // Stati che chiedono il motivo
@@ -141,7 +159,7 @@ const Ctrl = {
       if (tipi.error)  throw this._fail(tipi.error);
       this.tasks = tasks.data || [];
       this.tipi  = tipi.data || [];
-      if (users) this.users = users.map(u => u.nickname);
+      if (users) this.users = users.filter(u => !u.is_admin).map(u => u.nickname);   // l'admin non riceve task
 
       if (TCAuth.isAdmin()) {
         const [oggi, sette, tempi, operatori] = await Promise.all([
@@ -163,8 +181,9 @@ const Ctrl = {
   },
 
   async loadBadge() {
-    const { count, error } = await supabaseClient.from('tasks').select('id', { count: 'exact', head: true })
-      .eq('assegnato_a', this._me()).lte('giorno', ctrlOggi()).in('stato', TASK_APERTI);
+    // All'admin la coda da assegnare, agli altri i propri task
+    const q = supabaseClient.from('tasks').select('id', { count: 'exact', head: true }).lte('giorno', ctrlOggi()).in('stato', TASK_APERTI);
+    const { count, error } = await (TCAuth.isAdmin() ? q.is('assegnato_a', null) : q.eq('assegnato_a', this._me()));
     const n = error ? 0 : (count || 0);
     if (n !== this.badge) { this.badge = n; renderSidebar(); }
   },
@@ -303,7 +322,7 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Il mio giorno'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['ordini', 'Ordini e mail'], ['cervello', 'Cervello'], ['report', 'Report'], ['collegamenti', 'Collegamenti']] : [])];
+  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['ordini', 'Ordini e mail'], ['cervello', 'Cervello'], ['report', 'Report'], ['collegamenti', 'Collegamenti']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
@@ -349,9 +368,10 @@ function startControlTicker() {
   }, 1000);
 }
 
-// ── Il mio giorno ──
+// ── Tasks ──
 
 function renderControlMyDay() {
+  if (TCAuth.isAdmin()) return renderControlAdminTasks();
   const me = Ctrl._me(), d = Ctrl.giorno;
   const mine = Ctrl.tasks.filter(t => t.assegnato_a === me);
   const delGiorno = mine.filter(t => t.giorno === d);
@@ -367,7 +387,6 @@ function renderControlMyDay() {
   const minFatti = delGiorno.filter(t => t.stato === 'completato').reduce((s, t) => s + (t.minuti_stimati || 0), 0);
   const lavorati = delGiorno.reduce((s, t) => s + taskLavoratoSec(t), 0);
   const corrente = inCorso[0] || arretrati.find(t => t.stato === 'in_lavorazione');
-  const score = Ctrl.punteggi[me];
 
   const stat = (label, value, sub = '', glow = 'var(--brand-gold)') => `
     <div class="glass-card stat-card">
@@ -383,7 +402,6 @@ function renderControlMyDay() {
       ${stat('Tempo', `${ctrlFmtMin(minFatti)} <small>/ ${ctrlFmtMin(minTot)}</small>`, `lavorato ${ctrlFmtDur(lavorati)}`, '#6366f1')}
       ${stat('In corso', corrente ? `<span data-task-timer="${corrente.id}">${ctrlFmtDur(taskLavoratoSec(corrente))}</span>` : '—',
              corrente ? escapeHtml(corrente.titolo) : 'nessun task avviato', '#f59e0b')}
-      ${TCAuth.isAdmin() ? stat('Punteggio', score ? score.punteggio : '—', 'oggi · solo admin', 'var(--brand-gold)') : ''}
     </div>
 
     <section class="glass-card page-card ctrl-group">
@@ -400,6 +418,36 @@ function renderControlMyDay() {
         <summary class="page-card-head"><h2>Chiusi</h2><span class="table-count">${chiusi.length}</span></summary>
         <div class="task-list">${sortTasks(chiusi).map(t => renderTaskRow(t)).join('')}</div>
       </details>` : ''}`;
+}
+
+// L'admin non ha task suoi: vede la coda e la assegna
+function renderControlAdminTasks() {
+  const d = Ctrl.giorno;
+  const aperti = Ctrl.tasks.filter(t => TASK_APERTI.includes(t.stato) || t.stato === 'bloccato');
+  const coda = Ctrl.tasks.filter(t => !t.assegnato_a && !['completato', 'non_completato'].includes(t.stato));
+  const chiusi = Ctrl.tasks.filter(t => t.giorno === d && ['completato', 'non_completato'].includes(t.stato));
+  const stat = (label, value, sub = '') => `
+    <div class="glass-card stat-card"><div class="stat-card-label">${label}</div>
+      <div class="stat-card-value">${value}</div>${sub ? `<div class="ctrl-stat-sub">${sub}</div>` : ''}</div>`;
+  return `
+    <div class="stat-grid ctrl-stats">
+      ${stat('Task aperti', aperti.length, `${aperti.filter(t => t.assegnato_a).length} assegnati`)}
+      ${stat('In coda', coda.length, 'da assegnare')}
+      ${stat('Urgenti', aperti.filter(t => t.priorita === 'urgente').length)}
+      ${stat('Arretrati', aperti.filter(t => t.giorno < d).length, 'dai giorni prima')}
+      ${stat('Chiusi', chiusi.length, ctrlFmtGiorno(d).toLowerCase())}
+    </div>
+    ${renderTaskQueue(coda, 'Nessun task in coda.')}`;
+}
+
+async function taskAssign(id, nick) {
+  try {
+    await Ctrl.saveTask(id, { assegnato_a: nick || null });
+    showToast(nick ? `Assegnato a ${nick}` : 'Rimesso in coda comune');
+    await Ctrl.load();
+    refreshControlPage();
+    Ctrl.loadBadge();
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 function taskSub(title, list) {
@@ -466,6 +514,13 @@ function renderTaskRow(t, { showOwner = false } = {}) {
 }
 
 function taskQuickActions(t) {
+  if (TCAuth.isAdmin()) {
+    if (['completato', 'non_completato'].includes(t.stato)) return '';
+    return `<select class="ctrl-assign" aria-label="Assegna il task" onchange="taskAssign('${t.id}', this.value)">
+      <option value="">${t.assegnato_a ? 'Coda comune' : 'Assegna a…'}</option>
+      ${Ctrl.users.map(u => `<option value="${escapeHtml(u)}" ${t.assegnato_a === u ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('')}
+    </select>`;
+  }
   const btn = (stato, icon, label, cls = '') =>
     `<button class="ctrl-btn ${cls}" onclick="taskSetStato('${t.id}','${stato}')">${icon} <span>${label}</span></button>`;
   const prendi = !t.assegnato_a ? `<button class="ctrl-btn" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
@@ -503,8 +558,7 @@ async function taskPrendi(id) {
 
 function renderControlTeam() {
   const d = Ctrl.giorno;
-  const people = [...new Set([...Ctrl.users, ...Ctrl.tasks.map(t => t.assegnato_a).filter(Boolean)])];
-  const coda = Ctrl.tasks.filter(t => !t.assegnato_a);
+  const people = Ctrl.users;
   const inRitardo = Ctrl.tasks.filter(t => t.assegnato_a && (t.giorno < d
     || (t.scadenza && TASK_APERTI.includes(t.stato) && new Date(t.scadenza) < new Date())));
 
@@ -544,16 +598,15 @@ function renderControlTeam() {
   const tutti = Ctrl.tasks.filter(t => t.giorno === d && t.assegnato_a);
   const attivi = Ctrl.operatori.filter(o => o.attivo).length;
   const haTask = (nick) => Ctrl.tasks.some(t => t.assegnato_a === nick);
-  const attiviOggi = people.filter(haTask), liberi = people.filter(n => !haTask(n));
+  const attiviOggi = people.filter(haTask);
   return `
     <div class="ctrl-bar" style="margin-bottom:10px;">
-      <span class="ctrl-group-hint" style="margin:0;">${attivi ? `${attivi} operatori nel piano del giorno: la coda si distribuisce ogni mattina` : 'Nessun operatore nel piano: la coda resta comune'}</span>
-      <button class="ctrl-btn" style="margin-left:auto;" onclick="openOperatorsForm()">${Icons.users(14)} Operatori</button>
+      <span class="ctrl-group-hint" style="margin:0;">${attivi ? `${attivi} persone nel piano del giorno: la coda si distribuisce ogni mattina` : 'Nessuno nel piano del giorno: la coda resta comune'}</span>
+      <span style="margin-left:auto;"></span>
       <button class="ctrl-btn is-primary" ${attivi ? '' : 'disabled'} onclick="distributeQueue()">Distribuisci coda</button>
     </div>
     <div class="ctrl-team">${attiviOggi.map(card).join('')}</div>
-    ${liberi.length ? `<p class="settings-section-hint ctrl-note">Senza task oggi: ${liberi.map(escapeHtml).join(', ')}</p>` : ''}
-    ${renderTaskQueue(coda, 'Nessun task in coda.')}
+    ${renderTeamTable(people)}
     ${taskGroupOwner('In ritardo', inRitardo, '', 'Arretrati dei giorni prima o scadenza passata')}
     ${taskGroupOwner('Tutti i task del giorno', tutti, 'Nessun task assegnato per questo giorno.')}
     <p class="settings-section-hint ctrl-note">Punteggio: 70% minuti standard completati sui minuti assegnati, 20% puntualità, 10% task non riaperti.
@@ -585,7 +638,7 @@ function renderControlTypes() {
         <td>${ctrlFmtMin(tp.minuti_standard)}</td>
         <td>${r ? `${ctrlFmtMin(r.mediana_minuti)} <span class="ctrl-cell-sub">su ${r.campioni}</span>` : '<span class="ctrl-cell-sub">nessun dato</span>'}
           ${propone ? `<button class="ctrl-btn" onclick="applyRealTime('${tp.id}', ${Math.round(r.mediana_minuti)})">Usa ${Math.round(r.mediana_minuti)}′</button>` : ''}</td>
-        <td>${tp.competenza ? escapeHtml(tp.competenza) : '<span class="ctrl-cell-sub">—</span>'}</td>
+        <td>${tp.competenza ? escapeHtml(competenzaLabel(tp.competenza)) : '<span class="ctrl-cell-sub">—</span>'}</td>
         <td title="${aut.hint}">${aut.label}</td>
         <td class="ctrl-cell-actions">
           <button class="btn-icon" onclick="openTaskTypeForm('${tp.id}')" aria-label="Modifica ${escapeHtml(tp.nome)}">${Icons.edit()}</button>
@@ -1008,7 +1061,10 @@ function openTaskTypeForm(id = null) {
         </div>
         <div class="form-group">
           <label class="form-label" for="tt-comp">Competenza</label>
-          <input id="tt-comp" class="form-input" maxlength="60" value="${escapeHtml(tp?.competenza || '')}" placeholder="es. customer care">
+          <select id="tt-comp" class="form-select">
+            <option value="">Nessuna</option>
+            ${TASK_COMPETENZE.map(c => `<option value="${c.id}" ${tp?.competenza === c.id ? 'selected' : ''}>${c.label}</option>`).join('')}
+          </select>
         </div>
       </div>
       <div class="form-group">
@@ -1443,60 +1499,76 @@ async function distributeQueue() {
   } catch (e) { showToast(e.message, 'error'); }
 }
 
-function openOperatorsForm() {
-  const riga = (nick, i) => {
+// Tabella del team: chi entra nel piano, i suoi minuti e le competenze
+function renderTeamTable(people) {
+  const riga = (nick) => {
     const o = Ctrl.operatori.find(x => x.nickname === nick) || {};
+    const voci = o.competenze || [];
+    const aree = TASK_AREE.map(a => ({ a, n: voci.filter(v => v.startsWith(a.id + ':')).length })).filter(x => x.n);
     return `
-      <fieldset class="ctrl-op" data-nick="${escapeHtml(nick)}">
-        <label class="switch-row" style="padding:0;">
-          <span><strong>${escapeHtml(nick)}</strong></span>
-          <input type="checkbox" class="switch" data-f="attivo" ${o.attivo ? 'checked' : ''} aria-label="${escapeHtml(nick)} nel piano">
-        </label>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label" for="op-min-${i}">Minuti al giorno</label>
-            <input id="op-min-${i}" type="number" class="form-input" data-f="minuti" min="30" max="720" value="${o.minuti_giorno || 420}">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="op-comp-${i}">Competenze</label>
-            <input id="op-comp-${i}" class="form-input" data-f="competenze" value="${escapeHtml((o.competenze || []).join(', '))}" placeholder="es. customer care, spedizioni">
-          </div>
-        </div>
-        <div class="ctrl-op-macro" role="group" aria-label="Macroaree di ${escapeHtml(nick)}">
-          ${TASK_MACROAREE.map(m => `<label><input type="checkbox" data-macro="${m.id}" ${(o.macroaree || []).includes(m.id) ? 'checked' : ''}> ${m.label}</label>`).join('')}
-        </div>
-      </fieldset>`;
+      <tr>
+        <td><strong>${escapeHtml(nick)}</strong></td>
+        <td>${o.attivo ? '<span class="ctrl-status" style="--st:#22c55e;">Sì</span>' : '<span class="ctrl-cell-sub">No</span>'}</td>
+        <td>${o.attivo ? ctrlFmtMin(o.minuti_giorno) : '<span class="ctrl-cell-sub">—</span>'}</td>
+        <td>${aree.length ? aree.map(x => `<span class="ctrl-macro-tag" style="--m:${x.a.color};">${x.a.label} ${x.n}</span>`).join('<span aria-hidden="true"> · </span>') : '<span class="ctrl-cell-sub">Nessuna competenza</span>'}</td>
+        <td class="ctrl-cell-actions"><button class="ctrl-btn" onclick="openMemberForm('${escapeHtml(nick)}')">Competenze</button></td>
+      </tr>`;
   };
-  ctrlModal(`
-    ${ctrlModalHead('Operatori del piano')}
-    <form class="modal-body" style="gap:12px;" onsubmit="event.preventDefault();submitOperatorsForm()">
-      <p class="settings-section-hint" style="margin:0;">Ogni mattina la coda comune va agli operatori attivi: per priorità, a chi può fare il task e ha più tempo libero. Nessuna macroarea spuntata = tutte. Un tipo di task con competenza va solo a chi ha quella competenza, scritta uguale.</p>
-      ${Ctrl.users.map(riga).join('')}
-      <div style="display:flex;justify-content:flex-end;gap:8px;">
-        <button type="button" class="btn btn-secondary" onclick="closeModal('${CTRL_MODAL}')">Annulla</button>
-        <button type="submit" class="btn btn-primary" id="op-save">Salva</button>
-      </div>
-    </form>`, 620);
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Team</h2><span class="table-count">${people.length}</span>
+        <span class="ctrl-group-hint">Il piano del giorno assegna a ognuno solo i task delle sue competenze</span></div>
+      <div class="table-scroll"><table class="data-table ctrl-links">
+        <thead><tr><th>Persona</th><th>Nel piano</th><th>Tempo al giorno</th><th>Competenze</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+        <tbody>${people.map(riga).join('')}</tbody>
+      </table></div>
+    </section>`;
 }
 
-async function submitOperatorsForm() {
-  const rows = [...document.querySelectorAll('.ctrl-op')].map(f => ({
-    nickname: f.dataset.nick,
-    attivo: f.querySelector('[data-f="attivo"]').checked,
-    minuti_giorno: Math.min(720, Math.max(30, parseInt(f.querySelector('[data-f="minuti"]').value, 10) || 420)),
-    competenze: f.querySelector('[data-f="competenze"]').value.split(',').map(x => x.trim()).filter(Boolean),
-    macroaree: [...f.querySelectorAll('[data-macro]:checked')].map(x => x.dataset.macro),
-  }));
-  const btn = document.getElementById('op-save');
+function openMemberForm(nick) {
+  const o = Ctrl.operatori.find(x => x.nickname === nick) || {};
+  const voci = new Set(o.competenze || []);
+  ctrlModal(`
+    ${ctrlModalHead(`Competenze di ${escapeHtml(nick)}`)}
+    <form class="modal-body" style="gap:14px;" onsubmit="event.preventDefault();submitMemberForm('${escapeHtml(nick)}')">
+      <label class="switch-row" style="padding:0;">
+        <span><strong>Nel piano del giorno</strong><small>Riceve i task dalla coda ogni mattina</small></span>
+        <input id="mb-attivo" type="checkbox" class="switch" ${o.attivo ? 'checked' : ''}>
+      </label>
+      <div class="form-group">
+        <label class="form-label" for="mb-minuti">Minuti di lavoro al giorno</label>
+        <input id="mb-minuti" type="number" class="form-input" min="30" max="720" value="${o.minuti_giorno || 420}">
+      </div>
+      <div class="ctrl-skills">
+        ${TASK_AREE.map(a => `
+          <fieldset class="ctrl-skill-area">
+            <legend style="color:${a.color};">${a.label}</legend>
+            ${a.competenze.map(c => `<label><input type="checkbox" data-skill="${a.id}:${c}" ${voci.has(`${a.id}:${c}`) ? 'checked' : ''}> ${competenzaLabel(c)}</label>`).join('')}
+          </fieldset>`).join('')}
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('${CTRL_MODAL}')">Annulla</button>
+        <button type="submit" class="btn btn-primary" id="mb-save">Salva</button>
+      </div>
+    </form>`, 760);
+}
+
+async function submitMemberForm(nick) {
+  const row = {
+    nickname: nick,
+    attivo: document.getElementById('mb-attivo').checked,
+    minuti_giorno: Math.min(720, Math.max(30, parseInt(document.getElementById('mb-minuti').value, 10) || 420)),
+    competenze: [...document.querySelectorAll('[data-skill]:checked')].map(x => x.dataset.skill),
+  };
+  const btn = document.getElementById('mb-save');
   btn.disabled = true;
-  const { error } = await supabaseClient.from('task_operatori').upsert(rows);
+  const { error } = await supabaseClient.from('task_operatori').upsert(row);
   if (error) { showToast(Ctrl._fail(error).message, 'error'); btn.disabled = false; return; }
   closeModal(CTRL_MODAL);
-  showToast('Operatori salvati');
+  showToast('Competenze salvate');
   await Ctrl.load();
   refreshControlPage();
 }
-
 
 async function removeMailRule(mittente) {
   if (!confirm(`Togliere la correzione per ${mittente}?`)) return;
