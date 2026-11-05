@@ -252,7 +252,7 @@ begin
   if exists (select 1 from cron.job where jobname = 'briefing')              then perform cron.unschedule('briefing');              end if;
   if exists (select 1 from cron.job where jobname = 'controllo-collegamenti') then perform cron.unschedule('controllo-collegamenti'); end if;
   perform cron.schedule('briefing', '40 6 * * 1-6', 'select _tc_briefing()');
-  perform cron.schedule('controllo-collegamenti', '*/15 * * * *', 'select _tc_controllo_collegamenti()');
+
 end $$;
 
 -- ════════════════════════════════════════════════════════

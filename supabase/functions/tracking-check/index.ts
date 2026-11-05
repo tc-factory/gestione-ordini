@@ -13,7 +13,7 @@
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
-const PER_GIRO = 60;
+const PER_GIRO = 120;
 const PAUSA_MS = 300;              // una richiesta alla volta, per non pesare sul sito GLS
 const GIORNI_RITARDO = 3;          // giorni lavorativi dalla spedizione oltre i quali è un ritardo
 const TIME_BUDGET_MS = 110_000;
@@ -28,15 +28,48 @@ const reply = (body: unknown, status = 200) =>
 const fail = (error: string, status = 400) => reply({ success: false, error }, status);
 
 // Frasi GLS (pagina in inglese, lang=en) che indicano un problema, in ordine di gravità
-const PROBLEMI: { re: RegExp; label: string; priorita: string }[] = [
-  { re: /incorrect address/i, label: 'Indirizzo errato', priorita: 'urgente' },
-  { re: /returned the shipment to the sender/i, label: 'Rientro al mittente', priorita: 'urgente' },
-  { re: /in storage at GLS Depot|awaiting instructions/i, label: 'Giacenza in deposito GLS', priorita: 'urgente' },
-  { re: /unable to deliver.*second attempt/i, label: 'Seconda consegna non riuscita', priorita: 'urgente' },
-  { re: /unable to deliver.*first attempt/i, label: 'Prima consegna non riuscita', priorita: 'alta' },
-  { re: /available for collection/i, label: 'Da ritirare al GLS Point', priorita: 'alta' },
-  { re: /network delay/i, label: 'Ritardo della rete GLS', priorita: 'alta' },
+const PROBLEMI: { re: RegExp; label: string; priorita: string; fare: string }[] = [
+  { re: /incorrect address/i, label: 'Indirizzo errato', priorita: 'urgente', fare: 'Chiedi al cliente l\'indirizzo corretto e comunicalo a GLS per la riconsegna.' },
+  { re: /returned the shipment to the sender/i, label: 'Rientro al mittente', priorita: 'urgente', fare: 'Il pacco sta tornando da noi. Avvisa il cliente e concorda una nuova spedizione o il rimborso.' },
+  { re: /in storage at GLS Depot|awaiting instructions/i, label: 'Giacenza in deposito GLS', priorita: 'urgente', fare: 'Contatta il cliente, poi comunica a GLS come procedere con la riconsegna.' },
+  { re: /unable to deliver.*second attempt/i, label: 'Seconda consegna non riuscita', priorita: 'urgente', fare: 'Contatta il cliente e concorda con GLS una nuova consegna.' },
+  { re: /unable to deliver.*first attempt/i, label: 'Prima consegna non riuscita', priorita: 'alta', fare: 'GLS riprova il giorno lavorativo dopo. Avvisa il cliente di farsi trovare.' },
+  { re: /available for collection/i, label: 'Da ritirare al GLS Point', priorita: 'alta', fare: 'Avvisa il cliente che il pacco è da ritirare al GLS Point.' },
+  { re: /network delay/i, label: 'Ritardo della rete GLS', priorita: 'alta', fare: 'Controlla domani se il pacco si muove e avvisa il cliente del ritardo.' },
 ];
+// Le frasi GLS in italiano, per lo storico nel task
+const TRADUZIONI: [RegExp, string][] = [
+  [/has been created by the sender/i, 'Spedizione creata, in attesa del ritiro da parte di GLS'],
+  [/shipped from sending depot/i, 'Partita dal deposito di Lucca'],
+  [/shipment in transit/i, 'In viaggio'],
+  [/did not arrive at the receiving|has not yet arrived at the receiving/i, 'Non ancora arrivata al deposito di destinazione'],
+  [/arrived at final depot/i, 'Arrivata al deposito di destinazione'],
+  [/delivery scheduled during the day/i, 'In consegna oggi'],
+  [/delivery scheduled for first next business day|delivery is expected on the first available/i, 'Consegna prevista il primo giorno lavorativo'],
+  [/area served in 48/i, 'Zona servita in 48 ore'],
+  [/area served in 72/i, 'Zona servita in 72 ore'],
+  [/^delivered/i, 'Consegnata'],
+  [/incorrect address/i, 'Indirizzo errato: GLS aspetta istruzioni'],
+  [/returned the shipment to the sender/i, 'Pacco rimandato al mittente'],
+  [/in storage at GLS Depot|awaiting instructions/i, 'In giacenza nel deposito GLS, in attesa di istruzioni'],
+  [/unable to deliver.*second attempt/i, 'Seconda consegna non riuscita'],
+  [/unable to deliver.*first attempt/i, 'Prima consegna non riuscita, nuovo tentativo il giorno lavorativo dopo'],
+  [/available for collection/i, 'Disponibile per il ritiro al GLS Point'],
+  [/network delay/i, 'Consegna rimandata per un ritardo della rete GLS'],
+];
+const inItaliano = (s: string) => TRADUZIONI.find(([re]) => re.test(s))?.[1] || s;
+
+// Storico per il task: in italiano, con gli stati ripetuti uniti in una riga sola
+function storicoLeggibile(eventi: Evento[]) {
+  const out: { dal: string; al: string; luogo: string; stato: string; volte: number }[] = [];
+  for (const e of eventi) {   // dal più recente
+    const stato = inItaliano(e.stato), ultimo = out[out.length - 1];
+    if (ultimo && ultimo.stato === stato && ultimo.luogo === e.luogo) { ultimo.dal = e.at; ultimo.volte++; }
+    else out.push({ dal: e.at, al: e.at, luogo: e.luogo, stato, volte: 1 });
+  }
+  return out;
+}
+
 // Frasi normali di una spedizione che viaggia
 const NORMALI = /has been created by the sender|shipped from sending depot|in transit|arrived at final depot|delivery scheduled|delivery is expected|area served in|did not arrive at the receiving|has not yet arrived at the receiving/i;
 const AFFIDATA_NO = /has been created by the sender/i;
@@ -83,17 +116,17 @@ function classifica(eventi: Evento[] | null, speditoAt: string | null) {
   const giorni = speditoAt ? giorniLavorativi(new Date(speditoAt), new Date()) : 0;
   if (!eventi?.length) {
     return giorni >= GIORNI_RITARDO
-      ? { stato: 'ritardo', problema: 'Tracking non attivo', priorita: 'alta' }
-      : { stato: 'senza_dati', problema: null, priorita: null };
+      ? { stato: 'ritardo', problema: 'Tracking non attivo', priorita: 'alta', fare: 'Il pacco non risulta preso in carico da GLS: controlla che sia partito davvero.' }
+      : { stato: 'senza_dati', problema: null, priorita: null, fare: '' };
   }
   const ultimo = eventi[0].stato;
-  if (/^delivered/i.test(ultimo)) return { stato: 'consegnata', problema: null, priorita: null };
+  if (/^delivered/i.test(ultimo)) return { stato: 'consegnata', problema: null, priorita: null, fare: '' };
   const p = PROBLEMI.find(x => x.re.test(ultimo));
-  if (p) return { stato: 'problema', problema: p.label, priorita: p.priorita };
-  if (!NORMALI.test(ultimo)) return { stato: 'problema', problema: `Stato da controllare: ${ultimo.slice(0, 80)}`, priorita: 'alta' };
-  if (AFFIDATA_NO.test(ultimo) && giorni >= 2) return { stato: 'ritardo', problema: 'Non ancora ritirata da GLS', priorita: 'alta' };
-  if (giorni >= GIORNI_RITARDO) return { stato: 'ritardo', problema: `In ritardo: ${giorni} giorni lavorativi dalla spedizione`, priorita: 'alta' };
-  return { stato: 'in_viaggio', problema: null, priorita: null };
+  if (p) return { stato: 'problema', problema: p.label, priorita: p.priorita, fare: p.fare };
+  if (!NORMALI.test(ultimo)) return { stato: 'problema', problema: `Stato da controllare: ${ultimo.slice(0, 80)}`, priorita: 'alta', fare: 'Stato GLS mai visto prima: controlla lo storico.' };
+  if (AFFIDATA_NO.test(ultimo) && giorni >= 2) return { stato: 'ritardo', problema: 'Non ancora ritirata da GLS', priorita: 'alta', fare: 'GLS non ha ancora preso il pacco: controlla il ritiro.' };
+  if (giorni >= GIORNI_RITARDO) return { stato: 'ritardo', problema: `In ritardo: ${giorni} giorni lavorativi dalla spedizione`, priorita: 'alta', fare: 'Controlla lo storico e avvisa il cliente del ritardo.' };
+  return { stato: 'in_viaggio', problema: null, priorita: null, fare: '' };
 }
 
 async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Evento[] | null, tipoId: string | null) {
@@ -107,14 +140,21 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
   if (!esito.problema) return;
 
   const titolo = `${esito.problema} · ordine ${s.numero_ordine}${s.cliente ? ` · ${s.cliente}` : ''}`.slice(0, 200);
-  const storico = (eventi || []).slice(0, 6).map(e => `${e.at.slice(8, 10)}/${e.at.slice(5, 7)} ${e.at.slice(11, 16)} · ${e.luogo} · ${e.stato}`).join('\n');
-  const descrizione = `Tracking ${s.tracking}\n\n${storico}`.slice(0, 5000);
+  const sede = s.tracking.slice(0, 2), sped = s.tracking.slice(2);
+  const analisi = {
+    spedizione: {
+      tracking: s.tracking,
+      url: `https://www.gls-italy.com/?option=com_gls&view=track_e_trace&mode=search&diretto=yes&numsped=${sped}&locpartenza=${sede}`,
+      storico: storicoLeggibile(eventi || []),
+    },
+    cliente: { nome: s.cliente, email: s.email, telefono: s.telefono, citta: s.citta },
+  };
   if (aperto) {
-    await db.from('tasks').update({ titolo, descrizione, priorita: esito.priorita }).eq('id', aperto.id);
+    await db.from('tasks').update({ titolo, descrizione: esito.fare, priorita: esito.priorita, analisi }).eq('id', aperto.id);
     return;
   }
   const { error } = await db.from('tasks').insert({
-    tipo_id: tipoId, titolo, descrizione, priorita: esito.priorita, macroarea: s.store_id, fonte: 'shopify',
+    tipo_id: tipoId, titolo, descrizione: esito.fare, analisi, priorita: esito.priorita, macroarea: s.store_id, fonte: 'shopify',
     fonte_rif: { evento_id: chiave, ordine: s.ordine_id, motivo: 'consegna' }, creato_da: 'cervello',
   });
   if (error && error.code !== '23505') throw new Error(error.message);
