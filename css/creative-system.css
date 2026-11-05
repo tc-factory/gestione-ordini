@@ -175,19 +175,14 @@ html.dark .app-main { background-image: linear-gradient(180deg, rgba(255, 255, 2
 /* ── Logo ── */
 .cs-logo { display: inline-flex; align-items: center; min-width: 0; flex: 1; }
 .cs-logo img { display: block; height: auto; }
-.cs-logo .cs-logo-full { width: 100%; max-width: 156px; }
-.cs-logo .cs-logo-mark { display: none; width: 36px; }
+.cs-logo .cs-logo-full { width: 100%; max-width: 124px; }
 .cs-on-dark { display: none !important; }
 html.dark .cs-on-light { display: none !important; }
 html.dark .cs-on-dark { display: block !important; }
-html.dark .cs-logo .cs-logo-mark { display: none !important; }
 .sidebar-brand { min-height: 44px; padding: 2px 4px 6px 8px; }
 @media (min-width: 861px) {
   html.sidebar-collapsed .sidebar-brand .cs-logo { flex: 0 0 auto; justify-content: center; }
-  html.sidebar-collapsed .cs-logo .cs-logo-full { display: none !important; }
-  html.sidebar-collapsed .cs-logo .cs-logo-mark.cs-on-light { display: block !important; }
-  html.sidebar-collapsed.dark .cs-logo .cs-logo-mark.cs-on-light { display: none !important; }
-  html.sidebar-collapsed.dark .cs-logo .cs-logo-mark.cs-on-dark { display: block !important; }
+  html.sidebar-collapsed .cs-logo .cs-logo-full { width: 52px; }
 }
 .brand-logo { background: var(--cs-raised); box-shadow: var(--cs-sh-1); padding: 6px; }
 .brand-logo img { width: 100%; height: 100%; object-fit: contain; }
@@ -402,7 +397,7 @@ html :is(.btn-primary:not([role='menuitem']), .btn-secondary:not(.btn-icon), .bt
 html.dark .login-card { background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 40%); }
 .login-brand { display: flex; justify-content: center; margin: 6px 0 22px; }
 .cs-logo-login { flex: 0 0 auto; }
-.cs-logo-login .cs-logo-full { max-width: 220px; }
+.cs-logo-login .cs-logo-full { max-width: 170px; }
 
 /* ── Telefono ── */
 @media (max-width: 640px) {

@@ -182,10 +182,8 @@ function renderSidebar() {
   root.innerHTML = `
     <div class="sidebar-brand">
       <span class="cs-logo" role="img" aria-label="Creative System">
-        <img class="cs-logo-full cs-on-light" src="img/brand/cs-nero.png" alt="" width="1200" height="273">
-        <img class="cs-logo-full cs-on-dark" src="img/brand/cs-bianco.png" alt="" width="1200" height="273">
-        <img class="cs-logo-mark cs-on-light" src="img/brand/cs-mark-nero.png" alt="" width="256" height="256">
-        <img class="cs-logo-mark cs-on-dark" src="img/brand/cs-mark-bianco.png" alt="" width="256" height="256">
+        <img class="cs-logo-full cs-on-light" src="img/brand/cs-testo-nero.png" alt="" width="784" height="273">
+        <img class="cs-logo-full cs-on-dark" src="img/brand/cs-testo-bianco.png" alt="" width="784" height="273">
       </span>
       <button class="btn-icon sidebar-close" onclick="Nav.closeDrawer()" aria-label="Chiudi menu">${Icons.x()}</button>
       <button class="btn-icon sidebar-theme-btn" onclick="Theme.toggle()"
