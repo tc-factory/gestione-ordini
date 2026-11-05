@@ -46,7 +46,7 @@ const AppState = {
 const Theme = {
   KEY: 'tcf_theme',
   MEDIA: '(prefers-color-scheme: dark)',
-  FRAME: { light: '#EFE7DC', dark: '#16171C' },   // colore della barra del browser su telefono
+  FRAME: { light: '#F4F6FC', dark: '#1B1E24' },   // colore della barra del browser su telefono
 
   mode() {
     let v = null;
