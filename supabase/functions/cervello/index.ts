@@ -82,6 +82,7 @@ Campi:
 
 Regole della bozza:
 - Usa solo i dati degli ordini e la conoscenza del negozio. Le regole di resi e spedizioni sono diverse da negozio a negozio: usa solo quelle del negozio che ha ricevuto la mail. Non inventare date di consegna, tempi, politiche di reso, prezzi o disponibilità: se servono e non li hai, lascia un segnaposto tra parentesi quadre, ad esempio [tempi di consegna], e citalo in "dubbi".
+- Se un ordine ha il campo "spedizione", è lo stato reale dallo storico GLS e vale più di "evasione". Se c'è un problema (giacenza, indirizzo errato, consegna non riuscita) dillo al cliente con chiarezza e scrivi cosa gli serve fare.
 - Se il cliente chiede di un ordine e non ne risulta nessuno, chiedigli il numero d'ordine e l'email usata per l'acquisto.
 - Gli ordini segnati "non verificato" hanno un'email diversa dal mittente: puoi dire lo stato generale dell'ordine, ma non citare indirizzi, articoli o tracking; se serve altro, chiedi di scrivere dall'email usata per l'ordine.
 - Non promettere rimborsi, sconti o cambi: quelli li decide l'operatore. Scrivi che la richiesta è stata presa in carico.`;
@@ -94,7 +95,7 @@ const oggiRoma = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europ
 // ── Ordini: per mittente in tutti i negozi, più i numeri citati nella mail ──
 
 async function cercaOrdini(db: SupabaseClient, mail: Row) {
-  const campi = 'store_id, numero, creato_at, annullato_at, cliente, email, stato_pagamento, stato_evasione, tracking, righe, indirizzo';
+  const campi = 'id, store_id, numero, creato_at, annullato_at, cliente, email, stato_pagamento, stato_evasione, tracking, righe, indirizzo';
   const mittente = (mail.da_email || '').toLowerCase();
 
   const { data: suoi } = await db.from('shopify_orders').select(campi)
@@ -116,7 +117,7 @@ async function cercaOrdini(db: SupabaseClient, mail: Row) {
 }
 
 // Solo ciò che serve: se il mittente non è il titolare dell'ordine, niente dati personali
-function perClaude(o: Row, mittente: string, negozi: Map<string, string>) {
+function perClaude(o: Row, mittente: string, negozi: Map<string, string>, spedizioni: Map<string, Row>) {
   const verificato = (o.email || '').toLowerCase() === mittente;
   const base = {
     negozio: negozi.get(o.store_id) || o.store_id,
@@ -133,6 +134,7 @@ function perClaude(o: Row, mittente: string, negozi: Map<string, string>) {
     cliente: o.cliente,
     articoli: (o.righe || []).map((r: Row) => `${r.qnt}× ${r.titolo}${r.variante ? ` (${r.variante})` : ''}`),
     tracking: (o.tracking || []).filter((t: Row) => t.numero || t.url),
+    spedizione: spedizioni.get(o.id) || null,
     citta: o.indirizzo?.citta || null,
   };
 }
@@ -218,6 +220,14 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       .eq('casella_id', mail.casella_id).eq('da_email', mittente).neq('id', mail.id)
       .lt('ricevuto_at', mail.ricevuto_at).order('ricevuto_at', { ascending: false }).limit(3);
 
+    // Stato vero della spedizione dallo storico GLS: lo stato di Shopify spesso non si aggiorna
+    const { data: tracciate } = ordini.length
+      ? await db.from('spedizioni_tracking').select('ordine_id, stato, problema, ultimo_evento, ultimo_at, consegnata_at').in('ordine_id', ordini.map(o => o.id))
+      : { data: [] };
+    const spedizioni = new Map((tracciate || []).map((t: Row) => [t.ordine_id, {
+      stato: t.stato, problema: t.problema, ultimo_stato_gls: t.ultimo_evento, quando: t.ultimo_at, consegnata_il: t.consegnata_at,
+    }]));
+
     const [{ data: conoscenza }, { data: correzioni }] = await Promise.all([
       db.from('negozi_conoscenza').select('testo').eq('store_id', storeId).maybeSingle(),
       db.from('mail_regole').select('azione, esempio').not('esempio', 'is', null).order('created_at', { ascending: false }).limit(15),
@@ -228,7 +238,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       `Conoscenza del negozio:\n${conoscenza?.testo || 'nessuna'}`,
       correzioni?.length ? `Correzioni del team:\n${correzioni.map(c => `- ${c.azione === 'scarta' ? 'SPAM' : 'VERA'}: ${c.esempio}`).join('\n')}` : '',
       regola?.azione === 'task' ? 'Il team ha indicato che questo mittente è reale: non scartare la mail.' : '',
-      `Ordini trovati:\n${ordini.length ? JSON.stringify(ordini.map(o => perClaude(o, mittente, negozi)), null, 1) : 'nessuno'}`,
+      `Ordini trovati:\n${ordini.length ? JSON.stringify(ordini.map(o => perClaude(o, mittente, negozi, spedizioni)), null, 1) : 'nessuno'}`,
       precedenti?.length ? `Mail precedenti dello stesso mittente:\n${precedenti.map(p => `[${String(p.ricevuto_at).slice(0, 10)}] ${p.oggetto || ''}: ${(p.testo || '').slice(0, 500)}`).join('\n')}` : '',
       `<mail>\nDa: ${mail.da_nome || ''} <${mail.da_email || ''}>\nOggetto: ${mail.oggetto || '(senza oggetto)'}\nAllegati: ${(mail.allegati || []).map((a: Row) => a.nome).join(', ') || 'nessuno'}\n\n${(mail.testo || '(mail senza testo)').slice(0, MAX_TESTO)}\n</mail>`,
     ].filter(Boolean).join('\n\n');
