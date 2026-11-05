@@ -3,7 +3,8 @@
 --
 -- Linea produttiva: un task per fase dell'ordine del gestionale. Il task nasce e si chiude
 -- da solo guardando i pulsanti dell'ordine; solo "Ordinare la merce" si chiude a mano,
--- finché non c'è il collegamento ai fornitori. Vale per gli ordini creati da PROD_DAL in poi.
+-- finché non c'è il collegamento ai fornitori, e "Preparazione DTF" che non ha un pulsante suo.
+-- Dopo l'Evaso restano Fattura e Incasso, che si chiudono dalle spunte dell'ordine.
 --
 -- Shopify: niente task per ordine. Gli ordini si raggruppano in lotti per negozio e fase:
 -- Stampa DDT → Preparare ordini → Lavorazione → Spedire. Chiuso un lotto, i suoi ordini
@@ -17,7 +18,10 @@ insert into task_tipi (nome, minuti_standard, autonomia, competenza, descrizione
   ('Ordinare la merce',       15, 'solo_task', 'preparazione', 'Si chiude a mano finché non ci sono i fornitori collegati'),
   ('Preparazione merce',      20, 'solo_task', 'preparazione', 'Il corriere consegna: smistare la merce e creare l''ordine di lavorazione'),
   ('Preparazione DTF',        10, 'solo_task', 'preparazione', 'Caricare i file nella coda di stampa'),
-  ('Stampa DTF',              30, 'solo_task', 'lavorazione',  'Dal pulsante STAMPA giallo al DTF verde'),
+  ('Stampa DTF',              30, 'solo_task', 'lavorazione',  'Si chiude quando il DTF diventa STAMPA giallo: stampato, pronto da applicare'),
+  ('Applicazione DTF',        30, 'solo_task', 'lavorazione',  'Dal pulsante STAMPA giallo al DTF verde'),
+  ('Emettere fattura',         5, 'solo_task', 'amministrazione', 'Ordine evaso senza fattura confermata'),
+  ('Incassare',                5, 'solo_task', 'amministrazione', 'Ordine evaso non ancora pagato'),
   ('Lavorazione UV',          30, 'solo_task', 'lavorazione',  ''),
   ('Lavorazione Laser',       30, 'solo_task', 'lavorazione',  ''),
   ('Lavorazione Plotter',     30, 'solo_task', 'lavorazione',  ''),
@@ -64,15 +68,27 @@ create or replace function _tc_linea_produttiva()
 returns void security definer set search_path = public language plpgsql as $$
 declare
   o orders%rowtype; l record;
-  v_dal constant timestamptz := '2026-11-05 00:00+01';   -- PROD_DAL: gli ordini già in corso non generano task
-  v_merce boolean; v_interne text[]; v_esterne text[]; v_finite boolean; v_fatta boolean; v_mezzo jsonb;
+  v_merce boolean; v_interne text[]; v_esterne text[]; v_finite boolean; v_mezzo jsonb;
   v_pulsanti jsonb := coalesce((select value from app_settings where key = 'pulsanti_ordine'), '[]'::jsonb);
 begin
-  for o in select * from orders where created_at >= v_dal and deleted_at is null and not coalesce((order_module->>'neutro')::boolean, false) loop
-    -- Ordine finito: si chiude tutto quello che resta aperto
-    if o.archived or coalesce((o.stages->'spedito'->>'done')::boolean, false) then
+  for o in select * from orders x where x.deleted_at is null and not coalesce((x.order_module->>'neutro')::boolean, false)
+              and (not x.archived or exists (select 1 from tasks k where k.fonte_rif->>'evento_id' like 'prod:' || x.id || ':%' and k.stato not in ('completato', 'non_completato'))) loop
+    -- Archiviato: si chiude tutto quello che resta aperto
+    if o.archived then
       update tasks set stato = 'completato'
        where fonte_rif->>'evento_id' like 'prod:' || o.id || ':%' and stato not in ('completato', 'non_completato');
+      continue;
+    end if;
+
+    -- Evaso: restano solo fattura e incasso
+    if coalesce((o.stages->'spedito'->>'done')::boolean, false) then
+      update tasks set stato = 'completato'
+       where fonte_rif->>'evento_id' like 'prod:' || o.id || ':%' and stato not in ('completato', 'non_completato')
+         and fonte_rif->>'evento_id' not in ('prod:' || o.id || ':fattura', 'prod:' || o.id || ':incasso');
+      if o.invoice_confirmed then perform _tc_prod_chiudi(o, 'fattura');
+      else perform _tc_prod_apri(o, 'fattura', 'Emettere fattura', 'Emettere fattura'); end if;
+      if o.payment_done then perform _tc_prod_chiudi(o, 'incasso');
+      else perform _tc_prod_apri(o, 'incasso', 'Incassare', 'Incassare'); end if;
       continue;
     end if;
 
@@ -96,17 +112,21 @@ begin
       end if;
     end if;
 
-    -- DTF: file in coda, poi pulsante giallo STAMPA, poi verde
+    -- DTF: file in coda, stampa (pulsante giallo STAMPA = stampato), applicazione (verde)
     if 'li-dtf' = any(v_interne) or jsonb_array_length(coalesce(nullif(o.dtf_items, 'null'::jsonb), '[]'::jsonb)) > 0 then
-      v_fatta := coalesce((o.stages->'dtfPronti'->>'done')::boolean, false);
-      if v_fatta then
-        perform _tc_prod_chiudi(o, 'prep_dtf'), _tc_prod_chiudi(o, 'stampa_dtf');
+      if coalesce((o.stages->'dtfPronti'->>'done')::boolean, false) then
+        perform _tc_prod_chiudi(o, 'prep_dtf'), _tc_prod_chiudi(o, 'stampa_dtf'), _tc_prod_chiudi(o, 'applica_dtf');
       elsif o.stages ? 'mezzo:dtfPronti' then
-        perform _tc_prod_chiudi(o, 'prep_dtf'), _tc_prod_apri(o, 'stampa_dtf', 'Stampa DTF', 'Stampa DTF');
         v_finite := false;
+        perform _tc_prod_chiudi(o, 'prep_dtf'), _tc_prod_chiudi(o, 'stampa_dtf'), _tc_prod_apri(o, 'applica_dtf', 'Applicazione DTF', 'Applicazione DTF');
       else
         v_finite := false;
-        if v_merce then perform _tc_prod_apri(o, 'prep_dtf', 'Preparazione DTF', 'Preparazione DTF'); end if;
+        if v_merce then
+          perform _tc_prod_apri(o, 'prep_dtf', 'Preparazione DTF', 'Preparazione DTF');
+          if exists (select 1 from tasks where fonte_rif->>'evento_id' = 'prod:' || o.id || ':prep_dtf' and stato = 'completato') then
+            perform _tc_prod_apri(o, 'stampa_dtf', 'Stampa DTF', 'Stampa DTF');
+          end if;
+        end if;
       end if;
     end if;
 
