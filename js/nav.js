@@ -314,6 +314,7 @@ function tickToolbarClock() {
 setInterval(tickToolbarClock, 1000);
 
 // Barra in alto: titolo della sezione + azioni contestuali
+let lastToolbarTitle = null;
 function renderHeader() {
   const root = document.getElementById('header-root');
   if (!root) return;
@@ -350,11 +351,22 @@ function renderHeader() {
   const sub = Nav.current === 'dtf' ? interneSections().find(x => x.id === dtfSection()) : null;
   const fornitoriPage = Nav.current === 'prodotti' && Nav.param === 'fornitori';
   const daInserirePage = Nav.current === 'prodotti' && Nav.param === 'da-inserire';
+  const title = sub ? sub.label : fornitoriPage ? 'Fornitori' : daInserirePage ? 'Prodotti da inserire' : item.label;
+  const subtitle = sub ? sub.subtitle : fornitoriPage ? 'Anagrafica fornitori dei prodotti' : daInserirePage ? 'Articoli trovati negli ordini e non ancora in anagrafica' : item.subtitle;
+  const icon = sub ? sub.icon() : fornitoriPage ? Icons.truck(20) : daInserirePage ? Icons.plus(20) : item.icon();
+  // La barra si ridisegna anche a ogni aggiornamento in tempo reale: l'animazione parte solo se cambia pagina
+  const entering = title !== lastToolbarTitle;
+  lastToolbarTitle = title;
   root.innerHTML = `
     <button class="btn-icon menu-toggle" onclick="Nav.openDrawer()" aria-label="Apri menu">${Icons.menu()}</button>
     <div class="toolbar-title">
-      <h1 id="toolbar-title" tabindex="-1">${sub ? sub.label : fornitoriPage ? 'Fornitori' : daInserirePage ? 'Prodotti da inserire' : item.label}</h1>
-      <p>${sub ? sub.subtitle : fornitoriPage ? 'Anagrafica fornitori dei prodotti' : daInserirePage ? 'Articoli trovati negli ordini e non ancora in anagrafica' : item.subtitle}</p>
+      <div class="toolbar-title-box${entering ? ' is-entering' : ''}">
+        <span class="toolbar-title-icon" aria-hidden="true">${icon}</span>
+        <div class="toolbar-title-text">
+          <h1 id="toolbar-title" tabindex="-1">${title}</h1>
+          <p>${subtitle}</p>
+        </div>
+      </div>
     </div>
     <div class="toolbar-clock" aria-hidden="true">
       <span class="toolbar-clock-date"></span><b></b>:<b></b>:<b></b>
