@@ -30,6 +30,14 @@ const TASK_AUTONOMIA = [
   { id: 'bozza',      label: 'Bozza',      hint: 'Il cervello prepara la risposta, l\'operatore la approva' },
   { id: 'automatico', label: 'Automatico', hint: 'Il cervello esegue da solo' },
 ];
+// Macroaree: i negozi (id come in shopify_stores)
+const TASK_MACROAREE = [
+  { id: 'ciucciamilcalzino', label: 'Ciucciami il Calzino', color: '#ec4899' },
+  { id: 'bienjugado',        label: 'Bienjugado',           color: '#f59e0b' },
+  { id: 'boxfactorylab',     label: 'Box Factory Lab',      color: '#6366f1' },
+  { id: 'asteroidi',         label: 'Asteroidi Store',      color: '#14b8a6' },
+];
+const taskMacro = (id) => TASK_MACROAREE.find(m => m.id === id);
 // Stati ancora da lavorare: se il giorno passa, il task diventa arretrato
 const TASK_APERTI = ['da_fare', 'in_lavorazione', 'in_pausa', 'rimandato'];
 // Stati che chiedono il motivo
@@ -86,6 +94,7 @@ const CtrlIcons = {
 const Ctrl = {
   view: 'giorno',        // giorno | squadra | tipi | collegamenti
   giorno: ctrlOggi(),    // giorno mostrato
+  macroarea: null,       // filtro della coda comune (null = tutte)
   tasks: [],             // task del giorno + arretrati aperti dei giorni prima
   tipi: [],
   users: [],             // nickname dello staff
@@ -365,8 +374,34 @@ function renderControlMyDay() {
     ${taskGroup('Da fare', daFare, d === ctrlOggi() ? 'Niente da fare per oggi. 🎉' : 'Nessun task per questo giorno.')}
     ${taskGroup('Arretrati', arretrati, '', 'Task dei giorni prima non ancora chiusi')}
     ${taskGroup('Bloccati', bloccati, '', 'In attesa di qualcun altro: non pesano sul punteggio')}
-    ${taskGroup('Coda comune', coda, '', 'Non assegnati: prendili tu')}
+    ${renderTaskQueue(coda)}
     ${taskGroup('Chiusi', chiusi)}`;
+}
+
+// Coda comune con il filtro per macroarea
+function renderTaskQueue(coda, emptyText = '') {
+  if (!coda.length && !emptyText) return '';
+  const conta = (id) => coda.filter(t => t.macroarea === id).length;
+  const list = Ctrl.macroarea ? coda.filter(t => t.macroarea === Ctrl.macroarea) : coda;
+  const chip = (id, label, n, color) => `
+    <button type="button" class="chip chip-btn ctrl-macro ${Ctrl.macroarea === id ? 'active' : ''}" aria-pressed="${Ctrl.macroarea === id}"
+      ${color ? `style="--m:${color};"` : ''} onclick="setControlMacro(${id ? `'${id}'` : 'null'})">${label} · ${n}</button>`;
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Coda comune</h2><span class="table-count">${list.length}</span>
+        <span class="ctrl-group-hint">Non assegnati: li prende chi li inizia</span></div>
+      <div class="ctrl-macro-bar" role="group" aria-label="Filtra per macroarea">
+        ${chip(null, 'Tutte', coda.length)}
+        ${TASK_MACROAREE.map(m => chip(m.id, m.label, conta(m.id), m.color)).join('')}
+      </div>
+      ${list.length ? `<div class="task-list">${sortTasks(list).map(t => renderTaskRow(t)).join('')}</div>`
+                    : `<div class="empty-list">${emptyText || 'Nessun task in questa macroarea.'}</div>`}
+    </section>`;
+}
+
+function setControlMacro(id) {
+  Ctrl.macroarea = id;
+  refreshControlPage();
 }
 
 function taskGroup(title, list, emptyText = '', hint = '') {
@@ -385,7 +420,10 @@ function renderTaskRow(t, { showOwner = false } = {}) {
   const lav = taskLavoratoSec(t);
   const scaduto = t.scadenza && !['completato', 'non_completato'].includes(t.stato) && new Date(t.scadenza) < new Date();
   const meta = [
+    taskMacro(t.macroarea) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(t.macroarea).color};">${taskMacro(t.macroarea).label}</span>` : '',
     showOwner ? `<strong>${t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune'}</strong>` : '',
+    t.bozza_risposta && !t.risposta_inviata_at ? 'bozza pronta' : '',
+    t.risposta_inviata_at ? 'risposta inviata' : '',
     tipo ? escapeHtml(tipo.nome) : '',
     `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}`,
     t.stato === 'in_lavorazione' ? `<span class="task-timer" data-task-timer="${t.id}">${ctrlFmtDur(lav)}</span>`
@@ -488,7 +526,7 @@ function renderControlTeam() {
   const tutti = Ctrl.tasks.filter(t => t.giorno === d && t.assegnato_a);
   return `
     <div class="ctrl-team">${people.map(card).join('')}</div>
-    ${taskGroupOwner('Coda comune', coda, 'Nessun task in coda.')}
+    ${renderTaskQueue(coda, 'Nessun task in coda.')}
     ${taskGroupOwner('In ritardo', inRitardo, '', 'Arretrati dei giorni prima o scadenza passata')}
     ${taskGroupOwner('Tutti i task del giorno', tutti, 'Nessun task assegnato per questo giorno.')}
     <p class="settings-section-hint ctrl-note">Punteggio: 70% minuti standard completati sui minuti assegnati, 20% puntualità, 10% task non riaperti.
@@ -585,11 +623,86 @@ const ctrlModalHead = (title) => `
 
 let _taskAction = null;   // stato con motivo in compilazione
 
+let _taskMail = null;     // mail d'origine del task aperto
+let _taskBozza = null;    // bozza in modifica
+
 async function openTaskDetail(id, action = null) {
   _taskAction = action;
+  const t = Ctrl.get(id);
+  if (_taskMail?.taskId !== id) { _taskMail = null; _taskBozza = t?.bozza_risposta || ''; }
   renderTaskDetail(id, null);
+  if (t?.mail_id && !_taskMail) {
+    const { data } = await supabaseClient.from('mail_messaggi')
+      .select('da_email, da_nome, oggetto, ricevuto_at, testo, allegati').eq('id', t.mail_id).maybeSingle();
+    _taskMail = { taskId: id, mail: data };
+  }
   try { renderTaskDetail(id, await Ctrl.storico(id)); }
   catch { renderTaskDetail(id, []); }
+}
+
+// Mail d'origine, ordini trovati e bozza di risposta
+function renderTaskMail(t, can) {
+  if (!t.mail_id) return '';
+  const m = _taskMail?.taskId === t.id ? _taskMail.mail : null;
+  const a = t.analisi || {};
+  const ordini = (a.ordini || []).map(o => `${escapeHtml(taskMacro(o.negozio)?.label || o.negozio)} ${escapeHtml(o.numero)}${o.verificato ? '' : ' (email diversa dal mittente)'}`);
+  return `
+    ${m ? `
+      <details class="task-mail">
+        <summary><strong>${escapeHtml(m.da_nome || m.da_email || '')}</strong> · ${escapeHtml(m.oggetto || '(senza oggetto)')}</summary>
+        <div class="ctrl-cell-sub">${escapeHtml(m.da_email || '')} · ${ctrlFmtQuando(m.ricevuto_at)}${(m.allegati || []).length ? ` · allegati: ${m.allegati.map(x => escapeHtml(x.nome)).join(', ')}` : ''}</div>
+        <p>${escapeHtml(m.testo || '(mail senza testo)')}</p>
+      </details>` : ''}
+    ${ordini.length ? `<div class="ctrl-cell-sub"><strong>Ordini trovati:</strong> ${ordini.join(' · ')}</div>` : ''}
+    ${a.dubbi ? `<div class="task-dubbi"><strong>Da controllare:</strong> ${escapeHtml(a.dubbi)}</div>` : ''}
+    ${t.risposta_inviata_at ? `
+      <div class="task-reply">
+        <span class="form-label">Risposta inviata ${ctrlFmtQuando(t.risposta_inviata_at)}</span>
+        <p class="task-detail-desc">${escapeHtml(t.bozza_risposta || '')}</p>
+      </div>` : can ? `
+      <div class="task-reply">
+        <label class="form-label" for="task-bozza">Risposta a ${escapeHtml(m?.da_email || 'il cliente')}</label>
+        <textarea id="task-bozza" class="form-textarea" rows="9" maxlength="20000"
+          oninput="_taskBozza=this.value" placeholder="Scrivi la risposta…">${escapeHtml(_taskBozza ?? '')}</textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          ${TCAuth.isAdmin() ? `<button type="button" class="btn btn-secondary btn-sm" onclick="saveTaskBozza('${t.id}')">Salva bozza</button>` : ''}
+          <button type="button" class="btn btn-primary btn-sm" id="task-send" onclick="sendTaskReply('${t.id}')">Invia risposta</button>
+        </div>
+      </div>` : ''}`;
+}
+
+async function saveTaskBozza(id) {
+  try {
+    await Ctrl.saveTask(id, { bozza_risposta: (_taskBozza || '').trim() || null });
+    showToast('Bozza salvata');
+    await Ctrl.load();
+    refreshControlPage();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function sendTaskReply(id) {
+  const testo = (_taskBozza || '').trim();
+  if (!testo) { showToast('Scrivi la risposta', 'error'); return; }
+  const dest = _taskMail?.taskId === id ? _taskMail.mail?.da_email : '';
+  if (!confirm(`Inviare la risposta a ${dest || 'il cliente'}? Il task verrà completato.`)) return;
+  const btn = document.getElementById('task-send');
+  if (btn) { btn.disabled = true; btn.textContent = 'Invio…'; }
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('mail-send', { body: { task_id: id, testo } });
+    if (error) {
+      const dett = await error.context?.json?.().catch(() => null);
+      throw new Error(dett?.error || error.message || 'Invio non riuscito');
+    }
+    if (!data?.success) throw new Error(data?.error || 'Invio non riuscito');
+    closeModal(CTRL_MODAL);
+    showToast(data.copia_in_inviata ? 'Risposta inviata' : 'Risposta inviata (copia in Inviata non riuscita)');
+    await Ctrl.load();
+    refreshControlPage();
+    Ctrl.loadBadge();
+  } catch (e) {
+    showToast(e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Invia risposta'; }
+  }
 }
 
 function renderTaskDetail(id, storico) {
@@ -614,7 +727,9 @@ function renderTaskDetail(id, storico) {
         ${t.stato === 'in_lavorazione' ? `<span class="task-timer" data-task-timer="${t.id}">${ctrlFmtDur(taskLavoratoSec(t))}</span>` : ''}
       </div>
       ${t.descrizione ? `<p class="task-detail-desc">${escapeHtml(t.descrizione)}</p>` : ''}
+      ${renderTaskMail(t, can)}
       <dl class="def-list">
+        ${row('Macroarea', taskMacro(t.macroarea)?.label || '')}
         ${row('Assegnato a', t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune')}
         ${row('Tipo', tipo ? escapeHtml(tipo.nome) : '')}
         ${row('Giorno', ctrlFmtGiorno(t.giorno))}
@@ -761,6 +876,13 @@ function openTaskForm(id = null) {
         </div>
       </div>
       <div class="form-group">
+        <label class="form-label" for="tf-macro">Macroarea</label>
+        <select id="tf-macro" class="form-select">
+          <option value="">Nessuna</option>
+          ${TASK_MACROAREE.map(m => `<option value="${m.id}" ${(t?.macroarea || (!t && Ctrl.macroarea)) === m.id ? 'selected' : ''}>${m.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
         <span class="form-label" id="tf-prio-label">Priorità</span>
         <div class="segmented" role="radiogroup" aria-labelledby="tf-prio-label">
           ${TASK_PRIORITA.map(p => `<button type="button" role="radio" aria-checked="${_taskDraft.priorita === p.id}"
@@ -810,6 +932,7 @@ async function submitTaskForm() {
     minuti_stimati: minuti,
     assegnato_a: val('tf-chi') || null,
     giorno: val('tf-giorno') || Ctrl.giorno,
+    macroarea: val('tf-macro') || null,
     priorita: _taskDraft.priorita,
     scadenza: scad ? new Date(scad).toISOString() : null,
     descrizione: val('tf-desc'),
@@ -901,6 +1024,7 @@ const ShopLinks = {
   negozi: null,      // stato dei negozi (tc_shopify_stato)
   caselle: null,     // stato delle caselle email (tc_mail_stato)
   mail: null,        // ultime mail scritte da persone
+  scartate: [],      // mail scartate dal cervello
   ordini: null,      // risultati della ricerca o ultimi ordini
   query: '',
   error: null,
@@ -920,11 +1044,15 @@ async function loadShopifyLinks() {
     ShopLinks.negozi = data.negozi || [];
     ShopLinks.error = null;
   } catch (e) { ShopLinks.error = e; }
-  const [caselle, mail] = await Promise.all([
+  const [caselle, mail, scartate] = await Promise.all([
     supabaseClient.rpc('tc_mail_stato'),
     supabaseClient.from('mail_messaggi').select('id, casella_id, da_email, da_nome, oggetto, ricevuto_at, testo, allegati')
       .eq('direzione', 'in').eq('automatica', false).order('ricevuto_at', { ascending: false }).limit(15),
+    supabaseClient.from('eventi').select('id, account, payload, esito, elaborato_at')
+      .eq('fonte', 'mail').not('elaborato_at', 'is', null).is('task_id', null)
+      .order('elaborato_at', { ascending: false }).limit(15),
   ]);
+  ShopLinks.scartate = scartate.error ? [] : (scartate.data || []);
   ShopLinks.caselle = caselle.data?.success ? caselle.data.caselle : [];
   ShopLinks.mail = mail.error ? [] : (mail.data || []);
   await searchShopifyOrders(ShopLinks.query, false);
@@ -946,6 +1074,17 @@ async function searchShopifyOrders(q, render = true) {
   const { data, error } = await req;
   ShopLinks.ordini = error ? [] : (data || []);
   if (render) refreshControlPage();
+}
+
+async function recoverDiscarded(id) {
+  try {
+    const { data, error } = await supabaseClient.rpc('tc_evento_crea_task', { p_id: id });
+    if (error) throw Ctrl._fail(error);
+    if (!data?.success) throw new Error(data?.error || 'Errore');
+    showToast('Task creato in coda comune');
+    await Ctrl.load();
+    await loadShopifyLinks();
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 async function syncMail(casellaId = null) {
@@ -1071,6 +1210,21 @@ function renderControlLinks() {
       <div class="ctrl-team">${(ShopLinks.caselle || []).map(casella).join('')}</div>
       <p class="settings-section-hint ctrl-note">Le caselle si controllano da sole ogni 2 minuti, in sola lettura: le mail non vengono segnate come lette. Newsletter e notifiche automatiche non vanno al cervello.</p>
     </section>
+
+    ${ShopLinks.scartate.length ? `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Scartate dal cervello</h2><span class="table-count">${ShopLinks.scartate.length}</span>
+        <span class="ctrl-group-hint">Spam, phishing e mail senza richieste. Se una è di un cliente, recuperala.</span></div>
+      <div class="task-list">${ShopLinks.scartate.map(e => `
+        <article class="task-row ctrl-order" style="--p:#94a3b8;">
+          <div class="task-main" style="cursor:default;">
+            <span class="task-title">${escapeHtml(e.payload?.oggetto || '(senza oggetto)')} <span class="ctrl-cell-sub">${escapeHtml(nomeCasella(e.account))}</span></span>
+            <span class="task-meta">${escapeHtml(e.payload?.da || '')}<span aria-hidden="true"> · </span>${ctrlFmtQuando(e.elaborato_at)}</span>
+            <span class="task-motivo">${escapeHtml(e.esito || '')}</span>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="recoverDiscarded('${e.id}')">Crea task</button>
+        </article>`).join('')}</div>
+    </section>` : ''}
 
     ${ShopLinks.mail?.length ? `
     <section class="glass-card page-card ctrl-group">

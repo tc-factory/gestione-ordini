@@ -135,3 +135,16 @@
 .ctrl-search { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-light, var(--border)); }
 .ctrl-search .form-input { flex: 1; }
 .ctrl-order { grid-template-columns: 1fr auto; }
+
+/* ── Macroaree e risposta alle mail ── */
+
+.ctrl-macro-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--border-light, var(--border)); }
+.ctrl-macro { --m: var(--text-secondary); }
+.ctrl-macro.active { color: var(--m); background: color-mix(in srgb, var(--m) 16%, transparent); box-shadow: inset 0 0 0 1px var(--m); }
+.ctrl-macro-tag { color: var(--m); font-weight: 650; }
+
+.task-mail { border-radius: 12px; background: var(--fill-hover); padding: 10px 12px; font-size: 0.86rem; }
+.task-mail summary { cursor: pointer; }
+.task-mail p { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; max-height: 280px; overflow: auto; }
+.task-dubbi { font-size: 0.82rem; padding: 8px 12px; border-radius: 12px; background: color-mix(in srgb, #f59e0b 12%, transparent); }
+.task-reply { display: flex; flex-direction: column; gap: 8px; }
