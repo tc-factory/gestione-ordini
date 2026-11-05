@@ -1128,6 +1128,7 @@ const ShopLinks = {
   mail: null,        // ultime mail scritte da persone
   scartate: [],      // mail scartate dal cervello
   regole: [],        // correzioni del team (mail_regole)
+  consegne: [],      // spedizioni con problemi o ritardi (spedizioni_tracking)
   ordini: null,      // risultati della ricerca o ultimi ordini
   query: '',
   error: null,
@@ -1147,7 +1148,7 @@ async function loadShopifyLinks() {
     ShopLinks.negozi = data.negozi || [];
     ShopLinks.error = null;
   } catch (e) { ShopLinks.error = e; }
-  const [caselle, mail, scartate, regole] = await Promise.all([
+  const [caselle, mail, scartate, regole, consegne] = await Promise.all([
     supabaseClient.rpc('tc_mail_stato'),
     supabaseClient.from('mail_messaggi').select('id, casella_id, da_email, da_nome, oggetto, ricevuto_at, testo, allegati')
       .eq('direzione', 'in').eq('automatica', false).order('ricevuto_at', { ascending: false }).limit(50),
@@ -1155,7 +1156,10 @@ async function loadShopifyLinks() {
       .eq('fonte', 'mail').not('elaborato_at', 'is', null).is('task_id', null)
       .order('elaborato_at', { ascending: false }).limit(15),
     supabaseClient.from('mail_regole').select('*').order('created_at', { ascending: false }).limit(50),
+    supabaseClient.from('spedizioni_tracking').select('store_id, numero, stato, problema, ultimo_evento, ultimo_at, spedito_at, ordine:shopify_orders(numero, cliente)')
+      .in('stato', ['problema', 'ritardo']).order('stato').order('spedito_at'),
   ]);
+  ShopLinks.consegne = consegne.error ? [] : (consegne.data || []);
   ShopLinks.regole = regole.error ? [] : (regole.data || []);
   ShopLinks.scartate = scartate.error ? [] : (scartate.data || []);
   ShopLinks.caselle = caselle.data?.success ? caselle.data.caselle : [];
@@ -1257,6 +1261,20 @@ function renderControlOrders() {
       <button class="ctrl-btn is-primary" type="submit">${Icons.search(14)} Cerca</button>
       ${ShopLinks.query ? `<button class="ctrl-btn" type="button" onclick="searchShopifyOrders('')">Azzera</button>` : ''}
     </form>
+    ${ShopLinks.consegne.length ? `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Problemi di consegna</h2><span class="table-count">${ShopLinks.consegne.length}</span>
+        <span class="ctrl-group-hint">Dallo storico del tracking GLS, controllato ogni 15 minuti</span></div>
+      <div class="task-list">${ShopLinks.consegne.map(c => `
+        <article class="task-row ctrl-order" style="--p:${c.stato === 'problema' ? '#ef4444' : '#f59e0b'};">
+          <div class="task-main" style="cursor:default;">
+            <span class="task-title">${escapeHtml(c.problema || '')}</span>
+            <span class="task-meta"><span class="ctrl-macro-tag" style="--m:${taskMacro(c.store_id)?.color || '#94a3b8'};">${escapeHtml(shopNome(c.store_id))}</span><span aria-hidden="true"> · </span>${escapeHtml(c.ordine?.numero || '')} ${escapeHtml(c.ordine?.cliente || '')}<span aria-hidden="true"> · </span>${escapeHtml(c.numero)}${c.spedito_at ? `<span aria-hidden="true"> · </span>spedito ${ctrlFmtQuando(c.spedito_at)}` : ''}</span>
+            ${c.ultimo_evento ? `<span class="ctrl-row-text">${escapeHtml(c.ultimo_evento)}</span>` : ''}
+          </div>
+          <span></span>
+        </article>`).join('')}</div>
+    </section>` : ''}
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>${ShopLinks.query ? 'Ordini Shopify trovati' : 'Ultimi ordini Shopify'}</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
       ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
