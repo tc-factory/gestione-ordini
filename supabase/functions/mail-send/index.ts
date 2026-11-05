@@ -8,9 +8,7 @@
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { ImapFlow } from 'npm:imapflow@1';
-import nodemailer from 'npm:nodemailer@6';
-import MailComposer from 'npm:nodemailer@6/lib/mail-composer/index.js';
+import { inviaRisposta } from '../_shared/mail.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -20,22 +18,6 @@ const cors = {
 const reply = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 const fail = (error: string, status = 400) => reply({ success: false, error }, status);
-
-// Copia in Inviata: se non riesce la mail è comunque partita
-async function copiaInInviata(host: string, user: string, pass: string, raw: Uint8Array) {
-  const client = new ImapFlow({ host, port: 993, secure: true, auth: { user, pass }, logger: false });
-  const lavoro = (async () => {
-    await client.connect();
-    const cartelle = await client.list();
-    const inviata = cartelle.find(c => c.specialUse === '\\Sent') || cartelle.find(c => /^(inbox[./])?(sent|inviata|posta inviata)/i.test(c.path));
-    if (inviata) await client.append(inviata.path, raw, ['\\Seen']);
-    return !!inviata;
-  })();
-  const limite = new Promise<boolean>(r => setTimeout(() => r(false), 15_000));
-  const fatto = await Promise.race([lavoro, limite]).catch(() => false);
-  client.logout().catch(() => {});
-  return fatto;
-}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
@@ -69,42 +51,14 @@ Deno.serve(async (req) => {
   if (!mail?.da_email) return fail('Mail d\'origine non trovata');
   const { data: casella } = await db.from('mail_caselle').select('*').eq('id', mail.casella_id).maybeSingle();
   if (!casella) return fail('Casella non trovata');
-  const pass = Deno.env.get(`MAIL_PASSWORD_${casella.id.toUpperCase()}`);
-  if (!pass) return fail(`Manca la password della casella ${casella.indirizzo}`, 500);
 
   // Prenota l'invio: due clic o due persone non mandano la stessa risposta due volte
   const { data: prenotato } = await db.from('tasks').update({ risposta_inviata_at: new Date().toISOString() })
     .eq('id', task.id).is('risposta_inviata_at', null).select('id');
   if (!prenotato?.length) return fail('La risposta è già stata inviata');
 
-  const oggetto = /^\s*(re|r|aw|sv)\s*:/i.test(mail.oggetto || '') ? mail.oggetto : `Re: ${mail.oggetto || ''}`.trim();
-  const messageId = `<${crypto.randomUUID()}@${casella.indirizzo.split('@')[1]}>`;
-  const riferimenti = [mail.riferimenti, mail.message_id].filter(Boolean).join(' ');
-
   try {
-    const raw: Uint8Array = await new MailComposer({
-      from: { name: casella.nome, address: casella.indirizzo },
-      to: mail.da_nome ? { name: mail.da_nome, address: mail.da_email } : mail.da_email,
-      subject: oggetto,
-      text: testo,
-      messageId,
-      inReplyTo: mail.message_id || undefined,
-      references: riferimenti || undefined,
-    }).compile().build();
-
-    const smtp = nodemailer.createTransport({
-      host: casella.smtp_host, port: 465, secure: true,
-      auth: { user: casella.indirizzo, pass },
-    });
-    await smtp.sendMail({ envelope: { from: casella.indirizzo, to: mail.da_email }, raw });
-
-    const inviata = await copiaInInviata(casella.imap_host, casella.indirizzo, pass, raw);
-
-    await db.from('mail_messaggi').insert({
-      casella_id: casella.id, direzione: 'out', message_id: messageId, in_reply_to: mail.message_id,
-      riferimenti: riferimenti || null, da_email: casella.indirizzo, da_nome: casella.nome, a: mail.da_email,
-      oggetto, ricevuto_at: new Date().toISOString(), testo,
-    });
+    const { copia_in_inviata } = await inviaRisposta(db, casella, mail, testo);
     await db.from('tasks').update({ bozza_risposta: testo }).eq('id', task.id);
 
     // Con il login di chi invia, così lo storico del task registra la persona giusta
@@ -114,7 +68,7 @@ Deno.serve(async (req) => {
     });
     await utente.rpc('tc_task_stato', { p_id: task.id, p_stato: 'completato' });
 
-    return reply({ success: true, copia_in_inviata: inviata });
+    return reply({ success: true, copia_in_inviata });
   } catch (e) {
     await db.from('tasks').update({ risposta_inviata_at: null }).eq('id', task.id);
     console.error('Invio', e);
