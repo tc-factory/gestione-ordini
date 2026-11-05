@@ -301,6 +301,18 @@ function interneSections() {
 }
 const dtfSection = () => interneSections().find(s => s.id === Nav.param)?.id || null;   // null = dashboard
 
+// Orologio della barra in alto: un solo timer, che riscrive i tasselli ogni secondo
+function tickToolbarClock() {
+  const box = document.querySelector('.toolbar-clock');
+  if (!box) return;
+  const now = new Date();
+  box.querySelector('.toolbar-clock-date').textContent = now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'short' });
+  [now.getHours(), now.getMinutes(), now.getSeconds()].forEach((n, i) => {
+    box.querySelectorAll('b')[i].textContent = String(n).padStart(2, '0');
+  });
+}
+setInterval(tickToolbarClock, 1000);
+
 // Barra in alto: titolo della sezione + azioni contestuali
 function renderHeader() {
   const root = document.getElementById('header-root');
@@ -344,10 +356,14 @@ function renderHeader() {
       <h1 id="toolbar-title" tabindex="-1">${sub ? sub.label : fornitoriPage ? 'Fornitori' : daInserirePage ? 'Prodotti da inserire' : item.label}</h1>
       <p>${sub ? sub.subtitle : fornitoriPage ? 'Anagrafica fornitori dei prodotti' : daInserirePage ? 'Articoli trovati negli ordini e non ancora in anagrafica' : item.subtitle}</p>
     </div>
+    <div class="toolbar-clock" aria-hidden="true">
+      <span class="toolbar-clock-date"></span><b></b>:<b></b>:<b></b>
+    </div>
     <div class="app-header-actions">
       ${actions}
     </div>
   `;
+  tickToolbarClock();
 }
 
 // Menu del profilo (in fondo alla navbar): cambio password ed esci
