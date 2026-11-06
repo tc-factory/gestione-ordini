@@ -4098,6 +4098,8 @@ function selectCalType(id) {
   if (ug) ug.style.display = isChiusura ? 'none' : 'block';
   if (hint) hint.style.display = isChiusura ? 'block' : 'none';
   if (tl) tl.textContent = isChiusura ? 'Motivo' : 'Titolo *';
+  const ti = document.getElementById('cal-title');
+  if (ti) ti.placeholder = isChiusura ? 'Es. Ferie di agosto' : 'Es. Fiera del tessile';
   // Aggiorna label coinvolti
   const lbl = document.querySelector('[for="cal-coinvolti"], .form-label');
 }
