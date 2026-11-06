@@ -18,6 +18,11 @@ update task_tipi t
     ('Lavorazione Laser',         'incisione_laser'),
     ('Preparazione DTF',          'prep_file'),
     ('Ordinare la merce',         'ordine_fornitori'),
-    ('Preparazione merce',        'creazione_pacchi')
+    ('Preparazione merce',        'creazione_pacchi'),
+    ('Emettere fattura',          'fatturazione'),
+    ('Incassare',                 'check_pagamento')
   ) v(nome, competenza)
  where t.nome = v.nome;
+
+-- Voce tolta da Linea produttiva: la riga conterebbe ancora nelle competenze della persona
+delete from competenze_responsabili where voce = 'produzione:amministrazione';
