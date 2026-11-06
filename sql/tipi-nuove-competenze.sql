@@ -17,6 +17,7 @@ update task_tipi t
     ('Lavorazione UV',            'stampa_uv'),
     ('Lavorazione Laser',         'incisione_laser'),
     ('Preparazione DTF',          'prep_file'),
-    ('Ordinare la merce',         'ordine_fornitori')
+    ('Ordinare la merce',         'ordine_fornitori'),
+    ('Preparazione merce',        'creazione_pacchi')
   ) v(nome, competenza)
  where t.nome = v.nome;
