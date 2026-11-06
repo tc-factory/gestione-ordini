@@ -55,11 +55,13 @@ const TASK_COMPETENZE = [
   { id: 'ext_manifattura', label: 'Esterna: Manifattura' },
   { id: 'ext_arti',        label: 'Esterna: Arti grafiche' },
   { id: 'amministrazione', label: 'Fatture e incassi' },
+  { id: 'verifica',        label: 'Verifica automazioni' },
 ];
 const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'ddt', 'preparazione', 'lavorazione', 'spedizione'];
 const TASK_AREE = [
   ...TASK_MACROAREE.map(m => ({ ...m, competenze: m.id === 'boxfactorylab' ? [...COMPETENZE_BASE, 'grafiche', 'catalogo'] : COMPETENZE_BASE })),
   { id: 'produzione', label: 'Linea produttiva', color: '#64748b', competenze: ['preparazione', 'lavorazione', 'spedizione', 'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti', 'amministrazione'] },
+  { id: 'automazioni', label: 'Automazioni', color: '#111827', competenze: ['verifica'] },
 ];
 const competenzaLabel = (id) => TASK_COMPETENZE.find(c => c.id === id)?.label || id;
 // Stati ancora da lavorare: se il giorno passa, il task diventa arretrato
@@ -533,6 +535,7 @@ function renderTaskRow(t, { showOwner = false } = {}) {
   const meta = [
     taskMacro(t.macroarea) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(t.macroarea).color};">${taskMacro(t.macroarea).label}</span>` : '',
     showOwner ? `<strong>${t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune'}</strong>` : '',
+    t.automazione_errore ? '<span class="task-late">automazione non riuscita</span>' : '',
     t.bozza_risposta && !t.risposta_inviata_at ? 'bozza pronta' : '',
     t.risposta_inviata_at ? 'risposta inviata' : '',
     tipo ? escapeHtml(tipo.nome) : '',
@@ -837,7 +840,7 @@ async function sendTaskReply(id) {
   }
 }
 
-const TASK_ORIGINI = { manuale: 'Inserito a mano', mail: 'Mail', shopify: 'Shopify', gestionale: 'Gestionale' };
+const TASK_ORIGINI = { manuale: 'Inserito a mano', mail: 'Mail', shopify: 'Shopify', gestionale: 'Gestionale', automazione: 'Automazione' };
 
 // Spedizione del task: storico GLS come linea del tempo
 function renderTaskShipment(t) {
@@ -909,6 +912,7 @@ function renderTaskDetail(id, storico) {
       <dl class="td-info">
         ${info('Assegnato a', t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune')}
         ${info('Tipo', tipo ? escapeHtml(tipo.nome) : '')}
+        ${info('Automazione non riuscita', t.automazione_errore ? escapeHtml(t.automazione_errore) : '')}
         ${info('Giorno', ctrlFmtGiorno(t.giorno))}
         ${info('Scadenza', t.scadenza ? ctrlFmtQuando(t.scadenza) : '')}
         ${info('Tempo stimato', ctrlFmtMin(t.minuti_stimati))}
@@ -1741,7 +1745,8 @@ function renderTeamTable(people) {
     </section>`;
 }
 
-// Scheda Competenze: per ogni competenza il primario (giallo) e il secondario (bordo giallo)
+// Scheda Competenze: per ogni competenza il primario (giallo) e il secondario (bordo giallo).
+// Una competenza con primario claude è un'automazione.
 const skillRuolo = (voce, nick) => {
   const r = Ctrl.responsabili[voce];
   return r?.primario === nick ? 'primario' : r?.secondario === nick ? 'secondario' : '';
@@ -1756,37 +1761,48 @@ function renderControlSkills() {
       aria-label="${escapeHtml(nick)}${ruolo ? `: ${ruolo}` : ''}"
       data-nick="${escapeHtml(nick)}" data-voce="${voce}" onclick="toggleSkillOwner(this)">${escapeHtml(nick)}</button>`;
   };
+  const riga = (a, c) => {
+    const voce = `${a.id}:${c}`;
+    // Claude non verifica sé stesso
+    const persone = a.id === 'automazioni' ? Ctrl.users.filter(nick => nick !== 'claude') : Ctrl.users;
+    return `<tr class="${Ctrl.responsabili[voce]?.primario === 'claude' ? 'is-auto' : ''}">
+      <th scope="row"><strong>${competenzaLabel(c)}</strong><span class="ctrl-auto-tag">${Icons.zap(11)} Automazione</span></th>
+      <td><div class="ctrl-skill-people">${persone.map(nick => pulsante(voce, nick)).join('') || '<span class="ctrl-cell-sub">Nessuno nel team</span>'}</div></td></tr>`;
+  };
   return `
     <section class="glass-card page-card ctrl-group ctrl-skills-help">
       <div class="ctrl-skill-people" aria-hidden="true">
         <span class="ctrl-btn is-primary">Primario</span><span class="ctrl-btn is-secondary">Secondario</span>
+        <span class="ctrl-auto-tag is-on">${Icons.zap(11)} Automazione</span>
       </div>
       <p>Il primo clic su una persona la rende primario, il secondo clic su un'altra la rende secondario; un clic su chi è evidenziato lo toglie.
         Se il primario è in ferie o a un evento il task passa al secondario; se manca anche lui resta in coda comune.
+        Un clic su claude rende la competenza un'automazione: se non funziona, il task passa al secondario e nasce un task di verifica nell'area Automazioni.
         Claude lavora tutti i giorni, gli altri da lunedì a venerdì, festivi esclusi.
         ${fuoriPiano.length ? `Fuori dal piano del giorno: ${fuoriPiano.map(escapeHtml).join(', ')}.` : ''}</p>
     </section>
     ${TASK_AREE.map(a => `
-    <section class="glass-card page-card ctrl-group">
+    <section class="glass-card page-card ctrl-group ctrl-skill-section">
       <div class="page-card-head"><h2>${a.label}</h2><span class="table-count">${a.competenze.length}</span></div>
       <div class="table-scroll"><table class="data-table ctrl-skills-list">
-        <thead><tr><th>Competenza</th><th>Team</th></tr></thead>
-        <tbody>${a.competenze.map(c => `<tr><td><strong>${competenzaLabel(c)}</strong></td>
-            <td><div class="ctrl-skill-people">${Ctrl.users.map(nick => pulsante(`${a.id}:${c}`, nick)).join('') || '<span class="ctrl-cell-sub">Nessuno nel team</span>'}</div></td></tr>`).join('')}</tbody>
+        <tbody>${a.competenze.map(c => riga(a, c)).join('')}</tbody>
       </table></div>
     </section>`).join('')}`;
 }
 
 // Chi è evidenziato si toglie; gli altri occupano il posto da primario se è libero, altrimenti quello da secondario.
+// Claude va sempre primario: chi lo era diventa secondario, se il posto è libero.
 // I salvataggi vanno in fila, così con più clic di seguito vince sempre l'ultimo.
 function toggleSkillOwner(btn) {
   const { nick, voce } = btn.dataset;
   const r = { voce, primario: null, secondario: null, ...Ctrl.responsabili[voce] };
   const ruolo = skillRuolo(voce, nick);
   if (ruolo) r[ruolo] = null;
+  else if (nick === 'claude') { r.secondario = r.secondario || r.primario; r.primario = nick; }
   else if (!r.primario) r.primario = nick;
   else r.secondario = nick;
   Ctrl.responsabili[voce] = r;
+  btn.closest('tr').classList.toggle('is-auto', r.primario === 'claude');
   btn.closest('.ctrl-skill-people').querySelectorAll('button').forEach(b => {
     const q = skillRuolo(voce, b.dataset.nick);
     b.classList.toggle('is-primary', q === 'primario');
