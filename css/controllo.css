@@ -116,6 +116,25 @@
 
 .ctrl-note { margin: 4px 4px var(--space-md, 16px); }
 
+/* ── Anteprima dei task di ogni persona (scheda Tasks) ── */
+
+.ctrl-previews { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.ctrl-preview { gap: 8px; }
+.ctrl-preview header { align-items: center; }
+.ctrl-preview-off { padding: 2px 8px; border-radius: 999px; background: var(--fill-hover); color: var(--text-secondary); font-size: 0.7rem; font-weight: 700; }
+.ctrl-preview .ctrl-idle { font-size: 0.82rem; }
+.ctrl-preview ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ctrl-preview-task {
+  width: 100%; display: flex; align-items: center; gap: 7px; padding: 5px 6px; margin: 0 -6px; border: none; border-radius: 8px;
+  background: transparent; color: var(--text-primary); font: inherit; font-size: 0.82rem; text-align: left; cursor: pointer;
+}
+.ctrl-preview-task:hover { background: var(--fill-hover); }
+.ctrl-preview-task:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.ctrl-preview-task i { width: 8px; height: 8px; border-radius: 50%; corner-shape: round; flex-shrink: 0; }
+.ctrl-preview-task span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ctrl-preview-task small { flex-shrink: 0; font-size: 0.7rem; }
+.ctrl-preview details summary { cursor: pointer; font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); }
+
 /* ── Tipi di task ── */
 
 .ctrl-types td { vertical-align: top; }

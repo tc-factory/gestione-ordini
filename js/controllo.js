@@ -167,6 +167,7 @@ const Ctrl = {
   users: [],             // nickname dello staff
   operatori: [],         // impostazioni del piano del giorno (task_operatori)
   responsabili: {},      // voce "area:competenza" → { primario, secondario }
+  assenti: new Set(),    // chi è in ferie o a un evento nel giorno scelto
   problemi: [],          // collegamenti con problemi, in cima alla pagina (solo admin)
   soloUrgenti: false,    // lista dei task urgenti al posto della coda
   punteggi: {},          // operatore → punteggio del giorno mostrato
@@ -214,14 +215,16 @@ const Ctrl = {
       if (users) this.users = users.filter(u => !u.is_admin).map(u => u.nickname);   // l'admin non riceve task
 
       if (TCAuth.isAdmin()) {
-        const [oggi, sette, tempi, operatori, problemi, responsabili] = await Promise.all([
+        const [oggi, sette, tempi, operatori, problemi, responsabili, calendario] = await Promise.all([
           this._rpc('tc_task_punteggi', { p_dal: d, p_al: d }),
           this._rpc('tc_task_punteggi', { p_dal: ctrlAddDays(d, -6), p_al: d }),
           this._rpc('tc_task_tempi_reali'),
           supabaseClient.from('task_operatori').select('*'),
           this._rpc('tc_problemi_collegamenti').catch(() => ({ problemi: [] })),
           supabaseClient.from('competenze_responsabili').select('*'),
+          supabaseClient.from('calendar_events').select('user_ids').lte('date_from', d).gte('date_to', d).in('event_type', ['ferie', 'impegno']),
         ]);
+        this.assenti = new Set((calendario.data || []).flatMap(e => e.user_ids || []));
         this.responsabili = Object.fromEntries((responsabili.data || []).map(r => [r.voce, r]));
         this.operatori = operatori.data || [];
         this.problemi = problemi.problemi || [];
@@ -512,7 +515,42 @@ function renderControlAdminTasks() {
       ${stat('Arretrati', aperti.filter(t => t.giorno < d).length, 'dai giorni prima')}
       ${stat('Chiusi', chiusi.length, ctrlFmtGiorno(d).toLowerCase())}
     </div>
+    ${renderTeamPreview()}
     ${Ctrl.soloUrgenti ? taskGroupOwner('Task urgenti', urgenti, 'Nessun task urgente.') : renderTaskQueue(coda, 'Nessun task in coda.')}`;
+}
+
+// Anteprima dei task del giorno di ogni persona: i primi in vista, gli altri a richiesta
+const TEAM_PREVIEW_MAX = 5;
+
+function renderTeamPreview() {
+  const d = Ctrl.giorno;
+  const riga = (t) => `
+    <li><button type="button" class="ctrl-preview-task" onclick="openTaskDetail('${t.id}')">
+      <i class="${t.stato === 'in_lavorazione' ? 'ctrl-live' : ''}" style="background:${taskStato(t.stato).color};" aria-hidden="true"></i>
+      <span>${escapeHtml(t.titolo)}</span>
+      ${t.giorno < d ? '<small class="task-late">arretrato</small>' : t.priorita === 'urgente' ? '<small class="task-late">urgente</small>' : ''}
+    </button></li>`;
+  const card = (nick) => {
+    const suoi = Ctrl.tasks.filter(t => t.assegnato_a === nick);
+    const delGiorno = suoi.filter(t => t.giorno === d);
+    const aperti = sortTasks(suoi.filter(t => !['completato', 'non_completato'].includes(t.stato)));
+    const fatti = delGiorno.filter(t => t.stato === 'completato').length;
+    const totale = fatti + aperti.length;
+    const pct = totale ? Math.round(fatti / totale * 100) : 0;
+    const minuti = aperti.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
+    return `
+      <article class="glass-card ctrl-person ctrl-preview">
+        <header>
+          <h3>${escapeHtml(nick)}</h3>
+          ${Ctrl.assenti.has(nick) && nick !== 'claude' ? '<span class="ctrl-preview-off">Assente</span>' : ''}
+        </header>
+        <div class="ctrl-progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Task completati"><span style="width:${pct}%"></span></div>
+        <div class="ctrl-person-meta"><span>${fatti}/${totale} task</span>${minuti ? `<span>${ctrlFmtMin(minuti)} da fare</span>` : ''}</div>
+        ${aperti.length ? `<ul>${aperti.slice(0, TEAM_PREVIEW_MAX).map(riga).join('')}</ul>` : `<div class="ctrl-idle">${totale ? 'Tutto fatto' : 'Nessun task'}</div>`}
+        ${aperti.length > TEAM_PREVIEW_MAX ? `<details><summary>Altri ${aperti.length - TEAM_PREVIEW_MAX}</summary><ul>${aperti.slice(TEAM_PREVIEW_MAX).map(riga).join('')}</ul></details>` : ''}
+      </article>`;
+  };
+  return `<div class="ctrl-team ctrl-previews" aria-label="Task di ogni persona">${Ctrl.users.slice().sort((a, b) => a.localeCompare(b)).map(card).join('')}</div>`;
 }
 
 function toggleUrgentTasks() {
