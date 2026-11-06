@@ -68,12 +68,21 @@ const TASK_COMPETENZE = [
   { id: 'carta_ordine',          label: 'Ordinare carta sublimatica' },
   { id: 'inchiostri_check',      label: 'Check inchiostri e box' },
   { id: 'inchiostri_ordine',     label: 'Ordinare inchiostri e box' },
+  { id: 'ordine_fornitori', label: 'Ordine fornitori' },
+  { id: 'creazione_pacchi', label: 'Creazione pacchi' },
+  { id: 'stampa_dtf',       label: 'Stampa DTF' },
+  { id: 'stampa_uv',        label: 'Stampa UV' },
+  { id: 'stampa_mimaki',    label: 'Stampa Mimaki' },
+  { id: 'incisione_laser',  label: 'Incisione laser' },
+  { id: 'evasione',         label: 'Evasione' },
+  { id: 'fatturazione',     label: 'Fatturazione' },
+  { id: 'check_pagamento',  label: 'Check pagamento' },
 ];
 const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'ddt', 'preparazione', 'lavorazione', 'spedizione'];
 const COMPETENZE_NUOVO_PRODOTTO = ['np_bozza', 'np_mockup', 'np_stampa', 'np_shopify', 'np_customily', 'np_check'];
 const COMPETENZE_NEGOZIO = {
   ciucciamilcalzino: ['scorte_calzini_check', 'scorte_calzini_ordine', 'carta_check', 'carta_ordine', 'inchiostri_check', 'inchiostri_ordine'],
-  boxfactorylab: ['grafiche', 'catalogo'],
+  boxfactorylab: ['grafiche', 'catalogo', 'fatturazione', 'check_pagamento'],
 };
 const TASK_AREE = [
   ...TASK_MACROAREE.map(m => ({
@@ -82,6 +91,9 @@ const TASK_AREE = [
     // Stessa competenza dei task (preparazione), altro nome in questi negozi
     etichette: m.id === 'asteroidi' ? {} : { preparazione: 'Preparazione file di stampa' },
   })),
+  { id: 'tcfactory', label: 'T&C Factory', color: '#ef4444',
+    competenze: ['ordine_fornitori', 'creazione_pacchi', 'preparazione', 'stampa_dtf', 'stampa_uv', 'stampa_mimaki', 'incisione_laser', 'lavorazione', 'evasione', 'fatturazione', 'check_pagamento'],
+    etichette: { preparazione: 'Preparazione file di stampa' } },
   { id: 'produzione', label: 'Linea produttiva', color: '#64748b', competenze: ['preparazione', 'lavorazione', 'spedizione', 'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti', 'amministrazione'] },
   { id: 'automazioni', label: 'Automazioni', color: '#111827', competenze: ['verifica'] },
 ];
@@ -558,6 +570,7 @@ function renderTaskRow(t, { showOwner = false } = {}) {
     taskMacro(t.macroarea) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(t.macroarea).color};">${taskMacro(t.macroarea).label}</span>` : '',
     showOwner ? `<strong>${t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune'}</strong>` : '',
     t.automazione_errore ? '<span class="task-late">automazione non riuscita</span>' : '',
+    t.delega?.da ? `delegato da ${escapeHtml(t.delega.da)}` : '',
     t.bozza_risposta && !t.risposta_inviata_at ? 'bozza pronta' : '',
     t.risposta_inviata_at ? 'risposta inviata' : '',
     tipo ? escapeHtml(tipo.nome) : '',
@@ -907,6 +920,7 @@ function renderTaskDetail(id, storico) {
   const can = Ctrl.canAct(t);
   const a = _taskAction;
   const chiuso = ['completato', 'non_completato'].includes(t.stato);
+  const colleghi = Ctrl.users.filter(u => u !== Ctrl._me() && u !== 'claude' && u !== t.assegnato_a);
 
   const info = (label, value) => value ? `<div><dt>${label}</dt><dd>${value}</dd></div>` : '';
   const motivoBtn = (stato, label) => t.stato === stato ? '' :
@@ -933,6 +947,7 @@ function renderTaskDetail(id, storico) {
 
       <dl class="td-info">
         ${info('Assegnato a', t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune')}
+        ${info('Delegato da', t.delega?.da ? `${escapeHtml(t.delega.da)}${t.delega.nota ? ` · ${escapeHtml(t.delega.nota)}` : ''}` : '')}
         ${info('Tipo', tipo ? escapeHtml(tipo.nome) : '')}
         ${info('Automazione non riuscita', t.automazione_errore ? escapeHtml(t.automazione_errore) : '')}
         ${info('Giorno', ctrlFmtGiorno(t.giorno))}
@@ -943,7 +958,27 @@ function renderTaskDetail(id, storico) {
         ${info('Creato', `${ctrlFmtQuando(t.created_at)}${t.creato_da ? ` · ${escapeHtml(t.creato_da)}` : ''}`)}
       </dl>
 
-      ${can && a ? `
+      ${can && a === 'delega' ? `
+        <form class="task-motivo-form" onsubmit="event.preventDefault();submitTaskDelega('${id}')">
+          <strong>Delega a un collega</strong>
+          <div class="form-group">
+            <label class="form-label" for="tm-delega">A chi *</label>
+            <select id="tm-delega" class="form-input" required>
+              <option value="">Scegli…</option>
+              ${colleghi.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="tm-nota">Nota</label>
+            <textarea id="tm-nota" class="form-textarea" rows="2" maxlength="300" placeholder="es. tu conosci già questo cliente"></textarea>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button type="button" class="ctrl-btn" onclick="_taskAction=null;renderTaskDetail('${id}', _taskStoricoCache)">Annulla</button>
+            <button type="submit" class="ctrl-btn is-primary" id="tm-delega-ok">Delega</button>
+          </div>
+        </form>` : ''}
+
+      ${can && a && a !== 'delega' ? `
         <form class="task-motivo-form" onsubmit="event.preventDefault();submitTaskMotivo('${id}')">
           <strong>${taskStato(a).label}</strong>
           ${a === 'rimandato' ? `
@@ -968,7 +1003,7 @@ function renderTaskDetail(id, storico) {
             ${taskQuickActions(t).replaceAll('taskSetStato(', 'taskDetailStato(').replaceAll('taskPrendi(', 'taskDetailPrendi(')}
             ${!chiuso && t.stato !== 'in_lavorazione' ? `<button type="button" class="td-act is-done" onclick="taskDetailStato('${id}','completato')">${CtrlIcons.check()} Completato</button>` : ''}
           </div>
-          ${!chiuso ? `<div class="td-actions-more">${motivoBtn('rimandato', 'Rimanda')}${motivoBtn('bloccato', 'Bloccato')}${motivoBtn('non_completato', 'Non completato')}</div>` : ''}
+          ${!chiuso ? `<div class="td-actions-more">${motivoBtn('rimandato', 'Rimanda')}${motivoBtn('bloccato', 'Bloccato')}${motivoBtn('non_completato', 'Non completato')}${!TCAuth.isAdmin() && colleghi.length ? motivoBtn('delega', 'Delega') : ''}</div>` : ''}
         </div>` : ''}
 
       <details class="td-log">
@@ -976,8 +1011,8 @@ function renderTaskDetail(id, storico) {
         ${storico === null ? `<p class="td-empty">Caricamento…</p>` :
           storico.length ? `<ol>${storico.map(h => `
             <li><span class="task-history-dot" style="background:${taskStato(h.a_stato).color};"></span>
-              <span><strong>${taskStato(h.a_stato).label}</strong>${h.utente ? ` · ${escapeHtml(h.utente)}` : ''} · ${ctrlFmtQuando(h.at)}
-              ${h.motivo && TASK_CON_MOTIVO.includes(h.a_stato) ? `<em>${escapeHtml(h.motivo)}</em>` : ''}</span></li>`).join('')}</ol>`
+              <span><strong>${h.da_stato === h.a_stato ? 'Delegato' : taskStato(h.a_stato).label}</strong>${h.utente ? ` · ${escapeHtml(h.utente)}` : ''} · ${ctrlFmtQuando(h.at)}
+              ${h.motivo && (h.da_stato === h.a_stato || TASK_CON_MOTIVO.includes(h.a_stato)) ? `<em>${escapeHtml(h.motivo)}</em>` : ''}</span></li>`).join('')}</ol>`
           : `<p class="td-empty">Nessun passaggio registrato.</p>`}
       </details>
 
@@ -988,7 +1023,7 @@ function renderTaskDetail(id, storico) {
         </div>` : ''}
     </div>`, 620);
 
-  if (a) setTimeout(() => document.getElementById(a === 'rimandato' ? 'tm-giorno' : 'tm-motivo')?.focus(), 30);
+  if (a) setTimeout(() => document.getElementById(a === 'rimandato' ? 'tm-giorno' : a === 'delega' ? 'tm-delega' : 'tm-motivo')?.focus(), 30);
   startControlTicker();
 }
 
@@ -1002,6 +1037,25 @@ async function taskDetailStato(id, stato) {
 async function taskDetailPrendi(id) {
   await taskPrendi(id);
   openTaskDetail(id);
+}
+
+async function submitTaskDelega(id) {
+  const a = document.getElementById('tm-delega')?.value;
+  if (!a) { document.getElementById('tm-delega')?.focus(); showToast('Scegli a chi delegare', 'error'); return; }
+  const btn = document.getElementById('tm-delega-ok');
+  btn.disabled = true;
+  try {
+    await Ctrl._rpc('tc_task_delega', { p_id: id, p_a: a, p_nota: document.getElementById('tm-nota')?.value || null });
+  } catch (e) {
+    showToast(e.message, 'error');
+    btn.disabled = false;
+    return;
+  }
+  _taskAction = null;
+  closeModal(CTRL_MODAL);
+  showToast(`Delegato a ${a}`);
+  await Ctrl.load();
+  refreshControlPage();
 }
 
 async function submitTaskMotivo(id) {
