@@ -54,7 +54,6 @@ const TASK_COMPETENZE = [
   { id: 'ext_serigrafia',  label: 'Esterna: Serigrafia' },
   { id: 'ext_manifattura', label: 'Esterna: Manifattura' },
   { id: 'ext_arti',        label: 'Esterna: Arti grafiche' },
-  { id: 'amministrazione', label: 'Fatture e incassi' },
   { id: 'verifica',        label: 'Verifica automazioni' },
   { id: 'np_bozza',        label: 'Nuovo prodotto: Bozza' },
   { id: 'np_mockup',       label: 'Nuovo prodotto: Mockup' },
@@ -101,7 +100,7 @@ const TASK_AREE = [
     'lavorazione', 'spedizione', 'evasione',
     'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti',
     'check_ricamo', 'check_serigrafia', 'check_manifattura', 'check_arti',
-    'amministrazione', 'fatturazione', 'check_pagamento',
+    'fatturazione', 'check_pagamento',
   ] },
   { id: 'automazioni', label: 'Automazioni', color: '#111827', competenze: ['verifica'] },
 ];
