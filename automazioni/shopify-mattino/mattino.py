@@ -16,6 +16,7 @@ import shutil
 import sys
 import tempfile
 import time
+import traceback
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -91,6 +92,30 @@ def chiama_gestionale(funzione, **parametri):
     if not d.get('success'):
         raise RuntimeError(d.get('error') or 'Gestionale non raggiungibile')
     return d
+
+
+class Registro:
+    """Scrive l'output sia nel file di registro sia nella scheda Automazioni del Centro di controllo.
+    Se il gestionale non risponde il lavoro continua: il registro è un di più, l'allarme lo dà il controllo delle 5:30."""
+
+    def __init__(self, nome):
+        self.righe, self.id = [], None
+        try:
+            self.id = chiama_gestionale('tc_automazione_inizio', p_nome=nome)['id']
+        except Exception as e:
+            print(f'Registro non disponibile: {e}', file=sys.stderr)
+
+    def scrivi(self, testo):
+        print(testo, flush=True)
+        self.righe.append(testo)
+
+    def chiudi(self, stato, riepilogo=None):
+        if self.id is None:
+            return
+        try:
+            chiama_gestionale('tc_automazione_fine', p_id=self.id, p_stato=stato, p_riepilogo=riepilogo, p_output='\n'.join(self.righe))
+        except Exception as e:
+            print(f'Registro non aggiornato: {e}', file=sys.stderr)
 
 
 def dati_gestionale():
@@ -430,16 +455,19 @@ def conferma_pdf(temporaneo, finale, pagine_attese):
     return len(PdfReader(str(finale)).pages) == pagine_attese
 
 
-def pulisci(base, oggi):
+def pulisci(base, oggi, reg):
     """Pulizia della domenica sera: tocca solo le cartelle con il nome a data."""
+    cancellate = 0
     if not base.is_dir():
-        return 0
+        reg.scrivi('Cartella non trovata: niente da cancellare')
+        return cancellate
     for p in sorted(base.iterdir()):
         if p.is_symlink() or not p.is_dir() or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', p.name):
             continue
         shutil.rmtree(p)
-        print(f'{oggi} pulizia: cancellata {p.name}')
-    return 0
+        reg.scrivi(f'{oggi} pulizia: cancellata {p.name}')
+        cancellate += 1
+    return cancellate
 
 
 def main():
@@ -449,22 +477,36 @@ def main():
     ap.add_argument('--env', type=Path, default=QUI / '.env')
     ap.add_argument('--pulisci', action='store_true', help='cancella le cartelle dei giorni passati e basta')
     args = ap.parse_args()
-    if args.pulisci:
-        return pulisci(args.cartella, dt.datetime.now(ROMA).date())
     carica_env(args.env)
+    if args.pulisci:
+        reg = Registro('pulizia')
+        try:
+            cancellate = pulisci(args.cartella, dt.datetime.now(ROMA).date(), reg)
+            reg.scrivi(f'Cartelle cancellate: {cancellate}')
+            reg.chiudi('ok', {'cancellate': cancellate})
+            return 0
+        except Exception:
+            reg.scrivi(traceback.format_exc())
+            reg.chiudi('errore')
+            raise
     registra_font()
     # CS_PROVA nel file .env ferma tag ed esito senza toccare la programmazione
     applica = args.applica and not os.environ.get('CS_PROVA')
+    reg = Registro('mattino')
     try:
-        return giro(args, applica)
+        codice, stato, riepilogo = giro(args, applica, reg)
+        reg.chiudi(stato, riepilogo)
+        return codice
     except Exception as e:
+        reg.scrivi(traceback.format_exc())
+        reg.chiudi('errore' if applica else 'prova')
         if applica:
             # Senza esito scatterebbe comunque il controllo delle 5:30: così il motivo arriva subito
             invia_esito(False, {}, f'{type(e).__name__}: {str(e)[:300]}')
         raise
 
 
-def giro(args, applica):
+def giro(args, applica, reg):
 
     inizio = time.time()
     oggi = dt.datetime.now(ROMA).date()
@@ -473,10 +515,10 @@ def giro(args, applica):
     errori, avvisi_stampa = [], []
     errori_negozio = {}
     dati = dati_gestionale()
-    # Sabato, domenica e festivi non si lavora: il giorno del rientro fa tutto in un'unica sessione
+    # Weekend, festivi e chiusure del Planner: il giorno del rientro fa tutto in un'unica sessione
     if not dati['lavorativo']:
-        print(f"--- {oggi} giorno non lavorativo: nessun giro")
-        return 0
+        reg.scrivi(f"{oggi} giorno non lavorativo ({dati.get('motivo')}): nessun giro")
+        return 0, 'saltato', {'motivo': dati.get('motivo')}
     cartella.mkdir(parents=True, exist_ok=True)
 
     # 1. Mail: il cervello le ha già lette; si controlla che il controllo sia davvero aggiornato
@@ -613,17 +655,27 @@ def giro(args, applica):
             errori_negozio.update({i: x for i in NEGOZI_FILE_STAMPA})
         esito = {n['id']: {'fatti': fatti.get(n['id'], []), 'errore': errori_negozio.get(n['id'])} for n in dati['negozi']}
         risposta = invia_esito(not errori_negozio, esito)
-        print(f"Centro di controllo: {risposta['ordini_avanzati']} ordini passati alla preparazione")
-    print(f"--- {dt.datetime.now(ROMA):%Y-%m-%d %H:%M} {'giro vero' if applica else 'prova, nessun tag'}")
-    print(f"Cartella: {cartella}")
-    print(f"DDT: {sum(len(x[4]) for x in per_negozio)} ordini, {pagine_ddt} pagine, {finale_ddt.stat().st_size // 1024} KB")
-    print(f"Stampa: {pdf_stampa[1] if pdf_stampa else 0} pagine, {pdf_stampa[0].stat().st_size // 1024 ** 2 if pdf_stampa else 0} MB")
-    print(f"Non pagati esclusi: {len(non_pagati)}, rimandati a domani: {len(rimandati)}")
-    print(f"Da modificare: {len(richieste)}, altre richieste da controllare: {len(altrove) + len(senza_ordine)}, righe senza file: {len(senza_file)}")
-    print(f"Tag messi: {taggati}, non messi: {len(saltati)}, tempo: {time.time() - inizio:.0f} s")
+        reg.scrivi(f"Centro di controllo: {risposta['ordini_avanzati']} ordini passati alla preparazione")
+    n_ordini = sum(len(x[4]) for x in per_negozio)
+    pagine_stampa = pdf_stampa[1] if pdf_stampa else 0
+    reg.scrivi(f"--- {dt.datetime.now(ROMA):%Y-%m-%d %H:%M} {'giro vero' if applica else 'prova, nessun tag'}")
+    reg.scrivi(f"Cartella: {cartella}")
+    reg.scrivi(f"DDT: {n_ordini} ordini, {pagine_ddt} pagine, {finale_ddt.stat().st_size // 1024} KB")
+    reg.scrivi(f"Stampa: {pagine_stampa} pagine, {pdf_stampa[0].stat().st_size // 1024 ** 2 if pdf_stampa else 0} MB")
+    reg.scrivi(f"Non pagati esclusi: {len(non_pagati)}, rimandati a domani: {len(rimandati)}")
+    reg.scrivi(f"Da modificare: {len(richieste)}, altre richieste da controllare: {len(altrove) + len(senza_ordine)}, righe senza file: {len(senza_file)}")
+    reg.scrivi(f"Tag messi: {taggati}, non messi: {len(saltati)}, tempo: {time.time() - inizio:.0f} s")
     for x in errori + avvisi_stampa + avvisi_mail + bloccati:
-        print('ATTENZIONE:', x, file=sys.stderr)
-    return 1 if errori or avvisi_stampa or avvisi_mail or bloccati else 0
+        reg.scrivi(f'ATTENZIONE: {x}')
+    # Lo stesso contenuto del riepilogo in prima pagina del PDF
+    for titolo, voci, _ in sezioni:
+        if voci:
+            reg.scrivi(f'\n{titolo}')
+            for v in voci:
+                reg.scrivi(f'- {v}')
+    codice = 1 if errori or avvisi_stampa or avvisi_mail or bloccati else 0
+    stato = ('errore' if codice else 'ok') if applica else 'prova'
+    return codice, stato, {'ordini': n_ordini, 'pagine_stampa': pagine_stampa, 'tag': taggati}
 
 
 if __name__ == '__main__':

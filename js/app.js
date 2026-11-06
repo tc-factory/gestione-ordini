@@ -3285,7 +3285,7 @@ function plannerItemsForDate(dateStr) {
 
   TCFactory.getEventsForDate(dateStr).forEach(e => {
     const layer = e.event_type === 'ferie' ? 'ferie' : 'eventi';
-    if (!L.includes(layer)) return;
+    if (e.event_type !== 'chiusura' && !L.includes(layer)) return;   // le chiusure si vedono sempre
     items.push({
       kind: 'event', key: 'e:' + e.id, eventId: e.id, color: e.color, text: getEventChipText(e),
       sub: e.event_type !== 'ferie' && (e.user_ids || []).length ? '👥 ' + e.user_ids.join(', ') : '',
@@ -3325,6 +3325,7 @@ const EVENT_TYPES = [
   { id:'impegno', label:'Impegno', color:'#6366f1' },
   { id:'ferie',   label:'Ferie',   color:'#f97316' },
   { id:'scadenza',label:'Scadenza',color:'#ef4444' },
+  { id:'chiusura',label:'Chiusura',color:'#111827' },   // azienda chiusa: si fermano task e automazioni
 ];
 
 async function initCalendar() {
@@ -3659,6 +3660,7 @@ function getEventChipText(ev) {
     // Mostra direttamente i nomi di chi è in ferie
     return '🏖 ' + (users.length > 0 ? users.join(', ') : ev.title);
   }
+  if (ev.event_type === 'chiusura') return '🔒 ' + ev.title;
   // Impegno / Scadenza: titolo + coinvolti in piccolo
   const icon = ev.event_type === 'scadenza' ? '⚠ ' : '';
   const userStr = users.length > 0
@@ -4001,6 +4003,7 @@ async function openCalEventDialog(eventId, dateStr) {
   const modal = document.getElementById('cal-event-modal');
   const defaultDate = dateStr || new Date().toISOString().slice(0,10);
   const isFerie = _calSelectedType === 'ferie';
+  const isChiusura = _calSelectedType === 'chiusura';
 
   modal.innerHTML = `
     <div class="modal">
@@ -4023,8 +4026,8 @@ async function openCalEventDialog(eventId, dateStr) {
         </div>
 
         <div id="cal-title-group" class="form-group" style="display:${isFerie?'none':'block'}">
-          <label class="form-label">Titolo *</label>
-          <input id="cal-title" class="form-input" value="${escapeHtml(ev?.title||'')}" placeholder="Es. Fiera del tessile">
+          <label class="form-label" id="cal-title-label">${isChiusura ? 'Motivo' : 'Titolo *'}</label>
+          <input id="cal-title" class="form-input" value="${escapeHtml(ev?.title||'')}" placeholder="${isChiusura ? 'Es. Ferie di agosto' : 'Es. Fiera del tessile'}">
         </div>
 
         <div class="form-row">
@@ -4038,7 +4041,9 @@ async function openCalEventDialog(eventId, dateStr) {
           </div>
         </div>
 
-        <div class="form-group">
+        <p id="cal-closed-hint" class="settings-section-hint" style="display:${isChiusura?'block':'none'};margin:0;">In questi giorni si fermano task e automazioni: si riprende tutto al rientro.</p>
+
+        <div id="cal-users-group" class="form-group" style="display:${isChiusura?'none':'block'}">
           <label class="form-label">${isFerie ? 'Chi è in ferie' : 'Coinvolti'}</label>
           <div style="display:flex;flex-wrap:wrap;gap:10px;">
             ${users.map(u => {
@@ -4086,6 +4091,13 @@ function selectCalType(id) {
   const ng = document.getElementById('cal-notes-group');
   if (tg) tg.style.display = isFerie ? 'none' : 'block';
   if (ng) ng.style.display = isFerie ? 'none' : 'block';
+  const isChiusura = id === 'chiusura';
+  const ug = document.getElementById('cal-users-group');
+  const hint = document.getElementById('cal-closed-hint');
+  const tl = document.getElementById('cal-title-label');
+  if (ug) ug.style.display = isChiusura ? 'none' : 'block';
+  if (hint) hint.style.display = isChiusura ? 'block' : 'none';
+  if (tl) tl.textContent = isChiusura ? 'Motivo' : 'Titolo *';
   // Aggiorna label coinvolti
   const lbl = document.querySelector('[for="cal-coinvolti"], .form-label');
 }
@@ -4097,13 +4109,16 @@ async function saveCalEvent(existingId) {
   const notes  = document.getElementById('cal-notes')?.value || '';
   if (!from || !to) { showToast('Inserisci le date', 'error'); return; }
 
-  const userIds = Array.from(document.querySelectorAll('[id^="cal-user-"]:checked')).map(el => el.value);
   const evType  = EVENT_TYPES.find(t => t.id === _calSelectedType) || EVENT_TYPES[0];
+  // Una chiusura riguarda tutti: nessuna persona selezionata
+  const userIds = evType.id === 'chiusura' ? [] : Array.from(document.querySelectorAll('[id^="cal-user-"]:checked')).map(el => el.value);
 
   // Per le ferie il titolo è generato dai nomi; per gli altri è obbligatorio
   let title = rawTitle;
   if (evType.id === 'ferie') {
     title = userIds.length > 0 ? userIds.join(', ') : 'Ferie';
+  } else if (evType.id === 'chiusura') {
+    title = title || 'Chiusura';
   } else if (!title) {
     showToast('Inserisci un titolo', 'error'); return;
   }

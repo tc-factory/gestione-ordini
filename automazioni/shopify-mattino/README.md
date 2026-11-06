@@ -17,7 +17,8 @@ Regole:
 - Gli ordini da modificare hanno il DDT con la fascia rossa e restano fuori dal PDF di stampa.
 - Se il file di Customily non è ancora pronto, l'ordine passa interamente al giorno dopo.
 - Il giro non cancella e non sovrascrive nulla.
-- Sabato, domenica e festivi (`tc_festivo`) il giro si ferma subito: il giorno del rientro fa tutto in un'unica sessione.
+- Weekend, festivi e chiusure del Planner (`tc_giorno_lavorativo`): il giro si ferma subito e al rientro fa tutto in un'unica sessione.
+- Ogni esecuzione, con il suo output, si legge in Centro di controllo → Automazioni.
 - La pulizia della domenica alle 23:59 (`--pulisci`) cancella le cartelle con il nome a data.
 - Il font Noto Sans è distribuito con licenza SIL Open Font License.
 

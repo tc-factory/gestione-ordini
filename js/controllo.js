@@ -372,6 +372,7 @@ function loadControlExtras() {
   if (['ordini', 'gls', 'comunicazioni', 'cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
   if (Ctrl.view === 'cervello') loadBrainRules();
   if (Ctrl.view === 'report') loadControlReport();
+  if (Ctrl.view === 'automazioni') loadControlAutomations();
 }
 
 async function setControlDay(iso) {
@@ -396,7 +397,7 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['ordini', 'Shopify'], ['gls', 'GLS'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']] : [])];
+  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['ordini', 'Shopify'], ['gls', 'GLS'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
@@ -405,6 +406,7 @@ function renderControlPage() {
     : Ctrl.view === 'comunicazioni' ? renderControlComms()
     : Ctrl.view === 'cervello' ? renderControlBrain()
     : Ctrl.view === 'collegamenti' ? renderControlLinks()
+    : Ctrl.view === 'automazioni' ? renderControlAutomations()
     : Ctrl.view === 'competenze' ? renderControlSkills()
     : Ctrl.view === 'report' ? renderControlReport()
     : renderControlMyDay();
@@ -1850,7 +1852,7 @@ function renderTeamTable(people) {
       <tr>
         <td><strong>${escapeHtml(nick)}</strong></td>
         <td>${attivo ? '<span class="ctrl-status" style="--st:#22c55e;">Sì</span>' : '<span class="ctrl-cell-sub">No</span>'}</td>
-        <td>${!attivo ? '<span class="ctrl-cell-sub">—</span>' : nick === 'claude' ? 'Tutti i giorni' : ctrlFmtMin(o.minuti_giorno || 420)}</td>
+        <td>${!attivo ? '<span class="ctrl-cell-sub">—</span>' : nick === 'claude' ? 'Senza limite' : ctrlFmtMin(o.minuti_giorno || 420)}</td>
         <td>${prim || sec ? `${prim} primario · ${sec} secondario` : '<span class="ctrl-cell-sub">Nessuna competenza</span>'}</td>
         <td class="ctrl-cell-actions"><button class="ctrl-btn" onclick="openMemberForm('${escapeHtml(nick)}')">Piano</button></td>
       </tr>`;
@@ -1899,7 +1901,7 @@ function renderControlSkills() {
       <p>Il primo clic su una persona la rende primario, il secondo clic su un'altra la rende secondario; un clic su chi è evidenziato lo toglie.
         Se il primario è in ferie o a un evento il task passa al secondario; se manca anche lui resta in coda comune.
         Un clic su claude rende la competenza un'automazione: se non funziona, il task passa al secondario e nasce un task di verifica nell'area Automazioni. Quando chi verifica segna Fatto, i task non ancora iniziati tornano a Claude.
-        Claude lavora tutti i giorni, gli altri da lunedì a venerdì, festivi esclusi.
+        Tutti, Claude compreso, lavorano da lunedì a venerdì: fermi nei festivi e nelle chiusure del Planner.
         ${fuoriPiano.length ? `Fuori dal piano del giorno: ${fuoriPiano.map(escapeHtml).join(', ')}.` : ''}</p>
     </section>
     ${TASK_AREE.map(a => `
@@ -1987,6 +1989,79 @@ async function removeMailRule(mittente) {
 // ─────────────────────────────────────────────
 // REPORT (admin)
 // ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// AUTOMAZIONI (admin): ogni esecuzione con il suo output
+// ─────────────────────────────────────────────
+
+const AUTOMAZIONI = {
+  mattino: { nome: 'DDT e file di stampa', quando: 'Giorni lavorativi alle 5:00' },
+  pulizia: { nome: 'Pulizia della cartella', quando: 'Domenica alle 23:59' },
+};
+const AUTOMAZIONE_STATI = {
+  in_corso: ['In corso', '#f59e0b'], ok: ['Riuscita', '#22c55e'], errore: ['Errore', '#ef4444'],
+  saltato: ['Non lavorativo', '#94a3b8'], prova: ['Prova', '#6366f1'], interrotta: ['Interrotta', '#ef4444'],
+};
+const CtrlAuto = { righe: null, error: null };
+
+async function loadControlAutomations() {
+  const { data, error } = await supabaseClient.from('automazione_esecuzioni').select('*').order('at', { ascending: false }).limit(100);
+  CtrlAuto.righe = data || [];
+  CtrlAuto.error = error ? Ctrl._fail(error) : null;
+  if (Ctrl.view === 'automazioni') refreshControlPage();
+}
+
+// Partita da più di due ore e mai conclusa: il processo si è fermato senza dire nulla
+function automazioneStato(r) {
+  return r.stato === 'in_corso' && Date.now() - new Date(r.at) > 2 * 3600e3 ? 'interrotta' : r.stato;
+}
+
+function renderControlAutomations() {
+  if (CtrlAuto.error) return `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(CtrlAuto.error.message)}</div></div>`;
+  if (!CtrlAuto.righe) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
+  const pillola = (r) => {
+    const [label, color] = AUTOMAZIONE_STATI[automazioneStato(r)] || [r.stato, '#94a3b8'];
+    return `<span class="ctrl-status" style="--st:${color};">${label}</span>`;
+  };
+  const scheda = ([id, a]) => {
+    const ultima = CtrlAuto.righe.find(r => r.nome === id);
+    return `
+      <article class="glass-card ctrl-person">
+        <header><h3 style="text-transform:none;">${a.nome}</h3></header>
+        <div class="ctrl-person-meta"><span>${a.quando}</span></div>
+        <div class="ctrl-person-now">${ultima ? `${pillola(ultima)} <span class="ctrl-cell-sub">${ctrlFmtQuando(ultima.at)}</span>` : '<span class="ctrl-idle">Non è ancora partita</span>'}</div>
+      </article>`;
+  };
+  const durata = (r) => r.fine ? `${Math.max(1, Math.round((new Date(r.fine) - new Date(r.at)) / 1000))} s` : '';
+  const numeri = (r) => {
+    const x = r.riepilogo || {};
+    return [
+      x.ordini != null ? `${x.ordini} DDT` : '',
+      x.pagine_stampa != null ? `${x.pagine_stampa} pagine di stampa` : '',
+      x.tag != null ? `${x.tag} tag` : '',
+      x.cancellate != null ? (x.cancellate === 1 ? '1 cartella cancellata' : `${x.cancellate} cartelle cancellate`) : '',
+      x.motivo ? escapeHtml(x.motivo) : '',
+    ].filter(Boolean).join(' · ');
+  };
+  const riga = (r) => `
+    <details class="ctrl-auto-run">
+      <summary>
+        <span class="ctrl-auto-when">${ctrlFmtQuando(r.at)}</span>
+        <strong>${escapeHtml(AUTOMAZIONI[r.nome]?.nome || r.nome)}</strong>
+        ${pillola(r)}
+        <span class="ctrl-cell-sub">${[numeri(r), durata(r)].filter(Boolean).join(' · ')}</span>
+      </summary>
+      <pre>${escapeHtml(r.output || 'Nessun output.')}</pre>
+    </details>`;
+  return `
+    <div class="ctrl-team">${Object.entries(AUTOMAZIONI).map(scheda).join('')}</div>
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Esecuzioni</h2><span class="table-count">${CtrlAuto.righe.length}</span>
+        <span class="ctrl-group-hint">Le ultime 100. Clicca una riga per leggere l'output</span>
+        <button class="ctrl-btn" onclick="loadControlAutomations()">↻ Aggiorna</button></div>
+      ${CtrlAuto.righe.length ? `<div class="ctrl-auto-list">${CtrlAuto.righe.map(riga).join('')}</div>` : '<div class="empty-list">Nessuna esecuzione registrata.</div>'}
+    </section>`;
+}
 
 const CtrlReport = { giorni: 7, dati: null, error: null };
 
