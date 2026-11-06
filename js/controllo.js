@@ -1777,7 +1777,7 @@ function renderControlLinks() {
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Negozi Shopify</h2><span class="ctrl-group-hint">Controllo automatico ogni 5 minuti</span></div>
       <div class="table-scroll"><table class="data-table ctrl-links">${testa}<tbody>
-        ${ShopLinks.negozi.map(n => riga(n.nome, n.dominio, n, `${n.ordini} ordini · ${n.da_evadere} da evadere`, `syncShopify('${n.id}')`, shopBusy(n.id))).join('')}
+        ${ShopLinks.negozi.map(n => riga(n.nome, n.dominio, n, `${n.da_evadere} ordini da evadere · ${n.in_consegna} ordini in consegna`, `syncShopify('${n.id}')`, shopBusy(n.id))).join('')}
       </tbody></table></div>
     </section>
     <section class="glass-card page-card ctrl-group">

@@ -103,9 +103,17 @@ begin
     select jsonb_agg(jsonb_build_object(
       'id', s.id, 'nome', s.nome, 'dominio', s.dominio, 'attivo', s.attivo,
       'ultimo_sync_at', s.ultimo_sync_at, 'ultimo_errore', s.ultimo_errore, 'sync_da', s.sync_da,
-      'ordini', (select count(*) from shopify_orders o where o.store_id = s.id),
       'da_evadere', (select count(*) from shopify_orders o where o.store_id = s.id and o.annullato_at is null
-                       and o.stato_evasione in ('UNFULFILLED', 'PARTIALLY_FULFILLED', 'ON_HOLD', 'IN_PROGRESS', 'SCHEDULED'))
+                       and o.stato_evasione in ('UNFULFILLED', 'PARTIALLY_FULFILLED', 'ON_HOLD', 'IN_PROGRESS', 'SCHEDULED')),
+      -- Evasi e non ancora consegnati. Senza numero di tracking la consegna non si può sapere: non contano.
+      -- "Consegnato" su Shopify non vale per chi ha un problema aperto: lo chiude solo GLS (come tracking-check).
+      'in_consegna', (select count(*) from shopify_orders o
+                        left join spedizioni_tracking k on k.ordine_id = o.id
+                       where o.store_id = s.id and o.annullato_at is null and o.stato_evasione = 'FULFILLED'
+                         and k.consegnata_at is null
+                         and exists (select 1 from jsonb_array_elements(o.tracking) t where nullif(t->>'numero', '') is not null)
+                         and (k.stato in ('problema', 'ritardo')
+                              or not exists (select 1 from jsonb_array_elements(o.tracking) t where t->>'stato' = 'DELIVERED')))
     ) order by s.nome) from shopify_stores s
   ), '[]'::jsonb));
 end;
