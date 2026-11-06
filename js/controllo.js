@@ -2,7 +2,7 @@
  * T&C Factory — Centro di controllo (fase 0: motore dei task)
  *
  *   • Tasks: all'operatore i suoi task e la coda comune; all'admin la coda comune da assegnare
- *   • Competenze (admin): la lista per ogni area e chi ha ciascuna competenza
+ *   • Competenze (admin): per ogni area e competenza il primario e il secondario
  *   • Team (admin): carico, task in corso e punteggio di ogni operatore
  *   • Tipi di task (admin): catalogo con tempo standard e tempo reale misurato
  *
@@ -39,7 +39,7 @@ const TASK_MACROAREE = [
   { id: 'asteroidi',         label: 'Asteroidi Store',      color: '#14b8a6' },
 ];
 const taskMacro = (id) => TASK_MACROAREE.find(m => m.id === id);
-// Competenze: voci "area:competenza" in task_operatori.competenze; i task senza negozio sono dell'area "produzione"
+// Competenze: voci "area:competenza" con primario e secondario (competenze_responsabili); i task senza negozio sono dell'area "produzione"
 const TASK_COMPETENZE = [
   { id: 'whatsapp',     label: 'WhatsApp' },
   { id: 'social',       label: 'Messaggi social' },
@@ -123,6 +123,7 @@ const Ctrl = {
   tipi: [],
   users: [],             // nickname dello staff
   operatori: [],         // impostazioni del piano del giorno (task_operatori)
+  responsabili: {},      // voce "area:competenza" → { primario, secondario }
   problemi: [],          // collegamenti con problemi, in cima alla pagina (solo admin)
   soloUrgenti: false,    // lista dei task urgenti al posto della coda
   punteggi: {},          // operatore → punteggio del giorno mostrato
@@ -170,13 +171,15 @@ const Ctrl = {
       if (users) this.users = users.filter(u => !u.is_admin).map(u => u.nickname);   // l'admin non riceve task
 
       if (TCAuth.isAdmin()) {
-        const [oggi, sette, tempi, operatori, problemi] = await Promise.all([
+        const [oggi, sette, tempi, operatori, problemi, responsabili] = await Promise.all([
           this._rpc('tc_task_punteggi', { p_dal: d, p_al: d }),
           this._rpc('tc_task_punteggi', { p_dal: ctrlAddDays(d, -6), p_al: d }),
           this._rpc('tc_task_tempi_reali'),
           supabaseClient.from('task_operatori').select('*'),
           this._rpc('tc_problemi_collegamenti').catch(() => ({ problemi: [] })),
+          supabaseClient.from('competenze_responsabili').select('*'),
         ]);
+        this.responsabili = Object.fromEntries((responsabili.data || []).map(r => [r.voce, r]));
         this.operatori = operatori.data || [];
         this.problemi = problemi.problemi || [];
         this.punteggi  = Object.fromEntries((oggi.punteggi || []).map(p => [p.operatore, p]));
@@ -1711,25 +1714,26 @@ async function distributeQueue() {
   } catch (e) { showToast(e.message, 'error'); }
 }
 
-// Tabella del team: chi entra nel piano, i suoi minuti e le competenze
+// Tabella del team: chi entra nel piano, i suoi minuti e quante competenze segue come primario o secondario
 function renderTeamTable(people) {
   const riga = (nick) => {
     const o = Ctrl.operatori.find(x => x.nickname === nick) || {};
-    const voci = o.competenze || [];
-    const aree = TASK_AREE.map(a => ({ a, n: voci.filter(v => v.startsWith(a.id + ':')).length })).filter(x => x.n);
+    const voci = Object.values(Ctrl.responsabili);
+    const prim = voci.filter(r => r.primario === nick).length, sec = voci.filter(r => r.secondario === nick).length;
+    const attivo = o.attivo !== false;
     return `
       <tr>
         <td><strong>${escapeHtml(nick)}</strong></td>
-        <td>${o.attivo ? '<span class="ctrl-status" style="--st:#22c55e;">Sì</span>' : '<span class="ctrl-cell-sub">No</span>'}</td>
-        <td>${o.attivo ? ctrlFmtMin(o.minuti_giorno) : '<span class="ctrl-cell-sub">—</span>'}</td>
-        <td>${aree.length ? aree.map(x => `<span class="ctrl-macro-tag" style="--m:${x.a.color};">${x.a.label} ${x.n}</span>`).join('<span aria-hidden="true"> · </span>') : '<span class="ctrl-cell-sub">Nessuna competenza</span>'}</td>
-        <td class="ctrl-cell-actions"><button class="ctrl-btn" onclick="openMemberForm('${escapeHtml(nick)}')">Competenze</button></td>
+        <td>${attivo ? '<span class="ctrl-status" style="--st:#22c55e;">Sì</span>' : '<span class="ctrl-cell-sub">No</span>'}</td>
+        <td>${!attivo ? '<span class="ctrl-cell-sub">—</span>' : nick === 'claude' ? 'Tutti i giorni' : ctrlFmtMin(o.minuti_giorno || 420)}</td>
+        <td>${prim || sec ? `${prim} primario · ${sec} secondario` : '<span class="ctrl-cell-sub">Nessuna competenza</span>'}</td>
+        <td class="ctrl-cell-actions"><button class="ctrl-btn" onclick="openMemberForm('${escapeHtml(nick)}')">Piano</button></td>
       </tr>`;
   };
   return `
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Team</h2><span class="table-count">${people.length}</span>
-        <span class="ctrl-group-hint">Il piano del giorno assegna a ognuno solo i task delle sue competenze</span></div>
+        <span class="ctrl-group-hint">Le competenze si assegnano dalla scheda Competenze</span></div>
       <div class="table-scroll"><table class="data-table ctrl-links">
         <thead><tr><th>Persona</th><th>Nel piano</th><th>Tempo al giorno</th><th>Competenze</th><th><span class="sr-only">Azioni</span></th></tr></thead>
         <tbody>${people.map(riga).join('')}</tbody>
@@ -1737,44 +1741,62 @@ function renderTeamTable(people) {
     </section>`;
 }
 
-// Scheda Competenze: la lista completa per ogni area; un clic su una persona dà o toglie la competenza
+// Scheda Competenze: per ogni competenza il primario (giallo) e il secondario (bordo giallo)
+const skillRuolo = (voce, nick) => {
+  const r = Ctrl.responsabili[voce];
+  return r?.primario === nick ? 'primario' : r?.secondario === nick ? 'secondario' : '';
+};
+const SKILL_CLASSE = { primario: 'is-primary', secondario: 'is-secondary' };
+
 function renderControlSkills() {
-  const operatore = (nick) => Ctrl.operatori.find(o => o.nickname === nick);
-  const fuoriPiano = Ctrl.users.filter(nick => !operatore(nick)?.attivo);
-  return TASK_AREE.map(a => `
+  const fuoriPiano = Ctrl.users.filter(nick => Ctrl.operatori.find(o => o.nickname === nick)?.attivo === false);
+  const pulsante = (voce, nick) => {
+    const ruolo = skillRuolo(voce, nick);
+    return `<button type="button" class="ctrl-btn ${SKILL_CLASSE[ruolo] || ''}" aria-pressed="${!!ruolo}"
+      aria-label="${escapeHtml(nick)}${ruolo ? `: ${ruolo}` : ''}"
+      data-nick="${escapeHtml(nick)}" data-voce="${voce}" onclick="toggleSkillOwner(this)">${escapeHtml(nick)}</button>`;
+  };
+  return `
+    <section class="glass-card page-card ctrl-group ctrl-skills-help">
+      <div class="ctrl-skill-people" aria-hidden="true">
+        <span class="ctrl-btn is-primary">Primario</span><span class="ctrl-btn is-secondary">Secondario</span>
+      </div>
+      <p>Il primo clic su una persona la rende primario, il secondo clic su un'altra la rende secondario; un clic su chi è evidenziato lo toglie.
+        Se il primario è in ferie o a un evento il task passa al secondario; se manca anche lui resta in coda comune.
+        Claude lavora tutti i giorni, gli altri da lunedì a venerdì, festivi esclusi.
+        ${fuoriPiano.length ? `Fuori dal piano del giorno: ${fuoriPiano.map(escapeHtml).join(', ')}.` : ''}</p>
+    </section>
+    ${TASK_AREE.map(a => `
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>${a.label}</h2><span class="table-count">${a.competenze.length}</span></div>
       <div class="table-scroll"><table class="data-table ctrl-skills-list">
         <thead><tr><th>Competenza</th><th>Team</th></tr></thead>
-        <tbody>${a.competenze.map(c => {
-          const voce = `${a.id}:${c}`;
-          return `<tr><td><strong>${competenzaLabel(c)}</strong></td>
-            <td><div class="ctrl-skill-people">${Ctrl.users.map(nick => {
-              const ha = !!operatore(nick)?.competenze?.includes(voce);
-              return `<button type="button" class="ctrl-btn ${ha ? 'is-primary' : ''}" aria-pressed="${ha}"
-                data-nick="${escapeHtml(nick)}" data-voce="${voce}" onclick="toggleMemberSkill(this)">${escapeHtml(nick)}</button>`;
-            }).join('') || '<span class="ctrl-cell-sub">Nessuno nel team</span>'}</div></td></tr>`;
-        }).join('')}</tbody>
+        <tbody>${a.competenze.map(c => `<tr><td><strong>${competenzaLabel(c)}</strong></td>
+            <td><div class="ctrl-skill-people">${Ctrl.users.map(nick => pulsante(`${a.id}:${c}`, nick)).join('') || '<span class="ctrl-cell-sub">Nessuno nel team</span>'}</div></td></tr>`).join('')}</tbody>
       </table></div>
-    </section>`).join('') + `
-    <p class="settings-section-hint ctrl-note">Clicca su una persona per darle o toglierle la competenza: si salva da solo.
-      ${fuoriPiano.length ? `Non ricevono task finché non entrano nel piano del giorno (scheda Team): ${fuoriPiano.map(escapeHtml).join(', ')}.` : ''}</p>`;
+    </section>`).join('')}`;
 }
 
-// I salvataggi vanno in fila: con più clic di seguito sulla stessa persona vince sempre l'ultimo
-function toggleMemberSkill(btn) {
+// Chi è evidenziato si toglie; gli altri occupano il posto da primario se è libero, altrimenti quello da secondario.
+// I salvataggi vanno in fila, così con più clic di seguito vince sempre l'ultimo.
+function toggleSkillOwner(btn) {
   const { nick, voce } = btn.dataset;
-  let o = Ctrl.operatori.find(x => x.nickname === nick);
-  if (!o) { o = { nickname: nick, competenze: [] }; Ctrl.operatori.push(o); }
-  const voci = o.competenze || [];
-  const ha = !voci.includes(voce);
-  const competenze = ha ? [...voci, voce] : voci.filter(v => v !== voce);
-  o.competenze = competenze;
-  btn.classList.toggle('is-primary', ha);
-  btn.setAttribute('aria-pressed', ha);
+  const r = { voce, primario: null, secondario: null, ...Ctrl.responsabili[voce] };
+  const ruolo = skillRuolo(voce, nick);
+  if (ruolo) r[ruolo] = null;
+  else if (!r.primario) r.primario = nick;
+  else r.secondario = nick;
+  Ctrl.responsabili[voce] = r;
+  btn.closest('.ctrl-skill-people').querySelectorAll('button').forEach(b => {
+    const q = skillRuolo(voce, b.dataset.nick);
+    b.classList.toggle('is-primary', q === 'primario');
+    b.classList.toggle('is-secondary', q === 'secondario');
+    b.setAttribute('aria-pressed', !!q);
+    b.setAttribute('aria-label', b.dataset.nick + (q ? `: ${q}` : ''));
+  });
   Ctrl._skillSave = (Ctrl._skillSave || Promise.resolve()).then(async () => {
     try {
-      const { error } = await supabaseClient.from('task_operatori').upsert({ nickname: nick, competenze });
+      const { error } = await supabaseClient.from('competenze_responsabili').upsert(r);
       if (error) throw Ctrl._fail(error);
     } catch (e) {
       showToast(e.message, 'error');
@@ -1786,45 +1808,34 @@ function toggleMemberSkill(btn) {
 
 function openMemberForm(nick) {
   const o = Ctrl.operatori.find(x => x.nickname === nick) || {};
-  const voci = new Set(o.competenze || []);
   ctrlModal(`
-    ${ctrlModalHead(`Competenze di ${escapeHtml(nick)}`)}
+    ${ctrlModalHead(`Piano di ${escapeHtml(nick)}`)}
     <form class="modal-body" style="gap:14px;" onsubmit="event.preventDefault();submitMemberForm('${escapeHtml(nick)}')">
       <label class="switch-row" style="padding:0;">
-        <span><strong>Nel piano del giorno</strong><small>Riceve i task dalla coda ogni mattina</small></span>
-        <input id="mb-attivo" type="checkbox" class="switch" ${o.attivo ? 'checked' : ''}>
+        <span><strong>Nel piano del giorno</strong><small>Riceve i task delle sue competenze ogni mattina</small></span>
+        <input id="mb-attivo" type="checkbox" class="switch" ${o.attivo !== false ? 'checked' : ''}>
       </label>
-      <div class="form-group">
+      ${nick === 'claude' ? '' : `<div class="form-group">
         <label class="form-label" for="mb-minuti">Minuti di lavoro al giorno</label>
         <input id="mb-minuti" type="number" class="form-input" min="30" max="720" value="${o.minuti_giorno || 420}">
-      </div>
-      <div class="ctrl-skills">
-        ${TASK_AREE.map(a => `
-          <fieldset class="ctrl-skill-area">
-            <legend style="color:${a.color};">${a.label}</legend>
-            ${a.competenze.map(c => `<label><input type="checkbox" data-skill="${a.id}:${c}" ${voci.has(`${a.id}:${c}`) ? 'checked' : ''}> ${competenzaLabel(c)}</label>`).join('')}
-          </fieldset>`).join('')}
-      </div>
+      </div>`}
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button type="button" class="btn btn-secondary" onclick="closeModal('${CTRL_MODAL}')">Annulla</button>
         <button type="submit" class="btn btn-primary" id="mb-save">Salva</button>
       </div>
-    </form>`, 760);
+    </form>`, 460);
 }
 
 async function submitMemberForm(nick) {
-  const row = {
-    nickname: nick,
-    attivo: document.getElementById('mb-attivo').checked,
-    minuti_giorno: Math.min(720, Math.max(30, parseInt(document.getElementById('mb-minuti').value, 10) || 420)),
-    competenze: [...document.querySelectorAll('[data-skill]:checked')].map(x => x.dataset.skill),
-  };
+  const minuti = document.getElementById('mb-minuti');
+  const row = { nickname: nick, attivo: document.getElementById('mb-attivo').checked };
+  if (minuti) row.minuti_giorno = Math.min(720, Math.max(30, parseInt(minuti.value, 10) || 420));
   const btn = document.getElementById('mb-save');
   btn.disabled = true;
   const { error } = await supabaseClient.from('task_operatori').upsert(row);
   if (error) { showToast(Ctrl._fail(error).message, 'error'); btn.disabled = false; return; }
   closeModal(CTRL_MODAL);
-  showToast('Competenze salvate');
+  showToast('Piano salvato');
   await Ctrl.load();
   refreshControlPage();
 }
