@@ -97,7 +97,7 @@ const TASK_AREE = [
     etichette: m.id === 'asteroidi' ? {} : { preparazione: 'Preparazione file di stampa' },
   })),
   { id: 'produzione', label: 'Linea produttiva', color: '#64748b', competenze: [
-    'ordine_fornitori', 'creazione_pacchi', 'preparazione', 'prep_file', 'stampa_dtf', 'stampa_uv', 'stampa_mimaki', 'incisione_laser',
+    'ordine_fornitori', 'creazione_pacchi', 'prep_file', 'stampa_dtf', 'stampa_uv', 'stampa_mimaki', 'incisione_laser',
     'lavorazione', 'spedizione', 'evasione',
     'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti',
     'check_ricamo', 'check_serigrafia', 'check_manifattura', 'check_arti',
