@@ -16,7 +16,8 @@ Regole:
 - Sul DDT si nascondono solo i campi di servizio (`CAMPI_NASCOSTI`); nome, posizione e loghi restano visibili.
 - Gli ordini da modificare hanno il DDT con la fascia rossa e restano fuori dal PDF di stampa.
 - Se il file di Customily non è ancora pronto, l'ordine passa interamente al giorno dopo.
-- Lo script non cancella e non sovrascrive mai nulla.
+- Il giro non cancella e non sovrascrive nulla.
+- La pulizia della domenica alle 23:59 (`--pulisci`) cancella le cartelle con il nome a data, tranne sabato e domenica appena passati.
 - Il font Noto Sans è distribuito con licenza SIL Open Font License.
 
 La chiave serve solo per la funzione `tc_mattino_dati` (`sql/automazione-mattino.sql`). Per revocarla basta cambiare il segreto nel Vault.
