@@ -390,3 +390,15 @@ html.dark .ctrl-filter:not([style*="#"]).is-on { color: #111; }
   .ctrl-filter.is-just::before, .ctrl-filter.is-just i, .ctrl-filter.is-just b, .ctrl-fade { animation: none; }
   .ctrl-filter.is-just::before { display: none; }
 }
+
+/* ── Shopify e GLS: gruppi per negozio, azioni della riga ── */
+
+.ctrl-store-head {
+  --m: var(--text-muted);
+  display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px;
+  font-size: 0.86rem; font-weight: 700; color: var(--text-primary);
+}
+.ctrl-store-head i { width: 10px; height: 10px; border-radius: 50%; background: var(--m); }
+.ctrl-store-head b { font-size: 0.74rem; font-weight: 650; color: var(--text-muted); }
+.ctrl-store-head + .task-list .task-row:first-child { border-top: none; }
+.ctrl-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; align-self: center; }

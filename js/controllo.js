@@ -115,7 +115,7 @@ const CtrlIcons = {
 // ─────────────────────────────────────────────
 
 const Ctrl = {
-  view: 'giorno',        // giorno | squadra | ordini | comunicazioni | cervello | report | collegamenti
+  view: 'giorno',        // giorno | squadra | ordini | gls | comunicazioni | cervello | report | collegamenti
   giorno: ctrlOggi(),    // giorno mostrato
   macroarea: null,       // filtro della coda comune (null = tutte)
   tasks: [],             // task del giorno + arretrati aperti dei giorni prima
@@ -319,7 +319,7 @@ function setControlView(view) {
 
 // Dati delle schede che li caricano quando si aprono
 function loadControlExtras() {
-  if (['ordini', 'comunicazioni', 'cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
+  if (['ordini', 'gls', 'comunicazioni', 'cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
   if (Ctrl.view === 'cervello') loadBrainRules();
   if (Ctrl.view === 'report') loadControlReport();
 }
@@ -346,11 +346,12 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['ordini', 'Shopify'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['report', 'Report'], ['collegamenti', 'Collegamenti']] : [])];
+  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['ordini', 'Shopify'], ['gls', 'GLS'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['report', 'Report'], ['collegamenti', 'Collegamenti']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
     : Ctrl.view === 'ordini' ? renderControlOrders()
+    : Ctrl.view === 'gls' ? renderControlGls()
     : Ctrl.view === 'comunicazioni' ? renderControlComms()
     : Ctrl.view === 'cervello' ? renderControlBrain()
     : Ctrl.view === 'collegamenti' ? renderControlLinks()
@@ -1200,9 +1201,14 @@ const ShopLinks = {
   mail: null,        // ultime mail scritte da persone
   scartate: [],      // mail scartate dal cervello
   regole: [],        // correzioni del team (mail_regole)
-  consegne: [],      // spedizioni con problemi o ritardi (spedizioni_tracking)
-  ordini: null,      // risultati della ricerca o ultimi ordini
+  consegne: null,    // spedizioni con problemi o ritardi (tc_spedizioni_problemi)
+  consegneErrore: null,
+  arrivo: null,      // ordini ancora da evadere
+  arrivoErrore: null,
+  ordini: null,      // risultati della ricerca
   query: '',
+  negozio: null,     // filtro degli ordini in arrivo (null = tutti)
+  negozioGls: null,  // filtro delle spedizioni GLS (null = tutti)
   error: null,
   syncing: new Set(),
 };
@@ -1212,6 +1218,9 @@ const SHOP_PAGAMENTO = { PAID: 'Pagato', PENDING: 'In attesa', AUTHORIZED: 'Auto
 const SHOP_EVASIONE = { UNFULFILLED: 'Da evadere', FULFILLED: 'Evaso', PARTIALLY_FULFILLED: 'Evaso in parte', ON_HOLD: 'In sospeso',
   IN_PROGRESS: 'In lavorazione', SCHEDULED: 'Programmato', RESTOCKED: 'Rifornito', PENDING_FULFILLMENT: 'In attesa di evasione', OPEN: 'Aperto' };
 
+const SHOP_DA_EVADERE = ['UNFULFILLED', 'PARTIALLY_FULFILLED', 'ON_HOLD', 'IN_PROGRESS', 'SCHEDULED'];   // come tc_shopify_stato
+const SHOP_ORDINE_CAMPI = 'id, store_id, numero, creato_at, annullato_at, cliente, email, telefono, totale, valuta, stato_pagamento, stato_evasione, tracking, righe';
+
 async function loadShopifyLinks() {
   try {
     const { data, error } = await supabaseClient.rpc('tc_shopify_stato');
@@ -1220,7 +1229,7 @@ async function loadShopifyLinks() {
     ShopLinks.negozi = data.negozi || [];
     ShopLinks.error = null;
   } catch (e) { ShopLinks.error = e; }
-  const [caselle, mail, scartate, regole, consegne] = await Promise.all([
+  const [caselle, mail, scartate, regole, consegne, arrivo] = await Promise.all([
     supabaseClient.rpc('tc_mail_stato'),
     supabaseClient.from('mail_messaggi').select('id, casella_id, da_email, da_nome, oggetto, ricevuto_at, testo, allegati')
       .eq('direzione', 'in').eq('automatica', false).order('ricevuto_at', { ascending: false }).limit(50),
@@ -1228,10 +1237,14 @@ async function loadShopifyLinks() {
       .eq('fonte', 'mail').not('elaborato_at', 'is', null).is('task_id', null)
       .order('elaborato_at', { ascending: false }).limit(15),
     supabaseClient.from('mail_regole').select('*').order('created_at', { ascending: false }).limit(50),
-    supabaseClient.from('spedizioni_tracking').select('store_id, numero, stato, problema, ultimo_evento, ultimo_at, spedito_at, ordine:shopify_orders(numero, cliente)')
-      .in('stato', ['problema', 'ritardo']).order('stato').order('spedito_at'),
+    supabaseClient.rpc('tc_spedizioni_problemi'),
+    supabaseClient.from('shopify_orders').select(SHOP_ORDINE_CAMPI)
+      .is('annullato_at', null).in('stato_evasione', SHOP_DA_EVADERE).order('creato_at', { ascending: false }).limit(1000),
   ]);
-  ShopLinks.consegne = consegne.error ? [] : (consegne.data || []);
+  ShopLinks.consegneErrore = consegne.error?.message || (consegne.data?.success ? null : consegne.data?.error || 'Errore');
+  ShopLinks.consegne = ShopLinks.consegneErrore ? null : consegne.data.spedizioni;
+  ShopLinks.arrivoErrore = arrivo.error?.message || null;
+  ShopLinks.arrivo = arrivo.error ? null : (arrivo.data || []);
   ShopLinks.regole = regole.error ? [] : (regole.data || []);
   ShopLinks.scartate = scartate.error ? [] : (scartate.data || []);
   ShopLinks.caselle = caselle.data?.success ? caselle.data.caselle : [];
@@ -1242,17 +1255,17 @@ async function loadShopifyLinks() {
 
 async function searchShopifyOrders(q, render = true) {
   ShopLinks.query = q = (q || '').trim();
-  let req = supabaseClient.from('shopify_orders')
-    .select('id, store_id, numero, creato_at, annullato_at, cliente, email, telefono, totale, valuta, stato_pagamento, stato_evasione, tracking, righe')
-    .order('creato_at', { ascending: false }).limit(q ? 40 : 15);
-  if (q) {
-    const safe = q.replace(/[,()%*]/g, ' ').trim();
-    const cifre = q.replace(/\D/g, '');
-    const parti = [`email.ilike.*${safe}*`, `cliente.ilike.*${safe}*`, `numero.ilike.*${safe}*`];
-    if (cifre.length >= 6) parti.push(`telefono_cifre.like.*${cifre.slice(-9)}*`);
-    req = req.or(parti.join(','));
+  if (!q) {
+    ShopLinks.ordini = null;
+    if (render) refreshControlPage();
+    return;
   }
-  const { data, error } = await req;
+  const safe = q.replace(/[,()%*]/g, ' ').trim();
+  const cifre = q.replace(/\D/g, '');
+  const parti = [`email.ilike.*${safe}*`, `cliente.ilike.*${safe}*`, `numero.ilike.*${safe}*`];
+  if (cifre.length >= 6) parti.push(`telefono_cifre.like.*${cifre.slice(-9)}*`);
+  const { data, error } = await supabaseClient.from('shopify_orders').select(SHOP_ORDINE_CAMPI)
+    .or(parti.join(',')).order('creato_at', { ascending: false }).limit(40);
   ShopLinks.ordini = error ? [] : (data || []);
   if (render) refreshControlPage();
 }
@@ -1302,10 +1315,12 @@ async function syncShopify(storeId = null) {
 
 const shopNome = (id) => taskMacro(id)?.label || id;
 
-// ── Ordini e mail ──
+// ── Shopify: ordini in arrivo, divisi per negozio ──
+
+function setOrdersStore(id) { ShopLinks.negozio = id; refreshControlPage(); }
 
 function renderControlOrders() {
-  const ordine = (o) => {
+  const ordine = (o, conNegozio = true) => {
     const track = (o.tracking || []).find(t => t.numero || t.url);
     const righe = (o.righe || []).map(r => `${r.qnt}× ${r.titolo}${r.variante ? ` (${r.variante})` : ''}`).join(' · ');
     return `
@@ -1313,7 +1328,7 @@ function renderControlOrders() {
         <div class="task-main" style="cursor:default;">
           <span class="task-title">${escapeHtml(o.numero)} · ${escapeHtml(o.cliente || 'Cliente senza nome')}</span>
           <span class="task-meta">${[
-            taskMacro(o.store_id) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(o.store_id).color};">${taskMacro(o.store_id).label}</span>` : '',
+            conNegozio && taskMacro(o.store_id) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(o.store_id).color};">${taskMacro(o.store_id).label}</span>` : '',
             ctrlFmtQuando(o.creato_at),
             o.totale != null ? `${Number(o.totale).toLocaleString('it-IT', { minimumFractionDigits: 2 })} ${o.valuta || ''}` : '',
             SHOP_PAGAMENTO[o.stato_pagamento] || o.stato_pagamento || '',
@@ -1333,25 +1348,86 @@ function renderControlOrders() {
       <button class="ctrl-btn is-primary" type="submit">${Icons.search(14)} Cerca</button>
       ${ShopLinks.query ? `<button class="ctrl-btn" type="button" onclick="searchShopifyOrders('')">Azzera</button>` : ''}
     </form>
-    ${ShopLinks.consegne.length ? `
+    ${ShopLinks.query ? `
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>Problemi di consegna</h2><span class="table-count">${ShopLinks.consegne.length}</span>
-        <span class="ctrl-group-hint">Dallo storico del tracking GLS, controllato ogni ora dalle 7 alle 17</span></div>
-      <div class="task-list">${ShopLinks.consegne.map(c => `
-        <article class="task-row ctrl-order" style="--p:${c.stato === 'problema' ? '#ef4444' : '#f59e0b'};">
-          <div class="task-main" style="cursor:default;">
-            <span class="task-title">${escapeHtml(c.problema || '')}</span>
-            <span class="task-meta"><span class="ctrl-macro-tag" style="--m:${taskMacro(c.store_id)?.color || '#94a3b8'};">${escapeHtml(shopNome(c.store_id))}</span><span aria-hidden="true"> · </span>${escapeHtml(c.ordine?.numero || '')} ${escapeHtml(c.ordine?.cliente || '')}<span aria-hidden="true"> · </span>${escapeHtml(c.numero)}${c.spedito_at ? `<span aria-hidden="true"> · </span>spedito ${ctrlFmtQuando(c.spedito_at)}` : ''}</span>
-            ${c.ultimo_evento ? `<span class="ctrl-row-text">${escapeHtml(c.ultimo_evento)}</span>` : ''}
-          </div>
-          <span></span>
-        </article>`).join('')}</div>
-    </section>` : ''}
-    <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>${ShopLinks.query ? 'Ordini Shopify trovati' : 'Ultimi ordini Shopify'}</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
+      <div class="page-card-head"><h2>Ordini trovati</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
       ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
-        : ShopLinks.ordini.length ? `<div class="task-list">${ShopLinks.ordini.map(ordine).join('')}</div>`
-        : `<div class="empty-list">${ShopLinks.query ? 'Nessun ordine trovato.' : 'Ancora nessun ordine.'}</div>`}
+        : ShopLinks.ordini.length ? `<div class="task-list">${ShopLinks.ordini.map(o => ordine(o)).join('')}</div>`
+        : `<div class="empty-list">Nessun ordine trovato.</div>`}
+    </section>` : renderOrdersIncoming(ordine)}`;
+}
+
+function renderOrdersIncoming(ordine) {
+  const head = (n) => `<div class="page-card-head"><h2>Ordini in arrivo</h2>${n != null ? `<span class="table-count">${n}</span>` : ''}
+    <span class="ctrl-group-hint">Da evadere, aggiornati ogni 5 minuti</span></div>`;
+  if (ShopLinks.arrivoErrore) return `<section class="glass-card page-card ctrl-group">${head()}<div class="empty-list">Ordini non caricati: ${escapeHtml(ShopLinks.arrivoErrore)}</div></section>`;
+  if (!ShopLinks.arrivo) return `<section class="glass-card page-card ctrl-group">${head()}<div class="empty-list">Caricamento…</div></section>`;
+  const tutti = ShopLinks.arrivo;
+  const conta = (id) => tutti.filter(o => o.store_id === id).length;
+  const chip = (id, label, n, color) => ctrlFilter(ShopLinks.negozio === id, label, n, color, `setOrdersStore(${id ? `'${id}'` : 'null'})`);
+  const gruppi = TASK_MACROAREE.filter(m => (!ShopLinks.negozio || ShopLinks.negozio === m.id) && conta(m.id));
+  return `
+    <section class="glass-card page-card ctrl-group">
+      ${head(tutti.length)}
+      <div class="ctrl-macro-bar" role="group" aria-label="Filtra per negozio">
+        ${chip(null, 'Tutti', tutti.length)}
+        ${TASK_MACROAREE.map(m => chip(m.id, m.label, conta(m.id), m.color)).join('')}
+      </div>
+      ${gruppi.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${gruppi.map(m => `
+        <div class="ctrl-store-head" style="--m:${m.color};"><i aria-hidden="true"></i>${m.label}<b>${conta(m.id)}</b></div>
+        <div class="task-list">${tutti.filter(o => o.store_id === m.id).map(o => ordine(o, false)).join('')}</div>`).join('')}</div>`
+        : `<div class="empty-list">Nessun ordine in arrivo.</div>`}
+    </section>`;
+}
+
+// ── GLS: spedizioni con ritardi e problemi ──
+
+function setGlsStore(id) { ShopLinks.negozioGls = id; refreshControlPage(); }
+
+const glsUrl = (numero) => `https://www.gls-italy.com/?option=com_gls&view=track_e_trace&mode=search&diretto=yes&numsped=${encodeURIComponent(numero.slice(2))}&locpartenza=${encodeURIComponent(numero.slice(0, 2))}`;
+
+function renderControlGls() {
+  const head = (n) => `<div class="page-card-head"><h2>Spedizioni da seguire</h2>${n != null ? `<span class="table-count">${n}</span>` : ''}
+    <span class="ctrl-group-hint">Dallo storico del tracking GLS, controllato ogni ora dalle 7 alle 17</span></div>`;
+  if (ShopLinks.consegneErrore) return `<section class="glass-card page-card ctrl-group">${head()}<div class="empty-list">Spedizioni non caricate: ${escapeHtml(ShopLinks.consegneErrore)}</div></section>`;
+  if (!ShopLinks.consegne) return `<section class="glass-card page-card ctrl-group">${head()}<div class="empty-list">Caricamento…</div></section>`;
+
+  const tutte = ShopLinks.consegne;
+  const list = ShopLinks.negozioGls ? tutte.filter(c => c.store_id === ShopLinks.negozioGls) : tutte;
+  const chip = (id, label, n, color) => ctrlFilter(ShopLinks.negozioGls === id, label, n, color, `setGlsStore(${id ? `'${id}'` : 'null'})`);
+  const sep = '<span aria-hidden="true"> · </span>';
+  const riga = (c) => `
+    <article class="task-row ctrl-order" style="--p:${c.stato === 'problema' ? '#ef4444' : '#f59e0b'};">
+      <div class="task-main" style="cursor:default;">
+        <span class="task-title">${escapeHtml(c.problema || '')}</span>
+        <span class="task-meta">${[
+          `<span class="ctrl-macro-tag" style="--m:${taskMacro(c.store_id)?.color || '#94a3b8'};">${escapeHtml(shopNome(c.store_id))}</span>`,
+          `${escapeHtml(c.ordine || '')} ${escapeHtml(c.cliente || '')}`,
+          c.citta ? escapeHtml(c.citta) : '',
+          c.giorni_testo ? `spedita da ${escapeHtml(c.giorni_testo)}` : '',
+          escapeHtml(c.numero),
+        ].filter(Boolean).join(sep)}</span>
+        ${c.ultimo_evento ? `<span class="ctrl-row-text">${escapeHtml(c.ultimo_evento)}${c.ultimo_at ? ` (${ctrlFmtQuando(c.ultimo_at)})` : ''}</span>` : ''}
+        ${c.fare ? `<span class="ctrl-row-text"><strong>Da fare:</strong> ${escapeHtml(c.fare)}</span>` : ''}
+        ${c.email || c.telefono ? `<span class="task-meta">${[c.telefono, c.email].filter(Boolean).map(escapeHtml).join(sep)}</span>` : ''}
+      </div>
+      <div class="ctrl-row-actions">
+        ${c.task_id && Ctrl.get(c.task_id) ? `<button class="ctrl-btn" type="button" onclick="openTaskDetail('${c.task_id}')">Apri task</button>` : ''}
+        <a class="ctrl-btn" href="${escapeHtml(glsUrl(c.numero))}" target="_blank" rel="noopener">${Icons.truck(14)} GLS</a>
+      </div>
+    </article>`;
+  const gruppo = (titolo, righe) => righe.length ? `<div class="ctrl-sub">${titolo} (${righe.length})</div><div class="task-list">${righe.map(riga).join('')}</div>` : '';
+  return `
+    <section class="glass-card page-card ctrl-group">
+      ${head(tutte.length)}
+      <div class="ctrl-macro-bar" role="group" aria-label="Filtra per negozio">
+        ${chip(null, 'Tutti', tutte.length)}
+        ${TASK_MACROAREE.map(m => chip(m.id, m.label, tutte.filter(c => c.store_id === m.id).length, m.color)).join('')}
+      </div>
+      ${list.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">
+        ${gruppo('Problemi', list.filter(c => c.stato === 'problema'))}
+        ${gruppo('Ritardi', list.filter(c => c.stato === 'ritardo'))}
+      </div>` : `<div class="empty-list">Nessuna spedizione con ritardi o problemi.</div>`}
     </section>`;
 }
 

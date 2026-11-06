@@ -34,6 +34,7 @@ const PROBLEMI: { re: RegExp; label: string; priorita: string; fare: string }[] 
   { re: /in storage at GLS Depot|awaiting instructions/i, label: 'Giacenza in deposito GLS', priorita: 'urgente', fare: 'Contatta il cliente, poi comunica a GLS come procedere con la riconsegna.' },
   { re: /unable to deliver.*second attempt/i, label: 'Seconda consegna non riuscita', priorita: 'urgente', fare: 'Contatta il cliente e concorda con GLS una nuova consegna.' },
   { re: /unable to deliver.*first attempt/i, label: 'Prima consegna non riuscita', priorita: 'alta', fare: 'GLS riprova il giorno lavorativo dopo. Avvisa il cliente di farsi trovare.' },
+  { re: /no longer available at the GLS POINT/i, label: 'Scaduto al GLS Point', priorita: 'urgente', fare: 'Il pacco non è più ritirabile al GLS Point. Contatta il cliente e concorda con GLS una nuova consegna o il rientro.' },
   { re: /available for collection/i, label: 'Da ritirare al GLS Point', priorita: 'alta', fare: 'Avvisa il cliente che il pacco è da ritirare al GLS Point.' },
   { re: /network delay/i, label: 'Ritardo della rete GLS', priorita: 'alta', fare: 'Controlla domani se il pacco si muove e avvisa il cliente del ritardo.' },
 ];
@@ -54,6 +55,7 @@ const TRADUZIONI: [RegExp, string][] = [
   [/in storage at GLS Depot|awaiting instructions/i, 'In giacenza nel deposito GLS, in attesa di istruzioni'],
   [/unable to deliver.*second attempt/i, 'Seconda consegna non riuscita'],
   [/unable to deliver.*first attempt/i, 'Prima consegna non riuscita, nuovo tentativo il giorno lavorativo dopo'],
+  [/no longer available at the GLS POINT/i, 'Non più disponibile al GLS Point: GLS chiede di contattare il mittente'],
   [/available for collection/i, 'Disponibile per il ritiro al GLS Point'],
   [/network delay/i, 'Consegna rimandata per un ritardo della rete GLS'],
 ];
@@ -181,7 +183,7 @@ Deno.serve(async (req) => {
     const ultimo = eventi?.[0];
     await db.from('spedizioni_tracking').upsert({
       ordine_id: s.ordine_id, store_id: s.store_id, numero: s.tracking, spedito_at: s.spedito_at,
-      stato: esito.stato, problema: esito.problema, ultimo_evento: ultimo?.stato || null, ultimo_at: ultimo?.at || null,
+      stato: esito.stato, problema: esito.problema, ultimo_evento: ultimo ? inItaliano(ultimo.stato) : null, ultimo_at: ultimo?.at || null,
       eventi: eventi || [], consegnata_at: esito.stato === 'consegnata' ? ultimo?.at : null,
       controllata_at: new Date().toISOString(),
     });
