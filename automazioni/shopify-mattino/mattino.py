@@ -11,6 +11,7 @@ import argparse
 import datetime as dt
 import io
 import os
+import re
 import sys
 import tempfile
 import time
@@ -61,6 +62,14 @@ NEGOZIO = '{shop{name contactEmail primaryDomain{host} billingAddress{address1 a
 AGGIUNGI_TAG = 'mutation($id:ID!,$tags:[String!]!){tagsAdd(id:$id,tags:$tags){userErrors{message}}}'
 
 
+def leggi_data(testo):
+    """Data ISO di Shopify o Supabase. Python 3.9 non accetta la Z né decimali di lunghezza variabile."""
+    testo = testo.replace('Z', '+00:00')
+    m = re.match(r'(.*?)(\.\d+)?([+-]\d\d:\d\d)$', testo)
+    decimali = (m.group(2) or '.0')[1:].ljust(6, '0')[:6]
+    return dt.datetime.fromisoformat(f'{m.group(1)}.{decimali}{m.group(3)}')
+
+
 def carica_env(percorso):
     if percorso.exists():
         for riga in percorso.read_text().splitlines():
@@ -72,15 +81,23 @@ def carica_env(percorso):
         sys.exit(f'Mancano le impostazioni: {", ".join(mancanti)}')
 
 
-def dati_gestionale():
-    r = requests.post(f"{os.environ['CS_SUPABASE_URL']}/rest/v1/rpc/tc_mattino_dati",
+def chiama_gestionale(funzione, **parametri):
+    r = requests.post(f"{os.environ['CS_SUPABASE_URL']}/rest/v1/rpc/{funzione}",
                       headers={'apikey': os.environ['CS_ANON_KEY'], 'Content-Type': 'application/json'},
-                      json={'p_chiave': os.environ['CS_AUTOMAZIONE_KEY']}, timeout=60)
+                      json={'p_chiave': os.environ['CS_AUTOMAZIONE_KEY'], **parametri}, timeout=120)
     r.raise_for_status()
     d = r.json()
     if not d.get('success'):
         raise RuntimeError(d.get('error') or 'Gestionale non raggiungibile')
     return d
+
+
+def dati_gestionale():
+    return chiama_gestionale('tc_mattino_dati')
+
+
+def invia_esito(ok, negozi, messaggio=None):
+    return chiama_gestionale('tc_mattino_esito', p_ok=ok, p_negozi=negozi, p_messaggio=messaggio)
 
 
 class Shopify:
@@ -227,7 +244,7 @@ def disegna_ddt(c, o, shop, richieste, cache):
         c.drawString(SX, H - 81, shop['name'].upper())
         c.setFont('Noto', CORPO)
         c.drawRightString(DX, H - 73, f"Ordine {o['name']}")
-        creato = dt.datetime.fromisoformat(o['createdAt'].replace('Z', '+00:00')).astimezone(ROMA)
+        creato = leggi_data(o['createdAt']).astimezone(ROMA)
         c.drawRightString(DX, H - 86, data_lunga(creato))
 
     def intestazione_articoli(y):
@@ -376,7 +393,7 @@ def url_file_stampa(l):
 
 def file_pronti(o, ora, errori, rimandati):
     """Un ordine col file non pronto passa tutto a domani, così non finisce stampato a metà."""
-    ore = (ora - dt.datetime.fromisoformat(o['createdAt'].replace('Z', '+00:00'))).total_seconds() / 3600
+    ore = (ora - leggi_data(o['createdAt'])).total_seconds() / 3600
     for l in righe_ddt(o):
         url = url_file_stampa(l)
         if not url:
@@ -420,6 +437,18 @@ def main():
     args = ap.parse_args()
     carica_env(args.env)
     registra_font()
+    # CS_PROVA nel file .env ferma tag ed esito senza toccare la programmazione
+    applica = args.applica and not os.environ.get('CS_PROVA')
+    try:
+        return giro(args, applica)
+    except Exception as e:
+        if applica:
+            # Senza esito scatterebbe comunque il controllo delle 5:30: così il motivo arriva subito
+            invia_esito(False, {}, f'{type(e).__name__}: {str(e)[:300]}')
+        raise
+
+
+def giro(args, applica):
 
     inizio = time.time()
     oggi = dt.datetime.now(ROMA).date()
@@ -427,6 +456,7 @@ def main():
     cartella.mkdir(parents=True, exist_ok=True)
 
     errori, avvisi_stampa = [], []
+    errori_negozio = {}
     dati = dati_gestionale()
 
     # 1. Mail: il cervello le ha già lette; si controlla che il controllo sia davvero aggiornato
@@ -434,7 +464,7 @@ def main():
     avvisi_mail = []
     for ca in dati['caselle']:
         ultimo = ca.get('ultimo_sync_at')
-        vecchio = not ultimo or (ora - dt.datetime.fromisoformat(ultimo)).total_seconds() > MAIL_VECCHIA_DOPO_MINUTI * 60
+        vecchio = not ultimo or (ora - leggi_data(ultimo)).total_seconds() > MAIL_VECCHIA_DOPO_MINUTI * 60
         if ca.get('ultimo_errore') or vecchio:
             avvisi_mail.append(f"{ca['indirizzo']}: {ca.get('ultimo_errore') or 'non controllata di recente'}")
 
@@ -449,12 +479,14 @@ def main():
                 if o['displayFinancialStatus'] not in PAGAMENTI_DA_STAMPARE:
                     non_pagati.append(f"{n['nome']} {o['name']}: {o['displayFinancialStatus']}")
                 elif n['id'] in NEGOZI_FILE_STAMPA and not file_pronti(o, ora, errori, rimandati):
-                    pass
+                    if errori and errori[-1].startswith(o['name']):
+                        errori_negozio[n['id']] = errori[-1]
                 else:
                     ordini.append(o)
             per_negozio.append((n, s, info['shop'], {x['handle'] for x in info['currentAppInstallation']['accessScopes']}, ordini))
         except Exception as e:
             errori.append(f"{n['nome']}: ordini non letti ({type(e).__name__}: {str(e)[:100]})")
+            errori_negozio[n['id']] = errori[-1]
 
     # 3. Richieste di modifica collegate ai DDT
     in_stampa = {(n['id'], o['name']) for n, _, _, _, ordini in per_negozio for o in ordini}
@@ -500,6 +532,7 @@ def main():
         except Exception as e:
             falliti_stampa = {v[0] for v in voci_stampa}
             errori.append(f'PDF dei file di stampa non riuscito ({type(e).__name__}: {str(e)[:100]})')
+            errori_negozio.update({i: errori[-1] for i in NEGOZI_FILE_STAMPA})
             tmp.unlink(missing_ok=True)
 
     # 5. PDF dei DDT, con il riepilogo in prima pagina
@@ -532,12 +565,13 @@ def main():
 
     # 6. Tag: solo per i DDT salvati e con i file di stampa a posto. Chi resta fuori ripassa domani
     taggati, saltati = 0, []
+    fatti = {}
     for n, s, _, permessi, ordini in per_negozio:
         for o in ordini:
             if o['name'] in falliti_stampa and n['id'] in NEGOZI_FILE_STAMPA:
                 saltati.append(f"{n['nome']} {o['name']}: file di stampa non riuscito")
                 continue
-            if not args.applica:
+            if not applica:
                 saltati.append(f"{n['nome']} {o['name']}: prova, tag non messo")
                 continue
             if 'write_orders' not in permessi:
@@ -548,10 +582,19 @@ def main():
                 if ris['userErrors']:
                     raise RuntimeError(ris['userErrors'][0]['message'])
                 taggati += 1
+                fatti.setdefault(n['id'], []).append(o['name'])
             except Exception as e:
                 errori.append(f"{n['nome']} {o['name']}: tag non messo ({str(e)[:80]})")
+                errori_negozio[n['id']] = errori[-1]
 
     bloccati = [x for x in saltati if 'prova' not in x]
+    if applica:
+        for x in avvisi_stampa:
+            errori_negozio.update({i: x for i in NEGOZI_FILE_STAMPA})
+        esito = {n['id']: {'fatti': fatti.get(n['id'], []), 'errore': errori_negozio.get(n['id'])} for n in dati['negozi']}
+        risposta = invia_esito(not errori_negozio, esito)
+        print(f"Centro di controllo: {risposta['ordini_avanzati']} ordini passati alla preparazione")
+    print(f"--- {dt.datetime.now(ROMA):%Y-%m-%d %H:%M} {'giro vero' if applica else 'prova, nessun tag'}")
     print(f"Cartella: {cartella}")
     print(f"DDT: {sum(len(x[4]) for x in per_negozio)} ordini, {pagine_ddt} pagine, {finale_ddt.stat().st_size // 1024} KB")
     print(f"Stampa: {pdf_stampa[1] if pdf_stampa else 0} pagine, {pdf_stampa[0].stat().st_size // 1024 ** 2 if pdf_stampa else 0} MB")

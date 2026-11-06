@@ -20,3 +20,9 @@ Regole:
 - Il font Noto Sans è distribuito con licenza SIL Open Font License.
 
 La chiave serve solo per la funzione `tc_mattino_dati` (`sql/automazione-mattino.sql`). Per revocarla basta cambiare il segreto nel Vault.
+
+## Sul Mac mini
+
+- Gira come servizio di sistema (`it.tcfactory.mattino.plist`) con l'utente `csauto`, anche se nessuno è collegato. Registro: `~/shopify-mattino/mattino.log`.
+- Con `CS_PROVA=1` nel file `.env` il giro non mette tag e non chiude lotti.
+- A fine giro chiama `tc_mattino_esito`. Se alle 5:30 non è arrivato nulla, il controllo in `sql/automazione-mattino-esito.sql` passa i lotti al secondario e apre un task di verifica.
