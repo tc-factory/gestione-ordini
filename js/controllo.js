@@ -77,6 +77,11 @@ const TASK_COMPETENZE = [
   { id: 'evasione',         label: 'Evasione' },
   { id: 'fatturazione',     label: 'Fatturazione' },
   { id: 'check_pagamento',  label: 'Check pagamento' },
+  { id: 'prep_file',        label: 'Preparazione file di stampa' },
+  { id: 'check_ricamo',      label: 'Check Ricamo' },
+  { id: 'check_serigrafia',  label: 'Check Serigrafia' },
+  { id: 'check_manifattura', label: 'Check Manifattura' },
+  { id: 'check_arti',        label: 'Check Arti grafiche' },
 ];
 const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'ddt', 'preparazione', 'lavorazione', 'spedizione'];
 const COMPETENZE_NUOVO_PRODOTTO = ['np_bozza', 'np_mockup', 'np_stampa', 'np_shopify', 'np_customily', 'np_check'];
@@ -91,10 +96,13 @@ const TASK_AREE = [
     // Stessa competenza dei task (preparazione), altro nome in questi negozi
     etichette: m.id === 'asteroidi' ? {} : { preparazione: 'Preparazione file di stampa' },
   })),
-  { id: 'tcfactory', label: 'T&C Factory', color: '#ef4444',
-    competenze: ['ordine_fornitori', 'creazione_pacchi', 'preparazione', 'stampa_dtf', 'stampa_uv', 'stampa_mimaki', 'incisione_laser', 'lavorazione', 'evasione', 'fatturazione', 'check_pagamento'],
-    etichette: { preparazione: 'Preparazione file di stampa' } },
-  { id: 'produzione', label: 'Linea produttiva', color: '#64748b', competenze: ['preparazione', 'lavorazione', 'spedizione', 'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti', 'amministrazione'] },
+  { id: 'produzione', label: 'Linea produttiva', color: '#64748b', competenze: [
+    'ordine_fornitori', 'creazione_pacchi', 'preparazione', 'prep_file', 'stampa_dtf', 'stampa_uv', 'stampa_mimaki', 'incisione_laser',
+    'lavorazione', 'spedizione', 'evasione',
+    'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti',
+    'check_ricamo', 'check_serigrafia', 'check_manifattura', 'check_arti',
+    'amministrazione', 'fatturazione', 'check_pagamento',
+  ] },
   { id: 'automazioni', label: 'Automazioni', color: '#111827', competenze: ['verifica'] },
 ];
 const competenzaLabel = (id) => TASK_COMPETENZE.find(c => c.id === id)?.label || id;
