@@ -6,6 +6,7 @@
 --   • quelli rimasti (non pagati, file non pronto) restano nel lotto, che resta di oggi: non è un errore
 --   • se un negozio ha avuto problemi, i suoi lotti vanno al secondario e nasce il task di verifica
 -- Alle 5:30 ora italiana, se lo script non si è fatto vivo, succede lo stesso per tutti i negozi.
+-- Sabato, domenica e festivi lo script non lavora: i lotti "Stampa DDT" aspettano il giro del rientro.
 --
 -- Richiede automazione-mattino.sql, automazioni-ripristino.sql e linea-produttiva.sql. Si può rieseguire.
 -- ════════════════════════════════════════════════════════
@@ -87,6 +88,7 @@ create or replace function _tc_mattino_controllo(p_oggi date default tc_oggi())
 returns void security definer set search_path = public language plpgsql as $$
 declare t record; v_id uuid; v_motivo text := 'Lo script del mattino non è partito o non ha risposto';
 begin
+  if extract(isodow from p_oggi) >= 6 or tc_festivo(p_oggi) then return; end if;
   if exists (select 1 from automazione_esecuzioni where nome = 'mattino' and giorno = p_oggi) then return; end if;
 
   for t in select k.id from shopify_stores s cross join lateral _tc_lotti_ddt_aperti(s.id) k
@@ -114,6 +116,41 @@ begin
   if extract(hour from now() at time zone 'Europe/Rome') = 5 then perform _tc_mattino_controllo(); end if;
 end;
 $$;
+
+-- Automazioni ferme: nei giorni non lavorativi i lotti "Stampa DDT" di claude non contano come non riusciti
+create or replace function _tc_task_piano_del(p_oggi date)
+returns int security definer set search_path = public language plpgsql as $$
+declare
+  t record; n int := 0;
+  v_feriale boolean := extract(isodow from p_oggi) < 6 and not tc_festivo(p_oggi);
+begin
+  for t in
+    select id from tasks
+     where assegnato_a = 'claude' and giorno < p_oggi and stato not in ('completato', 'non_completato')
+       and (v_feriale or fonte_rif->>'fase' is distinct from 'ddt')
+  loop
+    perform _tc_automazione_fallita(t.id, 'Non completato entro la giornata', p_oggi);
+  end loop;
+
+  -- Nei giorni lavorativi i task di chi è assente tornano in coda e seguono le regole qui sotto
+  if v_feriale then
+    update tasks set assegnato_a = null
+     where assegnato_a is not null and assegnato_a <> 'claude'
+       and stato in ('da_fare', 'rimandato', 'in_pausa') and giorno <= p_oggi
+       and tc_assente(assegnato_a, p_oggi);
+  end if;
+
+  for t in
+    select k.id from tasks k
+     where k.assegnato_a is null and k.stato in ('da_fare', 'rimandato', 'in_pausa') and k.giorno <= p_oggi
+     order by array_position(array['urgente', 'alta', 'normale', 'bassa'], k.priorita), k.scadenza nulls last, k.created_at
+  loop
+    if _tc_task_assegna(t.id, p_oggi) then n := n + 1; end if;
+  end loop;
+  return n;
+end;
+$$;
+revoke execute on function _tc_task_piano_del(date) from public, anon, authenticated;
 
 revoke execute on function _tc_lotti_ddt_aperti(text) from public, anon, authenticated;
 revoke execute on function _tc_mattino_controllo(date) from public, anon, authenticated;
