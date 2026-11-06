@@ -1737,22 +1737,51 @@ function renderTeamTable(people) {
     </section>`;
 }
 
-// Scheda Competenze: la lista completa per ogni area e chi ha ciascuna competenza
+// Scheda Competenze: la lista completa per ogni area; un clic su una persona dà o toglie la competenza
 function renderControlSkills() {
-  const chi = (voce) => Ctrl.users.filter(nick => Ctrl.operatori.find(o => o.nickname === nick)?.competenze?.includes(voce));
+  const operatore = (nick) => Ctrl.operatori.find(o => o.nickname === nick);
+  const fuoriPiano = Ctrl.users.filter(nick => !operatore(nick)?.attivo);
   return TASK_AREE.map(a => `
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>${a.label}</h2><span class="table-count">${a.competenze.length}</span></div>
       <div class="table-scroll"><table class="data-table ctrl-skills-list">
-        <thead><tr><th>Competenza</th><th>Chi ce l'ha</th></tr></thead>
+        <thead><tr><th>Competenza</th><th>Team</th></tr></thead>
         <tbody>${a.competenze.map(c => {
-          const nomi = chi(`${a.id}:${c}`);
+          const voce = `${a.id}:${c}`;
           return `<tr><td><strong>${competenzaLabel(c)}</strong></td>
-            <td>${nomi.length ? nomi.map(escapeHtml).join(', ') : '<span class="ctrl-cell-sub">Nessuno</span>'}</td></tr>`;
+            <td><div class="ctrl-skill-people">${Ctrl.users.map(nick => {
+              const ha = !!operatore(nick)?.competenze?.includes(voce);
+              return `<button type="button" class="ctrl-btn ${ha ? 'is-primary' : ''}" aria-pressed="${ha}"
+                data-nick="${escapeHtml(nick)}" data-voce="${voce}" onclick="toggleMemberSkill(this)">${escapeHtml(nick)}</button>`;
+            }).join('') || '<span class="ctrl-cell-sub">Nessuno nel team</span>'}</div></td></tr>`;
         }).join('')}</tbody>
       </table></div>
     </section>`).join('') + `
-    <p class="settings-section-hint ctrl-note">Le competenze di ogni persona si assegnano dalla scheda Team.</p>`;
+    <p class="settings-section-hint ctrl-note">Clicca su una persona per darle o toglierle la competenza: si salva da solo.
+      ${fuoriPiano.length ? `Non ricevono task finché non entrano nel piano del giorno (scheda Team): ${fuoriPiano.map(escapeHtml).join(', ')}.` : ''}</p>`;
+}
+
+// I salvataggi vanno in fila: con più clic di seguito sulla stessa persona vince sempre l'ultimo
+function toggleMemberSkill(btn) {
+  const { nick, voce } = btn.dataset;
+  let o = Ctrl.operatori.find(x => x.nickname === nick);
+  if (!o) { o = { nickname: nick, competenze: [] }; Ctrl.operatori.push(o); }
+  const voci = o.competenze || [];
+  const ha = !voci.includes(voce);
+  const competenze = ha ? [...voci, voce] : voci.filter(v => v !== voce);
+  o.competenze = competenze;
+  btn.classList.toggle('is-primary', ha);
+  btn.setAttribute('aria-pressed', ha);
+  Ctrl._skillSave = (Ctrl._skillSave || Promise.resolve()).then(async () => {
+    try {
+      const { error } = await supabaseClient.from('task_operatori').upsert({ nickname: nick, competenze });
+      if (error) throw Ctrl._fail(error);
+    } catch (e) {
+      showToast(e.message, 'error');
+      await Ctrl.load();   // rimette a video quello che è davvero salvato
+      refreshControlPage();
+    }
+  });
 }
 
 function openMemberForm(nick) {
