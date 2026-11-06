@@ -48,7 +48,7 @@ const TASK_COMPETENZE = [
   { id: 'preparazione', label: 'Preparazione per la lavorazione' },
   { id: 'lavorazione',  label: 'Lavorazione' },
   { id: 'spedizione',   label: 'Spedizione' },
-  { id: 'grafiche',     label: 'Creazione grafiche' },
+  { id: 'grafiche',     label: 'Richieste grafiche' },
   { id: 'catalogo',     label: 'Creazione catalogo' },
   { id: 'ext_ricamo',      label: 'Esterna: Ricamo' },
   { id: 'ext_serigrafia',  label: 'Esterna: Serigrafia' },
@@ -56,10 +56,32 @@ const TASK_COMPETENZE = [
   { id: 'ext_arti',        label: 'Esterna: Arti grafiche' },
   { id: 'amministrazione', label: 'Fatture e incassi' },
   { id: 'verifica',        label: 'Verifica automazioni' },
+  { id: 'np_bozza',        label: 'Nuovo prodotto: Bozza' },
+  { id: 'np_mockup',       label: 'Nuovo prodotto: Mockup' },
+  { id: 'np_stampa',       label: 'Nuovo prodotto: File di stampa' },
+  { id: 'np_shopify',      label: 'Nuovo prodotto: Shopify' },
+  { id: 'np_customily',    label: 'Nuovo prodotto: Customily' },
+  { id: 'np_check',        label: 'Nuovo prodotto: Check finale' },
+  { id: 'scorte_calzini_check',  label: 'Check scorte calzini' },
+  { id: 'scorte_calzini_ordine', label: 'Ordinare scorte calzini' },
+  { id: 'carta_check',           label: 'Check carta sublimatica' },
+  { id: 'carta_ordine',          label: 'Ordinare carta sublimatica' },
+  { id: 'inchiostri_check',      label: 'Check inchiostri e box' },
+  { id: 'inchiostri_ordine',     label: 'Ordinare inchiostri e box' },
 ];
 const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'ddt', 'preparazione', 'lavorazione', 'spedizione'];
+const COMPETENZE_NUOVO_PRODOTTO = ['np_bozza', 'np_mockup', 'np_stampa', 'np_shopify', 'np_customily', 'np_check'];
+const COMPETENZE_NEGOZIO = {
+  ciucciamilcalzino: ['scorte_calzini_check', 'scorte_calzini_ordine', 'carta_check', 'carta_ordine', 'inchiostri_check', 'inchiostri_ordine'],
+  boxfactorylab: ['grafiche', 'catalogo'],
+};
 const TASK_AREE = [
-  ...TASK_MACROAREE.map(m => ({ ...m, competenze: m.id === 'boxfactorylab' ? [...COMPETENZE_BASE, 'grafiche', 'catalogo'] : COMPETENZE_BASE })),
+  ...TASK_MACROAREE.map(m => ({
+    ...m,
+    competenze: [...COMPETENZE_BASE, ...(COMPETENZE_NEGOZIO[m.id] || []), ...COMPETENZE_NUOVO_PRODOTTO],
+    // Stessa competenza dei task (preparazione), altro nome in questi negozi
+    etichette: m.id === 'asteroidi' ? {} : { preparazione: 'Preparazione file di stampa' },
+  })),
   { id: 'produzione', label: 'Linea produttiva', color: '#64748b', competenze: ['preparazione', 'lavorazione', 'spedizione', 'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti', 'amministrazione'] },
   { id: 'automazioni', label: 'Automazioni', color: '#111827', competenze: ['verifica'] },
 ];
@@ -1766,7 +1788,7 @@ function renderControlSkills() {
     // Claude non verifica sé stesso
     const persone = a.id === 'automazioni' ? Ctrl.users.filter(nick => nick !== 'claude') : Ctrl.users;
     return `<tr class="${Ctrl.responsabili[voce]?.primario === 'claude' ? 'is-auto' : ''}">
-      <th scope="row"><strong>${competenzaLabel(c)}</strong><span class="ctrl-auto-tag">${Icons.zap(11)} Automazione</span></th>
+      <th scope="row"><strong>${a.etichette?.[c] || competenzaLabel(c)}</strong><span class="ctrl-auto-tag">${Icons.zap(11)} Automazione</span></th>
       <td><div class="ctrl-skill-people">${persone.map(nick => pulsante(voce, nick)).join('') || '<span class="ctrl-cell-sub">Nessuno nel team</span>'}</div></td></tr>`;
   };
   return `
@@ -1777,7 +1799,7 @@ function renderControlSkills() {
       </div>
       <p>Il primo clic su una persona la rende primario, il secondo clic su un'altra la rende secondario; un clic su chi è evidenziato lo toglie.
         Se il primario è in ferie o a un evento il task passa al secondario; se manca anche lui resta in coda comune.
-        Un clic su claude rende la competenza un'automazione: se non funziona, il task passa al secondario e nasce un task di verifica nell'area Automazioni.
+        Un clic su claude rende la competenza un'automazione: se non funziona, il task passa al secondario e nasce un task di verifica nell'area Automazioni. Quando chi verifica segna Fatto, i task non ancora iniziati tornano a Claude.
         Claude lavora tutti i giorni, gli altri da lunedì a venerdì, festivi esclusi.
         ${fuoriPiano.length ? `Fuori dal piano del giorno: ${fuoriPiano.map(escapeHtml).join(', ')}.` : ''}</p>
     </section>
