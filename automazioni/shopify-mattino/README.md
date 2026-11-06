@@ -17,7 +17,8 @@ Regole:
 - Gli ordini da modificare hanno il DDT con la fascia rossa e restano fuori dal PDF di stampa.
 - Se il file di Customily non è ancora pronto, l'ordine passa interamente al giorno dopo.
 - Il giro non cancella e non sovrascrive nulla.
-- La pulizia della domenica alle 23:59 (`--pulisci`) cancella le cartelle con il nome a data, tranne sabato e domenica appena passati.
+- Sabato, domenica e festivi (`tc_festivo`) il giro si ferma subito: il giorno del rientro fa tutto in un'unica sessione.
+- La pulizia della domenica alle 23:59 (`--pulisci`) cancella le cartelle con il nome a data.
 - Il font Noto Sans è distribuito con licenza SIL Open Font License.
 
 La chiave serve solo per la funzione `tc_mattino_dati` (`sql/automazione-mattino.sql`). Per revocarla basta cambiare il segreto nel Vault.

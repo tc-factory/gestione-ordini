@@ -431,17 +431,14 @@ def conferma_pdf(temporaneo, finale, pagine_attese):
 
 
 def pulisci(base, oggi):
-    """Pulizia della domenica sera: tocca solo le cartelle con il nome a data.
-    Sabato e domenica restano: i loro ordini hanno già il tag e si stampano lunedì."""
+    """Pulizia della domenica sera: tocca solo le cartelle con il nome a data."""
     if not base.is_dir():
         return 0
-    conserva_da = oggi - dt.timedelta(days=1)
     for p in sorted(base.iterdir()):
         if p.is_symlink() or not p.is_dir() or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', p.name):
             continue
-        if dt.date.fromisoformat(p.name) < conserva_da:
-            shutil.rmtree(p)
-            print(f'{oggi} pulizia: cancellata {p.name}')
+        shutil.rmtree(p)
+        print(f'{oggi} pulizia: cancellata {p.name}')
     return 0
 
 
@@ -472,11 +469,15 @@ def giro(args, applica):
     inizio = time.time()
     oggi = dt.datetime.now(ROMA).date()
     cartella = args.cartella / oggi.isoformat()
-    cartella.mkdir(parents=True, exist_ok=True)
 
     errori, avvisi_stampa = [], []
     errori_negozio = {}
     dati = dati_gestionale()
+    # Sabato, domenica e festivi non si lavora: il giorno del rientro fa tutto in un'unica sessione
+    if not dati['lavorativo']:
+        print(f"--- {oggi} giorno non lavorativo: nessun giro")
+        return 0
+    cartella.mkdir(parents=True, exist_ok=True)
 
     # 1. Mail: il cervello le ha già lette; si controlla che il controllo sia davvero aggiornato
     ora = dt.datetime.now(dt.timezone.utc)

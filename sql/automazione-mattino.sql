@@ -28,6 +28,7 @@ begin
   end if;
   return jsonb_build_object(
     'success', true,
+    'lavorativo', extract(isodow from tc_oggi()) < 6 and not tc_festivo(tc_oggi()),
     'negozi', coalesce((select jsonb_agg(jsonb_build_object(
         'id', s.id, 'nome', s.nome, 'dominio', s.dominio, 'token', t.access_token, 'token_scade', t.scade_at))
       from shopify_stores s left join shopify_tokens t on t.store_id = s.id where s.attivo), '[]'::jsonb),
