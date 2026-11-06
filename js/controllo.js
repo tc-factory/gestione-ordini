@@ -2,12 +2,13 @@
  * T&C Factory — Centro di controllo (fase 0: motore dei task)
  *
  *   • Tasks: all'operatore i suoi task e la coda comune; all'admin la coda comune da assegnare
- *   • Squadra (admin): carico, task in corso e punteggio di ogni operatore
+ *   • Competenze (admin): la lista per ogni area e chi ha ciascuna competenza
+ *   • Team (admin): carico, task in corso e punteggio di ogni operatore
  *   • Tipi di task (admin): catalogo con tempo standard e tempo reale misurato
  *
  * Dati: tabelle task_tipi / tasks / task_storico (sql/centro-controllo.sql).
  * Il tempo di lavoro lo conta il database a ogni cambio di stato (tc_task_stato).
- * La vede chi ha la scheda nei permessi; Squadra, Tipi di task, Collegamenti e il punteggio solo gli admin.
+ * La vede chi ha la scheda nei permessi; Competenze, Team, Tipi di task, Collegamenti e il punteggio solo gli admin.
  */
 
 const TASK_STATI = [
@@ -115,7 +116,7 @@ const CtrlIcons = {
 // ─────────────────────────────────────────────
 
 const Ctrl = {
-  view: 'giorno',        // giorno | squadra | ordini | gls | comunicazioni | cervello | report | collegamenti
+  view: 'giorno',        // giorno | ordini | gls | comunicazioni | cervello | collegamenti | competenze | squadra | report
   giorno: ctrlOggi(),    // giorno mostrato
   macroarea: null,       // filtro della coda comune (null = tutte)
   tasks: [],             // task del giorno + arretrati aperti dei giorni prima
@@ -346,7 +347,7 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['squadra', 'Squadra'], ['ordini', 'Shopify'], ['gls', 'GLS'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['report', 'Report'], ['collegamenti', 'Collegamenti']] : [])];
+  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['ordini', 'Shopify'], ['gls', 'GLS'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
@@ -355,6 +356,7 @@ function renderControlPage() {
     : Ctrl.view === 'comunicazioni' ? renderControlComms()
     : Ctrl.view === 'cervello' ? renderControlBrain()
     : Ctrl.view === 'collegamenti' ? renderControlLinks()
+    : Ctrl.view === 'competenze' ? renderControlSkills()
     : Ctrl.view === 'report' ? renderControlReport()
     : renderControlMyDay();
 
@@ -594,7 +596,7 @@ async function taskPrendi(id) {
   } catch (e) { showToast(e.message, 'error'); }
 }
 
-// ── Squadra (admin) ──
+// ── Team (admin) ──
 
 function renderControlTeam() {
   const d = Ctrl.giorno;
@@ -1733,6 +1735,24 @@ function renderTeamTable(people) {
         <tbody>${people.map(riga).join('')}</tbody>
       </table></div>
     </section>`;
+}
+
+// Scheda Competenze: la lista completa per ogni area e chi ha ciascuna competenza
+function renderControlSkills() {
+  const chi = (voce) => Ctrl.users.filter(nick => Ctrl.operatori.find(o => o.nickname === nick)?.competenze?.includes(voce));
+  return TASK_AREE.map(a => `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>${a.label}</h2><span class="table-count">${a.competenze.length}</span></div>
+      <div class="table-scroll"><table class="data-table ctrl-skills-list">
+        <thead><tr><th>Competenza</th><th>Chi ce l'ha</th></tr></thead>
+        <tbody>${a.competenze.map(c => {
+          const nomi = chi(`${a.id}:${c}`);
+          return `<tr><td><strong>${competenzaLabel(c)}</strong></td>
+            <td>${nomi.length ? nomi.map(escapeHtml).join(', ') : '<span class="ctrl-cell-sub">Nessuno</span>'}</td></tr>`;
+        }).join('')}</tbody>
+      </table></div>
+    </section>`).join('') + `
+    <p class="settings-section-hint ctrl-note">Le competenze di ogni persona si assegnano dalla scheda Team.</p>`;
 }
 
 function openMemberForm(nick) {

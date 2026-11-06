@@ -226,6 +226,7 @@
 .ctrl-skill-area { border: 1px solid var(--border-light, var(--border)); border-radius: 12px; margin: 0; padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 4px; }
 .ctrl-skill-area legend { font-size: 0.8rem; font-weight: 700; padding: 0 4px; }
 .ctrl-skill-area label { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; cursor: pointer; }
+.ctrl-skills-list th:first-child, .ctrl-skills-list td:first-child { width: 42%; }
 
 /* ── Giorno nella testata: nello spazio tra titolo e orologio, senza sovrapporsi ── */
 
