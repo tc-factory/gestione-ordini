@@ -11,8 +11,9 @@ cp .env.example .env
 ```
 
 Regole:
-- Entrano solo gli ordini non evasi, non annullati, pagati e senza tag.
-- Il tag si mette solo dopo aver riaperto e controllato i PDF.
+- Entrano solo gli ordini non evasi, non annullati, pagati e senza i tag `stampato` e `auto-stampato`.
+- Il tag `auto-stampato` si mette solo dopo aver riaperto e controllato i PDF.
+- Sul DDT si nascondono solo i campi di servizio (`CAMPI_NASCOSTI`); nome, posizione e loghi restano visibili.
 - Gli ordini da modificare hanno il DDT con la fascia rossa e restano fuori dal PDF di stampa.
 - Se il file di Customily non è ancora pronto, l'ordine passa interamente al giorno dopo.
 - Lo script non cancella e non sovrascrive mai nulla.

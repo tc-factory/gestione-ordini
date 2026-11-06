@@ -32,8 +32,9 @@ ROMA = ZoneInfo('Europe/Rome')
 QUI = Path(__file__).parent
 MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
 
-# Ogni negozio ha già la sua scrittura del tag: si continua a usare quella
-TAG_STAMPATO = {'ciucciamilcalzino': 'Stampato', 'bienjugado': 'stampato', 'asteroidi': 'stampato', 'boxfactorylab': 'STAMPATO'}
+# Il tag dell'automazione è diverso da quello manuale, così si distinguono. Nessuno dei due va ristampato
+TAG_AUTOMAZIONE = 'auto-stampato'
+TAG_GIA_STAMPATI = {'stampato', TAG_AUTOMAZIONE}
 # Negozi con il PDF dei file di stampa. Gli altri arriveranno dopo averli studiati
 NEGOZI_FILE_STAMPA = {'ciucciamilcalzino'}
 ATTR_FILE_STAMPA = '_customily-production-url'
@@ -43,10 +44,12 @@ MAIL_VECCHIA_DOPO_MINUTI = 30
 PAGAMENTI_DA_STAMPARE = {'PAID', 'PARTIALLY_REFUNDED'}
 # Customily genera il file qualche tempo dopo l'ordine: entro queste ore un file mancante non è un problema
 ORE_ATTESA_FILE = 6
-# Campi che il documento di Shopify non mostra. Da confermare col modello di Shopify
-ATTR_NASCOSTI = ('Stampa Nome (', 'Scegli il Font')
+# Campi di servizio da non stampare sul DDT: tutti gli altri restano visibili, così non si perde nulla.
+# Il nome da stampare, la sua posizione e i loghi non sono in questi elenchi.
+CAMPI_NASCOSTI = {'stampa nome', 'stampe', 'cosa vuoi personalizzare?', 'quante bandiere vuoi stampare?'}
+INIZIO_CAMPI_NASCOSTI = ('stampa nome (', 'scegli il font', 'image-swatches')
 
-ORDINI_DA_STAMPARE = 'query($after:String){orders(first:100,after:$after,sortKey:CREATED_AT,query:"fulfillment_status:unfulfilled -status:cancelled -tag:stampato"){pageInfo{hasNextPage endCursor}nodes{id}}}'
+ORDINI_DA_STAMPARE = 'query($after:String){orders(first:100,after:$after,sortKey:CREATED_AT,query:"fulfillment_status:unfulfilled -status:cancelled -tag:stampato -tag:auto-stampato"){pageInfo{hasNextPage endCursor}nodes{id}}}'
 ORDINE = '''query($id:ID!){order(id:$id){
   id name createdAt cancelledAt tags displayFulfillmentStatus displayFinancialStatus
   shippingAddress{name company address1 address2 zip city provinceCode country countryCodeV2}
@@ -111,7 +114,7 @@ class Shopify:
                 o = self.chiama(ORDINE, id=n['id'])['order']
                 # Il filtro di Shopify non basta: si ricontrolla ordine per ordine prima di stampare
                 if (o and not o['cancelledAt'] and o['displayFulfillmentStatus'] == 'UNFULFILLED'
-                        and 'stampato' not in [t.lower() for t in o['tags']]):
+                        and not TAG_GIA_STAMPATI & {t.lower() for t in o['tags']}):
                     ordini.append(o)
             if not pagina['pageInfo']['hasNextPage']:
                 return ordini
@@ -166,7 +169,33 @@ def righe_ddt(o):
 
 
 def attributi_visibili(l):
-    return [a for a in l['customAttributes'] if not a['key'].startswith('_') and not a['key'].startswith(ATTR_NASCOSTI)]
+    def visibile(a):
+        k = a['key'].strip().lower()
+        return not k.startswith('_') and k not in CAMPI_NASCOSTI and not k.startswith(INIZIO_CAMPI_NASCOSTI)
+    return [a for a in l['customAttributes'] if visibile(a)]
+
+
+def e_link(valore):
+    return (valore or '').startswith(('http://', 'https://'))
+
+
+def scarica_logo(url, cache):
+    """Il logo caricato dal cliente: None se non è un'immagine leggibile."""
+    if url not in cache:
+        try:
+            r = requests.get(url, timeout=30)
+            r.raise_for_status()
+            im = Image.open(io.BytesIO(r.content)).convert('RGBA')
+            im.thumbnail((400, 400))
+            fondo = Image.new('RGB', im.size, 'white')
+            fondo.paste(im, mask=im.getchannel('A'))
+            b = io.BytesIO()
+            fondo.save(b, 'JPEG', quality=85)
+            b.seek(0)
+            cache[url] = ImageReader(b)
+        except Exception:
+            cache[url] = None
+    return cache[url]
 
 
 CORPO = 9.25
@@ -211,11 +240,14 @@ def disegna_ddt(c, o, shop, richieste, cache):
     c.drawString(SX, H - 114, 'SPEDISCI A')
     c.drawString(268, H - 114, 'DESTINATARIO FATTURA')
     c.setFont('Noto', CORPO)
-    sped, fatt = indirizzo(o.get('shippingAddress')), indirizzo(o.get('billingAddress'))
+    def a_capo(righe, larghezza):
+        return [x for r in righe for x in simpleSplit(r, 'Noto', CORPO, larghezza)]
+    sped = a_capo(indirizzo(o.get('shippingAddress')), 174)
+    fatt = a_capo(indirizzo(o.get('billingAddress')), 245)
     for i, r in enumerate(sped):
-        c.drawString(SX, H - 134 - i * 14, r[:45])
+        c.drawString(SX, H - 134 - i * 14, r)
     for i, r in enumerate(fatt):
-        c.drawString(268, H - 134 - i * 14, r[:55])
+        c.drawString(268, H - 134 - i * 14, r)
     y = H - 134 - max(len(sped), len(fatt), 1) * 14 + 2
     y -= 6
     c.setLineWidth(1.2)
@@ -228,9 +260,17 @@ def disegna_ddt(c, o, shop, richieste, cache):
         testi = simpleSplit(l['title'], 'Noto', CORPO, 300)
         if l['variantTitle']:
             testi += simpleSplit(l['variantTitle'], 'Noto', CORPO, 300)
+        loghi = []
         for a in attributi_visibili(l):
-            testi += simpleSplit(f"{a['key']}: {a['value']}", 'Noto', CORPO, 300)
-        alto = max(len(testi) * 14, 36)
+            if e_link(a['value']):
+                logo = scarica_logo(a['value'], cache) if len(loghi) < 2 else None
+                if logo:
+                    loghi.append((a['key'], logo))
+                else:
+                    testi.append(f"{a['key']}: da vedere sull'ordine")
+            else:
+                testi += simpleSplit(f"{a['key']}: {a['value']}", 'Noto', CORPO, 300)
+        alto = max(len(testi) * 14, 36, 64 if loghi else 0)
         if y - alto < 60:
             c.showPage()
             testata()
@@ -244,6 +284,12 @@ def disegna_ddt(c, o, shop, richieste, cache):
         for i, r in enumerate(testi):
             c.drawString(139, y - 11 - i * 14, r)
         c.drawRightString(513, y - alto / 2 - 3, f"{l['unfulfilledQuantity']} di {l['quantity']}")
+        c.setFont('Noto', 7.5)
+        for i, (nome, logo) in enumerate(loghi):
+            x = 340 + i * 62
+            c.drawImage(logo, x, y - 52, 52, 44, preserveAspectRatio=True, anchor='c')
+            c.drawCentredString(x + 26, y - 62, nome[:14])
+        c.setFont('Noto', CORPO)
         y -= alto + 6
 
     c.setLineWidth(1.2)
@@ -498,7 +544,7 @@ def main():
                 saltati.append(f"{n['nome']} {o['name']}: manca il permesso write_orders")
                 continue
             try:
-                ris = s.chiama(AGGIUNGI_TAG, id=o['id'], tags=[TAG_STAMPATO[n['id']]])['tagsAdd']
+                ris = s.chiama(AGGIUNGI_TAG, id=o['id'], tags=[TAG_AUTOMAZIONE])['tagsAdd']
                 if ris['userErrors']:
                     raise RuntimeError(ris['userErrors'][0]['message'])
                 taggati += 1
