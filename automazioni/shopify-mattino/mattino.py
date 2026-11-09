@@ -43,6 +43,8 @@ TAG_GIA_STAMPATI = {'stampato', TAG_AUTOMAZIONE}
 NEGOZI_FILE_STAMPA = {'ciucciamilcalzino': 'Ciucciami', 'boxfactorylab': 'Box Factory Lab'}
 # Negozi con i fogli DTF delle t-shirt (grafica, nome, bandiera), fatti da dtf.py con la libreria nella cartella condivisa
 NEGOZI_DTF = {'boxfactorylab': 'Box Factory Lab'}
+# Cartella della libreria DTF dentro "Creative System": la pulizia della domenica non la tocca mai
+CARTELLA_PROTETTA = 'Box Factory Lab DTF'
 ATTR_FILE_STAMPA = '_customily-production-url'
 PAGINA_STAMPA = (23 * cm, 43 * cm)
 MAIL_VECCHIA_DOPO_MINUTI = 30
@@ -526,6 +528,10 @@ def pulisci(base, oggi, reg):
         return cancellate
     for p in sorted(base.iterdir()):
         if p.is_symlink() or not p.is_dir() or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', p.name):
+            continue
+        # La libreria DTF (grafiche, bandiere, mappa) non si cancella mai, anche se qualcuno la sposta in una cartella con la data
+        if any(x.name in (CARTELLA_PROTETTA, 'mappa-prodotti.csv') for x in p.rglob('*')):
+            reg.scrivi(f'{oggi} pulizia: {p.name} NON cancellata, contiene la libreria DTF')
             continue
         shutil.rmtree(p)
         reg.scrivi(f'{oggi} pulizia: cancellata {p.name}')
