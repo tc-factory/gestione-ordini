@@ -17,6 +17,7 @@
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { inviaRisposta } from '../_shared/mail.ts';
+import { applicaIndirizzi, indirizzoDaMail } from './indirizzi.ts';
 
 const PER_GIRO = 6;              // mail per giro, elaborate in parallelo
 const MAX_TENTATIVI = 3;         // poi la mail diventa comunque un task, senza bozza
@@ -48,11 +49,18 @@ const str = { type: 'string' };
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['azione', 'categoria', 'modifica', 'priorita', 'lingua', 'titolo', 'riassunto', 'motivo_scarto', 'bozza', 'dubbi'],
+  required: ['azione', 'categoria', 'modifica', 'ordine_modifica', 'nuovo_indirizzo', 'priorita', 'lingua', 'titolo', 'riassunto', 'motivo_scarto', 'bozza', 'dubbi'],
   properties: {
     azione: { type: 'string', enum: ['task', 'scarta'] },
     categoria: { type: 'string', enum: [...Object.keys(TIPI), 'spam_phishing', 'nessuna_azione'] },
     modifica: { type: 'string', enum: ['indirizzo', 'altro', 'nessuna'] },
+    ordine_modifica: str,
+    nuovo_indirizzo: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['presso', 'via', 'cap', 'citta', 'provincia', 'paese'],
+      properties: { presso: str, via: str, cap: str, citta: str, provincia: str, paese: str },
+    },
     priorita: { type: 'string', enum: ['urgente', 'alta', 'normale', 'bassa'] },
     lingua: str,
     titolo: str,
@@ -75,6 +83,8 @@ Le correzioni del team valgono più del tuo giudizio: se una mail assomiglia a u
 Campi:
 - categoria: stato_ordine, reso_cambio, problema_ordine, modifica_ordine, info_prodotto, preventivo, pagamenti, altro.
 - modifica: "indirizzo" se la categoria è modifica_ordine e l'unica cosa chiesta è cambiare l'indirizzo di spedizione; "altro" per le altre modifiche o se l'indirizzo è chiesto insieme ad altro; "nessuna" in tutti gli altri casi.
+- ordine_modifica: se modifica è "indirizzo", il numero dell'ordine da modificare; "" se non è chiaro quale.
+- nuovo_indirizzo: se modifica è "indirizzo", i dati copiati dalla mail senza correggerli né completarli: presso (azienda o "presso …"), via con numero civico, cap, citta, provincia (sigla di 2 lettere), paese (codice ISO di 2 lettere). I dati che la mail non dà restano "". Se modifica non è "indirizzo", tutti i campi "". Se la grafia dell'indirizzo o del nome è dubbia, scrivilo in "dubbi".
 - priorita: urgente per reclami gravi o scadenze imminenti, alta per clienti in attesa di un ordine in ritardo, normale negli altri casi, bassa per richieste generiche.
 - lingua: codice della lingua del cliente (it, es, en…).
 - titolo: cosa deve fare l'operatore, massimo 90 caratteri, in italiano, con il nome del cliente e il numero dell'ordine con # se c'è.
@@ -260,7 +270,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       descrizione: a.riassunto,
       priorita: a.priorita,
       bozza: a.bozza,
-      analisi: { categoria: a.categoria, modifica: a.modifica, lingua: a.lingua, dubbi: a.dubbi, ordini: riferimenti },
+      analisi: { categoria: a.categoria, modifica: a.modifica, lingua: a.lingua, dubbi: a.dubbi, ordini: riferimenti, ...indirizzoDaMail(a, mail, mittente, ordini) },
     });
     const tipoNome = TIPI[a.categoria] || TIPI.altro;
     if (taskId && casella && await puòRispondereDaSolo(db, tipi.get(tipoNome), a, ordini, mittente)) {
@@ -319,6 +329,8 @@ Deno.serve(async (req) => {
     if (!me?.is_admin) return fail('Solo gli admin possono avviare il cervello', 403);
   }
   if (!Deno.env.get('ANTHROPIC_API_KEY')) return fail('Manca la chiave ANTHROPIC_API_KEY su Supabase', 500);
+
+  await applicaIndirizzi(db);
 
   const { data: eventi, error } = await db.rpc('_tc_eventi_prendi', { p_n: PER_GIRO });
   if (error) return fail(`Eventi non leggibili: ${error.message}`, 500);
