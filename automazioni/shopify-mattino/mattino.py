@@ -41,6 +41,8 @@ TAG_GIA_STAMPATI = {'stampato', TAG_AUTOMAZIONE}
 # Negozi con il PDF dei file di stampa (uno per negozio, "<nome> - 6373-6425.pdf").
 # Tutti e due usano Customily con file 23x43. Gli altri arriveranno dopo averli studiati
 NEGOZI_FILE_STAMPA = {'ciucciamilcalzino': 'Ciucciami', 'boxfactorylab': 'Box Factory Lab'}
+# Negozi con i fogli DTF delle t-shirt (grafica, nome, bandiera), fatti da dtf.py con la libreria nella cartella condivisa
+NEGOZI_DTF = {'boxfactorylab': 'Box Factory Lab'}
 ATTR_FILE_STAMPA = '_customily-production-url'
 PAGINA_STAMPA = (23 * cm, 43 * cm)
 MAIL_VECCHIA_DOPO_MINUTI = 30
@@ -453,6 +455,14 @@ def crea_pdf_stampa(destinazione, voci, problemi):
     return pagine, falliti
 
 
+def capo_dtf(l):
+    try:
+        from dtf import tipo_capo
+    except ImportError:   # senza le librerie dei fogli DTF la riga resta tra quelle senza file
+        return False
+    return bool(tipo_capo(l['title'], l['variantTitle']))
+
+
 def url_file_stampa(l):
     return next((a['value'] for a in l['customAttributes'] if a['key'] == ATTR_FILE_STAMPA), None)
 
@@ -642,7 +652,7 @@ def giro(args, applica, reg):
                 url = url_file_stampa(l)
                 if url:
                     voci_stampa.append((n['id'], o['name'], l['title'], url, l['unfulfilledQuantity']))
-                else:
+                elif not (n['id'] in NEGOZI_DTF and capo_dtf(l)):   # le t-shirt vanno nei fogli DTF
                     senza_file[n['id']].append(f"{o['name']}: {l['title']}")
 
     # Un PDF per negozio: (negozio, ordine) dei file non riusciti, pdf_stampa[negozio] = (file, pagine)
@@ -668,6 +678,32 @@ def giro(args, applica, reg):
             problemi[i].append(errori[-1])
             tmp.unlink(missing_ok=True)
 
+    # 4b. Fogli DTF: grafiche delle t-shirt, nomi e bandiere, in una cartellina dentro quella del giorno.
+    # Esclusi gli ordini da modificare, come per i file di stampa
+    dtf_creati = {}
+    dtf_a_mano = {n['id']: [] for n in negozi}
+    for n, _, _, _, ordini in per_negozio:
+        if n['id'] not in NEGOZI_DTF:
+            continue
+        voci = [(o['name'], l['title'], l['variantTitle'], l['customAttributes'], l['unfulfilledQuantity'])
+                for o in ordini if (n['id'], o['name']) not in richieste for l in righe_ddt(o)]
+        try:
+            import dtf   # qui: se mancano le librerie si ferma solo questa parte
+            voci = [v for v in voci if dtf.tipo_capo(v[1], v[2])]
+            if not voci:
+                continue
+            sotto = cartella / f"{NEGOZI_DTF[n['id']]} - DTF"
+            sotto.mkdir(exist_ok=True)
+            creati, a_mano, falliti = dtf.crea_fogli(sotto, NEGOZI_DTF[n['id']], voci, dtf.Libreria(args.cartella / dtf.CARTELLA_LIBRERIA))
+            dtf_creati[n['id']] = creati
+            dtf_a_mano[n['id']] = a_mano
+            falliti_stampa |= {(n['id'], o) for o in falliti}
+        except Exception as e:
+            falliti_stampa |= {(n['id'], v[0]) for v in voci}
+            errori.append(f"{n['nome']}: fogli DTF non riusciti ({type(e).__name__}: {str(e)[:100]})")
+            errori_negozio[n['id']] = errori[-1]
+            problemi[n['id']].append(errori[-1])
+
     # 5. PDF dei DDT, con il riepilogo in prima pagina: una checklist per negozio
     generale = [(f'Controllare la posta, potrebbero mancare richieste di modifica: {x}', True) for x in avvisi_mail]
     generale += [(f"Controllare la richiesta su {x} (ordine non in questo PDF)", True) for x in altrove.get(None, [])]
@@ -678,12 +714,15 @@ def giro(args, applica, reg):
         i = n['id']
         ordini = ordini_di.get(i)
         fare = [(f'Risolvere: {x}', True) for x in problemi[i] + avvisi_stampa[i]]
+        fare += [(f'Fare a mano: {x}', True) for x in dtf_a_mano[i]]
         fare += [(f"Modificare {k[1]}: {' / '.join(v)}", True) for k, v in sorted(richieste.items()) if k[0] == i]
         fare += [(f'Stampare a mano il file di {x} dopo la modifica (escluso dal PDF di stampa)', True) for x in esclusi[i]]
         fare += [(f'Controllare la richiesta su {x} (già stampato, evaso o rimandato)', True) for x in altrove[i]]
         fare += [(f"Controllare la richiesta senza numero d'ordine: {x}", True) for x in senza_ordine[i]]
         if ordini:
             fare.append((f"Stampare i DDT: {len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}", False))
+        for p, alto in dtf_creati.get(i, []):
+            fare.append((f'Stampare il foglio DTF "{p.name}" ({alto:g} cm)', False))
         if i in pdf_stampa:
             fare.append((f'Stampare il PDF dei file di stampa "{pdf_stampa[i][0].name}": {pdf_stampa[i][1]} pagine', False))
         info = [('Righe senza file di stampa', senza_file[i]), ('Rimandati a domani', rimandati[i]),
@@ -741,6 +780,7 @@ def giro(args, applica, reg):
     reg.scrivi(f"--- {dt.datetime.now(ROMA):%Y-%m-%d %H:%M} {'giro vero' if applica else 'prova, nessun tag'}")
     reg.scrivi(f"Cartella: {cartella}")
     reg.scrivi(f"DDT: {n_ordini} ordini, {pagine_ddt} pagine, {finale_ddt.stat().st_size // 1024} KB")
+    reg.scrivi(f"DTF: {sum(len(v) for v in dtf_creati.values())} fogli, {sum(len(v) for v in dtf_a_mano.values())} pezzi da fare a mano")
     reg.scrivi(f"Stampa: {pagine_stampa} pagine, {mb_stampa} MB"
                + ''.join(f" ({nomi[i]}: {x[1]})" for i, x in sorted(pdf_stampa.items())))
     conta = lambda d: sum(len(v) for v in d.values())

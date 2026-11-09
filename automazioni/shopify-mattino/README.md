@@ -10,6 +10,8 @@ cp .env.example .env
 .venv/bin/python mattino.py --cartella "/Users/Shared/Creative System" --applica  # mette i tag
 ```
 
+Per Box Factory Lab crea anche la cartellina `Box Factory Lab - DTF`. Dentro ci sono i fogli TIF (CMYK + SPOT, al massimo 57x100 cm) con le grafiche delle t-shirt, i nomi e le bandiere, più un'anteprima JPG per ogni foglio. Le regole e la libreria sono descritte in `dtf.py` e in `../box-factory-dtf/README.md`.
+
 Regole:
 - Entrano solo gli ordini non evasi, non annullati, pagati e senza i tag `stampato` e `auto-stampato`.
 - Il tag `auto-stampato` si mette solo dopo aver riaperto e controllato i PDF.
