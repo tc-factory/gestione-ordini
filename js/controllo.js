@@ -465,6 +465,19 @@ function renderControlMyDay() {
   const lavorati = delGiorno.reduce((s, t) => s + taskLavoratoSec(t), 0);
   const corrente = inCorso[0] || arretrati.find(t => t.stato === 'in_lavorazione');
 
+  // Il negozio si dice una volta sola: sulla riga solo se nella lista ce ne sono diversi
+  const aperti = [...inCorso, ...daFare, ...arretrati, ...bloccati];
+  const negoziLista = new Set(aperti.map(t => t.macroarea || ''));
+  const conNegozio = aperti.filter(t => t.macroarea);
+  const unicoNegozio = negoziLista.size === 1 ? taskMacro(conNegozio[0]?.macroarea) : null;
+  const vedi = (list) => Ctrl.macroarea ? list.filter(t => t.macroarea === Ctrl.macroarea) : list;
+  const visibili = vedi(aperti);
+  const opts = { showStore: !Ctrl.macroarea && negoziLista.size > 1, showAuto: false };
+  const barraNegozi = new Set(conNegozio.map(t => t.macroarea)).size > 1 || Ctrl.macroarea;
+
+  // Il tasto giallo va solo sul prossimo task da iniziare
+  Ctrl._prossimo = corrente ? null : (sortTasks(vedi(daFare))[0] || sortTasks(vedi(arretrati))[0] || sortTasks(vedi(coda))[0])?.id;
+
   const stat = (label, value, sub = '', glow = 'var(--brand-gold)') => `
     <div class="glass-card stat-card">
       <div class="stat-card-glow" style="background:${glow};"></div>
@@ -482,18 +495,21 @@ function renderControlMyDay() {
     </div>
 
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>I miei task</h2><span class="table-count">${inCorso.length + daFare.length + arretrati.length + bloccati.length}</span></div>
-      ${taskSub('In corso', inCorso)}
-      ${taskSub('Da fare', daFare)}
-      ${taskSub('Arretrati', arretrati)}
-      ${taskSub('Bloccati', bloccati)}
-      ${inCorso.length + daFare.length + arretrati.length + bloccati.length ? '' : `<div class="empty-list">${d === ctrlOggi() ? 'Niente da fare per oggi.' : 'Nessun task per questo giorno.'}</div>`}
+      <div class="page-card-head"><h2>I miei task</h2><span class="table-count">${visibili.length}</span>
+        ${unicoNegozio ? `<span class="ctrl-group-hint ctrl-macro-tag" style="--m:${unicoNegozio.color};">${unicoNegozio.label}</span>` : ''}</div>
+      ${barraNegozi ? taskMacroBar(aperti) : ''}
+      ${taskAutoNote(visibili)}
+      ${taskSub('In corso', vedi(inCorso), opts)}
+      ${taskSub('Da fare', vedi(daFare), opts)}
+      ${taskSub('Arretrati', vedi(arretrati), opts)}
+      ${taskSub('Bloccati', vedi(bloccati), opts)}
+      ${visibili.length ? '' : `<div class="empty-list">${aperti.length ? 'Nessun task per questo negozio.' : d === ctrlOggi() ? 'Niente da fare per oggi.' : 'Nessun task per questo giorno.'}</div>`}
     </section>
     ${renderTaskQueue(coda)}
     ${chiusi.length ? `
       <details class="glass-card page-card ctrl-group ctrl-closed">
         <summary class="page-card-head"><h2>Chiusi</h2><span class="table-count">${chiusi.length}</span></summary>
-        <div class="task-list">${sortTasks(chiusi).map(t => renderTaskRow(t)).join('')}</div>
+        <div class="task-list task-stack">${sortTasks(chiusi).map(t => renderTaskRow(t)).join('')}</div>
       </details>` : ''}`;
 }
 
@@ -571,9 +587,57 @@ async function taskAssign(id, nick) {
   } catch (e) { showToast(e.message, 'error'); }
 }
 
-function taskSub(title, list) {
+function taskSub(title, list, opts = {}) {
   if (!list.length) return '';
-  return `<div class="ctrl-sub">${title}</div><div class="task-list">${sortTasks(list).map(t => renderTaskRow(t)).join('')}</div>`;
+  return `<div class="ctrl-sub">${title}</div><div class="task-list task-stack">${renderTaskItems(list, opts)}</div>`;
+}
+
+// Numero d'ordine del task: nel titolo, o nell'analisi se la mail riguarda un ordine solo
+function taskOrdine(t) {
+  return t.titolo.match(/#\d{3,}/)?.[0] || (t.analisi?.ordini?.length === 1 ? t.analisi.ordini[0].numero : null);
+}
+
+// I task dello stesso ordine stanno in un blocco unico, al posto del più importante
+function renderTaskItems(list, opts = {}) {
+  const ordinati = sortTasks(list);
+  const chiave = (t) => { const n = taskOrdine(t); return n ? `${t.macroarea || ''}|${n}` : null; };
+  const gruppi = new Map();
+  ordinati.forEach(t => { const k = chiave(t); if (k) gruppi.set(k, [...(gruppi.get(k) || []), t]); });
+  const mostrati = new Set();
+  return ordinati.map(t => {
+    const k = chiave(t), g = k && gruppi.get(k);
+    if (!g || g.length < 2) return renderTaskRow(t, opts);
+    if (mostrati.has(k)) return '';
+    mostrati.add(k);
+    return renderTaskOrder(g, opts);
+  }).join('');
+}
+
+function renderTaskOrder(g, opts) {
+  const primo = (fn) => g.map(fn).find(Boolean);
+  const cliente = primo(t => t.analisi?.cliente?.nome) || primo(t => t.titolo.match(/·\s*ordine\s+#\d+\s*·\s*(.+)$/i)?.[1]);
+  const situazione = primo(t => t.analisi?.spedizione?.storico?.[0]?.stato);
+  const negozio = opts.showStore ? taskMacro(g[0].macroarea) : null;
+  const minuti = g.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
+  return `
+    <section class="task-order" aria-label="Ordine ${escapeHtml(taskOrdine(g[0]))}">
+      <header class="task-order-head">
+        <strong>${escapeHtml(taskOrdine(g[0]))}</strong>
+        ${cliente ? `<span class="task-order-who">${escapeHtml(cliente)}</span>` : ''}
+        ${negozio ? `<span class="ctrl-macro-tag" style="--m:${negozio.color};">${negozio.label}</span>` : ''}
+        ${situazione ? `<span class="task-order-state">GLS · ${escapeHtml(situazione)}</span>` : ''}
+        <span class="task-order-sum">${g.length} task${minuti ? ` · ${ctrlFmtMin(minuti)}` : ''}</span>
+      </header>
+      <div class="task-order-rows">${g.map(t => renderTaskRow(t, { ...opts, showStore: false,
+        titolo: t.titolo.replace(/\s*·\s*ordine\s+#\d+(\s*·\s*[^·]+)?$/i, '') })).join('')}</div>
+    </section>`;
+}
+
+// Un solo avviso in cima alla lista: il motivo è dentro ogni task
+function taskAutoNote(list) {
+  const n = list.filter(t => t.automazione_errore).length;
+  if (!n) return '';
+  return `<div class="task-auto-note">${n === 1 ? '1 task arriva' : `${n} task arrivano`} da un'automazione non riuscita: il motivo è dentro al task.</div>`;
 }
 
 // Pulsante di filtro per negozio
@@ -589,20 +653,26 @@ function ctrlFilter(attivo, label, n, color, onclick) {
 // Coda comune con il filtro per macroarea
 function renderTaskQueue(coda, emptyText = '') {
   if (!coda.length && !emptyText) return '';
-  const conta = (id) => coda.filter(t => t.macroarea === id).length;
   const list = Ctrl.macroarea ? coda.filter(t => t.macroarea === Ctrl.macroarea) : coda;
-  const chip = (id, label, n, color) => ctrlFilter(Ctrl.macroarea === id, label, n, color, `setControlMacro(${id ? `'${id}'` : 'null'})`);
   return `
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Coda comune</h2><span class="table-count">${list.length}</span>
         <span class="ctrl-group-hint">Non assegnati: li prende chi li inizia</span></div>
-      <div class="ctrl-macro-bar" role="group" aria-label="Filtra per macroarea">
-        ${chip(null, 'Tutte', coda.length)}
-        ${TASK_MACROAREE.map(m => chip(m.id, m.label, conta(m.id), m.color)).join('')}
-      </div>
-      ${list.length ? `<div class="task-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${sortTasks(list).map(t => renderTaskRow(t)).join('')}</div>`
+      ${taskMacroBar(coda)}
+      ${taskAutoNote(list)}
+      ${list.length ? `<div class="task-list task-stack ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${renderTaskItems(list, { showStore: !Ctrl.macroarea, showAuto: false })}</div>`
                     : `<div class="empty-list">${emptyText || 'Nessun task in questa macroarea.'}</div>`}
     </section>`;
+}
+
+function taskMacroBar(list) {
+  const conta = (id) => list.filter(t => t.macroarea === id).length;
+  const chip = (id, label, n, color) => ctrlFilter(Ctrl.macroarea === id, label, n, color, `setControlMacro(${id ? `'${id}'` : 'null'})`);
+  return `
+    <div class="ctrl-macro-bar" role="group" aria-label="Filtra per macroarea">
+      ${chip(null, 'Tutte', list.length)}
+      ${TASK_MACROAREE.map(m => chip(m.id, m.label, conta(m.id), m.color)).join('')}
+    </div>`;
 }
 
 function setControlMacro(id) {
@@ -610,34 +680,39 @@ function setControlMacro(id) {
   refreshControlPage();
 }
 
-function renderTaskRow(t, { showOwner = false } = {}) {
+function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true, titolo = t.titolo } = {}) {
   const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id);
   const lav = taskLavoratoSec(t);
   const scaduto = t.scadenza && !['completato', 'non_completato'].includes(t.stato) && new Date(t.scadenza) < new Date();
   const meta = [
-    taskMacro(t.macroarea) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(t.macroarea).color};">${taskMacro(t.macroarea).label}</span>` : '',
+    showStore && taskMacro(t.macroarea) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(t.macroarea).color};">${taskMacro(t.macroarea).label}</span>` : '',
     showOwner ? `<strong>${t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune'}</strong>` : '',
-    t.automazione_errore ? '<span class="task-late">automazione non riuscita</span>' : '',
+    showAuto && t.automazione_errore ? '<span class="task-late">automazione non riuscita</span>' : '',
     t.delega?.da ? `delegato da ${escapeHtml(t.delega.da)}` : '',
-    t.bozza_risposta && !t.risposta_inviata_at ? 'bozza pronta' : '',
-    t.risposta_inviata_at ? 'risposta inviata' : '',
     tipo ? escapeHtml(tipo.nome) : '',
-    `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}`,
-    t.stato === 'in_lavorazione' ? `<span class="task-timer" data-task-timer="${t.id}">${ctrlFmtDur(lav)}</span>`
-      : lav >= 1 ? `lavorato ${ctrlFmtDur(lav)}` : '',
+    t.stato !== 'in_lavorazione' && lav >= 1 ? `lavorato ${ctrlFmtDur(lav)}` : '',
     t.scadenza ? `<span class="${scaduto ? 'task-late' : ''}">entro ${new Date(t.scadenza).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }) === t.giorno ? ctrlFmtOra(t.scadenza) : ctrlFmtQuando(t.scadenza)}</span>` : '',
     t.giorno < Ctrl.giorno ? `<span class="task-late">dal ${ctrlFmtGiorno(t.giorno).toLowerCase()}</span>` : '',
     t.rinvii ? `rimandato ${t.rinvii}×` : '',
   ].filter(Boolean).join('<span aria-hidden="true"> · </span>');
+  const chip = (label, color) => `<span class="td-tag" style="--c:${color};">${label}</span>`;
+  const badges = [
+    t.priorita === 'urgente' ? chip(pr.label, pr.color) : '',
+    t.stato !== 'da_fare' ? chip(st.label, st.color) : '',
+    t.bozza_risposta && !t.risposta_inviata_at ? chip('Bozza pronta', '#2563eb') : '',
+    t.risposta_inviata_at ? chip('Risposta inviata', '#16a34a') : '',
+  ].join('');
 
   return `
-    <article class="task-row ${t.stato === 'completato' ? 'is-done' : ''}" style="--p:${pr.color};--st:${st.color};">
+    <article class="task-row is-task ${t.stato === 'completato' ? 'is-done' : ''}">
+      <i class="task-prio" style="--p:${pr.color};" role="img" title="Priorità ${pr.label.toLowerCase()}" aria-label="Priorità ${pr.label.toLowerCase()}"></i>
       <button type="button" class="task-main" onclick="openTaskDetail('${t.id}')" aria-label="${escapeHtml(t.titolo)}: dettagli">
-        <span class="task-title">${escapeHtml(t.titolo)}</span>
-        <span class="task-meta">${meta}</span>
+        <span class="task-title">${escapeHtml(titolo)}</span>
+        ${meta ? `<span class="task-meta">${meta}</span>` : ''}
         ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<span class="task-motivo">${escapeHtml(t.motivo)}</span>` : ''}
       </button>
-      ${t.stato === 'da_fare' ? '<span></span>' : `<span class="task-state">${st.label}</span>`}
+      <div class="task-badges">${badges}</div>
+      <span class="task-time">${t.stato === 'in_lavorazione' ? `<span class="task-timer" data-task-timer="${t.id}">${ctrlFmtDur(lav)}</span>` : t.minuti_stimati ? `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}` : ''}</span>
       <div class="task-actions">${Ctrl.canAct(t) ? taskQuickActions(t) : ''}
         <button class="btn-icon" onclick="openTaskDetail('${t.id}')" aria-label="Altre azioni">${CtrlIcons.more()}</button>
       </div>
@@ -654,14 +729,15 @@ function taskQuickActions(t) {
   }
   const btn = (stato, icon, label, cls = '') =>
     `<button class="ctrl-btn ${cls}" onclick="taskSetStato('${t.id}','${stato}')">${icon} <span>${label}</span></button>`;
+  const avvia = Ctrl._prossimo === t.id ? 'is-primary' : '';
   const prendi = !t.assegnato_a ? `<button class="ctrl-btn" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
   switch (t.stato) {
     case 'in_lavorazione': return btn('in_pausa', CtrlIcons.pause(), 'Pausa') + btn('completato', CtrlIcons.check(), 'Fatto', 'is-primary');
     case 'completato':     return btn('da_fare', CtrlIcons.undo(), 'Riapri');
     case 'non_completato': return btn('da_fare', CtrlIcons.undo(), 'Riapri');
     case 'in_pausa':
-    case 'bloccato':       return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Riprendi', 'is-primary');
-    default:               return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Inizia', 'is-primary');
+    case 'bloccato':       return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Riprendi', avvia);
+    default:               return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Inizia', avvia);
   }
 }
 
@@ -744,7 +820,7 @@ function taskGroupOwner(title, list, emptyText = '', hint = '') {
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>${title}</h2><span class="table-count">${list.length}</span>
         ${hint ? `<span class="ctrl-group-hint">${hint}</span>` : ''}</div>
-      ${list.length ? `<div class="task-list">${sortTasks(list).map(t => renderTaskRow(t, { showOwner: true })).join('')}</div>`
+      ${list.length ? `<div class="task-list task-stack">${sortTasks(list).map(t => renderTaskRow(t, { showOwner: true })).join('')}</div>`
                     : `<div class="empty-list">${emptyText}</div>`}
     </section>`;
 }
