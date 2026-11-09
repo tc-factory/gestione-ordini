@@ -2,8 +2,10 @@
 -- T&C Factory — Dopo un cambio di indirizzo, una persona controlla e conferma al cliente
 --
 -- Quando il task di cambio indirizzo si chiude, nasce il task "Conferma al cliente" con la
--- bozza già pronta. Si chiude rispondendo, da CS o dal programma di posta. Il tipo non ha
--- competenza: resta a chi aveva il task o in coda comune, non va mai a claude.
+-- bozza già pronta. Si chiude rispondendo, da CS o dal programma di posta. Va ai responsabili
+-- della competenza del task originale, saltando claude (il controllo lo fa una persona):
+-- se nessuno è disponibile resta in coda comune. Il tipo non ha competenza propria,
+-- così il piano del mattino non lo assegna a claude.
 -- Se al cliente si è già risposto, non serve.
 --
 -- Richiede task-chiusura-reale.sql. Si può rieseguire.
@@ -16,7 +18,7 @@ on conflict (nome) do nothing;
 create or replace function _tc_conferma_indirizzo(p_id uuid)
 returns uuid security definer set search_path = public language plpgsql as $$
 declare
-  t tasks%rowtype; o shopify_orders%rowtype; n jsonb; v_id uuid; v_negozio text; v_indirizzo text; v_stampato boolean; v_bozza text;
+  t tasks%rowtype; o shopify_orders%rowtype; n jsonb; v_id uuid; v_negozio text; v_indirizzo text; v_stampato boolean; v_bozza text; v_chi text;
 begin
   select * into t from tasks where id = p_id;
   if not found or t.mail_id is null or t.risposta_inviata_at is not null then return null; end if;
@@ -30,6 +32,13 @@ begin
   v_indirizzo := concat_ws(E'\n', nullif(n->>'presso', ''), n->>'via',
                            trim(concat_ws(' ', n->>'cap', n->>'citta', case when nullif(n->>'provincia', '') is not null then '(' || (n->>'provincia') || ')' end)));
   v_stampato := exists (select 1 from unnest(o.tags) g where lower(g) in ('stampato', 'auto-stampato'));
+
+  select case when r.primario <> 'claude' and tc_disponibile(r.primario, tc_oggi()) then r.primario
+              when r.secondario <> 'claude' and tc_disponibile(r.secondario, tc_oggi()) then r.secondario end
+    into v_chi
+    from task_tipi p
+    join competenze_responsabili r on r.voce = coalesce(p.area, t.macroarea, 'produzione') || ':' || p.competenza
+   where p.id = t.tipo_id;
 
   if t.analisi->>'lingua' = 'it' then
     v_bozza := 'Buongiorno' || coalesce(' ' || nullif(o.cliente, ''), '') || ',' || E'\n\n'
@@ -45,7 +54,7 @@ begin
           'alta', t.macroarea, t.mail_id, v_bozza,
           jsonb_build_object('lingua', t.analisi->>'lingua', 'dubbi', coalesce(t.analisi->>'dubbi', ''), 'ordini', t.analisi->'ordini'),
           'mail', jsonb_build_object('conferma_di', p_id), tc_oggi(),
-          nullif(t.assegnato_a, 'claude'), 'cervello')
+          v_chi, 'cervello')
   returning id into v_id;
   return v_id;
 end;
