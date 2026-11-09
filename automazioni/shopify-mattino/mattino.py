@@ -38,9 +38,9 @@ MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 
 # Il tag dell'automazione è diverso da quello manuale, così si distinguono. Nessuno dei due va ristampato
 TAG_AUTOMAZIONE = 'auto-stampato'
 TAG_GIA_STAMPATI = {'stampato', TAG_AUTOMAZIONE}
-# Negozi con il PDF dei file di stampa (uno per negozio) e l'inizio del nome del file.
+# Negozi con il PDF dei file di stampa (uno per negozio, "<nome> - ordini dal X al Y.pdf").
 # Tutti e due usano Customily con file 23x43. Gli altri arriveranno dopo averli studiati
-NEGOZI_FILE_STAMPA = {'ciucciamilcalzino': 'Ciucciami', 'boxfactorylab': 'Box-Factory-Lab'}
+NEGOZI_FILE_STAMPA = {'ciucciamilcalzino': 'Ciucciami', 'boxfactorylab': 'Box Factory Lab'}
 ATTR_FILE_STAMPA = '_customily-production-url'
 PAGINA_STAMPA = (23 * cm, 43 * cm)
 MAIL_VECCHIA_DOPO_MINUTI = 30
@@ -487,6 +487,19 @@ def nome_libero(cartella, nome):
     return p
 
 
+def numero_ordine(nome):
+    cifre = re.sub(r'\D', '', nome)
+    return int(cifre) if cifre else 0
+
+
+def nome_pdf_stampa(negozio, ordini):
+    """Es. "Ciucciami - ordini dal 6373 al 6425.pdf"; con un solo ordine "ordine 6373"."""
+    numeri = sorted({numero_ordine(o) for o in ordini})
+    if len(numeri) == 1:
+        return f'{negozio} - ordine {numeri[0]}.pdf'
+    return f'{negozio} - ordini dal {numeri[0]} al {numeri[-1]}.pdf'
+
+
 def conferma_pdf(temporaneo, finale, pagine_attese):
     letti = len(PdfReader(str(temporaneo)).pages)
     if letti != pagine_attese:
@@ -639,12 +652,13 @@ def giro(args, applica, reg):
         voci = [v[1:] for v in voci_stampa if v[0] == i]
         if not voci:
             continue
-        finale = nome_libero(cartella, f'{prefisso}-file-di-stampa-23x43.pdf')
-        tmp = finale.with_suffix('.part')
+        tmp = nome_libero(cartella, f'{prefisso}.part')
         try:
             pagine, falliti = crea_pdf_stampa(tmp, voci, avvisi_stampa[i])
             falliti_stampa |= {(i, x) for x in falliti}
             if pagine:
+                # Il nome dice il primo e l'ultimo ordine davvero stampati
+                finale = nome_libero(cartella, nome_pdf_stampa(prefisso, [v[0] for v in voci if v[0] not in falliti] or [v[0] for v in voci]))
                 conferma_pdf(tmp, finale, pagine)
                 pdf_stampa[i] = (finale, pagine)
         except Exception as e:
@@ -671,7 +685,7 @@ def giro(args, applica, reg):
         if ordini:
             fare.append((f"Stampare i DDT: {len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}", False))
         if i in pdf_stampa:
-            fare.append((f'Stampare il PDF dei file di stampa: {pdf_stampa[i][1]} pagine', False))
+            fare.append((f'Stampare il PDF dei file di stampa "{pdf_stampa[i][0].name}": {pdf_stampa[i][1]} pagine', False))
         info = [('Righe senza file di stampa', senza_file[i]), ('Rimandati a domani', rimandati[i]),
                 ('Esclusi perché non pagati', non_pagati[i])]
         quanti = 'ordini non letti' if ordini is None else f"{len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}"
