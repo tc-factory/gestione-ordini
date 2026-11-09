@@ -1,5 +1,5 @@
-// T&C Factory — Invio di una risposta dalla casella che ha ricevuto la mail (SMTP Aruba, porta 465).
-// Stessa conversazione del cliente, copia nella cartella Inviata, riga "out" in mail_messaggi.
+// T&C Factory — Invio di mail dalla casella del negozio (SMTP Aruba, porta 465): risposte nella stessa
+// conversazione del cliente o mail nuove. Copia nella cartella Inviata, riga "out" in mail_messaggi.
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { Imap, cartellaInviata, quota } from './imap.ts';
@@ -28,36 +28,48 @@ async function copiaInInviata(host: string, user: string, pass: string, raw: Uin
   }
 }
 
-export async function inviaRisposta(db: SupabaseClient, casella: Row, mail: Row, testo: string) {
+type Invio = { a: string; aNome?: string | null; oggetto: string; testo: string; inReplyTo?: string | null; riferimenti?: string | null };
+
+// Invio dalla casella del negozio: SMTP, copia in Inviata, riga "out" in mail_messaggi
+async function invia(db: SupabaseClient, casella: Row, m: Invio) {
   const pass = Deno.env.get(`MAIL_PASSWORD_${casella.id.toUpperCase()}`);
   if (!pass) throw new Error(`Manca la password della casella ${casella.indirizzo}`);
-
-  const oggetto = /^\s*(re|r|aw|sv)\s*:/i.test(mail.oggetto || '') ? mail.oggetto : `Re: ${mail.oggetto || ''}`.trim();
   const messageId = `<${crypto.randomUUID()}@${casella.indirizzo.split('@')[1]}>`;
-  const riferimenti = [mail.riferimenti, mail.message_id].filter(Boolean).join(' ');
 
   const raw: Uint8Array = await new MailComposer({
     from: { name: casella.nome, address: casella.indirizzo },
-    to: mail.da_nome ? { name: mail.da_nome, address: mail.da_email } : mail.da_email,
-    subject: oggetto,
-    text: testo,
+    to: m.aNome ? { name: m.aNome, address: m.a } : m.a,
+    subject: m.oggetto,
+    text: m.testo,
     messageId,
-    inReplyTo: mail.message_id || undefined,
-    references: riferimenti || undefined,
+    inReplyTo: m.inReplyTo || undefined,
+    references: m.riferimenti || undefined,
   }).compile().build();
 
   const smtp = nodemailer.createTransport({
     host: casella.smtp_host, port: 465, secure: true,
     auth: { user: casella.indirizzo, pass },
   });
-  await smtp.sendMail({ envelope: { from: casella.indirizzo, to: mail.da_email }, raw });
+  await smtp.sendMail({ envelope: { from: casella.indirizzo, to: m.a }, raw });
 
   const inviata = await copiaInInviata(casella.imap_host, casella.indirizzo, pass, raw);
 
   await db.from('mail_messaggi').insert({
-    casella_id: casella.id, direzione: 'out', message_id: messageId, in_reply_to: mail.message_id,
-    riferimenti: riferimenti || null, da_email: casella.indirizzo, da_nome: casella.nome, a: mail.da_email,
-    oggetto, ricevuto_at: new Date().toISOString(), testo,
+    casella_id: casella.id, direzione: 'out', message_id: messageId, in_reply_to: m.inReplyTo || null,
+    riferimenti: m.riferimenti || null, da_email: casella.indirizzo, da_nome: casella.nome, a: m.a,
+    oggetto: m.oggetto, ricevuto_at: new Date().toISOString(), testo: m.testo,
   });
   return { copia_in_inviata: inviata };
+}
+
+// Risposta nella stessa conversazione del cliente
+export function inviaRisposta(db: SupabaseClient, casella: Row, mail: Row, testo: string) {
+  const oggetto = /^\s*(re|r|aw|sv)\s*:/i.test(mail.oggetto || '') ? mail.oggetto : `Re: ${mail.oggetto || ''}`.trim();
+  const riferimenti = [mail.riferimenti, mail.message_id].filter(Boolean).join(' ');
+  return invia(db, casella, { a: mail.da_email, aNome: mail.da_nome, oggetto, testo, inReplyTo: mail.message_id, riferimenti });
+}
+
+// Mail nuova scritta da noi (es. avviso di giacenza)
+export function inviaNuova(db: SupabaseClient, casella: Row, a: string, aNome: string | null, oggetto: string, testo: string) {
+  return invia(db, casella, { a, aNome, oggetto, testo });
 }

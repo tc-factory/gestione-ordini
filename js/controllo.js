@@ -2050,6 +2050,7 @@ async function removeMailRule(mittente) {
 const AUTOMAZIONI = {
   mattino: { nome: 'DDT e file di stampa', quando: 'Giorni lavorativi alle 5:00' },
   pulizia: { nome: 'Pulizia della cartella', quando: 'Domenica alle 23:59' },
+  'avviso-giacenza': { nome: 'Mail ai clienti per le giacenze', quando: 'Ogni ora, anche nel weekend' },
 };
 const AUTOMAZIONE_STATI = {
   in_corso: ['In corso', '#f59e0b'], ok: ['Riuscita', '#22c55e'], errore: ['Errore', '#ef4444'],
@@ -2092,6 +2093,8 @@ function renderControlAutomations() {
       x.ordini != null ? `${x.ordini} DDT` : '',
       x.pagine_stampa != null ? `${x.pagine_stampa} pagine di stampa` : '',
       x.tag != null ? `${x.tag} tag` : '',
+      x.mail != null ? (x.mail === 1 ? '1 mail inviata' : `${x.mail} mail inviate`) : '',
+      x.errori ? (x.errori === 1 ? '1 errore' : `${x.errori} errori`) : '',
       x.cancellate != null ? (x.cancellate === 1 ? '1 cartella cancellata' : `${x.cancellate} cartelle cancellate`) : '',
       x.motivo ? escapeHtml(x.motivo) : '',
     ].filter(Boolean).join(' · ');
