@@ -6,6 +6,9 @@
 //      da attiva_dal, poi solo quelle con UID maggiore dell'ultimo letto
 //   3. le salva in mail_messaggi; quelle scritte da persone diventano `eventi` per il cervello
 //
+//   4. legge le intestazioni della posta inviata: le risposte date dal programma di posta
+//      finiscono in mail_messaggi come "out" e _tc_mail_risposte_chiudi chiude i task collegati
+//
 // Solo lettura: la casella si apre con EXAMINE e il contenuto con BODY.PEEK, quindi le mail
 // non vengono segnate come lette né spostate.
 //
@@ -15,9 +18,10 @@
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import PostalMime from 'npm:postal-mime@2';
-import { Imap, quota } from '../_shared/imap.ts';
+import { Imap, cartellaInviata, quota } from '../_shared/imap.ts';
 
 const MAX_PER_GIRO = 15;          // mail per casella a ogni giro: le altre al giro dopo
+const MAX_INVIATE_PER_GIRO = 100; // solo intestazioni: alla prima lettura recupera tutte le risposte già date
 const MAX_SORGENTE = 2_000_000;   // oltre questa dimensione si scaricano solo intestazioni e testo, non gli allegati
 const MAX_TESTO = 20_000;
 const TIME_BUDGET_MS = 110_000;
@@ -34,6 +38,7 @@ const fail = (error: string, status = 400) => reply({ success: false, error }, s
 type Casella = {
   id: string; indirizzo: string; nome: string; imap_host: string;
   attiva_dal: string; uidvalidity: number | null; ultimo_uid: number | null;
+  inviata_uidvalidity: number | null; inviata_ultimo_uid: number | null;
 };
 
 // ── Mail automatiche: non servono al cervello ──
@@ -121,6 +126,56 @@ async function decodifica(source: Uint8Array): Promise<any> {
   };
 }
 
+// ── Posta inviata ──
+
+// Solo intestazioni: per capire a quale mail si è risposto non serve il testo.
+async function syncInviata(db: SupabaseClient, imap: Imap, c: Casella, deadline: number) {
+  const cartella = await cartellaInviata(imap);
+  if (!cartella) throw new Error('cartella non trovata');
+
+  const aperta = (await imap.comando(`EXAMINE ${quota(cartella)}`, 20_000, 'apertura posta inviata')).map(r => r.testo).join('\n');
+  const uidvalidity = Number(aperta.match(/UIDVALIDITY (\d+)/)?.[1]) || null;
+  const uidNext = Number(aperta.match(/UIDNEXT (\d+)/)?.[1]) || 1;
+  const ripartenza = !c.inviata_ultimo_uid || c.inviata_uidvalidity !== uidvalidity;
+  let ultimoUid = ripartenza ? 0 : c.inviata_ultimo_uid!;
+
+  const dal = new Date(c.attiva_dal);
+  const criterio = ripartenza ? `SINCE ${dal.getUTCDate()}-${MESI[dal.getUTCMonth()]}-${dal.getUTCFullYear()}` : `UID ${ultimoUid + 1}:*`;
+  const trovate = await imap.comando(`UID SEARCH ${criterio}`, 20_000, 'ricerca posta inviata');
+  const uids = (trovate.find(r => r.testo.startsWith('* SEARCH'))?.testo.match(/\d+/g) || []).map(Number)
+    .filter(u => u > ultimoUid).sort((a, b) => a - b).slice(0, MAX_INVIATE_PER_GIRO);
+
+  if (!uids.length && ripartenza) ultimoUid = Math.max(0, uidNext - 1);
+
+  let salvate = 0;
+  for (const msg of uids.length ? await elencoMail(imap, uids) : []) {
+    if (Date.now() > deadline) break;
+    if (msg.arrivata >= dal) {
+      const env = await PostalMime.parse(msg.intestazioni);
+      const destinatari = [...(env.to || []), ...(env.cc || [])].flatMap(t => t.address ? [t.address.toLowerCase()] : []);
+      // Senza uid: gli UID di questa cartella si sovrappongono a quelli della posta in arrivo.
+      // Le risposte mandate da CS sono già salvate: il Message-ID uguale le fa saltare (23505).
+      const { error } = await db.from('mail_messaggi').insert({
+        casella_id: c.id,
+        direzione: 'out',
+        message_id: env.messageId || `<inviata-${uidvalidity}-${msg.uid}@cs>`,
+        in_reply_to: env.inReplyTo || null,
+        riferimenti: env.references || null,
+        da_email: c.indirizzo,
+        da_nome: c.nome,
+        a: destinatari.join(', ') || null,
+        oggetto: env.subject || null,
+        ricevuto_at: (env.date && !isNaN(new Date(env.date).getTime()) ? new Date(env.date) : msg.arrivata).toISOString(),
+      });
+      if (error && error.code !== '23505') throw new Error(`salvataggio: ${error.message}`);
+      if (!error) salvate++;
+    }
+    ultimoUid = Math.max(ultimoUid, msg.uid);
+  }
+  await db.from('mail_caselle').update({ inviata_uidvalidity: uidvalidity, inviata_ultimo_uid: ultimoUid || null }).eq('id', c.id);
+  return salvate;
+}
+
 // ── Una casella ──
 
 async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
@@ -128,6 +183,7 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
   if (!pass) throw new Error(`Manca il secret MAIL_PASSWORD_${c.id.toUpperCase()}`);
 
   const imap = new Imap();
+  let inviate = 0, erroreInviata: string | null = null;
   let salvate = 0, perCervello = 0, ultimoUid = c.ultimo_uid || 0, uidvalidity = c.uidvalidity;
   try {
     await imap.apri(c.imap_host);
@@ -196,7 +252,8 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
 
       const { data: ins, error } = await db.from('mail_messaggi')
         .upsert(row, { onConflict: 'casella_id,uid', ignoreDuplicates: true }).select('id');
-      if (error) throw new Error(`Salvataggio mail: ${error.message}`);
+      // 23505: stesso Message-ID già salvato (es. copia a se stessi di una risposta): non è una mail nuova
+      if (error && error.code !== '23505') throw new Error(`Salvataggio mail: ${error.message}`);
       const nuova = ins?.[0]?.id;
       if (nuova) {
         salvate++;
@@ -214,6 +271,11 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
       if (motivoIlleggibile) break;   // la connessione è da rifare: si riprende al giro dopo
     }
     if (ripartenza && meta.length && meta.every(m => m.arrivata < dal)) ultimoUid = Math.max(ultimoUid, uidNext - 1);
+
+    // Un problema con la posta inviata non deve fermare la lettura delle mail ricevute
+    try { inviate = await syncInviata(db, imap, c, deadline); }
+    catch (e) { erroreInviata = `Posta inviata non letta: ${e instanceof Error ? e.message : e}`.slice(0, 500); }
+
     await imap.comando('LOGOUT', 3_000).catch(() => {});
   } finally {
     imap.chiudi();
@@ -221,9 +283,9 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
 
   await db.from('mail_caselle').update({
     uidvalidity, ultimo_uid: ultimoUid || null,
-    ultimo_sync_at: new Date().toISOString(), ultimo_errore: null,
+    ultimo_sync_at: new Date().toISOString(), ultimo_errore: erroreInviata,
   }).eq('id', c.id);
-  return { casella: c.indirizzo, salvate, per_cervello: perCervello };
+  return { casella: c.indirizzo, salvate, per_cervello: perCervello, inviate };
 }
 
 // ── Ingresso ──
@@ -249,7 +311,7 @@ Deno.serve(async (req) => {
   let body: { casella?: string } = {};
   try { body = await req.json(); } catch { /* corpo vuoto */ }
 
-  let q = db.from('mail_caselle').select('id, indirizzo, nome, imap_host, attiva_dal, uidvalidity, ultimo_uid').eq('attivo', true).order('nome');
+  let q = db.from('mail_caselle').select('id, indirizzo, nome, imap_host, attiva_dal, uidvalidity, ultimo_uid, inviata_uidvalidity, inviata_ultimo_uid').eq('attivo', true).order('nome');
   if (body.casella) q = q.eq('id', body.casella);
   const { data: caselle, error } = await q;
   if (error) return fail(`Caselle non leggibili: ${error.message}`, 500);
