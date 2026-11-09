@@ -862,7 +862,7 @@ function renderTaskMail(t, can) {
     ${t.risposta_inviata_at ? `
       <div class="task-reply">
         <span class="form-label">Risposta inviata ${ctrlFmtQuando(t.risposta_inviata_at)}</span>
-        <p class="task-detail-desc">${escapeHtml(t.bozza_risposta || '')}</p>
+        <p class="task-detail-desc">${t.risposta_fuori_cs ? 'Risposta data dal programma di posta: il testo è nella cartella Inviata della casella.' : escapeHtml(t.bozza_risposta || '')}</p>
       </div>` : can ? `
       <div class="task-reply">
         <label class="form-label" for="task-bozza">Risposta a ${escapeHtml(m?.da_email || 'il cliente')}</label>
@@ -902,7 +902,9 @@ async function sendTaskReply(id) {
   const testo = (_taskBozza || '').trim();
   if (!testo) { showToast('Scrivi la risposta', 'error'); return; }
   const dest = _taskMail?.taskId === id ? _taskMail.mail?.da_email : '';
-  if (!confirm(`Inviare la risposta a ${dest || 'il cliente'}? Il task verrà completato.`)) return;
+  const tipo = Ctrl.tipo(Ctrl.tasks.find(x => x.id === id)?.tipo_id);
+  const dopo = tipo?.chiude_con_risposta === false ? 'Il task resta aperto finché il lavoro non è fatto.' : 'Il task verrà completato.';
+  if (!confirm(`Inviare la risposta a ${dest || 'il cliente'}? ${dopo}`)) return;
   const btn = document.getElementById('task-send');
   if (btn) { btn.disabled = true; btn.textContent = 'Invio…'; }
   try {

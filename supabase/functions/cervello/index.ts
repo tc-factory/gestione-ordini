@@ -48,10 +48,11 @@ const str = { type: 'string' };
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['azione', 'categoria', 'priorita', 'lingua', 'titolo', 'riassunto', 'motivo_scarto', 'bozza', 'dubbi'],
+  required: ['azione', 'categoria', 'modifica', 'priorita', 'lingua', 'titolo', 'riassunto', 'motivo_scarto', 'bozza', 'dubbi'],
   properties: {
     azione: { type: 'string', enum: ['task', 'scarta'] },
     categoria: { type: 'string', enum: [...Object.keys(TIPI), 'spam_phishing', 'nessuna_azione'] },
+    modifica: { type: 'string', enum: ['indirizzo', 'altro', 'nessuna'] },
     priorita: { type: 'string', enum: ['urgente', 'alta', 'normale', 'bassa'] },
     lingua: str,
     titolo: str,
@@ -73,9 +74,10 @@ Le correzioni del team valgono più del tuo giudizio: se una mail assomiglia a u
 
 Campi:
 - categoria: stato_ordine, reso_cambio, problema_ordine, modifica_ordine, info_prodotto, preventivo, pagamenti, altro.
+- modifica: "indirizzo" se la categoria è modifica_ordine e l'unica cosa chiesta è cambiare l'indirizzo di spedizione; "altro" per le altre modifiche o se l'indirizzo è chiesto insieme ad altro; "nessuna" in tutti gli altri casi.
 - priorita: urgente per reclami gravi o scadenze imminenti, alta per clienti in attesa di un ordine in ritardo, normale negli altri casi, bassa per richieste generiche.
 - lingua: codice della lingua del cliente (it, es, en…).
-- titolo: cosa deve fare l'operatore, massimo 90 caratteri, in italiano, con il nome del cliente.
+- titolo: cosa deve fare l'operatore, massimo 90 caratteri, in italiano, con il nome del cliente e il numero dell'ordine con # se c'è.
 - riassunto: la richiesta in 1-3 frasi, in italiano, per l'operatore.
 - bozza: la risposta al cliente, nella sua lingua, cordiale e breve, firmata con il nome del negozio. Testo semplice, senza oggetto. "" se azione è "scarta".
 - dubbi: in italiano, cosa deve controllare l'operatore prima di inviare; "" se è tutto chiaro.
@@ -258,15 +260,16 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       descrizione: a.riassunto,
       priorita: a.priorita,
       bozza: a.bozza,
-      analisi: { categoria: a.categoria, lingua: a.lingua, dubbi: a.dubbi, ordini: riferimenti },
+      analisi: { categoria: a.categoria, modifica: a.modifica, lingua: a.lingua, dubbi: a.dubbi, ordini: riferimenti },
     });
     const tipoNome = TIPI[a.categoria] || TIPI.altro;
     if (taskId && casella && await puòRispondereDaSolo(db, tipi.get(tipoNome), a, ordini, mittente)) {
-      const analisi = { categoria: a.categoria, lingua: a.lingua, dubbi: '', ordini: riferimenti };
+      const analisi = { categoria: a.categoria, modifica: a.modifica, lingua: a.lingua, dubbi: '', ordini: riferimenti };
       try {
         await inviaRisposta(db, casella, mail, a.bozza.trim());
         await db.from('tasks').update({
-          stato: 'completato', risposta_inviata_at: new Date().toISOString(), analisi: { ...analisi, automatica: true },
+          stato: tipi.get(tipoNome)?.chiude_con_risposta === false ? undefined : 'completato',
+          risposta_inviata_at: new Date().toISOString(), analisi: { ...analisi, automatica: true },
         }).eq('id', taskId);
         await chiudi(db, evento.id, `Risposta automatica inviata (${a.categoria})`, taskId);
         return { evento: evento.id, esito: 'risposta automatica', categoria: a.categoria };
@@ -323,7 +326,7 @@ Deno.serve(async (req) => {
 
   const [{ data: stores }, { data: tipiRows }] = await Promise.all([
     db.from('shopify_stores').select('id, nome'),
-    db.from('task_tipi').select('id, nome, autonomia'),
+    db.from('task_tipi').select('id, nome, autonomia, chiude_con_risposta'),
   ]);
   const negozi = new Map((stores || []).map(s => [s.id, s.nome]));
   const tipi = new Map((tipiRows || []).map(t => [t.nome, t]));

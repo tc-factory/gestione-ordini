@@ -2,7 +2,8 @@
 //
 // Una persona collegata approva la bozza dal task: la mail parte dalla casella che ha
 // ricevuto il messaggio (SMTP Aruba, porta 465), nella stessa conversazione, e una copia
-// va nella cartella Inviata. Il task viene completato a nome di chi ha inviato.
+// va nella cartella Inviata. Il task viene completato a nome di chi ha inviato, tranne per i
+// tipi in cui rispondere non basta (task_tipi.chiude_con_risposta): quelli restano aperti.
 //
 // Può inviare chi può lavorare il task: admin, l'assegnatario, o chiunque se è in coda comune.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
@@ -41,7 +42,7 @@ Deno.serve(async (req) => {
   if (testo.length > 20_000) return fail('Risposta troppo lunga');
   if (/\[[^\]\n]{2,60}\]/.test(testo)) return fail('La risposta contiene ancora un segnaposto tra parentesi quadre');
 
-  const { data: task } = await db.from('tasks').select('id, assegnato_a, mail_id, risposta_inviata_at').eq('id', body.task_id).maybeSingle();
+  const { data: task } = await db.from('tasks').select('id, assegnato_a, mail_id, risposta_inviata_at, task_tipi(chiude_con_risposta)').eq('id', body.task_id).maybeSingle();
   if (!task) return fail('Task non trovato', 404);
   if (!me.is_admin && task.assegnato_a && task.assegnato_a !== me.nickname) return fail(`Il task è assegnato a ${task.assegnato_a}`, 403);
   if (!task.mail_id) return fail('Questo task non nasce da una mail');
@@ -66,9 +67,11 @@ Deno.serve(async (req) => {
       auth: { persistSession: false, autoRefreshToken: false },
       global: { headers: { Authorization: auth } },
     });
-    await utente.rpc('tc_task_stato', { p_id: task.id, p_stato: 'completato' });
+    // deno-lint-ignore no-explicit-any
+    const completa = (task as any).task_tipi?.chiude_con_risposta !== false;
+    if (completa) await utente.rpc('tc_task_stato', { p_id: task.id, p_stato: 'completato' });
 
-    return reply({ success: true, copia_in_inviata });
+    return reply({ success: true, copia_in_inviata, completato: completa });
   } catch (e) {
     await db.from('tasks').update({ risposta_inviata_at: null }).eq('id', task.id);
     console.error('Invio', e);
