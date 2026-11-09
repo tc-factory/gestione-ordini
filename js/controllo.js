@@ -863,9 +863,9 @@ async function removeTaskType(id) {
 
 const CTRL_MODAL = 'ctrl-modal';
 
-function ctrlModal(html, width = 520) {
+function ctrlModal(html, width = 520, cls = '') {
   const modal = document.getElementById(CTRL_MODAL);
-  modal.innerHTML = `<div class="modal" style="max-width:${width}px;" role="dialog" aria-modal="true" aria-labelledby="ctrl-modal-title">${html}</div>`;
+  modal.innerHTML = `<div class="modal ${cls}" style="max-width:${width}px;" role="dialog" aria-modal="true" aria-labelledby="ctrl-modal-title">${html}</div>`;
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal(CTRL_MODAL); };
 }
@@ -896,36 +896,39 @@ async function openTaskDetail(id, action = null) {
   catch { renderTaskDetail(id, []); }
 }
 
-// Mail d'origine, ordini trovati e bozza di risposta
-function renderTaskMail(t, can) {
-  if (!t.mail_id) return '';
+// Mail d'origine e risposta, divise per colonna del dettaglio
+function taskMailParts(t, can) {
+  if (!t.mail_id) return null;
   const m = _taskMail?.taskId === t.id ? _taskMail.mail : null;
-  const a = t.analisi || {};
-  const ordini = (a.ordini || []).map(o => `${escapeHtml(taskMacro(o.negozio)?.label || o.negozio)} ${escapeHtml(o.numero)}${o.verificato ? '' : ' (email diversa dal mittente)'}`);
-  return `
-    ${m ? `
-      <details class="task-mail">
-        <summary><strong>${escapeHtml(m.da_nome || m.da_email || '')}</strong> · ${escapeHtml(m.oggetto || '(senza oggetto)')}</summary>
-        <div class="ctrl-cell-sub">${escapeHtml(m.da_email || '')} · ${ctrlFmtQuando(m.ricevuto_at)}${(m.allegati || []).length ? ` · allegati: ${m.allegati.map(x => escapeHtml(x.nome)).join(', ')}` : ''}</div>
-        <p>${escapeHtml(m.testo || '(mail senza testo)')}</p>
-      </details>` : ''}
-    ${ordini.length ? `<div class="ctrl-cell-sub"><strong>Ordini trovati:</strong> ${ordini.join(' · ')}</div>` : ''}
-    ${a.dubbi ? `<div class="task-dubbi"><strong>Da controllare:</strong> ${escapeHtml(a.dubbi)}</div>` : ''}
-    ${t.risposta_inviata_at ? `
-      <div class="task-reply">
-        <span class="form-label">Risposta inviata ${ctrlFmtQuando(t.risposta_inviata_at)}</span>
-        <p class="task-detail-desc">${t.risposta_fuori_cs ? 'Risposta data dal programma di posta: il testo è nella cartella Inviata della casella.' : escapeHtml(t.bozza_risposta || '')}</p>
-      </div>` : can ? `
-      <div class="task-reply">
-        <label class="form-label" for="task-bozza">Risposta a ${escapeHtml(m?.da_email || 'il cliente')}</label>
-        <textarea id="task-bozza" class="form-textarea" rows="9" maxlength="20000"
-          oninput="_taskBozza=this.value" placeholder="Scrivi la risposta…">${escapeHtml(_taskBozza ?? '')}</textarea>
-        <div style="display:flex;justify-content:flex-end;gap:8px;">
-          <button type="button" class="btn btn-ghost btn-sm" style="margin-right:auto;" onclick="markTaskSpam('${t.id}')">È spam</button>
-          ${TCAuth.isAdmin() ? `<button type="button" class="btn btn-secondary btn-sm" onclick="saveTaskBozza('${t.id}')">Salva bozza</button>` : ''}
-          <button type="button" class="btn btn-primary btn-sm" id="task-send" onclick="sendTaskReply('${t.id}')">Invia risposta</button>
-        </div>
-      </div>` : ''}`;
+  const ordini = (t.analisi?.ordini || []).map(o => `${escapeHtml(taskMacro(o.negozio)?.label || o.negozio)} ${escapeHtml(o.numero)}${o.verificato ? '' : ' (email diversa dal mittente)'}`);
+  const ricevuta = `
+    <section class="td-sec td-mail">
+      <h3>Mail ricevuta</h3>
+      ${m ? `
+        <div class="td-mail-head"><strong>${escapeHtml(m.da_nome || m.da_email || '')}</strong>
+          <span>${escapeHtml(m.da_email || '')} · ${ctrlFmtQuando(m.ricevuto_at)}</span></div>
+        <div class="td-mail-subj">${escapeHtml(m.oggetto || '(senza oggetto)')}</div>
+        <p class="td-mail-text">${escapeHtml(m.testo || '(mail senza testo)')}</p>
+        ${(m.allegati || []).length ? `<div class="td-small">Allegati: ${m.allegati.map(x => escapeHtml(x.nome)).join(', ')}</div>` : ''}`
+      : `<p class="td-empty">${_taskMail?.taskId === t.id ? 'Mail non disponibile.' : 'Caricamento…'}</p>`}
+      ${ordini.length ? `<div class="td-small"><strong>Ordini trovati:</strong> ${ordini.join(' · ')}</div>` : ''}
+    </section>`;
+  const risposta = t.risposta_inviata_at ? `
+    <section class="td-sec td-reply">
+      <h3>Risposta inviata <span>${ctrlFmtQuando(t.risposta_inviata_at)}</span></h3>
+      <p class="td-mail-text">${t.risposta_fuori_cs ? 'Risposta data dal programma di posta: il testo è nella cartella Inviata della casella.' : escapeHtml(t.bozza_risposta || '')}</p>
+    </section>` : can ? `
+    <section class="td-sec td-reply">
+      <h3><label for="task-bozza">Risposta${m?.da_email ? ` a <span>${escapeHtml(m.da_email)}</span>` : ' al cliente'}</label></h3>
+      <textarea id="task-bozza" class="form-textarea" maxlength="20000"
+        oninput="_taskBozza=this.value" placeholder="Scrivi la risposta…">${escapeHtml(_taskBozza ?? '')}</textarea>
+      <div class="td-reply-actions">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="markTaskSpam('${t.id}')">È spam</button>
+        ${TCAuth.isAdmin() ? `<button type="button" class="btn btn-secondary btn-sm" onclick="saveTaskBozza('${t.id}')">Salva bozza</button>` : ''}
+        <button type="button" class="btn btn-primary btn-sm" id="task-send" onclick="sendTaskReply('${t.id}')">Invia risposta</button>
+      </div>
+    </section>` : '';
+  return { ricevuta, risposta, daInviare: can && !t.risposta_inviata_at };
 }
 
 async function markTaskSpam(id) {
@@ -956,7 +959,7 @@ async function sendTaskReply(id) {
   const dest = _taskMail?.taskId === id ? _taskMail.mail?.da_email : '';
   const tipo = Ctrl.tipo(Ctrl.tasks.find(x => x.id === id)?.tipo_id);
   const dopo = tipo?.chiude_con_risposta === false ? 'Il task resta aperto finché il lavoro non è fatto.' : 'Il task verrà completato.';
-  if (!confirm(`Inviare la risposta a ${dest || 'il cliente'}? ${dopo}`)) return;
+  if (!confirm(`Inviare la risposta a ${dest || 'al cliente'}? ${dopo}`.replace(' a al ', ' al '))) return;
   const btn = document.getElementById('task-send');
   if (btn) { btn.disabled = true; btn.textContent = 'Invio…'; }
   try {
@@ -988,7 +991,7 @@ function renderTaskShipment(t) {
     return e.volte > 1 ? `dal ${f(e.dal)} al ${f(e.al)}` : `${f(e.al)} · ${e.al.slice(11, 16)}`;
   };
   return `
-    <section class="td-box">
+    <section class="td-sec td-box">
       <div class="td-box-head">
         <h3>Spedizione GLS</h3>
         <span class="td-mono">${escapeHtml(sp.tracking)}</span>
@@ -1024,104 +1027,96 @@ function renderTaskDetail(id, storico) {
   const chiuso = ['completato', 'non_completato'].includes(t.stato);
   const colleghi = Ctrl.users.filter(u => u !== Ctrl._me() && u !== 'claude' && u !== t.assegnato_a);
 
-  const info = (label, value) => value ? `<div><dt>${label}</dt><dd>${value}</dd></div>` : '';
   const motivoBtn = (stato, label) => t.stato === stato ? '' :
-    `<button type="button" class="td-act" onclick="_taskAction='${stato}';renderTaskDetail('${id}', _taskStoricoCache)">${label}</button>`;
-  const tag = (label, color) => `<span class="td-tag" style="--c:${color};">${label}</span>`;
+    `<button type="button" class="td-link" onclick="_taskAction='${stato}';renderTaskDetail('${id}', _taskStoricoCache)">${label}</button>`;
+  const mail = taskMailParts(t, can);
+  const sped = renderTaskShipment(t);
+  // Colonna destra: la risposta se il task nasce da una mail, altrimenti la spedizione
+  const destra = mail ? mail.risposta : sped;
+  const split = !!destra;
+  const sep = '<span aria-hidden="true">·</span>';
+  const meta = [
+    macro ? `<span class="td-store" style="--m:${macro.color};"><i></i>${macro.label}</span>` : '',
+    t.priorita !== 'normale' ? `<span style="color:${pr.color};font-weight:700;">${pr.label}</span>` : '',
+    !['da_fare', 'in_lavorazione', 'in_pausa'].includes(t.stato) ? `<span style="color:${st.color};font-weight:700;">${st.label}</span>` : '',
+    `<span>${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)} stimati</span>`,
+    tipo ? `<span>${escapeHtml(tipo.nome)}</span>` : '',
+    t.scadenza ? `<span>entro ${ctrlFmtQuando(t.scadenza)}</span>` : '',
+    t.giorno !== ctrlOggi() ? `<span>${ctrlFmtGiorno(t.giorno)}</span>` : '',
+  ].filter(Boolean).join(sep);
+  const fatti = [
+    t.assegnato_a !== Ctrl._me() ? (t.assegnato_a ? `Assegnato a ${escapeHtml(t.assegnato_a)}` : 'Coda comune') : '',
+    t.delega?.da ? `Delegato da ${escapeHtml(t.delega.da)}${t.delega.nota ? ` («${escapeHtml(t.delega.nota)}»)` : ''}` : '',
+    `${TASK_ORIGINI[t.fonte] || escapeHtml(t.fonte)} · ${ctrlFmtQuando(t.created_at)}${t.creato_da ? ` · ${escapeHtml(t.creato_da)}` : ''}`,
+    t.automazione_errore ? `Automazione non riuscita: ${escapeHtml(t.automazione_errore)}` : '',
+  ].filter(Boolean).join(' · ');
+
+  const formDelega = `
+    <form class="td-form" onsubmit="event.preventDefault();submitTaskDelega('${id}')">
+      <strong>Delega a</strong>
+      <select id="tm-delega" class="form-input" required aria-label="A chi">
+        <option value="">Scegli…</option>
+        ${colleghi.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('')}
+      </select>
+      <input id="tm-nota" class="form-input" maxlength="300" placeholder="Nota (es. tu conosci già questo cliente)" aria-label="Nota">
+      <button type="button" class="ctrl-btn" onclick="_taskAction=null;renderTaskDetail('${id}', _taskStoricoCache)">Annulla</button>
+      <button type="submit" class="ctrl-btn is-primary" id="tm-delega-ok">Delega</button>
+    </form>`;
+  const formMotivo = a && a !== 'delega' ? `
+    <form class="td-form" onsubmit="event.preventDefault();submitTaskMotivo('${id}')">
+      <strong>${taskStato(a).label}</strong>
+      ${a === 'rimandato' ? `<input id="tm-giorno" type="date" class="form-input td-date" aria-label="A quale giorno" min="${ctrlAddDays(ctrlOggi(), 1)}" value="${ctrlAddDays(ctrlOggi(), 1)}" required>` : ''}
+      <input id="tm-motivo" class="form-input" maxlength="500" required aria-label="Motivo"
+        placeholder="Motivo: ${a === 'bloccato' ? 'es. in attesa della conferma del cliente' : a === 'rimandato' ? 'es. manca la merce, arriva giovedì' : 'es. il cliente ha annullato'}">
+      <button type="button" class="ctrl-btn" onclick="_taskAction=null;renderTaskDetail('${id}', _taskStoricoCache)">Annulla</button>
+      <button type="submit" class="ctrl-btn is-primary">Conferma</button>
+    </form>` : '';
+  const azioni = `
+    <div class="td-foot-links">
+      ${!chiuso ? `${motivoBtn('rimandato', 'Rimanda')}${motivoBtn('bloccato', 'Bloccato')}${motivoBtn('non_completato', 'Non completato')}${!TCAuth.isAdmin() && colleghi.length ? motivoBtn('delega', 'Delega') : ''}` : ''}
+      ${TCAuth.isAdmin() ? `<button class="td-link" onclick="openTaskForm('${id}')">${Icons.edit(13)} Modifica</button>
+        <button class="td-link is-danger" onclick="removeTask('${id}')">${Icons.trash(13)} Elimina</button>` : ''}
+    </div>
+    <div class="td-foot-main">
+      ${taskQuickActions(t, { fatto: false }).replaceAll('taskSetStato(', 'taskDetailStato(').replaceAll('taskPrendi(', 'taskDetailPrendi(')}
+      ${!chiuso ? `<button type="button" class="ctrl-btn ${mail?.daInviare ? '' : 'is-primary'}" onclick="taskDetailStato('${id}','completato')">${CtrlIcons.check()} Completato</button>` : ''}
+    </div>`;
 
   window._taskStoricoCache = storico;
   ctrlModal(`
-    ${ctrlModalHead(escapeHtml(t.titolo))}
-    <div class="modal-body td-body">
-      <div class="td-tags">
-        ${tag(st.label, st.color)}
-        ${t.priorita !== 'normale' ? tag(pr.label, pr.color) : ''}
-        ${macro ? tag(macro.label, macro.color) : ''}
+    <div class="modal-header td-head">
+      <div>
+        <h2 id="ctrl-modal-title">${escapeHtml(t.titolo)}</h2>
+        <div class="td-meta">${meta}</div>
       </div>
-
-      ${t.descrizione ? `<p class="td-todo ${t.analisi?.spedizione ? 'is-advice' : ''}">${escapeHtml(t.descrizione)}</p>` : ''}
-      ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
-      ${t.riferimento ? `<div>${MsgRef.chip(t.riferimento, `closeModal('${CTRL_MODAL}');MsgRef.open(Ctrl.get('${t.id}').riferimento)`)}</div>` : ''}
-      ${renderTaskShipment(t)}
-      ${renderTaskCustomer(t)}
-      ${renderTaskMail(t, can)}
-
-      <dl class="td-info">
-        ${info('Assegnato a', t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune')}
-        ${info('Delegato da', t.delega?.da ? `${escapeHtml(t.delega.da)}${t.delega.nota ? ` · ${escapeHtml(t.delega.nota)}` : ''}` : '')}
-        ${info('Tipo', tipo ? escapeHtml(tipo.nome) : '')}
-        ${info('Automazione non riuscita', t.automazione_errore ? escapeHtml(t.automazione_errore) : '')}
-        ${info('Giorno', ctrlFmtGiorno(t.giorno))}
-        ${info('Scadenza', t.scadenza ? ctrlFmtQuando(t.scadenza) : '')}
-        ${info('Tempo stimato', ctrlFmtMin(t.minuti_stimati))}
-        ${info('Origine', TASK_ORIGINI[t.fonte] || escapeHtml(t.fonte))}
-        ${info('Creato', `${ctrlFmtQuando(t.created_at)}${t.creato_da ? ` · ${escapeHtml(t.creato_da)}` : ''}`)}
-      </dl>
-
-      ${can && a === 'delega' ? `
-        <form class="task-motivo-form" onsubmit="event.preventDefault();submitTaskDelega('${id}')">
-          <strong>Delega a un collega</strong>
-          <div class="form-group">
-            <label class="form-label" for="tm-delega">A chi *</label>
-            <select id="tm-delega" class="form-input" required>
-              <option value="">Scegli…</option>
-              ${colleghi.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="tm-nota">Nota</label>
-            <textarea id="tm-nota" class="form-textarea" rows="2" maxlength="300" placeholder="es. tu conosci già questo cliente"></textarea>
-          </div>
-          <div style="display:flex;justify-content:flex-end;gap:8px;">
-            <button type="button" class="ctrl-btn" onclick="_taskAction=null;renderTaskDetail('${id}', _taskStoricoCache)">Annulla</button>
-            <button type="submit" class="ctrl-btn is-primary" id="tm-delega-ok">Delega</button>
-          </div>
-        </form>` : ''}
-
-      ${can && a && a !== 'delega' ? `
-        <form class="task-motivo-form" onsubmit="event.preventDefault();submitTaskMotivo('${id}')">
-          <strong>${taskStato(a).label}</strong>
-          ${a === 'rimandato' ? `
-            <div class="form-group">
-              <label class="form-label" for="tm-giorno">A quale giorno</label>
-              <input id="tm-giorno" type="date" class="form-input" min="${ctrlAddDays(ctrlOggi(), 1)}" value="${ctrlAddDays(ctrlOggi(), 1)}" required>
-            </div>` : ''}
-          <div class="form-group">
-            <label class="form-label" for="tm-motivo">Motivo *</label>
-            <textarea id="tm-motivo" class="form-textarea" rows="2" maxlength="500" required
-              placeholder="${a === 'bloccato' ? 'es. in attesa della conferma del cliente' : a === 'rimandato' ? 'es. manca la merce, arriva giovedì' : 'es. il cliente ha annullato'}"></textarea>
-          </div>
-          <div style="display:flex;justify-content:flex-end;gap:8px;">
-            <button type="button" class="ctrl-btn" onclick="_taskAction=null;renderTaskDetail('${id}', _taskStoricoCache)">Annulla</button>
-            <button type="submit" class="ctrl-btn is-primary">Conferma</button>
-          </div>
-        </form>` : ''}
-
-      ${can && !a ? `
-        <div class="td-actions">
-          <div class="td-actions-main">
-            ${taskQuickActions(t, { fatto: false }).replaceAll('taskSetStato(', 'taskDetailStato(').replaceAll('taskPrendi(', 'taskDetailPrendi(')}
-            ${!chiuso ? `<button type="button" class="td-act is-done" onclick="taskDetailStato('${id}','completato')">${CtrlIcons.check()} Completato</button>` : ''}
-          </div>
-          ${!chiuso ? `<div class="td-actions-more">${motivoBtn('rimandato', 'Rimanda')}${motivoBtn('bloccato', 'Bloccato')}${motivoBtn('non_completato', 'Non completato')}${!TCAuth.isAdmin() && colleghi.length ? motivoBtn('delega', 'Delega') : ''}</div>` : ''}
-        </div>` : ''}
-
-      <details class="td-log">
-        <summary>Attività del task${storico?.length ? ` · ${storico.length}` : ''}</summary>
-        ${storico === null ? `<p class="td-empty">Caricamento…</p>` :
-          storico.length ? `<ol>${storico.map(h => `
-            <li><span class="task-history-dot" style="background:${taskStato(h.a_stato).color};"></span>
-              <span><strong>${h.da_stato === h.a_stato ? 'Delegato' : taskStato(h.a_stato).label}</strong>${h.utente ? ` · ${escapeHtml(h.utente)}` : ''} · ${ctrlFmtQuando(h.at)}
-              ${h.motivo && (h.da_stato === h.a_stato || TASK_CON_MOTIVO.includes(h.a_stato)) ? `<em>${escapeHtml(h.motivo)}</em>` : ''}</span></li>`).join('')}</ol>`
-          : `<p class="td-empty">Nessun passaggio registrato.</p>`}
-      </details>
-
-      ${TCAuth.isAdmin() ? `
-        <div class="td-admin">
-          <button class="td-link" onclick="openTaskForm('${id}')">${Icons.edit(13)} Modifica</button>
-          <button class="td-link is-danger" onclick="removeTask('${id}')">${Icons.trash(13)} Elimina</button>
-        </div>` : ''}
-    </div>`, 620);
+      <button class="btn-icon" onclick="closeModal('${CTRL_MODAL}')" aria-label="Chiudi">${Icons.x()}</button>
+    </div>
+    <div class="td-grid">
+      <div class="td-col">
+        ${t.descrizione ? `<section class="td-sec"><h3>Cosa fare</h3><p class="td-todo">${escapeHtml(t.descrizione)}</p></section>` : ''}
+        ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
+        ${t.analisi?.dubbi ? `<p class="td-todo is-advice"><strong>Da controllare:</strong> ${escapeHtml(t.analisi.dubbi)}</p>` : ''}
+        ${t.riferimento ? `<div>${MsgRef.chip(t.riferimento, `closeModal('${CTRL_MODAL}');MsgRef.open(Ctrl.get('${t.id}').riferimento)`)}</div>` : ''}
+        ${renderTaskCustomer(t)}
+        ${mail ? sped + mail.ricevuta : ''}
+        <div class="td-facts">
+          <span>${fatti}</span>
+          <details class="td-log">
+            <summary>Attività${storico?.length ? ` · ${storico.length}` : ''}</summary>
+            ${storico === null ? `<p class="td-empty">Caricamento…</p>` :
+              storico.length ? `<ol>${storico.map(h => `
+                <li><span class="task-history-dot" style="background:${taskStato(h.a_stato).color};"></span>
+                  <span><strong>${h.da_stato === h.a_stato ? 'Delegato' : taskStato(h.a_stato).label}</strong>${h.utente ? ` · ${escapeHtml(h.utente)}` : ''} · ${ctrlFmtQuando(h.at)}
+                  ${h.motivo && (h.da_stato === h.a_stato || TASK_CON_MOTIVO.includes(h.a_stato)) ? `<em>${escapeHtml(h.motivo)}</em>` : ''}</span></li>`).join('')}</ol>`
+              : `<p class="td-empty">Nessun passaggio registrato.</p>`}
+          </details>
+        </div>
+      </div>
+      ${split ? `<div class="td-col td-side">${destra}</div>` : ''}
+    </div>
+    ${can ? `<div class="td-foot">${a === 'delega' ? formDelega : a ? formMotivo : azioni}</div>`
+          : TCAuth.isAdmin() ? `<div class="td-foot">${azioni}</div>` : ''}`,
+    split ? 1120 : 680, `td-modal ${split ? 'is-split' : ''} ${mail?.risposta ? 'is-reply' : ''}`);
 
   if (a) setTimeout(() => document.getElementById(a === 'rimandato' ? 'tm-giorno' : a === 'delega' ? 'tm-delega' : 'tm-motivo')?.focus(), 30);
   startControlTicker();

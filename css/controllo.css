@@ -497,3 +497,68 @@ html.dark .ctrl-filter:not([style*="#"]).is-on { color: #111; }
 }
 
 html.dark .is-task .td-tag { color: color-mix(in srgb, var(--c) 45%, #fff); }
+
+/* ── Dettaglio del task: tutto in una schermata, due colonne ── */
+
+.modal.td-modal { display: flex; flex-direction: column; overflow: hidden; max-height: calc(100dvh - 48px); }
+.modal.td-modal.is-reply { height: min(820px, calc(100dvh - 48px)); }
+.td-head { align-items: flex-start; gap: 16px; padding: 18px 24px 14px; flex-shrink: 0; }
+.td-head h2 { font-size: 1.12rem; line-height: 1.3; margin: 0; }
+.td-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; font-size: 0.8rem; color: var(--text-secondary); }
+.td-meta > span { display: inline-flex; align-items: center; gap: 4px; }
+.td-meta > span[aria-hidden] { color: var(--text-muted); }
+.td-store { color: var(--m); font-weight: 700; }
+.td-store i { width: 8px; height: 8px; border-radius: 50%; background: var(--m); }
+
+.td-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.is-split .td-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.td-col { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 18px 24px; }
+.td-side { border-left: 1px solid var(--border-light, var(--border)); background: color-mix(in srgb, var(--fill-hover) 60%, transparent); }
+
+.td-sec { display: flex; flex-direction: column; gap: 6px; }
+.td-sec > h3, .td-sec .td-box-head h3 {
+  margin: 0; font-size: 0.7rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);
+}
+.td-sec > h3 span { text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--text-secondary); }
+.td-sec .td-todo { color: var(--text-primary); }
+.td-todo.is-advice, .td-todo.is-reason { font-size: 0.86rem; font-weight: 450; }
+
+.td-mail { padding: 12px 14px; border-radius: 14px; background: var(--fill-hover); gap: 4px; flex: 0 1 auto; min-height: 150px; }
+.td-mail-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 0.86rem; }
+.td-mail-head span, .td-small { font-size: 0.76rem; color: var(--text-muted); }
+.td-mail-subj { font-size: 0.84rem; font-weight: 650; }
+.td-mail-text { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 0.86rem; line-height: 1.45; color: var(--text-secondary); flex: 1 1 auto; min-height: 40px; overflow-y: auto; }
+.td-reply .td-mail-text { max-height: none; }
+
+.td-reply { flex: 1; min-height: 0; }
+.td-reply textarea { flex: 1; min-height: 180px; resize: none; font-size: 0.9rem; line-height: 1.5; }
+.td-reply-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.td-reply-actions .btn-ghost { margin-right: auto; }
+
+.td-facts { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border-light, var(--border)); font-size: 0.76rem; color: var(--text-muted); }
+.td-facts .td-log summary { font-size: 0.76rem; }
+
+.td-foot {
+  flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px;
+  padding: 12px 24px; border-top: 1px solid var(--border-light, var(--border));
+}
+.td-foot-links { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.td-foot-links .td-link { font-size: 0.82rem; }
+.td-foot-main { display: flex; gap: 8px; margin-left: auto; }
+.td-foot-main .ctrl-btn { height: 38px; padding: 0 18px; font-size: 0.86rem; }
+.td-form { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.td-form .form-input { flex: 1; min-width: 180px; height: 38px; }
+.td-form .td-date, .td-form select { flex: 0 0 170px; }
+
+@media (max-width: 860px) {
+  .modal.td-modal, .modal.td-modal.is-reply { height: auto; max-height: 92dvh; overflow-y: auto; }
+  .td-grid, .is-split .td-grid { display: block; flex: none; }
+  .td-col { overflow: visible; padding: 14px 16px; }
+  .td-side { border-left: none; border-top: 1px solid var(--border-light, var(--border)); }
+  .td-head, .td-foot { padding-left: 16px; padding-right: 16px; }
+  .td-foot { position: sticky; bottom: 0; z-index: 1; background: var(--surface, var(--bg-card, #fff)); }
+}
+
+.td-col > * { flex-shrink: 0; }
+.td-col > .td-mail { flex-shrink: 1; }
+.td-mail { overflow: hidden; }
