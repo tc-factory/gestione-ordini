@@ -1783,7 +1783,7 @@ function renderBrainRules() {
         </section>
       </div>
       <div class="ctrl-rule-save">
-        <span class="settings-section-hint" style="margin:0;">Il cervello usa solo questi dati. Se un campo è vuoto lascia un segnaposto da completare.${r.aggiornato_da ? ` Ultima modifica: ${escapeHtml(r.aggiornato_da)}, ${ctrlFmtQuando(r.aggiornato_at)}.` : ''}</span>
+        <span class="settings-section-hint" style="margin:0;">Il cervello usa solo questi dati. Se un campo è vuoto, la bozza non cita quel dato.${r.aggiornato_da ? ` Ultima modifica: ${escapeHtml(r.aggiornato_da)}, ${ctrlFmtQuando(r.aggiornato_at)}.` : ''}</span>
         <button class="ctrl-btn is-primary" id="rules-save" type="submit">Salva le regole di ${shopNome(CtrlBrain.negozio)}</button>
       </div>
     </form>`;
