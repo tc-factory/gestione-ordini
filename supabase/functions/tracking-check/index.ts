@@ -13,6 +13,7 @@
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import { inviaNuova } from '../_shared/mail.ts';
 
 const PER_GIRO = 120;
 const PAUSA_MS = 300;              // una richiesta alla volta, per non pesare sul sito GLS
@@ -161,7 +162,63 @@ function classifica(eventi: Evento[] | null, giorni: number, testoGiorni: string
   return { stato: 'in_viaggio', problema: null, priorita: null, fare: '' };
 }
 
-async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Evento[] | null, tipoId: string | null) {
+// ── Avviso al cliente per giacenza o indirizzo errato ──
+// Una sola mail per spedizione, dalla casella del negozio, anche nel weekend. La risposta del
+// cliente arriva nella casella e diventa un task come le altre mail.
+const DA_AVVISARE = new Set(['Giacenza in deposito GLS', 'Indirizzo errato']);
+
+const maiuscola = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s;
+
+function testoAvviso(s: Row, ordine: Row, firma: string) {
+  const nome = maiuscola(String(s.cliente || ordine.cliente || '').trim().split(/\s+/)[0] || '');
+  const ind = ordine.indirizzo || {};
+  const citta = [ind.cap, ind.citta].filter(Boolean).join(' ') + (ind.provincia ? ` (${ind.provincia})` : '');
+  const indirizzo = [ind.via, citta.trim()].filter(Boolean).join(', ');
+  const telefono = String(ordine.telefono || s.telefono || '').replace(/\D/g, '').length >= 6;
+  return [
+    nome ? `Ciao ${nome},` : 'Ciao,',
+    `il corriere GLS non è riuscito a consegnare il tuo ordine ${s.numero_ordine} e ora il pacco è fermo nel loro deposito.`,
+    '',
+    ...(indirizzo ? ['L\'indirizzo di consegna che abbiamo è:', indirizzo, ''] : []),
+    'Rispondi a questa mail scegliendo come vuoi riceverlo:',
+    '1. Nuova consegna allo stesso indirizzo, con una telefonata del corriere prima di passare.',
+    '2. Consegna a un altro indirizzo, oppure all\'indirizzo corretto: scrivici l\'indirizzo completo, con frazione, interno e nome sul campanello se servono.',
+    '3. Ritiro alla sede GLS della tua zona.',
+    '',
+    ...(telefono ? [] : ['Scrivici anche un numero di telefono: serve al corriere per avvisarti.', '']),
+    'GLS tiene il pacco solo per pochi giorni, poi torna da noi: rispondici appena puoi.',
+    '',
+    'Grazie,',
+    firma,
+  ].join('\n');
+}
+
+// Ritorna una riga per il registro, o null se non c'era niente da mandare
+async function avvisaCliente(db: SupabaseClient, s: Row, esito: Row): Promise<Row | null> {
+  if (!DA_AVVISARE.has(esito.problema) || !s.email) return null;
+  // Prenota l'avviso: due giri in parallelo non mandano la stessa mail due volte
+  const { data: prenotato } = await db.from('spedizioni_tracking').update({ avviso_cliente_at: new Date().toISOString(), avviso_cliente_esito: 'in invio' })
+    .eq('ordine_id', s.ordine_id).is('avviso_cliente_at', null).select('ordine_id');
+  if (!prenotato?.length) return null;
+
+  const riga = { ordine: s.numero_ordine, negozio: s.store_id, a: s.email, problema: esito.problema };
+  try {
+    const { data: casella } = await db.from('mail_caselle').select('*').eq('id', s.store_id).maybeSingle();
+    if (!casella) throw new Error(`Nessuna casella per il negozio ${s.store_id}`);
+    const { data: ordine } = await db.from('shopify_orders').select('cliente, telefono, indirizzo').eq('id', s.ordine_id).maybeSingle();
+    await inviaNuova(db, casella, s.email, s.cliente || null, `Il tuo ordine ${s.numero_ordine} è fermo da GLS`, testoAvviso(s, ordine || {}, casella.nome));
+    await db.from('spedizioni_tracking').update({ avviso_cliente_esito: 'inviata' }).eq('ordine_id', s.ordine_id);
+    return { ...riga, esito: 'inviata' };
+  } catch (e) {
+    const errore = e instanceof Error ? e.message : String(e);
+    console.error('Avviso cliente', s.numero_ordine, e);
+    // Si riprova al giro dopo
+    await db.from('spedizioni_tracking').update({ avviso_cliente_at: null, avviso_cliente_esito: `errore: ${errore}`.slice(0, 300) }).eq('ordine_id', s.ordine_id);
+    return { ...riga, esito: 'errore', errore };
+  }
+}
+
+async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Evento[] | null, tipoId: string | null, avviso: Row | null) {
   const chiave = `consegna:${s.ordine_id}`;
   const { data: aperto } = await db.from('tasks').select('id, priorita').eq('fonte_rif->>evento_id', chiave).not('stato', 'in', '(completato,non_completato)').maybeSingle();
 
@@ -180,13 +237,17 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
       storico: storicoLeggibile(eventi || []),
     },
     cliente: { nome: s.cliente, email: s.email, telefono: s.telefono, citta: s.citta },
+    ...(avviso?.avviso_cliente_esito === 'inviata' ? { avviso_cliente: { inviata_at: avviso.avviso_cliente_at, a: s.email } } : {}),
   };
+  const descrizione = avviso?.avviso_cliente_esito === 'inviata'
+    ? `${esito.fare} Mail al cliente già inviata in automatico: aspetta la sua risposta.`
+    : esito.fare;
   if (aperto) {
-    await db.from('tasks').update({ titolo, descrizione: esito.fare, priorita: esito.priorita, analisi }).eq('id', aperto.id);
+    await db.from('tasks').update({ titolo, descrizione, priorita: esito.priorita, analisi }).eq('id', aperto.id);
     return;
   }
   const { error } = await db.from('tasks').insert({
-    tipo_id: tipoId, titolo, descrizione: esito.fare, analisi, priorita: esito.priorita, macroarea: s.store_id, fonte: 'shopify',
+    tipo_id: tipoId, titolo, descrizione, analisi, priorita: esito.priorita, macroarea: s.store_id, fonte: 'shopify',
     fonte_rif: { evento_id: chiave, ordine: s.ordine_id, motivo: 'consegna' }, creato_da: 'cervello',
   });
   if (error && error.code !== '23505') throw new Error(error.message);
@@ -214,6 +275,7 @@ Deno.serve(async (req) => {
 
   const fine = Date.now() + TIME_BUDGET_MS;
   const conteggio: Record<string, number> = {};
+  const avvisi: Row[] = [];
   for (const s of (lista || []) as Row[]) {
     if (Date.now() > fine) break;
     let eventi: Evento[] | null = null;
@@ -228,9 +290,22 @@ Deno.serve(async (req) => {
       eventi: eventi || [], consegnata_at: esito.stato === 'consegnata' ? ultimo?.at : null,
       controllata_at: new Date().toISOString(),
     });
-    await aggiornaTask(db, s, esito, eventi, tipo?.id || null);
+    const avvisata = await avvisaCliente(db, s, esito);
+    if (avvisata) avvisi.push(avvisata);
+    const { data: avviso } = await db.from('spedizioni_tracking').select('avviso_cliente_at, avviso_cliente_esito').eq('ordine_id', s.ordine_id).maybeSingle();
+    await aggiornaTask(db, s, esito, eventi, tipo?.id || null, avviso);
     conteggio[esito.stato] = (conteggio[esito.stato] || 0) + 1;
     await new Promise(r => setTimeout(r, PAUSA_MS));
   }
-  return reply({ success: true, conteggio });
+
+  // Registro delle automazioni: una riga solo per i giri che hanno scritto a qualcuno
+  if (avvisi.length) {
+    const errori = avvisi.filter(a => a.esito === 'errore');
+    await db.from('automazione_esecuzioni').insert({
+      nome: 'avviso-giacenza', stato: errori.length ? 'errore' : 'ok', fine: new Date().toISOString(),
+      riepilogo: { mail: avvisi.length - errori.length, errori: errori.length },
+      output: avvisi.map(a => `${a.ordine} (${a.negozio}) · ${a.problema} · ${a.a} · ${a.esito}${a.errore ? `: ${a.errore}` : ''}`).join('\n'),
+    });
+  }
+  return reply({ success: true, conteggio, avvisi: avvisi.length });
 });
