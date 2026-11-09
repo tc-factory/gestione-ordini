@@ -147,13 +147,33 @@ def scrivi_tif(percorso, cmyk, alfa, icc, dpi=DPI):
     tmp.rename(percorso)
 
 
+# Originali con le copie incastrate (una girata in mezzo alle altre): si tengono i pezzi della grafica
+# il cui centro sta nella parte sinistra del foglio, fino a questa quota della larghezza
+SOLO_SINISTRA = {'volano-madonne.tif': 0.4}
+
+
+def pezzi_a_sinistra(alfa, quota):
+    from scipy import ndimage
+    f = 4
+    piccola = alfa[::f, ::f] > 20
+    etichette, n = ndimage.label(ndimage.binary_dilation(piccola, iterations=3))
+    centri = ndimage.center_of_mass(piccola, etichette, range(1, n + 1))
+    tenere = [i + 1 for i, (_, x) in enumerate(centri) if x < piccola.shape[1] * quota]
+    maschera = np.isin(etichette, tenere)
+    maschera = np.repeat(np.repeat(maschera, f, 0), f, 1)[:alfa.shape[0], :alfa.shape[1]]
+    return np.where(maschera, alfa, 0).astype(np.uint8)
+
+
 def lavora(sorgente, dest, fogra_bytes, fogra):
     colore, cmyk, alfa, icc, note, dpi = leggi(sorgente)
     colore = in_cmyk(colore, cmyk, icc, fogra)
     if not cmyk:
         note.append('convertito da RGB')
     colonne, copie = una_copia(alfa, dpi)
-    if colonne:
+    if sorgente.name in SOLO_SINISTRA:
+        alfa = pezzi_a_sinistra(alfa, SOLO_SINISTRA[sorgente.name])
+        note.append('copie incastrate: tenuta quella a sinistra')
+    elif colonne:
         colore, alfa = colore[:, colonne[0]:colonne[1]], alfa[:, colonne[0]:colonne[1]]
         note.append(f'{copie} copie: tenuta la prima')
     colore, alfa = ritaglia(colore, alfa)
