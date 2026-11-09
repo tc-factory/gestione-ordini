@@ -55,7 +55,7 @@ ORE_ATTESA_FILE = 6
 # Campi di servizio da non stampare sul DDT: tutti gli altri restano visibili, così non si perde nulla.
 # Il nome da stampare, la sua posizione e i loghi non sono in questi elenchi.
 CAMPI_NASCOSTI = {'stampa nome', 'stampe', 'cosa vuoi personalizzare?', 'quante bandiere vuoi stampare?'}
-INIZIO_CAMPI_NASCOSTI = ('stampa nome (', 'scegli il font', 'image-swatches')
+INIZIO_CAMPI_NASCOSTI = ('stampa nome (', 'stampa nome alto (', 'stampa nome basso (', 'stampa logo ', 'stampa bandiera (', 'scegli il font', 'image-swatches')
 
 ORDINI_DA_STAMPARE = 'query($after:String){orders(first:100,after:$after,sortKey:CREATED_AT,query:"fulfillment_status:unfulfilled -status:cancelled -tag:stampato -tag:auto-stampato"){pageInfo{hasNextPage endCursor}nodes{id}}}'
 ORDINE = '''query($id:ID!){order(id:$id){
@@ -209,7 +209,7 @@ def miniatura(url, cache):
 
 def e_aggiunta(l):
     """Riga di servizio del prodotto principale, come "Stampa Nome": il documento di Shopify non la mostra."""
-    return l['title'] == 'Stampa Nome' or any(a['key'].startswith('_gpo_parent') for a in l['customAttributes'])
+    return l['title'] == 'Stampa Nome' or any(a['key'].startswith(('_gpo_parent', '_customily-upsell-id')) for a in l['customAttributes'])
 
 
 def righe_ddt(o):
@@ -469,12 +469,12 @@ def url_file_stampa(l):
     return next((a['value'] for a in l['customAttributes'] if a['key'] == ATTR_FILE_STAMPA), None)
 
 
-def file_pronti(o, ora, errori, rimandati):
+def file_pronti(o, ora, errori, rimandati, salta_capi_dtf=False):
     """Un ordine col file non pronto passa tutto a domani, così non finisce stampato a metà."""
     ore = (ora - leggi_data(o['createdAt'])).total_seconds() / 3600
     for l in righe_ddt(o):
         url = url_file_stampa(l)
-        if not url:
+        if not url or (salta_capi_dtf and capo_dtf(l)):
             continue
         try:
             stato = requests.head(url, timeout=30).status_code
@@ -615,7 +615,7 @@ def giro(args, applica, reg):
             for o in sorted(s.ordini_da_stampare(), key=lambda o: o['createdAt']):
                 if o['displayFinancialStatus'] not in PAGAMENTI_DA_STAMPARE:
                     non_pagati[n['id']].append(f"{o['name']}: {o['displayFinancialStatus']}")
-                elif n['id'] not in NEGOZI_FILE_STAMPA or file_pronti(o, ora, problemi[n['id']], rimandati[n['id']]):
+                elif n['id'] not in NEGOZI_FILE_STAMPA or file_pronti(o, ora, problemi[n['id']], rimandati[n['id']], n['id'] in NEGOZI_DTF):
                     ordini.append(o)
             per_negozio.append((n, s, info['shop'], {x['handle'] for x in info['currentAppInstallation']['accessScopes']}, ordini))
         except Exception as e:
@@ -655,10 +655,12 @@ def giro(args, applica, reg):
                 esclusi[n['id']].append(o['name'])
                 continue
             for l in righe_ddt(o):
+                if n['id'] in NEGOZI_DTF and capo_dtf(l):
+                    continue   # le t-shirt vanno nei fogli DTF
                 url = url_file_stampa(l)
                 if url:
                     voci_stampa.append((n['id'], o['name'], l['title'], url, l['unfulfilledQuantity']))
-                elif not (n['id'] in NEGOZI_DTF and capo_dtf(l)):   # le t-shirt vanno nei fogli DTF
+                else:
                     senza_file[n['id']].append(f"{o['name']}: {l['title']}")
 
     # Un PDF per negozio: (negozio, ordine) dei file non riusciti, pdf_stampa[negozio] = (file, pagine)
