@@ -355,29 +355,68 @@ def disegna_ddt(c, o, shop, richieste, cache):
     c.showPage()
 
 
-def disegna_riepilogo(c, oggi, sezioni):
+def disegna_riepilogo(c, oggi, generale, blocchi):
+    """Prima pagina: le cose da fare divise per negozio, ognuna con la sua casella da spuntare."""
     W, H = A4
+    X, LARGO = 70, W - 140
+    ROSSO, GRIGIO = (0.8, 0.1, 0.1), (0.45, 0.45, 0.45)
     y = [H - 70]
 
-    def scrivi(testo, font='Noto', corpo=9.5, spazio=14, rientro=0, colore=(0, 0, 0)):
-        for r in simpleSplit(testo, font, corpo, W - 168 - rientro) or ['']:
-            if y[0] < 60:
-                c.showPage()
-                y[0] = H - 70
+    def spazio(serve):
+        if y[0] - serve < 60:
+            c.showPage()
+            y[0] = H - 70
+
+    def righe(testo, font, corpo, rientro):
+        return simpleSplit(testo, font, corpo, LARGO - rientro) or ['']
+
+    def scrivi(testo, font='Noto', corpo=9.5, passo=13, rientro=0, colore=(0, 0, 0)):
+        for r in righe(testo, font, corpo, rientro):
+            spazio(passo)
             c.setFont(font, corpo)
             c.setFillColorRGB(*colore)
-            c.drawString(84 + rientro, y[0], r)
-            y[0] -= spazio
+            c.drawString(X + rientro, y[0], r)
+            y[0] -= passo
         c.setFillColorRGB(0, 0, 0)
 
-    scrivi(f'Riepilogo del {data_lunga(oggi)}', 'NotoB', 17.5, 28)
-    for titolo, voci, urgente in sezioni:
-        if not voci:
-            continue
-        y[0] -= 8
-        scrivi(titolo, 'NotoB', 10.5, 16, colore=(0.8, 0.1, 0.1) if urgente else (0, 0, 0))
-        for v in voci:
-            scrivi(v)
+    def casella(testo, urgente):
+        r = righe(testo, 'Noto', 10, 20)
+        spazio(13 * len(r) + 6)
+        c.setStrokeColorRGB(0, 0, 0)
+        c.setLineWidth(0.9)
+        c.rect(X + 1, y[0] - 2, 10, 10)
+        scrivi(testo, corpo=10, rientro=20, colore=ROSSO if urgente else (0, 0, 0))
+        y[0] -= 6
+
+    def intestazione(nome, quanti):
+        spazio(70)   # Il nome del negozio non resta da solo in fondo alla pagina
+        y[0] -= 16
+        c.setFont('NotoB', 13)
+        c.drawString(X, y[0], nome)
+        if quanti:
+            c.setFont('Noto', 10)
+            c.setFillColorRGB(*GRIGIO)
+            c.drawRightString(X + LARGO, y[0], quanti)
+            c.setFillColorRGB(0, 0, 0)
+        c.setLineWidth(0.6)
+        c.line(X, y[0] - 6, X + LARGO, y[0] - 6)
+        y[0] -= 24
+
+    scrivi(f'Riepilogo del {data_lunga(oggi)}', 'NotoB', 17.5, 22)
+    scrivi('In rosso le cose da sistemare prima di spedire.', colore=GRIGIO, passo=14)
+    if generale:
+        intestazione('Generale', '')
+        for testo, urgente in generale:
+            casella(testo, urgente)
+    for nome, quanti, fare, info in blocchi:
+        intestazione(nome, quanti)
+        if not fare:
+            scrivi('Niente da fare oggi', colore=GRIGIO, passo=16)
+        for testo, urgente in fare:
+            casella(testo, urgente)
+        for titolo, voci in info:
+            if voci:
+                scrivi(f"{titolo}: {', '.join(voci)}", corpo=9, passo=12, colore=GRIGIO)
     c.showPage()
 
 
@@ -531,55 +570,65 @@ def giro(args, applica, reg):
             avvisi_mail.append(f"{ca['indirizzo']}: {ca.get('ultimo_errore') or 'non controllata di recente'}")
 
     # 2. Ordini di ogni negozio
-    per_negozio, non_pagati, rimandati = [], [], []
-    for n in sorted(dati['negozi'], key=lambda x: x['nome']):
+    # Per negozio, per il riepilogo a checklist: problemi, rimandati e non pagati
+    negozi = sorted(dati['negozi'], key=lambda x: x['nome'])
+    problemi = {n['id']: [] for n in negozi}
+    rimandati = {n['id']: [] for n in negozi}
+    non_pagati = {n['id']: [] for n in negozi}
+    per_negozio = []
+    for n in negozi:
         try:
             s = Shopify(n)
             info = s.chiama(NEGOZIO)
             ordini = []
             for o in sorted(s.ordini_da_stampare(), key=lambda o: o['createdAt']):
                 if o['displayFinancialStatus'] not in PAGAMENTI_DA_STAMPARE:
-                    non_pagati.append(f"{n['nome']} {o['name']}: {o['displayFinancialStatus']}")
-                elif n['id'] in NEGOZI_FILE_STAMPA and not file_pronti(o, ora, errori, rimandati):
-                    if errori and errori[-1].startswith(o['name']):
-                        errori_negozio[n['id']] = errori[-1]
-                else:
+                    non_pagati[n['id']].append(f"{o['name']}: {o['displayFinancialStatus']}")
+                elif n['id'] not in NEGOZI_FILE_STAMPA or file_pronti(o, ora, problemi[n['id']], rimandati[n['id']]):
                     ordini.append(o)
             per_negozio.append((n, s, info['shop'], {x['handle'] for x in info['currentAppInstallation']['accessScopes']}, ordini))
         except Exception as e:
-            errori.append(f"{n['nome']}: ordini non letti ({type(e).__name__}: {str(e)[:100]})")
+            problemi[n['id']].append(f"ordini non letti ({type(e).__name__}: {str(e)[:100]})")
+        if problemi[n['id']]:
+            errori += [f"{n['nome']} {x}" for x in problemi[n['id']]]
             errori_negozio[n['id']] = errori[-1]
 
     # 3. Richieste di modifica collegate ai DDT
     in_stampa = {(n['id'], o['name']) for n, _, _, _, ordini in per_negozio for o in ordini}
-    richieste, altrove, senza_ordine = {}, [], []
-    nomi = {n['id']: n['nome'] for n in dati['negozi']}
+    richieste = {}
+    # Chiave None: richieste con un negozio che non è tra quelli letti, finiscono in "Generale"
+    altrove = {n['id']: [] for n in negozi}
+    senza_ordine = {n['id']: [] for n in negozi}
+    nomi = {n['id']: n['nome'] for n in negozi}
     for m in dati['modifiche']:
         testo = (m.get('descrizione') or m.get('titolo') or '').strip()
-        chi = nomi.get(m.get('negozio'), m.get('negozio') or 'Negozio non indicato')
+        chi = m.get('negozio') if m.get('negozio') in nomi else None
+        prefisso = '' if chi else f"{m.get('negozio') or 'Negozio non indicato'}: "
         if not m['ordini']:
-            senza_ordine.append(f'{chi}: {m.get("titolo") or testo}')
+            senza_ordine.setdefault(chi, []).append(f'{prefisso}{m.get("titolo") or testo}')
         for num in m['ordini']:
             if (m.get('negozio'), num) in in_stampa:
                 richieste.setdefault((m['negozio'], num), []).append(testo)
             else:
-                altrove.append(f'{chi} {num}: {testo}')
+                altrove.setdefault(chi, []).append(f'{prefisso}{num}: {testo}')
 
     # 4. File di stampa: esclusi gli ordini da modificare, per non stampare un file sbagliato
-    voci_stampa, senza_file, esclusi = [], [], []
+    voci_stampa = []
+    senza_file = {n['id']: [] for n in negozi}
+    esclusi = {n['id']: [] for n in negozi}
     for n, _, _, _, ordini in per_negozio:
         if n['id'] not in NEGOZI_FILE_STAMPA:
             continue
         for o in ordini:
             if (n['id'], o['name']) in richieste:
-                esclusi.append(o['name'])
+                esclusi[n['id']].append(o['name'])
                 continue
             for l in righe_ddt(o):
                 url = url_file_stampa(l)
                 if url:
                     voci_stampa.append((o['name'], l['title'], url, l['unfulfilledQuantity']))
                 else:
-                    senza_file.append(f"{o['name']}: {l['title']}")
+                    senza_file[n['id']].append(f"{o['name']}: {l['title']}")
 
     falliti_stampa = set()
     pdf_stampa = None
@@ -595,28 +644,38 @@ def giro(args, applica, reg):
             falliti_stampa = {v[0] for v in voci_stampa}
             errori.append(f'PDF dei file di stampa non riuscito ({type(e).__name__}: {str(e)[:100]})')
             errori_negozio.update({i: errori[-1] for i in NEGOZI_FILE_STAMPA})
+            for i in NEGOZI_FILE_STAMPA & problemi.keys():
+                problemi[i].append(errori[-1])
             tmp.unlink(missing_ok=True)
 
-    # 5. PDF dei DDT, con il riepilogo in prima pagina
-    conteggi = [f"{n['nome']}: {len(ordini)} ordini" for n, _, _, _, ordini in per_negozio]
-    sezioni = [
-        ('Problemi', errori + avvisi_stampa, True),
-        ('Controllo mail non aggiornato: potrebbero mancare richieste di modifica', avvisi_mail, True),
-        ('Ordini da modificare', [f"{nomi[k[0]]} {k[1]}: {' / '.join(v)}" for k, v in sorted(richieste.items())], True),
-        ('Esclusi dal PDF di stampa perché da modificare: stampare a mano dopo la modifica', esclusi, True),
-        ('Richieste su ordini non in questo PDF (già stampati, evasi o rimandati): da controllare', altrove, True),
-        ('Richieste di modifica senza numero d\'ordine: da controllare', senza_ordine, True),
-        ('Righe senza file di stampa', senza_file, False),
-        ('Rimandati a domani', rimandati, False),
-        ('Esclusi perché non pagati', non_pagati, False),
-        ('Ordini', conteggi, False),
-        ('File di stampa Ciucciami', [f'{pdf_stampa[1]} pagine'] if pdf_stampa else ['Nessuna pagina'], False),
-    ]
+    # 5. PDF dei DDT, con il riepilogo in prima pagina: una checklist per negozio
+    generale = [(f'Controllare la posta, potrebbero mancare richieste di modifica: {x}', True) for x in avvisi_mail]
+    generale += [(f"Controllare la richiesta su {x} (ordine non in questo PDF)", True) for x in altrove.get(None, [])]
+    generale += [(f"Controllare la richiesta senza numero d'ordine: {x}", True) for x in senza_ordine.get(None, [])]
+    ordini_di = {n['id']: ordini for n, _, _, _, ordini in per_negozio}
+    blocchi = []
+    for n in negozi:
+        i = n['id']
+        ordini = ordini_di.get(i)
+        stampa = i in NEGOZI_FILE_STAMPA
+        fare = [(f'Risolvere: {x}', True) for x in problemi[i] + (avvisi_stampa if stampa else [])]
+        fare += [(f"Modificare {k[1]}: {' / '.join(v)}", True) for k, v in sorted(richieste.items()) if k[0] == i]
+        fare += [(f'Stampare a mano il file di {x} dopo la modifica (escluso dal PDF di stampa)', True) for x in esclusi[i]]
+        fare += [(f'Controllare la richiesta su {x} (già stampato, evaso o rimandato)', True) for x in altrove[i]]
+        fare += [(f"Controllare la richiesta senza numero d'ordine: {x}", True) for x in senza_ordine[i]]
+        if ordini:
+            fare.append((f"Stampare i DDT: {len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}", False))
+        if stampa and pdf_stampa:
+            fare.append((f'Stampare il PDF dei file di stampa: {pdf_stampa[1]} pagine', False))
+        info = [('Righe senza file di stampa', senza_file[i]), ('Rimandati a domani', rimandati[i]),
+                ('Esclusi perché non pagati', non_pagati[i])]
+        quanti = 'ordini non letti' if ordini is None else f"{len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}"
+        blocchi.append((n['nome'], quanti, fare, info))
 
     finale_ddt = nome_libero(cartella, 'DDT.pdf')
     tmp_ddt = finale_ddt.with_suffix('.part')
     c = canvas.Canvas(str(tmp_ddt), pagesize=A4)
-    disegna_riepilogo(c, oggi, sezioni)
+    disegna_riepilogo(c, oggi, generale, blocchi)
     cache = {}
     for n, _, shop, _, ordini in per_negozio:
         for o in ordini:
@@ -662,17 +721,20 @@ def giro(args, applica, reg):
     reg.scrivi(f"Cartella: {cartella}")
     reg.scrivi(f"DDT: {n_ordini} ordini, {pagine_ddt} pagine, {finale_ddt.stat().st_size // 1024} KB")
     reg.scrivi(f"Stampa: {pagine_stampa} pagine, {pdf_stampa[0].stat().st_size // 1024 ** 2 if pdf_stampa else 0} MB")
-    reg.scrivi(f"Non pagati esclusi: {len(non_pagati)}, rimandati a domani: {len(rimandati)}")
-    reg.scrivi(f"Da modificare: {len(richieste)}, altre richieste da controllare: {len(altrove) + len(senza_ordine)}, righe senza file: {len(senza_file)}")
+    conta = lambda d: sum(len(v) for v in d.values())
+    reg.scrivi(f"Non pagati esclusi: {conta(non_pagati)}, rimandati a domani: {conta(rimandati)}")
+    reg.scrivi(f"Da modificare: {len(richieste)}, altre richieste da controllare: {conta(altrove) + conta(senza_ordine)}, righe senza file: {conta(senza_file)}")
     reg.scrivi(f"Tag messi: {taggati}, non messi: {len(saltati)}, tempo: {time.time() - inizio:.0f} s")
     for x in errori + avvisi_stampa + avvisi_mail + bloccati:
         reg.scrivi(f'ATTENZIONE: {x}')
     # Lo stesso contenuto del riepilogo in prima pagina del PDF
-    for titolo, voci, _ in sezioni:
-        if voci:
-            reg.scrivi(f'\n{titolo}')
-            for v in voci:
-                reg.scrivi(f'- {v}')
+    for nome, quanti, fare, info in ([('Generale', '', generale, [])] if generale else []) + blocchi:
+        reg.scrivi(f"\n{nome}{f' ({quanti})' if quanti else ''}")
+        for testo, _ in fare:
+            reg.scrivi(f'[ ] {testo}')
+        for titolo, voci in info:
+            if voci:
+                reg.scrivi(f"    {titolo}: {', '.join(voci)}")
     codice = 1 if errori or avvisi_stampa or avvisi_mail or bloccati else 0
     stato = ('errore' if codice else 'ok') if applica else 'prova'
     return codice, stato, {'ordini': n_ordini, 'pagine_stampa': pagine_stampa, 'tag': taggati}
