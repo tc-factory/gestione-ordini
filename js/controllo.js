@@ -48,6 +48,7 @@ const TASK_COMPETENZE = [
   { id: 'preparazione', label: 'Preparazione per la lavorazione' },
   { id: 'lavorazione',  label: 'Lavorazione' },
   { id: 'spedizione',   label: 'Spedizione' },
+  { id: 'post_spedizione', label: 'Gestione post spedizione' },
   { id: 'grafiche',     label: 'Richieste grafiche' },
   { id: 'catalogo',     label: 'Creazione catalogo' },
   { id: 'ext_ricamo',      label: 'Esterna: Ricamo' },
@@ -82,7 +83,7 @@ const TASK_COMPETENZE = [
   { id: 'check_manifattura', label: 'Check Manifattura' },
   { id: 'check_arti',        label: 'Check Arti grafiche' },
 ];
-const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'ddt', 'preparazione', 'lavorazione', 'spedizione'];
+const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'ddt', 'preparazione', 'lavorazione', 'spedizione', 'post_spedizione'];
 const COMPETENZE_NUOVO_PRODOTTO = ['np_bozza', 'np_mockup', 'np_stampa', 'np_shopify', 'np_customily', 'np_check'];
 const COMPETENZE_NEGOZIO = {
   ciucciamilcalzino: ['scorte_calzini_check', 'scorte_calzini_ordine', 'carta_check', 'carta_ordine', 'inchiostri_check', 'inchiostri_ordine'],
@@ -97,7 +98,7 @@ const TASK_AREE = [
   })),
   { id: 'produzione', label: 'Linea produttiva', color: '#64748b', competenze: [
     'ordine_fornitori', 'creazione_pacchi', 'prep_file', 'stampa_dtf', 'stampa_uv', 'stampa_mimaki', 'incisione_laser',
-    'lavorazione', 'spedizione', 'evasione',
+    'lavorazione', 'spedizione', 'post_spedizione', 'evasione',
     'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti',
     'check_ricamo', 'check_serigrafia', 'check_manifattura', 'check_arti',
     'fatturazione', 'check_pagamento',
