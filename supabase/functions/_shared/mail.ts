@@ -2,7 +2,7 @@
 // Stessa conversazione del cliente, copia nella cartella Inviata, riga "out" in mail_messaggi.
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { Imap, quota } from './imap.ts';
+import { Imap, cartellaInviata, quota } from './imap.ts';
 import nodemailer from 'npm:nodemailer@6';
 import MailComposer from 'npm:nodemailer@6/lib/mail-composer/index.js';
 
@@ -15,11 +15,9 @@ async function copiaInInviata(host: string, user: string, pass: string, raw: Uin
   try {
     await imap.apri(host);
     await imap.comando(`LOGIN ${quota(user)} ${quota(pass)}`, 15_000, 'LOGIN');
-    const righe = (await imap.comando('LIST "" "*"', 15_000)).map(r => r.testo);
-    const nome = (r: string) => r.match(/"([^"]+)"$/)?.[1] || r.split(' ').pop() || '';
-    const riga = righe.find(r => /\\Sent\b/i.test(r)) || righe.find(r => /^(inbox[./])?(sent|inviata|posta inviata)/i.test(nome(r)));
-    if (!riga) return false;
-    await imap.append(nome(riga), raw);
+    const cartella = await cartellaInviata(imap);
+    if (!cartella) return false;
+    await imap.append(cartella, raw);
     await imap.comando('LOGOUT', 3_000).catch(() => {});
     return true;
   } catch (e) {

@@ -101,3 +101,11 @@ export class Imap {
 }
 
 export const quota = (s: string) => `"${s.replace(/(["\\])/g, '\\$1')}"`;
+
+// Nome della cartella della posta inviata; null se la casella non ne ha una riconoscibile
+export async function cartellaInviata(imap: Imap): Promise<string | null> {
+  const righe = (await imap.comando('LIST "" "*"', 15_000)).map(r => r.testo);
+  const nome = (r: string) => r.match(/"([^"]+)"$/)?.[1] || r.split(' ').pop() || '';
+  const riga = righe.find(r => /\\Sent\b/i.test(r)) || righe.find(r => /^(inbox[./])?(sent|inviata|posta inviata)/i.test(nome(r)));
+  return riga ? nome(riga) : null;
+}
