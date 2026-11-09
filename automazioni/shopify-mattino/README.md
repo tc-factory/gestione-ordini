@@ -1,6 +1,6 @@
 # Automazione del mattino
 
-Ogni mattina crea la cartella del giorno, il PDF dei DDT con il riepilogo in prima pagina e il PDF dei file di stampa di Ciucciami, poi mette il tag sugli ordini salvati.
+Ogni mattina crea la cartella del giorno, il PDF dei DDT con il riepilogo in prima pagina e un PDF dei file di stampa per Ciucciami e uno per Box Factory Lab (file Customily 23x43), poi mette il tag sugli ordini salvati.
 
 ```
 python3 -m venv .venv

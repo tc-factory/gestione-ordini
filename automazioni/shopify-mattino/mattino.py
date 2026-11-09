@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Automazione del mattino: cartella del giorno, PDF dei DDT, file di stampa di Ciucciami, tag "stampato".
+"""Automazione del mattino: cartella del giorno, PDF dei DDT, file di stampa di Ciucciami e Box Factory Lab, tag "stampato".
 
 Senza --applica è una prova: crea i PDF ma non scrive nulla su Shopify.
 Il tag si mette solo dopo aver riaperto e controllato i PDF salvati.
@@ -38,8 +38,9 @@ MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 
 # Il tag dell'automazione è diverso da quello manuale, così si distinguono. Nessuno dei due va ristampato
 TAG_AUTOMAZIONE = 'auto-stampato'
 TAG_GIA_STAMPATI = {'stampato', TAG_AUTOMAZIONE}
-# Negozi con il PDF dei file di stampa. Gli altri arriveranno dopo averli studiati
-NEGOZI_FILE_STAMPA = {'ciucciamilcalzino'}
+# Negozi con il PDF dei file di stampa (uno per negozio) e l'inizio del nome del file.
+# Tutti e due usano Customily con file 23x43. Gli altri arriveranno dopo averli studiati
+NEGOZI_FILE_STAMPA = {'ciucciamilcalzino': 'Ciucciami', 'boxfactorylab': 'Box-Factory-Lab'}
 ATTR_FILE_STAMPA = '_customily-production-url'
 PAGINA_STAMPA = (23 * cm, 43 * cm)
 MAIL_VECCHIA_DOPO_MINUTI = 30
@@ -551,7 +552,7 @@ def giro(args, applica, reg):
     oggi = dt.datetime.now(ROMA).date()
     cartella = args.cartella / oggi.isoformat()
 
-    errori, avvisi_stampa = [], []
+    errori = []
     errori_negozio = {}
     dati = dati_gestionale()
     # Weekend, festivi e chiusure del Planner: il giorno del rientro fa tutto in un'unica sessione
@@ -575,6 +576,7 @@ def giro(args, applica, reg):
     problemi = {n['id']: [] for n in negozi}
     rimandati = {n['id']: [] for n in negozi}
     non_pagati = {n['id']: [] for n in negozi}
+    avvisi_stampa = {n['id']: [] for n in negozi}
     per_negozio = []
     for n in negozi:
         try:
@@ -626,26 +628,30 @@ def giro(args, applica, reg):
             for l in righe_ddt(o):
                 url = url_file_stampa(l)
                 if url:
-                    voci_stampa.append((o['name'], l['title'], url, l['unfulfilledQuantity']))
+                    voci_stampa.append((n['id'], o['name'], l['title'], url, l['unfulfilledQuantity']))
                 else:
                     senza_file[n['id']].append(f"{o['name']}: {l['title']}")
 
+    # Un PDF per negozio: (negozio, ordine) dei file non riusciti, pdf_stampa[negozio] = (file, pagine)
     falliti_stampa = set()
-    pdf_stampa = None
-    if voci_stampa:
-        finale = nome_libero(cartella, 'Ciucciami-file-di-stampa-23x43.pdf')
+    pdf_stampa = {}
+    for i, prefisso in NEGOZI_FILE_STAMPA.items():
+        voci = [v[1:] for v in voci_stampa if v[0] == i]
+        if not voci:
+            continue
+        finale = nome_libero(cartella, f'{prefisso}-file-di-stampa-23x43.pdf')
         tmp = finale.with_suffix('.part')
         try:
-            pagine, falliti_stampa = crea_pdf_stampa(tmp, voci_stampa, avvisi_stampa)
+            pagine, falliti = crea_pdf_stampa(tmp, voci, avvisi_stampa[i])
+            falliti_stampa |= {(i, x) for x in falliti}
             if pagine:
                 conferma_pdf(tmp, finale, pagine)
-                pdf_stampa = (finale, pagine)
+                pdf_stampa[i] = (finale, pagine)
         except Exception as e:
-            falliti_stampa = {v[0] for v in voci_stampa}
-            errori.append(f'PDF dei file di stampa non riuscito ({type(e).__name__}: {str(e)[:100]})')
-            errori_negozio.update({i: errori[-1] for i in NEGOZI_FILE_STAMPA})
-            for i in NEGOZI_FILE_STAMPA & problemi.keys():
-                problemi[i].append(errori[-1])
+            falliti_stampa |= {(i, v[0]) for v in voci}
+            errori.append(f"{nomi[i]}: PDF dei file di stampa non riuscito ({type(e).__name__}: {str(e)[:100]})")
+            errori_negozio[i] = errori[-1]
+            problemi[i].append(errori[-1])
             tmp.unlink(missing_ok=True)
 
     # 5. PDF dei DDT, con il riepilogo in prima pagina: una checklist per negozio
@@ -657,16 +663,15 @@ def giro(args, applica, reg):
     for n in negozi:
         i = n['id']
         ordini = ordini_di.get(i)
-        stampa = i in NEGOZI_FILE_STAMPA
-        fare = [(f'Risolvere: {x}', True) for x in problemi[i] + (avvisi_stampa if stampa else [])]
+        fare = [(f'Risolvere: {x}', True) for x in problemi[i] + avvisi_stampa[i]]
         fare += [(f"Modificare {k[1]}: {' / '.join(v)}", True) for k, v in sorted(richieste.items()) if k[0] == i]
         fare += [(f'Stampare a mano il file di {x} dopo la modifica (escluso dal PDF di stampa)', True) for x in esclusi[i]]
         fare += [(f'Controllare la richiesta su {x} (già stampato, evaso o rimandato)', True) for x in altrove[i]]
         fare += [(f"Controllare la richiesta senza numero d'ordine: {x}", True) for x in senza_ordine[i]]
         if ordini:
             fare.append((f"Stampare i DDT: {len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}", False))
-        if stampa and pdf_stampa:
-            fare.append((f'Stampare il PDF dei file di stampa: {pdf_stampa[1]} pagine', False))
+        if i in pdf_stampa:
+            fare.append((f'Stampare il PDF dei file di stampa: {pdf_stampa[i][1]} pagine', False))
         info = [('Righe senza file di stampa', senza_file[i]), ('Rimandati a domani', rimandati[i]),
                 ('Esclusi perché non pagati', non_pagati[i])]
         quanti = 'ordini non letti' if ordini is None else f"{len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}"
@@ -689,7 +694,7 @@ def giro(args, applica, reg):
     fatti = {}
     for n, s, _, permessi, ordini in per_negozio:
         for o in ordini:
-            if o['name'] in falliti_stampa and n['id'] in NEGOZI_FILE_STAMPA:
+            if (n['id'], o['name']) in falliti_stampa:
                 saltati.append(f"{n['nome']} {o['name']}: file di stampa non riuscito")
                 continue
             if not applica:
@@ -710,22 +715,25 @@ def giro(args, applica, reg):
 
     bloccati = [x for x in saltati if 'prova' not in x]
     if applica:
-        for x in avvisi_stampa:
-            errori_negozio.update({i: x for i in NEGOZI_FILE_STAMPA})
+        for i, avvisi in avvisi_stampa.items():
+            if avvisi:
+                errori_negozio[i] = avvisi[-1]
         esito = {n['id']: {'fatti': fatti.get(n['id'], []), 'errore': errori_negozio.get(n['id'])} for n in dati['negozi']}
         risposta = invia_esito(not errori_negozio, esito)
         reg.scrivi(f"Centro di controllo: {risposta['ordini_avanzati']} ordini passati alla preparazione")
     n_ordini = sum(len(x[4]) for x in per_negozio)
-    pagine_stampa = pdf_stampa[1] if pdf_stampa else 0
+    pagine_stampa = sum(x[1] for x in pdf_stampa.values())
+    mb_stampa = sum(x[0].stat().st_size for x in pdf_stampa.values()) // 1024 ** 2
     reg.scrivi(f"--- {dt.datetime.now(ROMA):%Y-%m-%d %H:%M} {'giro vero' if applica else 'prova, nessun tag'}")
     reg.scrivi(f"Cartella: {cartella}")
     reg.scrivi(f"DDT: {n_ordini} ordini, {pagine_ddt} pagine, {finale_ddt.stat().st_size // 1024} KB")
-    reg.scrivi(f"Stampa: {pagine_stampa} pagine, {pdf_stampa[0].stat().st_size // 1024 ** 2 if pdf_stampa else 0} MB")
+    reg.scrivi(f"Stampa: {pagine_stampa} pagine, {mb_stampa} MB"
+               + ''.join(f" ({nomi[i]}: {x[1]})" for i, x in sorted(pdf_stampa.items())))
     conta = lambda d: sum(len(v) for v in d.values())
     reg.scrivi(f"Non pagati esclusi: {conta(non_pagati)}, rimandati a domani: {conta(rimandati)}")
     reg.scrivi(f"Da modificare: {len(richieste)}, altre richieste da controllare: {conta(altrove) + conta(senza_ordine)}, righe senza file: {conta(senza_file)}")
     reg.scrivi(f"Tag messi: {taggati}, non messi: {len(saltati)}, tempo: {time.time() - inizio:.0f} s")
-    for x in errori + avvisi_stampa + avvisi_mail + bloccati:
+    for x in errori + [x for v in avvisi_stampa.values() for x in v] + avvisi_mail + bloccati:
         reg.scrivi(f'ATTENZIONE: {x}')
     # Lo stesso contenuto del riepilogo in prima pagina del PDF
     for nome, quanti, fare, info in ([('Generale', '', generale, [])] if generale else []) + blocchi:
@@ -735,7 +743,7 @@ def giro(args, applica, reg):
         for titolo, voci in info:
             if voci:
                 reg.scrivi(f"    {titolo}: {', '.join(voci)}")
-    codice = 1 if errori or avvisi_stampa or avvisi_mail or bloccati else 0
+    codice = 1 if errori or any(avvisi_stampa.values()) or avvisi_mail or bloccati else 0
     stato = ('errore' if codice else 'ok') if applica else 'prova'
     return codice, stato, {'ordini': n_ordini, 'pagine_stampa': pagine_stampa, 'tag': taggati}
 
