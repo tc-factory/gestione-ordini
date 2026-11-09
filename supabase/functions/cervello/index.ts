@@ -22,6 +22,7 @@ import { applicaIndirizzi, indirizzoDaMail } from './indirizzi.ts';
 const PER_GIRO = 6;              // mail per giro, elaborate in parallelo
 const MAX_TENTATIVI = 3;         // poi la mail diventa comunque un task, senza bozza
 const MAX_TESTO = 12_000;
+const SEGNAPOSTO = /\[[^\]\n]{2,60}\]/;
 const MAX_AUTOMATICHE_GIORNO = 40;   // freno di sicurezza sulle risposte automatiche
 
 const cors = {
@@ -93,7 +94,8 @@ Campi:
 - dubbi: in italiano, cosa deve controllare l'operatore prima di inviare; "" se è tutto chiaro.
 
 Regole della bozza:
-- Usa solo i dati degli ordini e la conoscenza del negozio. Le regole di resi e spedizioni sono diverse da negozio a negozio: usa solo quelle del negozio che ha ricevuto la mail. Non inventare date di consegna, tempi, politiche di reso, prezzi o disponibilità: se servono e non li hai, lascia un segnaposto tra parentesi quadre, ad esempio [tempi di consegna], e citalo in "dubbi".
+- Usa solo i dati degli ordini e la conoscenza del negozio. Le regole di resi e spedizioni sono diverse da negozio a negozio: usa solo quelle del negozio che ha ricevuto la mail. Non inventare date di consegna, tempi, politiche di reso, prezzi o disponibilità: se non li hai, non citarli, al massimo scrivi che verificate e aggiornerete il cliente, e spiega in "dubbi" cosa manca.
+- La bozza deve essere pronta da inviare così com'è: mai parentesi quadre, segnaposto o parti da completare. Non scrivere di aver fatto controlli o azioni che non risultano dai dati.
 - Se un ordine ha il campo "spedizione", è lo stato reale dallo storico GLS e vale più di "evasione". Se c'è un problema (giacenza, indirizzo errato, consegna non riuscita) dillo al cliente con chiarezza e scrivi cosa gli serve fare.
 - I tempi si contano in giorni lavorativi: sabato, domenica e festivi non contano. Se indichi da quanti giorni è in corso qualcosa e il conteggio cambia, scrivi sia i giorni totali sia quelli lavorativi.
 - Se il cliente chiede di un ordine e non ne risulta nessuno, chiedigli il numero d'ordine e l'email usata per l'acquisto.
@@ -196,12 +198,11 @@ async function creaTask(db: SupabaseClient, evento: Row, mail: Row, storeId: str
   return data?.id || null;
 }
 
-// Risposta automatica: il tipo lo consente, nessun dubbio, ordine del mittente, nessun segnaposto,
+// Risposta automatica: il tipo lo consente, nessun dubbio, ordine del mittente,
 // nessuna risposta allo stesso mittente nelle ultime 24 ore (evita i botta e risposta tra automatismi)
 async function puòRispondereDaSolo(db: SupabaseClient, tipo: Row | undefined, a: Row, ordini: Row[], mittente: string) {
   if (tipo?.autonomia !== 'automatico' || (a.dubbi || '').trim() || !(a.bozza || '').trim()) return false;
   if (!ordini.length || ordini.some(o => (o.email || '').toLowerCase() !== mittente)) return false;
-  if (/\[[^\]\n]{2,60}\]/.test(a.bozza)) return false;
   const ieri = new Date(Date.now() - 86_400_000).toISOString();
   const [recenti, oggi] = await Promise.all([
     db.from('mail_messaggi').select('id', { count: 'exact', head: true }).eq('direzione', 'out').eq('a', mittente).gte('ricevuto_at', ieri),
@@ -257,6 +258,12 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
     ].filter(Boolean).join('\n\n');
 
     const a = await analizza(client, contesto);
+
+    // Una bozza con parti da completare non è inviabile: meglio nessuna bozza
+    if (SEGNAPOSTO.test(a.bozza || '')) {
+      a.bozza = '';
+      a.dubbi = `${a.dubbi || ''} Bozza scartata perché aveva parti da completare: la risposta va scritta a mano.`.trim();
+    }
 
     if (a.azione === 'scarta') {
       await chiudi(db, evento.id, `Scartata (${a.categoria}): ${a.motivo_scarto || a.riassunto}`);
