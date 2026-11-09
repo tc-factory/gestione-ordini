@@ -71,6 +71,10 @@ function isAutomatica(h: Map<string, string>, from: string, casella: Casella): b
   return false;
 }
 
+// Il primo Authentication-Results è quello messo da Aruba: quelli sotto può averli scritti il mittente
+const autenticazione = (raw: Uint8Array) =>
+  new TextDecoder().decode(raw).replace(/\r?\n[ \t]+/g, ' ').match(/^authentication-results:[ \t]*(.+)$/im)?.[1]?.slice(0, 500) || null;
+
 // Toglie la parte citata delle risposte ("Il … ha scritto:", righe con ">")
 function senzaCitazione(testo: string): string {
   const righe = testo.replace(/\r\n/g, '\n').split('\n');
@@ -248,6 +252,7 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
         // deno-lint-ignore no-explicit-any
         allegati: (parsed?.attachments || []).map((a: any) => ({ nome: a.filename || 'allegato', tipo: a.contentType, dimensione: a.size })),
         automatica,
+        autenticazione: autenticazione(msg.intestazioni),
       };
 
       const { data: ins, error } = await db.from('mail_messaggi')
