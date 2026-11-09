@@ -78,7 +78,7 @@ def capo_scuro(variante):
 def personalizzazioni(attributi):
     """(nome, bandiera) dai campi visibili della riga. "Stampa nome: No" vuol dire niente nome."""
     a = {x['key'].strip(): (x['value'] or '').strip() for x in attributi if not x['key'].startswith('_')}
-    nome = next((v for k, v in a.items() if normalizza(k).startswith('nome') and v), '')
+    nome = next((v for k, v in a.items() if normalizza(k).startswith('nome') and normalizza(k) not in ('nome alto', 'nome basso') and v), '')
     if normalizza(a.get('Stampa nome', 'si')) in ('no', 'off', 'false'):
         nome = ''
     bandiera = next((v for k, v in a.items() if normalizza(k).startswith('bandiera') and v), '')
@@ -223,6 +223,62 @@ def bandiera(percorso, fogra):
     return ridimensiona(cmyk, alfa, w * s, h * s)
 
 
+# T-shirt personalizzata (Customily): loghi caricati dal cliente, nome alto e basso, bandiera.
+# Riquadri dei loghi in cm sulla t-shirt uomo (sulla donna si riducono come la grafica, 23/25)
+LOGHI_PERSONALIZZATA = {'logo 1': (25, 15), 'logo 2': (25, 15), 'logo 3': (25, 25)}
+
+
+def campi_personalizzata(attributi):
+    """{'logo 1': url, ..., 'nome alto': testo, 'nome basso': testo} dai campi della riga (anche nascosti con "_")."""
+    out, filtrati = {}, {}
+    for x in attributi:
+        k = normalizza(x['key'].lstrip('_'))
+        v = (x['value'] or '').strip()
+        if not v:
+            continue
+        base = k.split(' image filter applied')[0]
+        if base in LOGHI_PERSONALIZZATA and v.startswith('http'):
+            # Customily salva l'originale in "_Logo 1" e, se c'è un filtro (es. fondo tolto), il PNG in "_Logo 1_image_filter_applied_1"
+            (filtrati if base != k else out)[base] = v
+        elif k in ('nome alto', 'nome basso'):
+            out[k] = v
+    out.update(filtrati)
+    return out
+
+
+def logo_caricato(url, larghezza_cm, altezza_cm, fogra):
+    """Logo del cliente: in CMYK con i neri K100, intero nel riquadro. Ritorna (cmyk, alfa, nota)."""
+    import requests
+    r = requests.get(url, timeout=120)
+    r.raise_for_status()
+    im = Image.open(io.BytesIO(r.content))
+    nota = None
+    if im.mode in ('RGBA', 'LA', 'PA') or (im.mode == 'P' and 'transparency' in im.info):
+        im = im.convert('RGBA')
+        alfa = np.asarray(im)[..., 3]
+    else:
+        im = im.convert('RGB')
+        # Senza trasparenza: il fondo bianco diventa trasparente, da controllare a occhio
+        alfa = np.where(np.asarray(im).min(-1) > 245, 0, 255).astype(np.uint8)
+        nota = 'logo senza trasparenza, fondo bianco tolto: controllare'
+    t = ImageCms.buildTransform(ImageCms.createProfile('sRGB'), fogra, 'RGB', 'CMYK',
+                                renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                                flags=ImageCms.Flags.BLACKPOINTCOMPENSATION)
+    cmyk = neri_k100(np.asarray(ImageCms.applyTransform(im.convert('RGB'), t)))
+    righe, colonne = np.where(alfa.any(1))[0], np.where(alfa.any(0))[0]
+    if not len(righe):
+        raise ValueError('logo vuoto')
+    cmyk = cmyk[righe[0]:righe[-1] + 1, colonne[0]:colonne[-1] + 1]
+    alfa = alfa[righe[0]:righe[-1] + 1, colonne[0]:colonne[-1] + 1]
+    h, w = alfa.shape
+    # Riempie il riquadro in larghezza o in altezza: il cliente l'ha visto così nell'anteprima
+    s = min(larghezza_cm / 2.54 * DPI / w, altezza_cm / 2.54 * DPI / h)
+    if DPI / s < 150:   # risoluzione effettiva sulla maglietta
+        nota = (nota + '; ' if nota else '') + f'logo a bassa risoluzione ({DPI / s:.0f} dpi)'
+    c, a = ridimensiona(cmyk, alfa, w * s, h * s)
+    return c, a, nota
+
+
 def etichetta(testo):
     """Numero d'ordine in nero K100, girato in verticale."""
     font_path = Path(__file__).parent / 'fonts' / 'NotoSans-Bold.ttf'
@@ -311,9 +367,31 @@ def crea_fogli(cartella, nome_base, voci, libreria):
         tipo, nome_grafica = capo
         scuro = capo_scuro(variante)
         testo, paese = personalizzazioni(attributi)
-        percorso = libreria.file_grafica(nome_grafica, scuro)
         pezzo = []
-        if percorso is None:
+        if normalizza(nome_grafica) == 'personalizzata':
+            campi = campi_personalizzata(attributi)
+            scala_capo = min(1.0, RIQUADRI[tipo] / RIQUADRI['uomo'])
+            for chiave, (w, h) in LOGHI_PERSONALIZZATA.items():
+                if chiave in campi:
+                    try:
+                        c, a, nota = logo_caricato(campi[chiave], w * scala_capo, h * scala_capo, libreria.fogra())
+                        pezzo.append((c, a))
+                        if nota:
+                            a_mano.append(f'{ordine}, {titolo}, {chiave.title()}: {nota}')
+                    except Exception as e:
+                        falliti.add(ordine)
+                        a_mano.append(f'{ordine}, {titolo}, {chiave.title()}: file non scaricato ({type(e).__name__}: {str(e)[:60]})')
+            for chiave in ('nome alto', 'nome basso'):
+                if chiave in campi:
+                    pezzo.append(nome(campi[chiave], scuro, min(1.0, RIQUADRI[tipo] / RIQUADRI['donna'])))
+            if not campi and not paese:
+                a_mano.append(f'{ordine}, {titolo}: nessun logo o nome nell\'ordine, controllare')
+            percorso = False
+        else:
+            percorso = libreria.file_grafica(nome_grafica, scuro)
+        if percorso is False:
+            pass
+        elif percorso is None:
             a_mano.append(f'{ordine}, {titolo}: nessun file in mappa-prodotti.csv, da fare a mano')
         elif not percorso.exists():
             a_mano.append(f'{ordine}, {titolo}: manca il file {percorso.name}, da fare a mano')
