@@ -38,7 +38,7 @@ MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 
 # Il tag dell'automazione è diverso da quello manuale, così si distinguono. Nessuno dei due va ristampato
 TAG_AUTOMAZIONE = 'auto-stampato'
 TAG_GIA_STAMPATI = {'stampato', TAG_AUTOMAZIONE}
-# Negozi con il PDF dei file di stampa (uno per negozio, "<nome> - ordini dal X al Y.pdf").
+# Negozi con il PDF dei file di stampa (uno per negozio, "<nome> - 6373-6425.pdf").
 # Tutti e due usano Customily con file 23x43. Gli altri arriveranno dopo averli studiati
 NEGOZI_FILE_STAMPA = {'ciucciamilcalzino': 'Ciucciami', 'boxfactorylab': 'Box Factory Lab'}
 ATTR_FILE_STAMPA = '_customily-production-url'
@@ -493,11 +493,11 @@ def numero_ordine(nome):
 
 
 def nome_pdf_stampa(negozio, ordini):
-    """Es. "Ciucciami - ordini dal 6373 al 6425.pdf"; con un solo ordine "ordine 6373"."""
+    """Es. "Ciucciami - 6373-6425.pdf"; con un solo ordine "Ciucciami - 6373.pdf"."""
     numeri = sorted({numero_ordine(o) for o in ordini})
     if len(numeri) == 1:
-        return f'{negozio} - ordine {numeri[0]}.pdf'
-    return f'{negozio} - ordini dal {numeri[0]} al {numeri[-1]}.pdf'
+        return f'{negozio} - {numeri[0]}.pdf'
+    return f'{negozio} - {numeri[0]}-{numeri[-1]}.pdf'
 
 
 def conferma_pdf(temporaneo, finale, pagine_attese):
