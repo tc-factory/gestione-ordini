@@ -455,18 +455,15 @@ function renderControlMyDay() {
   const arretrati = mine.filter(t => t.giorno < d);
   const coda = Ctrl.tasks.filter(t => !t.assegnato_a);
 
-  const inCorso  = delGiorno.filter(t => t.stato === 'in_lavorazione');
-  const daFare   = delGiorno.filter(t => ['da_fare', 'in_pausa', 'rimandato'].includes(t.stato));
+  const daFare   = delGiorno.filter(t => ['da_fare', 'in_lavorazione', 'in_pausa', 'rimandato'].includes(t.stato));
   const bloccati = delGiorno.filter(t => t.stato === 'bloccato');
   const chiusi   = delGiorno.filter(t => ['completato', 'non_completato'].includes(t.stato));
 
   const minTot  = delGiorno.filter(t => t.stato !== 'bloccato').reduce((s, t) => s + (t.minuti_stimati || 0), 0);
   const minFatti = delGiorno.filter(t => t.stato === 'completato').reduce((s, t) => s + (t.minuti_stimati || 0), 0);
-  const lavorati = delGiorno.reduce((s, t) => s + taskLavoratoSec(t), 0);
-  const corrente = inCorso[0] || arretrati.find(t => t.stato === 'in_lavorazione');
 
   // Il negozio si dice una volta sola: sulla riga solo se nella lista ce ne sono diversi
-  const aperti = [...inCorso, ...daFare, ...arretrati, ...bloccati];
+  const aperti = [...daFare, ...arretrati, ...bloccati];
   const negoziLista = new Set(aperti.map(t => t.macroarea || ''));
   const conNegozio = aperti.filter(t => t.macroarea);
   const unicoNegozio = negoziLista.size === 1 ? taskMacro(conNegozio[0]?.macroarea) : null;
@@ -475,8 +472,8 @@ function renderControlMyDay() {
   const opts = { showStore: !Ctrl.macroarea && negoziLista.size > 1, showAuto: false };
   const barraNegozi = new Set(conNegozio.map(t => t.macroarea)).size > 1 || Ctrl.macroarea;
 
-  // Il tasto giallo va solo sul prossimo task da iniziare
-  Ctrl._prossimo = corrente ? null : (sortTasks(vedi(daFare))[0] || sortTasks(vedi(arretrati))[0] || sortTasks(vedi(coda))[0])?.id;
+  // Il tasto giallo va solo sul prossimo task da fare
+  Ctrl._prossimo = (sortTasks(vedi(daFare))[0] || sortTasks(vedi(arretrati))[0] || sortTasks(vedi(coda))[0])?.id;
 
   const stat = (label, value, sub = '', glow = 'var(--brand-gold)') => `
     <div class="glass-card stat-card">
@@ -489,9 +486,8 @@ function renderControlMyDay() {
   return `
     <div class="stat-grid ctrl-stats">
       ${stat('Task', `${chiusi.filter(t => t.stato === 'completato').length}/${delGiorno.length}`, 'completati', '#22c55e')}
-      ${stat('Tempo', `${ctrlFmtMin(minFatti)} <small>/ ${ctrlFmtMin(minTot)}</small>`, `lavorato ${ctrlFmtDur(lavorati)}`, '#6366f1')}
-      ${stat('In corso', corrente ? `<span data-task-timer="${corrente.id}">${ctrlFmtDur(taskLavoratoSec(corrente))}</span>` : '—',
-             corrente ? escapeHtml(corrente.titolo) : 'nessun task avviato', '#f59e0b')}
+      ${stat('Tempo stimato', `${ctrlFmtMin(minFatti)} <small>/ ${ctrlFmtMin(minTot)}</small>`, 'dei task completati', '#6366f1')}
+      ${stat('Da fare', ctrlFmtMin(minTot - minFatti), 'stima del lavoro che resta', '#f59e0b')}
     </div>
 
     <section class="glass-card page-card ctrl-group">
@@ -499,7 +495,6 @@ function renderControlMyDay() {
         ${unicoNegozio ? `<span class="ctrl-group-hint ctrl-macro-tag" style="--m:${unicoNegozio.color};">${unicoNegozio.label}</span>` : ''}</div>
       ${barraNegozi ? taskMacroBar(aperti) : ''}
       ${taskAutoNote(visibili)}
-      ${taskSub('In corso', vedi(inCorso), opts)}
       ${taskSub('Da fare', vedi(daFare), opts)}
       ${taskSub('Arretrati', vedi(arretrati), opts)}
       ${taskSub('Bloccati', vedi(bloccati), opts)}
@@ -657,7 +652,7 @@ function renderTaskQueue(coda, emptyText = '') {
   return `
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Coda comune</h2><span class="table-count">${list.length}</span>
-        <span class="ctrl-group-hint">Non assegnati: li prende chi li inizia</span></div>
+        <span class="ctrl-group-hint">Non assegnati: li prende chi li fa</span></div>
       ${taskMacroBar(coda)}
       ${taskAutoNote(list)}
       ${list.length ? `<div class="task-list task-stack ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${renderTaskItems(list, { showStore: !Ctrl.macroarea, showAuto: false })}</div>`
@@ -682,7 +677,6 @@ function setControlMacro(id) {
 
 function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true, titolo = t.titolo } = {}) {
   const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id);
-  const lav = taskLavoratoSec(t);
   const scaduto = t.scadenza && !['completato', 'non_completato'].includes(t.stato) && new Date(t.scadenza) < new Date();
   const meta = [
     showStore && taskMacro(t.macroarea) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(t.macroarea).color};">${taskMacro(t.macroarea).label}</span>` : '',
@@ -690,7 +684,6 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
     showAuto && t.automazione_errore ? '<span class="task-late">automazione non riuscita</span>' : '',
     t.delega?.da ? `delegato da ${escapeHtml(t.delega.da)}` : '',
     tipo ? escapeHtml(tipo.nome) : '',
-    t.stato !== 'in_lavorazione' && lav >= 1 ? `lavorato ${ctrlFmtDur(lav)}` : '',
     t.scadenza ? `<span class="${scaduto ? 'task-late' : ''}">entro ${new Date(t.scadenza).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }) === t.giorno ? ctrlFmtOra(t.scadenza) : ctrlFmtQuando(t.scadenza)}</span>` : '',
     t.giorno < Ctrl.giorno ? `<span class="task-late">dal ${ctrlFmtGiorno(t.giorno).toLowerCase()}</span>` : '',
     t.rinvii ? `rimandato ${t.rinvii}×` : '',
@@ -698,7 +691,7 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
   const chip = (label, color) => `<span class="td-tag" style="--c:${color};">${label}</span>`;
   const badges = [
     t.priorita === 'urgente' ? chip(pr.label, pr.color) : '',
-    t.stato !== 'da_fare' ? chip(st.label, st.color) : '',
+    !['da_fare', 'in_lavorazione', 'in_pausa'].includes(t.stato) ? chip(st.label, st.color) : '',
     t.bozza_risposta && !t.risposta_inviata_at ? chip('Bozza pronta', '#2563eb') : '',
     t.risposta_inviata_at ? chip('Risposta inviata', '#16a34a') : '',
   ].join('');
@@ -712,14 +705,14 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
         ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<span class="task-motivo">${escapeHtml(t.motivo)}</span>` : ''}
       </button>
       <div class="task-badges">${badges}</div>
-      <span class="task-time">${t.stato === 'in_lavorazione' ? `<span class="task-timer" data-task-timer="${t.id}">${ctrlFmtDur(lav)}</span>` : t.minuti_stimati ? `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}` : ''}</span>
+      <span class="task-time">${t.minuti_stimati ? `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}` : ''}</span>
       <div class="task-actions">${Ctrl.canAct(t) ? taskQuickActions(t) : ''}
         <button class="btn-icon" onclick="openTaskDetail('${t.id}')" aria-label="Altre azioni">${CtrlIcons.more()}</button>
       </div>
     </article>`;
 }
 
-function taskQuickActions(t) {
+function taskQuickActions(t, { fatto = true } = {}) {
   if (TCAuth.isAdmin()) {
     if (['completato', 'non_completato'].includes(t.stato)) return '';
     return `<select class="ctrl-assign" aria-label="Assegna il task" onchange="taskAssign('${t.id}', this.value)">
@@ -729,16 +722,10 @@ function taskQuickActions(t) {
   }
   const btn = (stato, icon, label, cls = '') =>
     `<button class="ctrl-btn ${cls}" onclick="taskSetStato('${t.id}','${stato}')">${icon} <span>${label}</span></button>`;
-  const avvia = Ctrl._prossimo === t.id ? 'is-primary' : '';
+  const primo = Ctrl._prossimo === t.id ? 'is-primary' : '';
   const prendi = !t.assegnato_a ? `<button class="ctrl-btn" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
-  switch (t.stato) {
-    case 'in_lavorazione': return btn('in_pausa', CtrlIcons.pause(), 'Pausa') + btn('completato', CtrlIcons.check(), 'Fatto', 'is-primary');
-    case 'completato':     return btn('da_fare', CtrlIcons.undo(), 'Riapri');
-    case 'non_completato': return btn('da_fare', CtrlIcons.undo(), 'Riapri');
-    case 'in_pausa':
-    case 'bloccato':       return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Riprendi', avvia);
-    default:               return prendi + btn('in_lavorazione', CtrlIcons.play(), 'Inizia', avvia);
-  }
+  if (['completato', 'non_completato'].includes(t.stato)) return btn('da_fare', CtrlIcons.undo(), 'Riapri');
+  return prendi + (fatto ? btn('completato', CtrlIcons.check(), 'Fatto', primo) : '');
 }
 
 async function taskSetStato(id, stato, motivo = null, giorno = null) {
@@ -775,7 +762,6 @@ function renderControlTeam() {
     const fatti = list.filter(t => t.stato === 'completato').length;
     const minTot = p ? p.minuti_assegnati : 0, minFatti = p ? p.minuti_completati : 0;
     const pct = minTot ? Math.min(100, Math.round(minFatti / minTot * 100)) : 0;
-    const corrente = Ctrl.tasks.find(t => t.assegnato_a === nick && t.stato === 'in_lavorazione');
     const arretrati = Ctrl.tasks.filter(t => t.assegnato_a === nick && t.giorno < d).length;
     const bloccati = list.filter(t => t.stato === 'bloccato').length;
     return `
@@ -793,11 +779,6 @@ function renderControlTeam() {
           <span>${ctrlFmtMin(minFatti)} / ${ctrlFmtMin(minTot)}</span>
           ${arretrati ? `<span class="task-late">${arretrati} arretrati</span>` : ''}
           ${bloccati ? `<span>${bloccati} bloccati</span>` : ''}
-        </div>
-        <div class="ctrl-person-now">
-          ${corrente ? `<span class="ctrl-live" aria-hidden="true"></span> ${escapeHtml(corrente.titolo)}
-              <span class="task-timer" data-task-timer="${corrente.id}">${ctrlFmtDur(taskLavoratoSec(corrente))}</span>`
-            : `<span class="ctrl-idle">Nessun task in corso</span>`}
         </div>
       </article>`;
   };
@@ -829,16 +810,11 @@ function taskGroupOwner(title, list, emptyText = '', hint = '') {
 
 function renderControlTypes() {
   const rows = Ctrl.tipi.map(tp => {
-    const r = Ctrl.tempi[tp.id];
-    const propone = r && r.campioni >= TASK_CAMPIONI_MIN && Math.round(r.mediana_minuti) !== tp.minuti_standard
-      && Math.round(r.mediana_minuti) >= 1;
     const aut = TASK_AUTONOMIA.find(a => a.id === tp.autonomia) || TASK_AUTONOMIA[0];
     return `
       <tr class="${tp.attivo ? '' : 'ctrl-off'}">
         <td><strong>${escapeHtml(tp.nome)}</strong>${tp.descrizione ? `<div class="ctrl-cell-sub">${escapeHtml(tp.descrizione)}</div>` : ''}</td>
         <td>${ctrlFmtMin(tp.minuti_standard)}</td>
-        <td>${r ? `${ctrlFmtMin(r.mediana_minuti)} <span class="ctrl-cell-sub">su ${r.campioni}</span>` : '<span class="ctrl-cell-sub">nessun dato</span>'}
-          ${propone ? `<button class="ctrl-btn" onclick="applyRealTime('${tp.id}', ${Math.round(r.mediana_minuti)})">Usa ${Math.round(r.mediana_minuti)}′</button>` : ''}</td>
         <td>${tp.competenza ? escapeHtml(competenzaLabel(tp.competenza)) : '<span class="ctrl-cell-sub">—</span>'}</td>
         <td title="${aut.hint}">${aut.label}</td>
         <td class="ctrl-cell-actions">
@@ -851,10 +827,10 @@ function renderControlTypes() {
   return `
     <section class="glass-card page-card">
       <div class="page-card-head"><h2>Tipi di task</h2><span class="table-count">${Ctrl.tipi.length}</span>
-        <span class="ctrl-group-hint">Il tempo reale è la mediana degli ultimi 90 giorni; dopo ${TASK_CAMPIONI_MIN} task completati puoi usarlo come standard.</span></div>
+        <span class="ctrl-group-hint">Il tempo standard è la stima di partenza di ogni task di questo tipo.</span></div>
       ${Ctrl.tipi.length ? `
         <div class="table-scroll"><table class="data-table ctrl-types">
-          <thead><tr><th>Tipo</th><th>Standard</th><th>Reale</th><th>Competenza</th><th>Autonomia</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+          <thead><tr><th>Tipo</th><th>Standard</th><th>Competenza</th><th>Autonomia</th><th><span class="sr-only">Azioni</span></th></tr></thead>
           <tbody>${rows}</tbody>
         </table></div>`
       : `<div class="empty-list">Nessun tipo ancora. Crea i tipi di lavoro ricorrenti (es. "Risposta a un cliente", "Preparare una spedizione") con il loro tempo standard.</div>`}
@@ -1061,7 +1037,6 @@ function renderTaskDetail(id, storico) {
         ${tag(st.label, st.color)}
         ${t.priorita !== 'normale' ? tag(pr.label, pr.color) : ''}
         ${macro ? tag(macro.label, macro.color) : ''}
-        ${t.stato === 'in_lavorazione' ? `<span class="task-timer" data-task-timer="${t.id}">${ctrlFmtDur(taskLavoratoSec(t))}</span>` : ''}
       </div>
 
       ${t.descrizione ? `<p class="td-todo ${t.analisi?.spedizione ? 'is-advice' : ''}">${escapeHtml(t.descrizione)}</p>` : ''}
@@ -1079,7 +1054,6 @@ function renderTaskDetail(id, storico) {
         ${info('Giorno', ctrlFmtGiorno(t.giorno))}
         ${info('Scadenza', t.scadenza ? ctrlFmtQuando(t.scadenza) : '')}
         ${info('Tempo stimato', ctrlFmtMin(t.minuti_stimati))}
-        ${info('Tempo lavorato', taskLavoratoSec(t) >= 1 ? ctrlFmtDur(taskLavoratoSec(t)) : '')}
         ${info('Origine', TASK_ORIGINI[t.fonte] || escapeHtml(t.fonte))}
         ${info('Creato', `${ctrlFmtQuando(t.created_at)}${t.creato_da ? ` · ${escapeHtml(t.creato_da)}` : ''}`)}
       </dl>
@@ -1126,8 +1100,8 @@ function renderTaskDetail(id, storico) {
       ${can && !a ? `
         <div class="td-actions">
           <div class="td-actions-main">
-            ${taskQuickActions(t).replaceAll('taskSetStato(', 'taskDetailStato(').replaceAll('taskPrendi(', 'taskDetailPrendi(')}
-            ${!chiuso && t.stato !== 'in_lavorazione' ? `<button type="button" class="td-act is-done" onclick="taskDetailStato('${id}','completato')">${CtrlIcons.check()} Completato</button>` : ''}
+            ${taskQuickActions(t, { fatto: false }).replaceAll('taskSetStato(', 'taskDetailStato(').replaceAll('taskPrendi(', 'taskDetailPrendi(')}
+            ${!chiuso ? `<button type="button" class="td-act is-done" onclick="taskDetailStato('${id}','completato')">${CtrlIcons.check()} Completato</button>` : ''}
           </div>
           ${!chiuso ? `<div class="td-actions-more">${motivoBtn('rimandato', 'Rimanda')}${motivoBtn('bloccato', 'Bloccato')}${motivoBtn('non_completato', 'Non completato')}${!TCAuth.isAdmin() && colleghi.length ? motivoBtn('delega', 'Delega') : ''}</div>` : ''}
         </div>` : ''}
@@ -2188,10 +2162,9 @@ function renderControlReport() {
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Operatori</h2><span class="ctrl-group-hint">Solo admin</span></div>
       ${operatori.length ? `<div class="table-scroll"><table class="data-table">
-        <thead><tr><th>Operatore</th><th>Punteggio</th><th>Task</th><th>Minuti standard</th><th>Ore lavorate</th></tr></thead>
+        <thead><tr><th>Operatore</th><th>Punteggio</th><th>Task</th><th>Minuti stimati</th></tr></thead>
         <tbody>${operatori.map(o => `<tr><td><strong>${escapeHtml(o.operatore)}</strong></td><td>${o.punteggio}</td>
-          <td>${o.completati}/${o.task}</td><td>${ctrlFmtMin(o.minuti_completati)} / ${ctrlFmtMin(o.minuti_assegnati)}</td>
-          <td>${ctrlFmtDur(r.ore?.[o.operatore] || 0)}</td></tr>`).join('')}</tbody>
+          <td>${o.completati}/${o.task}</td><td>${ctrlFmtMin(o.minuti_completati)} / ${ctrlFmtMin(o.minuti_assegnati)}</td></tr>`).join('')}</tbody>
       </table></div>` : `<div class="empty-list">Nessun task assegnato in questo periodo.</div>`}
     </section>
 
