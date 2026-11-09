@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Sendcloud: mittente giusto per negozio",
+  "version": "1.0.0",
+  "description": "Nella pagina Ordini di Sendcloud collega 'Spedizione da' al filtro del negozio e avvisa se non coincidono.",
+  "content_scripts": [
+    {
+      "matches": ["https://app.sendcloud.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
