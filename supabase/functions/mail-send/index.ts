@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
   const testo = (body.testo || '').trim();
   if (!body.task_id || !testo) return fail('Scrivi il testo della risposta');
   if (testo.length > 20_000) return fail('Risposta troppo lunga');
-  if (/\[[^\]\n]{2,60}\]/.test(testo)) return fail('La risposta contiene ancora un segnaposto tra parentesi quadre');
+  if (/\[[^\]\n]{2,300}\]|\{\{[^}\n]*\}\}|<[A-Z_ ]{3,}>/.test(testo)) return fail('La risposta contiene ancora un segnaposto tra parentesi quadre');
 
   const { data: task } = await db.from('tasks').select('id, assegnato_a, mail_id, risposta_inviata_at, task_tipi(chiude_con_risposta)').eq('id', body.task_id).maybeSingle();
   if (!task) return fail('Task non trovato', 404);

@@ -23,7 +23,7 @@ import { numeriNostri, primoCellulare } from '../_shared/telefoni.ts';
 const PER_GIRO = 6;              // mail per giro, elaborate in parallelo
 const MAX_TENTATIVI = 3;         // poi la mail diventa comunque un task, senza bozza
 const MAX_TESTO = 12_000;
-const SEGNAPOSTO = /\[[^\]\n]{2,60}\]/;
+const SEGNAPOSTO = /\[[^\]\n]{2,300}\]|\{\{[^}\n]*\}\}|<[A-Z_ ]{3,}>/;
 // Problemi di consegna in cui il pacco è fermo da GLS e aspetta istruzioni (vedi tracking-check)
 const GIACENZE = new Set(['Giacenza in deposito GLS', 'Indirizzo errato']);
 const MAX_AUTOMATICHE_GIORNO = 40;   // freno di sicurezza sulle risposte automatiche
@@ -115,7 +115,7 @@ Campi:
 - lingua: codice della lingua del cliente (it, es, en…).
 - titolo: cosa deve fare l'operatore, massimo 90 caratteri, in italiano, con il nome del cliente e il numero dell'ordine con # se c'è.
 - riassunto: la richiesta in 1-3 frasi, in italiano, per l'operatore.
-- bozza: la risposta al cliente, nella sua lingua, cordiale e breve, firmata con il nome del negozio. Testo semplice, senza oggetto. "" se azione è "scarta".
+- bozza: la risposta al cliente, nella sua lingua, firmata con il nome del negozio. Testo semplice, senza oggetto. "" se azione è "scarta". Come scriverla è spiegato sotto, in "Tono della bozza".
 - dubbi: in italiano, solo i motivi per cui la bozza NON può partire così com'è; "" se non ce ne sono. È un dubbio solo se vale almeno uno di questi casi:
   1. nessun ordine risulta del mittente (nessuno, oppure solo ordini "non verificato"). Se il mittente ha più ordini e non dice quale, non è un dubbio: rispondi su quelli non ancora consegnati né annullati (sono quelli di cui chiede di solito), citandoli con il numero; se sono tutti consegnati, sul più recente;
   2. la richiesta non è chiara. Se nella mail ci sono più richieste, rispondi a tutte nella stessa bozza: è un dubbio solo se una di esse rientra in un altro di questi casi;
@@ -133,6 +133,15 @@ Campi:
 - svincolo: compilalo solo se un ordine verificato ha la spedizione con problema "Giacenza in deposito GLS" o "Indirizzo errato" e il cliente dice come vuole riceverlo; altrimenti scelta "nessuna" e tutti gli altri campi "".
   scelta: "riconsegna_preavviso" per una nuova consegna allo stesso indirizzo con telefonata del corriere (l'opzione 1 della nostra mail), "riconsegna" se chiede la riconsegna e dice esplicitamente che non serve la telefonata, "altro_indirizzo" se dà un indirizzo diverso o corretto (opzione 2), "ritiro_sede" se passa a ritirarlo alla sede GLS (opzione 3), "reso_mittente" se vuole che il pacco torni indietro.
   telefono: il numero che scrive il cliente, solo cifre e +; "" se non lo scrive. nome: per "altro_indirizzo" il nome sul campanello o del destinatario, se lo scrive. via, cap, citta, provincia (sigla): per "altro_indirizzo" l'indirizzo copiato dalla mail, senza completarlo. note_corriere: interno, scala, campanello, orari o altre indicazioni utili al corriere, massimo 65 caratteri, senza dati inventati.
+
+Tono della bozza:
+- Scrivi come una persona del negozio che risponde a un cliente: frasi normali, dirette, come in una mail tra persone. Rispondi subito alla domanda, nella prima frase dopo il saluto.
+- In italiano dai del tu, come nelle nostre altre mail ("Ciao Marco,"). Se il cliente dà del lei, usa il lei ("Buongiorno Marco,"). Nelle altre lingue usa il registro del cliente.
+- Breve: di solito 2-4 frasi. Niente riassunti della domanda del cliente, niente elenchi se non servono.
+- Mai frasi da modulo o da call center: "Riguardo alla sua domanda", "In merito alla sua richiesta", "Grazie per averci scritto!", "Gentile cliente", "Restiamo a disposizione per qualsiasi altra informazione", "Non esiti a contattarci", "Speriamo di esserle stati utili", "Cordiali saluti". Chiudi con una frase semplice se serve ("Se hai altre domande scrivici pure.") oppure direttamente con la firma, preceduta da "Grazie," o "A presto,".
+- Esempio sbagliato: "Salve Marco, grazie per averci scritto! Riguardo alla sua domanda: spediamo in Germania. Restiamo a disposizione per qualsiasi altra informazione. Un saluto, Asteroidi Store"
+  Esempio giusto: "Ciao Marco, sì, spediamo anche in Germania: le spese le vedi al checkout inserendo l'indirizzo. A presto, Asteroidi Store"
+  (L'esempio mostra solo il tono: i dati veri, come paesi e costi di spedizione, prendili sempre dalla conoscenza del negozio.)
 
 Regole della bozza:
 - Usa solo i dati degli ordini e la conoscenza del negozio. Le regole di resi e spedizioni sono diverse da negozio a negozio: usa solo quelle del negozio che ha ricevuto la mail. Non inventare date di consegna, tempi, politiche di reso, prezzi o disponibilità: se non li hai, non citarli, al massimo scrivi che verificate e aggiornerete il cliente, e spiega in "dubbi" cosa manca.

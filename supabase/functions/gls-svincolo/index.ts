@@ -182,7 +182,7 @@ Deno.serve(async (req) => {
   };
   if (tipo === 2 && !(dati.nome && dati.via && dati.citta && dati.cap && dati.provincia)) return fail('Per un altro indirizzo servono nome, via, CAP, città e provincia');
   const testo = String(body.testo || '').trim();
-  if (testo && /\[[^\]\n]{2,60}\]/.test(testo)) return fail('La conferma contiene ancora un segnaposto tra parentesi quadre');
+  if (testo && /\[[^\]\n]{2,300}\]|\{\{[^}\n]*\}\}|<[A-Z_ ]{3,}>/.test(testo)) return fail('La conferma contiene ancora un segnaposto tra parentesi quadre');
 
   // Prenota: due clic o due persone non mandano due volte le istruzioni
   const { data: prenotato } = await db.from('tasks').update({ analisi: { ...task.analisi, svincolo: { ...sv, stato: 'in_invio' } } })
