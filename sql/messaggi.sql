@@ -28,6 +28,7 @@ drop policy if exists "Utente legge i suoi messaggi"   on messages;
 drop policy if exists "Utente manda messaggi"          on messages;
 drop policy if exists "Destinatario segna letto"       on messages;
 drop policy if exists "Mittente elimina messaggi"      on messages;
+drop policy if exists "Utente elimina i suoi messaggi"  on messages;
 
 -- Un promemoria non è visibile al destinatario prima dell'ora scelta
 create policy "Utente legge i suoi messaggi" on messages for select to authenticated
@@ -36,8 +37,9 @@ create policy "Utente manda messaggi" on messages for insert to authenticated
   with check (app_is_staff() and mittente = app_nickname());
 create policy "Destinatario segna letto" on messages for update to authenticated
   using (destinatario = app_nickname()) with check (destinatario = app_nickname());
-create policy "Mittente elimina messaggi" on messages for delete to authenticated
-  using (mittente = app_nickname());
+-- Chi manda e chi riceve possono eliminare (il destinatario solo i messaggi già arrivati)
+create policy "Utente elimina i suoi messaggi" on messages for delete to authenticated
+  using (mittente = app_nickname() or (destinatario = app_nickname() and (ricorda_il is null or ricorda_il <= now())));
 
 revoke all on messages from anon, authenticated;
 grant select, insert, delete on messages to authenticated;
