@@ -48,8 +48,11 @@ CARTELLA_PROTETTA = 'Box Factory Lab DTF'
 ATTR_FILE_STAMPA = '_customily-production-url'
 PAGINA_STAMPA = (23 * cm, 43 * cm)
 MAIL_VECCHIA_DOPO_MINUTI = 30
-# Finora gli ordini in sospeso non si sono mai stampati: si stampano solo quelli pagati
+# Solo gli ordini pagati hanno file di stampa e tag. Gli altri finiscono lo stesso nel PDF dei DDT,
+# con la fascia "ORDINE NON PAGATO", e senza tag ripassano ogni mattina finché non vengono pagati
 PAGAMENTI_DA_STAMPARE = {'PAID', 'PARTIALLY_REFUNDED'}
+STATI_PAGAMENTO = {'PENDING': 'in sospeso', 'AUTHORIZED': 'autorizzato, non incassato', 'PARTIALLY_PAID': 'pagato in parte',
+                   'REFUNDED': 'rimborsato', 'VOIDED': 'annullato', 'EXPIRED': 'scaduto', 'UNPAID': 'non pagato'}
 # Customily genera il file qualche tempo dopo l'ordine: entro queste ore un file mancante non è un problema
 ORE_ATTESA_FILE = 6
 # Campi di servizio da non stampare sul DDT: tutti gli altri restano visibili, così non si perde nulla.
@@ -249,17 +252,25 @@ def scarica_logo(url, cache):
 CORPO = 9.25
 
 
-def disegna_ddt(c, o, shop, richieste, cache):
+def stato_pagamento(o):
+    s = o['displayFinancialStatus']
+    return STATI_PAGAMENTO.get(s, s.lower().replace('_', ' '))
+
+
+def disegna_ddt(c, o, shop, richieste, cache, non_pagato=False):
     """Stessa impaginazione del documento di trasporto di Shopify."""
     W, H = A4
     SX, DX = 84, 519
     CENTRO = 302
 
     def fascia():
-        if not richieste:
+        if not richieste and not non_pagato:
             return
-        testo = 'DA MODIFICARE: ' + ' / '.join(richieste)
-        righe = simpleSplit(testo, 'NotoB', 8.5, DX - SX - 16)[:3]
+        righe = []
+        if non_pagato:
+            righe.append(f'ORDINE NON PAGATO ({stato_pagamento(o)}): NON SPEDIRE')
+        if richieste:
+            righe += simpleSplit('DA MODIFICARE: ' + ' / '.join(richieste), 'NotoB', 8.5, DX - SX - 16)[:3 - len(righe)]
         alto = 10 + 11 * len(righe)
         c.setFillColorRGB(0.8, 0.1, 0.1)
         c.rect(SX, H - 16 - alto, DX - SX, alto, stroke=0, fill=1)
@@ -614,7 +625,7 @@ def giro(args, applica, reg):
             ordini = []
             for o in sorted(s.ordini_da_stampare(), key=lambda o: o['createdAt']):
                 if o['displayFinancialStatus'] not in PAGAMENTI_DA_STAMPARE:
-                    non_pagati[n['id']].append(f"{o['name']}: {o['displayFinancialStatus']}")
+                    non_pagati[n['id']].append(o)
                 elif n['id'] not in NEGOZI_FILE_STAMPA or file_pronti(o, ora, problemi[n['id']], rimandati[n['id']], n['id'] in NEGOZI_DTF):
                     ordini.append(o)
             per_negozio.append((n, s, info['shop'], {x['handle'] for x in info['currentAppInstallation']['accessScopes']}, ordini))
@@ -625,7 +636,7 @@ def giro(args, applica, reg):
             errori_negozio[n['id']] = errori[-1]
 
     # 3. Richieste di modifica collegate ai DDT
-    in_stampa = {(n['id'], o['name']) for n, _, _, _, ordini in per_negozio for o in ordini}
+    in_stampa = {(n['id'], o['name']) for n, _, _, _, ordini in per_negozio for o in ordini + non_pagati[n['id']]}
     richieste = {}
     # Chiave None: richieste con un negozio che non è tra quelli letti, finiscono in "Generale"
     altrove = {n['id']: [] for n in negozi}
@@ -729,12 +740,13 @@ def giro(args, applica, reg):
         fare += [(f"Controllare la richiesta senza numero d'ordine: {x}", True) for x in senza_ordine[i]]
         if ordini:
             fare.append((f"Stampare i DDT: {len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}", False))
+        for o in non_pagati[i]:
+            fare.append((f"Non spedire {o['name']} finché non è pagato ({stato_pagamento(o)}): DDT nel PDF, niente tag né file di stampa", True))
         for p, alto in dtf_creati.get(i, []):
             fare.append((f'Stampare il foglio DTF "{p.name}" ({alto:g} cm)', False))
         if i in pdf_stampa:
             fare.append((f'Stampare il PDF dei file di stampa "{pdf_stampa[i][0].name}": {pdf_stampa[i][1]} pagine', False))
-        info = [('Righe senza file di stampa', senza_file[i]), ('Rimandati a domani', rimandati[i]),
-                ('Esclusi perché non pagati', non_pagati[i])]
+        info = [('Righe senza file di stampa', senza_file[i]), ('Rimandati a domani', rimandati[i])]
         quanti = 'ordini non letti' if ordini is None else f"{len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}"
         blocchi.append((n['nome'], quanti, fare, info))
 
@@ -744,8 +756,9 @@ def giro(args, applica, reg):
     disegna_riepilogo(c, oggi, generale, blocchi)
     cache = {}
     for n, _, shop, _, ordini in per_negozio:
-        for o in ordini:
-            disegna_ddt(c, o, shop, richieste.get((n['id'], o['name']), []), cache)
+        # Pagati e non pagati insieme, in ordine di data: i non pagati hanno la fascia in cima
+        for o in sorted(ordini + non_pagati[n['id']], key=lambda o: o['createdAt']):
+            disegna_ddt(c, o, shop, richieste.get((n['id'], o['name']), []), cache, o in non_pagati[n['id']])
     pagine_ddt = c.getPageNumber() - 1
     c.save()
     conferma_pdf(tmp_ddt, finale_ddt, pagine_ddt)
@@ -792,7 +805,7 @@ def giro(args, applica, reg):
     reg.scrivi(f"Stampa: {pagine_stampa} pagine, {mb_stampa} MB"
                + ''.join(f" ({nomi[i]}: {x[1]})" for i, x in sorted(pdf_stampa.items())))
     conta = lambda d: sum(len(v) for v in d.values())
-    reg.scrivi(f"Non pagati esclusi: {conta(non_pagati)}, rimandati a domani: {conta(rimandati)}")
+    reg.scrivi(f"Non pagati (solo DDT): {conta(non_pagati)}, rimandati a domani: {conta(rimandati)}")
     reg.scrivi(f"Da modificare: {len(richieste)}, altre richieste da controllare: {conta(altrove) + conta(senza_ordine)}, righe senza file: {conta(senza_file)}")
     reg.scrivi(f"Tag messi: {taggati}, non messi: {len(saltati)}, tempo: {time.time() - inizio:.0f} s")
     for x in errori + [x for v in avvisi_stampa.values() for x in v] + avvisi_mail + bloccati:
