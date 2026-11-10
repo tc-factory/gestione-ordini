@@ -96,10 +96,16 @@ const Messages = {
     await supabaseClient.from('messages').update({ letto_at: now }).in('id', ids);
   },
 
-  async remove(id) {
-    const { error } = await supabaseClient.from('messages').delete().eq('id', id);
-    if (error) throw new Error('Impossibile eliminare il messaggio');
-    this._list = this._list.filter(m => m.id !== id);
+  async remove(id) { return this.removeMany([id]); },
+
+  async removeMany(ids) {
+    if (!ids.length) return;
+    for (let i = 0; i < ids.length; i += 100) {
+      const part = ids.slice(i, i + 100);
+      const { error } = await supabaseClient.from('messages').delete().in('id', part);
+      if (error) throw new Error(ids.length > 1 ? 'Impossibile eliminare i messaggi' : 'Impossibile eliminare il messaggio');
+      this._list = this._list.filter(m => !part.includes(m.id));
+    }
     refreshMessagesUi();
   },
 
@@ -344,7 +350,7 @@ function renderMessagesPanel() {
         ${m.riferimento ? MsgRef.chip(m.riferimento, `MsgRef.open(Messages._list.find(x=>x.id==='${m.id}').riferimento)`) : ''}
         <div class="msg-item-actions">
           ${ricevuti && !toSelf ? `<button type="button" class="btn btn-ghost btn-sm" onclick="replyToMessage('${m.id}')">Rispondi</button>` : ''}
-          ${m.mittente === me ? `<button type="button" class="btn btn-ghost btn-sm" onclick="deleteMessageConfirm('${m.id}')">${programmato ? 'Annulla promemoria' : 'Elimina'}</button>` : ''}
+          <button type="button" class="btn btn-ghost btn-sm" onclick="deleteMessageConfirm('${m.id}')">${programmato ? 'Annulla promemoria' : 'Elimina'}</button>
         </div>
       </li>`;
   };
@@ -367,7 +373,8 @@ function renderMessagesPanel() {
         </div>
         ${Messages.error ? `<div class="settings-section-hint" style="margin:0;">${escapeHtml(Messages.error.message)}${Messages.error.notInstalled ? ' (esegui sql/messaggi.sql su Supabase)' : ''}</div>`
           : !Messages.loaded ? `<div class="settings-section-hint" style="margin:0;">Caricamento…</div>`
-          : list.length ? `<ul class="msg-list">${list.map(item).join('')}</ul>`
+          : list.length ? `<ul class="msg-list">${list.map(item).join('')}</ul>
+            <button type="button" class="btn btn-ghost btn-sm" style="align-self:flex-start;color:var(--priority-urgent);" onclick="deleteAllMessagesConfirm()">${Icons.trash(13)} Elimina tutti i ${ricevuti ? 'ricevuti' : 'inviati'}</button>`
           : `<div class="settings-section-hint" style="margin:0;">${ricevuti ? 'Nessun messaggio ricevuto.' : 'Non hai ancora mandato messaggi.'}</div>`}
       </div>
     </div>`;
@@ -382,8 +389,27 @@ async function enableMessageNotifications() {
 
 async function deleteMessageConfirm(id) {
   const m = Messages._list.find(x => x.id === id);
-  if (!m || !(await uiConfirm(Messages._arrivato(m) ? 'Eliminare il messaggio anche per chi lo ha ricevuto?' : 'Annullare il promemoria?', { ok: Messages._arrivato(m) ? 'Elimina' : 'Annulla promemoria', cancel: 'Indietro', danger: true }))) return;
+  if (!m) return;
+  const domanda = !Messages._arrivato(m) ? 'Annullare il promemoria?'
+    : m.mittente === m.destinatario ? 'Eliminare il promemoria?'
+    : m.mittente === TCAuth.getNickname() ? 'Eliminare il messaggio anche per chi lo ha ricevuto?'
+    : `Eliminare il messaggio di ${m.mittente}?\n\nSparisce anche dai suoi inviati.`;
+  if (!(await uiConfirm(domanda, { ok: Messages._arrivato(m) ? 'Elimina' : 'Annulla promemoria', cancel: 'Indietro', danger: true }))) return;
   try { await Messages.remove(id); showToast(Messages._arrivato(m) ? 'Messaggio eliminato' : 'Promemoria annullato'); }
+  catch (e) { showToast(e.message, 'error'); }
+}
+
+async function deleteAllMessagesConfirm() {
+  const ricevuti = MsgState.tab === 'ricevuti';
+  const list = ricevuti ? Messages.received() : Messages.sent();
+  if (!list.length) return;
+  const n = list.length;
+  const nota = ricevuti
+    ? 'Spariscono anche dagli inviati di chi te li ha mandati.'
+    : 'Spariscono anche per chi li ha ricevuti; i promemoria programmati vengono annullati.';
+  if (!(await uiConfirm(`Eliminare ${n === 1 ? 'il messaggio' : `tutti i ${n} messaggi`} ${ricevuti ? 'ricevuti' : 'inviati'}?\n\n${nota}`,
+    { ok: n === 1 ? 'Elimina' : 'Elimina tutti', cancel: 'Indietro', danger: true }))) return;
+  try { await Messages.removeMany(list.map(m => m.id)); showToast(n === 1 ? 'Messaggio eliminato' : `${n} messaggi eliminati`); }
   catch (e) { showToast(e.message, 'error'); }
 }
 
