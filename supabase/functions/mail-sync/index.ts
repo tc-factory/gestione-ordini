@@ -86,6 +86,33 @@ function senzaCitazione(testo: string): string {
   return tenute.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// La parte citata (mail precedenti riportate sotto la risposta): non va al cervello come testo nuovo,
+// ma si conserva per cercare dati già dati dal cliente, come il telefono
+function parteCitata(testo: string): string {
+  const pulito = testo.replace(/\r\n/g, '\n').trim();
+  const nuovo = senzaCitazione(pulito);
+  if (!nuovo || nuovo === pulito) return '';
+  const resto = pulito.startsWith(nuovo) ? pulito.slice(nuovo.length) : pulito.split('\n').filter(r => /^\s*>/.test(r)).join('\n');
+  return resto.replace(/^\s*>\s?/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Mail già salvate senza la parte citata (prima del 2026-11-10): si rileggono poche alla volta
+const CITAZIONI_PER_GIRO = 15;
+async function riempiCitazioni(db: SupabaseClient, imap: Imap, c: Casella, uidvalidity: number | null, deadline: number) {
+  if (!uidvalidity || uidvalidity !== c.uidvalidity) return 0;
+  const { data: mancanti } = await db.from('mail_messaggi').select('id, uid').eq('casella_id', c.id).eq('direzione', 'in')
+    .eq('automatica', false).is('testo_citato', null).not('uid', 'is', null).order('ricevuto_at', { ascending: false }).limit(CITAZIONI_PER_GIRO);
+  let fatte = 0;
+  for (const m of mancanti || []) {
+    if (Date.now() > deadline - 10_000) break;
+    const source = await scaricaSorgente(imap, { uid: m.uid } as Meta).catch(() => null);
+    const testo = source ? ((await decodifica(source).catch(() => null))?.text || '') : '';
+    await db.from('mail_messaggi').update({ testo_citato: parteCitata(testo).slice(0, MAX_TESTO) }).eq('id', m.id);
+    fatte++;
+  }
+  return fatte;
+}
+
 const MESI = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const daHtml = (html: string) => html
@@ -249,6 +276,7 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
         ricevuto_at: (env.date && !isNaN(new Date(env.date).getTime()) ? new Date(env.date) : arrivata).toISOString(),
         testo: motivoIlleggibile ? `(Testo non letto da CS: ${motivoIlleggibile}. Apri la mail nella casella.)`
           : testoPieno ? (senzaCitazione(testoPieno) || testoPieno).slice(0, MAX_TESTO) : null,
+        testo_citato: automatica ? null : parteCitata(testoPieno).slice(0, MAX_TESTO),
         // deno-lint-ignore no-explicit-any
         allegati: (parsed?.attachments || []).map((a: any) => ({ nome: a.filename || 'allegato', tipo: a.contentType, dimensione: a.size })),
         automatica,
@@ -276,6 +304,10 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
       if (motivoIlleggibile) break;   // la connessione è da rifare: si riprende al giro dopo
     }
     if (ripartenza && meta.length && meta.every(m => m.arrivata < dal)) ultimoUid = Math.max(ultimoUid, uidNext - 1);
+
+    // Le parti citate delle mail già salvate, se avanza tempo
+    await imap.comando('EXAMINE INBOX', 20_000).catch(() => {});
+    await riempiCitazioni(db, imap, c, uidvalidity, deadline).catch(e => console.error('Citazioni', c.id, e));
 
     // Un problema con la posta inviata non deve fermare la lettura delle mail ricevute
     try { inviate = await syncInviata(db, imap, c, deadline); }

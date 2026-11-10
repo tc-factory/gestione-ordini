@@ -276,14 +276,16 @@ async function puòRispondereDaSolo(db: SupabaseClient, tipo: Row | undefined, a
 }
 
 // Istruzioni per GLS proposte dal cliente: le manda una persona con un clic dal task (gls-svincolo)
-function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string) {
+function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string, testi: unknown[] = []) {
   const s = a.svincolo;
   if (!s || s.scelta === 'nessuna' || !SCELTE_SVINCOLO.includes(s.scelta)) return {};
   const suoi = ordini.filter(o => (o.email || '').toLowerCase() === mittente);
   const ferma = fermate.find(f => suoi.some(o => o.id === f.ordine_id));
   if (!ferma) return {};
   const ordine = suoi.find(o => o.id === ferma.ordine_id)!;
-  const tel = String(s.telefono || ordine.telefono || '').replace(/[^\d+]/g, '');
+  // Telefono: scritto ora, nell'ordine, oppure in una mail precedente del cliente
+  const dalleMail = testi.map(t => String(t || '').match(/(?<![\d])(?:\+39[\s.]?)?3\d{2}[\s.]?\d{3}[\s.]?\d{3,4}(?!\d)/)?.[0]).find(Boolean);
+  const tel = String(s.telefono || ordine.telefono || dalleMail || '').replace(/[^\d+]/g, '');
   // Giacenza ripetuta (due o più giorni con consegna fallita): telefonata del corriere sempre
   const giorni = new Set((ferma.eventi || []).filter((e: Row) => ['1', '7', '66', '68'].includes(String(e.codice))).map((e: Row) => String(e.at).slice(0, 10)));
   const ripetuta = giorni.size >= 2;
@@ -343,6 +345,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       regola?.azione === 'task' ? 'Il team ha indicato che questo mittente è reale: non scartare la mail.' : '',
       `Ordini trovati:\n${ordini.length ? JSON.stringify(ordini.map(o => perClaude(o, mittente, negozi, spedizioni)), null, 1) : 'nessuno'}`,
       precedenti?.length ? `Mail precedenti dello stesso mittente:\n${precedenti.map(p => `[${String(p.ricevuto_at).slice(0, 10)}] ${p.oggetto || ''}: ${(p.testo || '').slice(0, 500)}`).join('\n')}` : '',
+      mail.testo_citato ? `Mail precedenti citate sotto questa risposta (solo per contesto, non è testo nuovo):\n${String(mail.testo_citato).slice(0, 3000)}` : '',
       `<mail>\nDa: ${mail.da_nome || ''} <${mail.da_email || ''}>\nOggetto: ${mail.oggetto || '(senza oggetto)'}\nAllegati: ${(mail.allegati || []).map((a: Row) => a.nome).join(', ') || 'nessuno'}\n\n${(mail.testo || '(mail senza testo)').slice(0, MAX_TESTO)}\n</mail>`,
     ].filter(Boolean).join('\n\n');
 
@@ -370,7 +373,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
         categoria: a.categoria, modifica: a.modifica, lingua: a.lingua, dubbi: a.dubbi, note: a.note, ordini: riferimenti,
         ...(a.chiede_rimborso ? { rimborso: true } : {}),
         ...indirizzoDaMail(a, mail, mittente, ordini),
-        ...svincoloDaMail(a, ordini, fermate, mittente),
+        ...svincoloDaMail(a, ordini, fermate, mittente, [mail.testo, mail.testo_citato, ...(precedenti || []).map(p => p.testo)]),
       },
     });
     const tipoNome = TIPI[a.categoria] || TIPI.altro;

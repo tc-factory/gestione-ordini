@@ -66,12 +66,12 @@ async function trovaTelefono(db: SupabaseClient, sv: Row, mailId: string | null)
   const { data: mailTask } = mailId ? await db.from('mail_messaggi').select('da_email').eq('id', mailId).maybeSingle() : { data: null };
   const indirizzi = [...new Set([ordine?.email, mailTask?.da_email].filter(Boolean).map(e => String(e).toLowerCase()))];
   for (const email of indirizzi) {
-    const { data: mail } = await db.from('mail_messaggi').select('testo').eq('direzione', 'in').ilike('da_email', email)
+    const { data: mail } = await db.from('mail_messaggi').select('testo, testo_citato').eq('direzione', 'in').ilike('da_email', email)
       .order('ricevuto_at', { ascending: false }).limit(20);
-    for (const m of mail || []) {
-      // Solo il testo del cliente, non le nostre mail citate sotto
-      const suo = String(m.testo || '').split(/\n\s*(?:>|Il giorno .+ ha scritto|On .+ wrote)/)[0];
-      const t = suo.match(/(?<![\d])(?:\+39[\s.]?)?3\d{2}[\s.]?\d{3}[\s.]?\d{3,4}(?!\d)/);
+    // Prima quello che ha scritto il cliente, poi le mail precedenti citate nelle sue risposte
+    const testi = [...(mail || []).map(m => m.testo), ...(mail || []).map(m => m.testo_citato)];
+    for (const testo of testi) {
+      const t = String(testo || '').match(/(?<![\d])(?:\+39[\s.]?)?3\d{2}[\s.]?\d{3}[\s.]?\d{3,4}(?!\d)/);
       if (t) return cifre(t[0]);
     }
   }
