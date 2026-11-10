@@ -924,7 +924,7 @@ async function openTaskDetail(id, action = null) {
 function taskMailParts(t, can) {
   if (!t.mail_id) return null;
   const m = _taskMail?.taskId === t.id ? _taskMail.mail : null;
-  const ordini = (t.analisi?.ordini || []).map(o => `${escapeHtml(taskMacro(o.negozio)?.label || o.negozio)} ${escapeHtml(o.numero)}${o.verificato ? '' : ' (email diversa dal mittente)'}`);
+  const ordini = (t.analisi?.ordini || []).map(o => `${escapeHtml(taskMacro(o.negozio)?.label || o.negozio)} ${escapeHtml(o.numero)}${o.verificato ? '' : o.trovato_con === 'telefono' ? ' (stesso telefono, email diversa)' : ' (email diversa dal mittente)'}`);
   const ricevuta = `
     <section class="td-sec td-mail">
       <h3>Mail ricevuta</h3>
@@ -1190,6 +1190,7 @@ function renderTaskDetail(id, storico) {
         ${t.descrizione ? `<section class="td-sec"><h3>Cosa fare</h3><p class="td-todo">${escapeHtml(t.descrizione)}</p></section>` : ''}
         ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
         ${t.analisi?.dubbi ? `<p class="td-todo is-advice"><strong>Da controllare:</strong> ${escapeHtml(t.analisi.dubbi)}</p>` : ''}
+        ${t.analisi?.rimborso ? `<p class="td-todo is-advice"><strong>Rimborso richiesto:</strong> va gestito a mano.</p>` : ''}
         ${t.analisi?.note ? `<p class="td-todo is-note"><strong>Note:</strong> ${escapeHtml(t.analisi.note)}</p>` : ''}
         ${renderTaskSvincolo(t, can)}
         ${t.riferimento ? `<div>${MsgRef.chip(t.riferimento, `closeModal('${CTRL_MODAL}');MsgRef.open(Ctrl.get('${t.id}').riferimento)`)}</div>` : ''}
