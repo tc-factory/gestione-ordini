@@ -259,8 +259,9 @@ async function statoContatto(db: SupabaseClient, s: Row) {
   ]);
   const ultimaMail = inviate?.[0]?.ricevuto_at || null, risposta = ricevute?.[0]?.ricevuto_at || null;
   const base = { telefono: s.telefono || null, mail_n: inviate?.length || 0, ultima_mail_at: ultimaMail, risposta_at: risposta };
+  // Il cliente ha scritto dopo la nostra ultima mail (o ci ha scritto lui per primo)
+  if (risposta && (!ultimaMail || risposta > ultimaMail)) return { ...base, stato: 'risposto' };
   if (!ultimaMail) return { ...base, stato: 'da_contattare' };
-  if (risposta && risposta > ultimaMail) return { ...base, stato: 'risposto' };
   const giorno = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
   const { data: giorni } = await db.rpc('tc_giorni_lavorativi', { p_da: giorno(ultimaMail), p_a: giorno(new Date().toISOString()) });
   return { ...base, giorni_senza_risposta: giorni ?? 0, stato: (giorni ?? 0) >= 1 ? 'chiamare' : 'in_attesa' };
