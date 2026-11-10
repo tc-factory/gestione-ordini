@@ -13,7 +13,8 @@ cp .env.example .env
 Per Box Factory Lab crea anche la cartellina `Box Factory Lab - DTF`. Dentro ci sono i fogli TIF (CMYK + SPOT, al massimo 57x100 cm) con le grafiche delle t-shirt, i nomi e le bandiere, più un'anteprima JPG per ogni foglio. Le regole e la libreria sono descritte in `dtf.py` e in `../box-factory-dtf/README.md`.
 
 Regole:
-- Entrano solo gli ordini non evasi, non annullati, pagati e senza i tag `stampato` e `auto-stampato`.
+- Entrano gli ordini non evasi, non annullati e senza i tag `stampato` e `auto-stampato`.
+- Gli ordini non pagati hanno solo il DDT, con la fascia rossa "ORDINE NON PAGATO": niente file di stampa, fogli DTF né tag, così ripassano ogni mattina finché non vengono pagati.
 - Il tag `auto-stampato` si mette solo dopo aver riaperto e controllato i PDF.
 - Sul DDT si nascondono solo i campi di servizio (`CAMPI_NASCOSTI`); nome, posizione e loghi restano visibili.
 - Gli ordini da modificare hanno il DDT con la fascia rossa e restano fuori dal PDF di stampa.
