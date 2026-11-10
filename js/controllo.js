@@ -1658,7 +1658,7 @@ function setOrdersStore(id) { ShopLinks.negozio = id; refreshControlPage(); }
 const ORD_COLONNE = `<div class="ctrl-thead ctrl-ord" aria-hidden="true"><span>Ordine</span><span>Cliente</span><span>Articoli</span><span class="is-num">Totale</span><span></span></div>`;
 const ORD_ARTICOLI_MAX = 4;
 
-function renderOrderRow(o, conNegozio = true) {
+function ctrlShopOrderRow(o, conNegozio = true) {
   const track = (o.tracking || []).find(t => t.numero || t.url);
   const righe = o.righe || [];
   const pezzi = righe.reduce((n, r) => n + (Number(r.qnt) || 0), 0);
@@ -1712,7 +1712,7 @@ function renderControlOrders() {
       <div class="page-card-head"><h2>Ordini trovati</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span>
         <span class="ctrl-group-hint">Per «${escapeHtml(ShopLinks.query)}», in tutti i negozi, anche evasi</span></div>
       ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
-        : ShopLinks.ordini.length ? `<div class="ctrl-table">${ORD_COLONNE}${ShopLinks.ordini.map(o => renderOrderRow(o)).join('')}</div>`
+        : ShopLinks.ordini.length ? `<div class="ctrl-table">${ORD_COLONNE}${ShopLinks.ordini.map(o => ctrlShopOrderRow(o)).join('')}</div>`
         : `<div class="empty-list">Nessun ordine trovato.</div>`}
     </section>` : renderOrdersIncoming()}`;
 }
@@ -1746,7 +1746,7 @@ function renderOrdersIncoming() {
         </div>` : ''}
       ${gruppi.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${gruppi.map(m => `
         <div class="ctrl-store-head" style="--m:${m.color};"><i aria-hidden="true"></i>${m.label}<b>${conta(m.id)}</b></div>
-        <div class="ctrl-table">${ORD_COLONNE}${tutti.filter(o => o.store_id === m.id).map(o => renderOrderRow(o, false)).join('')}</div>`).join('')}</div>`
+        <div class="ctrl-table">${ORD_COLONNE}${tutti.filter(o => o.store_id === m.id).map(o => ctrlShopOrderRow(o, false)).join('')}</div>`).join('')}</div>`
         : `<div class="empty-list">Nessun ordine da evadere.</div>`}
     </section>`;
 }
