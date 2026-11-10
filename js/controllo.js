@@ -44,6 +44,7 @@ const TASK_COMPETENZE = [
   { id: 'whatsapp',     label: 'WhatsApp' },
   { id: 'social',       label: 'Messaggi social' },
   { id: 'email',        label: 'Email' },
+  { id: 'bonifico',     label: 'Riscontro pagamento con bonifico' },
   { id: 'ddt',          label: 'Stampa DDT ordini Shopify' },
   { id: 'preparazione', label: 'Preparazione per la lavorazione' },
   { id: 'lavorazione',  label: 'Lavorazione' },
@@ -83,7 +84,7 @@ const TASK_COMPETENZE = [
   { id: 'check_manifattura', label: 'Check Manifattura' },
   { id: 'check_arti',        label: 'Check Arti grafiche' },
 ];
-const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'ddt', 'preparazione', 'lavorazione', 'spedizione', 'post_spedizione'];
+const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'bonifico', 'ddt', 'preparazione', 'lavorazione', 'spedizione', 'post_spedizione'];
 const COMPETENZE_NUOVO_PRODOTTO = ['np_bozza', 'np_mockup', 'np_stampa', 'np_shopify', 'np_customily', 'np_check'];
 const COMPETENZE_NEGOZIO = {
   ciucciamilcalzino: ['scorte_calzini_check', 'scorte_calzini_ordine', 'carta_check', 'carta_ordine', 'inchiostri_check', 'inchiostri_ordine'],
