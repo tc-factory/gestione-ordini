@@ -62,9 +62,13 @@ async function trovaTelefono(db: SupabaseClient, sv: Row, mailId: string | null)
     const { data: altri } = await db.from('shopify_orders').select('telefono').ilike('email', ordine.email).not('telefono', 'is', null).limit(1);
     if (cifre(altri?.[0]?.telefono).length >= 6) return cifre(altri![0].telefono);
   }
-  // Tutte le mail del cliente, dalla più recente: modulo contatti, firme, risposte
   const { data: mailTask } = mailId ? await db.from('mail_messaggi').select('da_email').eq('id', mailId).maybeSingle() : { data: null };
   const indirizzi = [...new Set([ordine?.email, mailTask?.da_email].filter(Boolean).map(e => String(e).toLowerCase()))];
+  // Memoria del cliente: il telefono dato in una mail precedente
+  const { data: ricordi } = indirizzi.length ? await db.from('clienti_memoria').select('telefono').in('email', indirizzi) : { data: [] };
+  const ricordato = (ricordi || []).map(r => cifre(r.telefono)).find(t => t.length >= 6);
+  if (ricordato) return ricordato;
+  // Tutte le mail del cliente, dalla più recente: modulo contatti, firme, risposte
   for (const email of indirizzi) {
     const { data: mail } = await db.from('mail_messaggi').select('testo, testo_citato').eq('direzione', 'in').ilike('da_email', email)
       .order('ricevuto_at', { ascending: false }).limit(20);

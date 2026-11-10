@@ -54,7 +54,7 @@ const SCELTE_SVINCOLO = ['nessuna', 'riconsegna', 'riconsegna_preavviso', 'altro
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['azione', 'categoria', 'modifica', 'ordine_modifica', 'nuovo_indirizzo', 'priorita', 'lingua', 'titolo', 'riassunto', 'motivo_scarto', 'bozza', 'dubbi', 'note', 'svincolo', 'chiede_rimborso'],
+  required: ['azione', 'categoria', 'modifica', 'ordine_modifica', 'nuovo_indirizzo', 'priorita', 'lingua', 'titolo', 'riassunto', 'motivo_scarto', 'bozza', 'dubbi', 'note', 'svincolo', 'chiede_rimborso', 'memoria'],
   properties: {
     azione: { type: 'string', enum: ['task', 'scarta'] },
     categoria: { type: 'string', enum: [...Object.keys(TIPI), 'spam_phishing', 'nessuna_azione'] },
@@ -75,6 +75,15 @@ const SCHEMA = {
     dubbi: str,
     note: str,
     chiede_rimborso: { type: 'boolean' },
+    memoria: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['telefono', 'campanello', 'via', 'cap', 'citta', 'provincia', 'note'],
+      properties: {
+        telefono: str, campanello: str, via: str, cap: str, citta: str, provincia: str,
+        note: { type: 'array', items: str },
+      },
+    },
     svincolo: {
       type: 'object',
       additionalProperties: false,
@@ -118,6 +127,7 @@ Campi:
   9. il cliente chiede un rimborso, anche parziale: i rimborsi li gestisce sempre una persona.
   Scrivi il caso in una frase concreta. Tutto il resto va in "note".
 - chiede_rimborso: true se il cliente chiede un rimborso o la restituzione di soldi, anche parziale o insieme ad altro.
+- memoria: i dati utili per le prossime mail che il CLIENTE scrive in questa mail o nelle sue mail precedenti citate sotto (non quelli scritti da noi, non quelli già presenti in "Cosa sappiamo già del cliente" se uguali): telefono (solo cifre e +), campanello (nome sul campanello o presso chi consegnare), via/cap/citta/provincia (indirizzo di consegna che il cliente indica come giusto, copiato senza completarlo), note (al massimo 3 frasi brevi in italiano su fatti utili in futuro: orari in cui è a casa, interno, preferenze, cosa ha già chiesto o ricevuto). Campi "" e note [] se non ci sono.
 - note: in italiano, consigli per l'operatore che non bloccano l'invio (cosa fare dopo, cosa tenere d'occhio); "" se non servono.
 - svincolo: compilalo solo se un ordine verificato ha la spedizione con problema "Giacenza in deposito GLS" o "Indirizzo errato" e il cliente dice come vuole riceverlo; altrimenti scelta "nessuna" e tutti gli altri campi "".
   scelta: "riconsegna_preavviso" per una nuova consegna allo stesso indirizzo con telefonata del corriere (l'opzione 1 della nostra mail), "riconsegna" se chiede la riconsegna e dice esplicitamente che non serve la telefonata, "altro_indirizzo" se dà un indirizzo diverso o corretto (opzione 2), "ritiro_sede" se passa a ritirarlo alla sede GLS (opzione 3), "reso_mittente" se vuole che il pacco torni indietro.
@@ -128,6 +138,7 @@ Regole della bozza:
 - La bozza deve essere pronta da inviare così com'è: mai parentesi quadre, segnaposto o parti da completare. Non scrivere di aver fatto controlli o azioni che non risultano dai dati.
 - Se un ordine ha il campo "spedizione", è lo stato reale dallo storico GLS e vale più di "evasione". Se c'è un problema (giacenza, indirizzo errato, consegna non riuscita) dillo al cliente con chiarezza e scrivi cosa gli serve fare.
 - I tempi si contano in giorni lavorativi: sabato, domenica e festivi non contano. Se indichi da quanti giorni è in corso qualcosa e il conteggio cambia, scrivi sia i giorni totali sia quelli lavorativi.
+- Usa "Cosa sappiamo già del cliente": non chiedere di nuovo un dato che ci ha già dato (telefono, indirizzo, campanello).
 - Se il cliente chiede di un ordine e non ne risulta nessuno del mittente, chiedigli il numero d'ordine e il nome e cognome usati per l'acquisto.
 - Gli ordini con "trovato_con": "telefono" hanno lo stesso numero di telefono scritto nella mail ma un'email diversa: valgono come "non verificato".
 - Per un ordine pagato, non spedito ed entro i tempi, dì al cliente che è in preparazione e quando parte secondo i tempi del negozio, contati in giorni lavorativi dalla data dell'ordine; poi i tempi di consegna.
@@ -276,7 +287,32 @@ async function puòRispondereDaSolo(db: SupabaseClient, tipo: Row | undefined, a
 }
 
 // Istruzioni per GLS proposte dal cliente: le manda una persona con un clic dal task (gls-svincolo)
-function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string, testi: unknown[] = []) {
+// Memoria del cliente: i dati nuovi della mail si uniscono a quelli già noti (sql/memoria-cliente.sql)
+async function ricorda(db: SupabaseClient, email: string, mail: Row, prima: Row | null, nuovi: Row | undefined) {
+  if (!nuovi) return prima;
+  const pulito = (x: unknown) => String(x || '').trim();
+  const tel = pulito(nuovi.telefono).replace(/[^\d+]/g, '');
+  const ind = pulito(nuovi.via) ? { via: pulito(nuovi.via), cap: pulito(nuovi.cap), citta: pulito(nuovi.citta), provincia: pulito(nuovi.provincia).toUpperCase().slice(0, 2) } : null;
+  const giorno = String(mail.ricevuto_at || new Date().toISOString()).slice(0, 10);
+  const viste = new Set((prima?.note || []).map((n: Row) => String(n.testo).toLowerCase()));
+  const note = [...(prima?.note || []), ...((nuovi.note || []) as string[]).map(pulito).filter(t => t && !viste.has(t.toLowerCase()))
+    .slice(0, 3).map(testo => ({ testo: testo.slice(0, 200), at: giorno, mail_id: mail.id }))].slice(-20);
+  const riga = {
+    email, nome: prima?.nome || mail.da_nome || null,
+    telefono: tel.replace(/\D/g, '').length >= 6 ? tel : prima?.telefono || null,
+    campanello: pulito(nuovi.campanello) || prima?.campanello || null,
+    indirizzo: ind || prima?.indirizzo || null,
+    note, aggiornato_at: new Date().toISOString(),
+  };
+  const cambiato = !prima || riga.telefono !== prima.telefono || riga.campanello !== prima.campanello
+    || JSON.stringify(riga.indirizzo) !== JSON.stringify(prima.indirizzo) || note.length !== (prima.note || []).length;
+  if (!cambiato) return prima;
+  const { error } = await db.from('clienti_memoria').upsert(riga, { onConflict: 'email' });
+  if (error) console.error('Memoria cliente', email, error.message);
+  return riga;
+}
+
+function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string, testi: unknown[] = [], memoria: Row | null = null) {
   const s = a.svincolo;
   if (!s || s.scelta === 'nessuna' || !SCELTE_SVINCOLO.includes(s.scelta)) return {};
   const suoi = ordini.filter(o => (o.email || '').toLowerCase() === mittente);
@@ -285,7 +321,11 @@ function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string,
   const ordine = suoi.find(o => o.id === ferma.ordine_id)!;
   // Telefono: scritto ora, nell'ordine, oppure in una mail precedente del cliente
   const dalleMail = testi.map(t => String(t || '').match(/(?<![\d])(?:\+39[\s.]?)?3\d{2}[\s.]?\d{3}[\s.]?\d{3,4}(?!\d)/)?.[0]).find(Boolean);
-  const tel = String(s.telefono || ordine.telefono || dalleMail || '').replace(/[^\d+]/g, '');
+  const tel = String(s.telefono || memoria?.telefono || ordine.telefono || dalleMail || '').replace(/[^\d+]/g, '');
+  // Altro indirizzo: se la mail non lo ripete, quello che il cliente ci ha già indicato
+  const mi = s.scelta === 'altro_indirizzo' && !s.via && memoria?.indirizzo ? memoria.indirizzo : null;
+  if (mi) Object.assign(s, { via: mi.via, cap: mi.cap, citta: mi.citta, provincia: mi.provincia });
+  if (!s.nome && memoria?.campanello) s.nome = memoria.campanello;
   // Giacenza ripetuta (due o più giorni con consegna fallita): telefonata del corriere sempre
   const giorni = new Set((ferma.eventi || []).filter((e: Row) => ['1', '7', '66', '68'].includes(String(e.codice))).map((e: Row) => String(e.at).slice(0, 10)));
   const ripetuta = giorni.size >= 2;
@@ -318,6 +358,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       return { evento: evento.id, esito: 'scartata', categoria: 'regola' };
     }
 
+    const { data: memoria } = mittente ? await db.from('clienti_memoria').select('*').eq('email', mittente).maybeSingle() : { data: null };
     const ordini = await cercaOrdini(db, mail);
     await aggiungiTempi(db, ordini);
     const { data: precedenti } = await db.from('mail_messaggi').select('oggetto, testo, ricevuto_at, direzione')
@@ -343,6 +384,10 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       `Conoscenza del negozio:\n${conoscenza?.testo || 'nessuna'}`,
       correzioni?.length ? `Correzioni del team:\n${correzioni.map(c => `- ${c.azione === 'scarta' ? 'SPAM' : 'VERA'}: ${c.esempio}`).join('\n')}` : '',
       regola?.azione === 'task' ? 'Il team ha indicato che questo mittente è reale: non scartare la mail.' : '',
+      memoria ? `Cosa sappiamo già del cliente (da mail precedenti):\n${JSON.stringify({
+        telefono: memoria.telefono, campanello: memoria.campanello, indirizzo_indicato: memoria.indirizzo,
+        note: (memoria.note || []).map((n: Row) => `${String(n.at).slice(0, 10)}: ${n.testo}`),
+      }, null, 1)}` : '',
       `Ordini trovati:\n${ordini.length ? JSON.stringify(ordini.map(o => perClaude(o, mittente, negozi, spedizioni)), null, 1) : 'nessuno'}`,
       precedenti?.length ? `Mail precedenti dello stesso mittente:\n${precedenti.map(p => `[${String(p.ricevuto_at).slice(0, 10)}] ${p.oggetto || ''}: ${(p.testo || '').slice(0, 500)}`).join('\n')}` : '',
       mail.testo_citato ? `Mail precedenti citate sotto questa risposta (solo per contesto, non è testo nuovo):\n${String(mail.testo_citato).slice(0, 3000)}` : '',
@@ -362,6 +407,8 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       return { evento: evento.id, esito: 'scartata', categoria: a.categoria };
     }
 
+    const ricordo = mittente ? await ricorda(db, mittente, mail, memoria, a.memoria) : memoria;
+
     const riferimenti = ordini.map(o => ({ negozio: o.store_id, numero: o.numero, verificato: (o.email || '').toLowerCase() === mittente, ...(o.trovato_con ? { trovato_con: o.trovato_con } : {}) }));
     const taskId = await creaTask(db, evento, mail, storeId, tipi, {
       tipo: TIPI[a.categoria] || TIPI.altro,
@@ -373,7 +420,8 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
         categoria: a.categoria, modifica: a.modifica, lingua: a.lingua, dubbi: a.dubbi, note: a.note, ordini: riferimenti,
         ...(a.chiede_rimborso ? { rimborso: true } : {}),
         ...indirizzoDaMail(a, mail, mittente, ordini),
-        ...svincoloDaMail(a, ordini, fermate, mittente, [mail.testo, mail.testo_citato, ...(precedenti || []).map(p => p.testo)]),
+        ...svincoloDaMail(a, ordini, fermate, mittente, [mail.testo, mail.testo_citato, ...(precedenti || []).map(p => p.testo)], ricordo),
+        ...(ricordo ? { memoria: { telefono: ricordo.telefono, campanello: ricordo.campanello, indirizzo: ricordo.indirizzo, note: (ricordo.note || []).slice(-5) } } : {}),
       },
     });
     const tipoNome = TIPI[a.categoria] || TIPI.altro;
