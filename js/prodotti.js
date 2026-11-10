@@ -219,7 +219,7 @@ function productSupplierOptions(selectedId, nuovoNome = '') {
 }
 
 async function newSupplierFromForm() {
-  const nome = prompt('Nome del nuovo fornitore:');
+  const nome = await uiPrompt('Nome del nuovo fornitore:', { ok: 'Aggiungi' });
   if (!nome?.trim()) return;
   try {
     const f = await TCFactory.saveSupplier(null, { nome });
@@ -236,7 +236,7 @@ function productCategoryOptions(selectedId) {
 }
 
 async function newCategoryFromForm() {
-  const nome = prompt('Nome della nuova categoria:');
+  const nome = await uiPrompt('Nome della nuova categoria:', { ok: 'Aggiungi' });
   if (!nome?.trim()) return;
   try {
     const c = await TCFactory.saveProductCategory(null, nome);
@@ -304,7 +304,7 @@ async function submitProductForm(id) {
 
 async function deleteProductConfirm(id) {
   const p = TCFactory.getProduct(id);
-  if (!confirm(`Eliminare "${TCFactory.productLabel(p)}"?\n\nSe vuoi solo nasconderlo, disattivalo.`)) return;
+  if (!(await uiConfirm(`Eliminare "${TCFactory.productLabel(p)}"?\n\nSe vuoi solo nasconderlo, disattivalo.`, { ok: 'Elimina', danger: true }))) return;
   try {
     await TCFactory.deleteProduct(id);
     closeModal('product-form-modal');
@@ -643,7 +643,7 @@ function insertPendingProduct(id) {
 
 async function discardPendingProduct(id) {
   const x = TCFactory.getProductPending(id);
-  if (!x || !confirm(`Togliere ${x.codice} dai prodotti da inserire?`)) return;
+  if (!x || !(await uiConfirm(`Togliere ${x.codice} dai prodotti da inserire?`, { ok: 'Togli', danger: true }))) return;
   try { await TCFactory.deleteProductPending(id); showToast('Tolto dai prodotti da inserire'); }
   catch (e) { showToast('Errore — riprova', 'error'); }
 }
@@ -745,7 +745,7 @@ async function submitSupplierForm(id) {
 
 async function deleteSupplierConfirm(id) {
   const n = TCFactory._products.filter(p => p.fornitore_id === id).length;
-  if (!confirm(`Eliminare il fornitore "${TCFactory.supplierName(id)}"?${n ? `\n\n${n} prodotti resteranno senza fornitore.` : ''}`)) return;
+  if (!(await uiConfirm(`Eliminare il fornitore "${TCFactory.supplierName(id)}"?${n ? `\n\n${n} prodotti resteranno senza fornitore.` : ''}`, { ok: 'Elimina', danger: true }))) return;
   try {
     await TCFactory.deleteSupplier(id);
     closeModal('supplier-form-modal');
@@ -807,7 +807,7 @@ async function renameProductCategory(id, nome) {
 
 async function deleteProductCategory(id) {
   const n = TCFactory._products.filter(p => p.categoria_id === id).length;
-  if (!confirm(`Eliminare la categoria "${TCFactory.productCategoryName(id)}"?${n ? `\n\n${n} prodotti resteranno senza categoria.` : ''}`)) return;
+  if (!(await uiConfirm(`Eliminare la categoria "${TCFactory.productCategoryName(id)}"?${n ? `\n\n${n} prodotti resteranno senza categoria.` : ''}`, { ok: 'Elimina', danger: true }))) return;
   try { await TCFactory.deleteProductCategory(id); renderProductCategories(); }
   catch (e) { showToast('Errore eliminazione categoria', 'error'); }
 }

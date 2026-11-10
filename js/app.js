@@ -1082,7 +1082,7 @@ function renderOrderDetail() {
 async function deleteOrderConfirm(id) {
   const order = TCFactory.getOrderById(id);
   if (!order) return;
-  if (!confirm(`Spostare "${order.nome}" nel cestino? Potrai ripristinarlo dalle Impostazioni per 7 giorni.`)) return;
+  if (!(await uiConfirm(`Spostare "${order.nome}" nel cestino? Potrai ripristinarlo dalle Impostazioni per 7 giorni.`, { ok: 'Sposta nel cestino', danger: true }))) return;
   try {
     await TCFactory.deleteOrder(id);
     closeModal('order-detail-modal');
@@ -1308,10 +1308,10 @@ function addFormModule() {
   document.getElementById(`module-panel-${g}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-function removeFormModule(g) {
+async function removeFormModule(g) {
   const rows = AppState.formModuleRows.filter(r => modGroup(r) === g);
   const filled = rows.some(r => r.catalogo || r.codice || r.descrizione || r.qnt || r.prezzo);
-  if (filled && !confirm(`Eliminare ${modGroupLabel(g)} e le sue righe?`)) return;
+  if (filled && !(await uiConfirm(`Eliminare ${modGroupLabel(g)} e le sue righe?`, { ok: 'Elimina', danger: true }))) return;
   // Le integrazioni successive scalano di un numero
   AppState.formModuleRows = AppState.formModuleRows.filter(r => modGroup(r) !== g)
     .map(r => modGroup(r) > g ? { ...r, integrazione: modGroup(r) - 1 } : r);
@@ -2526,11 +2526,11 @@ function renameLav(kind, id, nome) {
   saveLav(kind, getLav(kind).map(l => l.id === id ? { ...l, nome } : l));
 }
 
-function deleteLav(kind, id) {
+async function deleteLav(kind, id) {
   const l = getLav(kind).find(x => x.id === id);
   const field = LAV_KINDS[kind].field;
   const used = TCFactory.getOrders().filter(o => !o.deletedAt && (o.orderModule?.rows || []).some(r => r[field] === id)).length;
-  if (!confirm(`Eliminare "${l?.nome}"?${used ? `\n\nÈ usata in ${used} ordini: le righe resteranno segnate come ${kind}, senza tipo.` : ''}`)) return;
+  if (!(await uiConfirm(`Eliminare "${l?.nome}"?${used ? `\n\nÈ usata in ${used} ordini: le righe resteranno segnate come ${kind}, senza tipo.` : ''}`, { ok: 'Elimina', danger: true }))) return;
   saveLav(kind, getLav(kind).filter(x => x.id !== id), 'Lavorazione eliminata');
 }
 
@@ -2645,7 +2645,7 @@ async function restoreOrderFromTrash(id) {
 async function permanentDeleteConfirm(id) {
   if (!TCAuth.isAdmin()) { showToast('Solo un admin può eliminare definitivamente', 'error'); return; }
   const o = TCFactory.getTrashedOrders().find(x => x.id === id);
-  if (!confirm(`Eliminare definitivamente "${o?.nome || id}"? Impossibile annullare.`)) return;
+  if (!(await uiConfirm(`Eliminare definitivamente "${o?.nome || id}"? Impossibile annullare.`, { ok: 'Elimina', danger: true }))) return;
   try {
     await TCFactory.permanentDeleteOrder(id);
     showToast('Eliminato definitivamente');
@@ -2687,7 +2687,7 @@ async function updatePrioLabel(id, label) {
 }
 
 async function deletePrioConfirm(id) {
-  if (!confirm('Eliminare questa priorità?')) return;
+  if (!(await uiConfirm('Eliminare questa priorità?', { ok: 'Elimina', danger: true }))) return;
   try {
     await supabaseClient.from('priorities').delete().eq('id', id);
     TCFactory._priorities = TCFactory._priorities.filter(p => p.id !== id);
@@ -2722,7 +2722,7 @@ async function updateTagColorSetting(name, color) {
 }
 
 async function deleteTagConfirm(name) {
-  if (!confirm(`Eliminare il tag "${name}"?`)) return;
+  if (!(await uiConfirm(`Eliminare il tag "${name}"?`, { ok: 'Elimina', danger: true }))) return;
   try {
     await supabaseClient.from('tags').delete().eq('name', name);
     TCFactory._tags = TCFactory._tags.filter(t => t.name !== name);
@@ -2971,7 +2971,7 @@ async function deleteRoleConfirm(id) {
   const r = roleById(id);
   if (!r) return;
   const users = _usersList.filter(u => u.ruolo_id === id && !u.is_admin);
-  if (!confirm(`Eliminare il ruolo "${r.nome}"?${users.length ? `\n${users.length} account passeranno a Personalizzato con le stesse schede.` : ''}`)) return;
+  if (!(await uiConfirm(`Eliminare il ruolo "${r.nome}"?${users.length ? `\n${users.length} account passeranno a Personalizzato con le stesse schede.` : ''}`, { ok: 'Elimina', danger: true }))) return;
   try {
     for (const u of users) await TCAuth.setUserAccess(u.nickname, { schede: r.schede, economia: r.economia });
     await TCAuth.deleteRole(id);
@@ -2981,7 +2981,7 @@ async function deleteRoleConfirm(id) {
 }
 
 async function adminResetPwdPrompt(nick) {
-  const newPwd = prompt(`Nuova password per "${nick}" (min. ${MIN_PASSWORD_LENGTH} caratteri):`);
+  const newPwd = await uiPrompt(`Nuova password per "${nick}" (min. ${MIN_PASSWORD_LENGTH} caratteri):`, { ok: 'Salva password' });
   if (!newPwd) return;
   if (newPwd.length < MIN_PASSWORD_LENGTH) { showToast(`Minimo ${MIN_PASSWORD_LENGTH} caratteri`, 'error'); return; }
   try {
@@ -2991,7 +2991,7 @@ async function adminResetPwdPrompt(nick) {
 }
 
 async function deleteUserConfirm(nick) {
-  if (!confirm(`Eliminare l'account "${nick}"?`)) return;
+  if (!(await uiConfirm(`Eliminare l'account "${nick}"?`, { ok: 'Elimina', danger: true }))) return;
   try {
     await TCAuth.deleteUser(nick);
     showToast(`Account "${nick}" eliminato`);
@@ -3122,7 +3122,7 @@ async function startApp() {
 }
 
 async function doLogout() {
-  if (!confirm('Vuoi uscire?')) return;
+  if (!(await uiConfirm('Vuoi uscire?', { ok: 'Esci' }))) return;
   Tickets.stopPolling();
   Object.assign(Tickets, { _list: [], loaded: false, error: null });
   Messages.stop();
@@ -4155,13 +4155,13 @@ async function saveCalEvent(existingId) {
     showToast('Evento salvato ✓');
   } catch(e) {
     console.error('[calendario] ERRORE COMPLETO:', e);
-    alert('ERRORE CALENDARIO:\n' + (e?.message || JSON.stringify(e)));
+    await uiAlert(e?.message || JSON.stringify(e), { title: 'Errore calendario' });
     showToast('Errore salvataggio evento', 'error');
   }
 }
 
 async function deleteCalEvent(id) {
-  if (!confirm('Eliminare questo evento?')) return;
+  if (!(await uiConfirm('Eliminare questo evento?', { ok: 'Elimina', danger: true }))) return;
   try {
     await TCFactory.deleteCalendarEvent(id);
     closeModal('cal-event-modal');

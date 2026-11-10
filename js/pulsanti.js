@@ -638,7 +638,7 @@ async function etichetteDelete(id) {
   if (!g || list.length <= 1) return;
   const rest = list.filter(x => x.id !== id);
   const n = Pulsanti.all().filter(p => Pulsanti.gruppoDi(p) === id).length;
-  if (!confirm(`Eliminare l'etichetta "${g.nome}"?${n ? `\n\nI suoi ${n} pulsanti passano sotto "${rest[0].nome}".` : ''}`)) return;
+  if (!(await uiConfirm(`Eliminare l'etichetta "${g.nome}"?${n ? `\n\nI suoi ${n} pulsanti passano sotto "${rest[0].nome}".` : ''}`, { ok: 'Elimina', danger: true }))) return;
   // I pulsanti dell'etichetta passano alla prima rimasta
   if (n) {
     try { await TCFactory.setSetting(PULSANTI_KEY, Pulsanti.salvabili(Pulsanti.all().map(p => Pulsanti.gruppoDi(p) === id ? { ...p, colonna: rest[0].id } : p))); }
@@ -665,16 +665,16 @@ function pulsantiAdd(colonna) {
   PulsantiOpen.add(id);   // il pulsante appena creato si apre per sceglierne le regole
   pulsantiSave([...Pulsanti.all(), { id, nome, colonna, ruolo: 'nessuno', collegamento: '', mostra: 'sempre' }], `Aggiunto "${nome}"`);
 }
-function pulsantiDelete(id) {
+async function pulsantiDelete(id) {
   const p = Pulsanti.get(id);
   if (!p) return;
   const ruolo = p.ruolo && p.ruolo !== 'nessuno' ? `\n\nAttenzione: fa "${PULSANTI_RUOLI[p.ruolo]?.label}", senza di lui cambiano le schede in cui finiscono gli ordini.` : '';
-  if (!confirm(`Eliminare il pulsante "${Pulsanti.nome(p)}"?\n\nLe spunte già date restano salvate negli ordini; si può riavere con "Ripristina pulsanti predefiniti".${ruolo}`)) return;
+  if (!(await uiConfirm(`Eliminare il pulsante "${Pulsanti.nome(p)}"?\n\nLe spunte già date restano salvate negli ordini; si può riavere con "Ripristina pulsanti predefiniti".${ruolo}`, { ok: 'Elimina', danger: true }))) return;
   // Pulsanti di base e delle lavorazioni restano come "eliminati", così il pulsante automatico non ricompare
   const segnaposto = PULSANTI_FISSI.has(id) || Pulsanti.link(p) ? [{ ...p, eliminato: true }] : [];
   pulsantiSave([...Pulsanti.all().filter(x => x.id !== id).map(x => x.alt?.seNon === id || x.abilita?.pulsante === id ? { ...x, alt: x.alt?.seNon === id ? null : x.alt, abilita: x.abilita?.pulsante === id ? null : x.abilita } : x), ...segnaposto], 'Pulsante eliminato');
 }
-function pulsantiReset() {
-  if (!confirm('Ripristinare i pulsanti predefiniti (Merce, DTF, Pronto, Esterna, Parziale, Evaso)?\n\nI pulsanti creati a mano verranno tolti e quelli eliminati torneranno; le spunte negli ordini restano.')) return;
+async function pulsantiReset() {
+  if (!(await uiConfirm('Ripristinare i pulsanti predefiniti (Merce, DTF, Pronto, Esterna, Parziale, Evaso)?\n\nI pulsanti creati a mano verranno tolti e quelli eliminati torneranno; le spunte negli ordini restano.', { ok: 'Ripristina' }))) return;
   pulsantiSave(PULSANTI_DEFAULT(), 'Pulsanti ripristinati', { reset: true });
 }

@@ -1111,12 +1111,12 @@ async function dtfCopyLink(clientId) {
     if (!info.has_password) { showToast('Prima imposta una password per questo cliente', 'error'); dtfOpenClientForm(clientId); return; }
     const url = dtfPortalUrl(info.token);
     try { await navigator.clipboard.writeText(url); showToast('Link copiato: invialo al cliente insieme alla password'); }
-    catch { prompt('Copia il link per il cliente:', url); }
+    catch { await uiPrompt('Copia il link per il cliente:', { value: url, ok: 'Fatto' }); }
   } catch (e) { showToast(e.message, 'error'); }
 }
 
 async function dtfRegenerateLink(clientId) {
-  if (!confirm('Generare un nuovo link?\n\nIl link attuale smetterà subito di funzionare: dovrai inviare al cliente quello nuovo.')) return;
+  if (!(await uiConfirm('Generare un nuovo link?\n\nIl link attuale smetterà subito di funzionare: dovrai inviare al cliente quello nuovo.', { ok: 'Genera nuovo link' }))) return;
   try {
     dtfShowAccess(await dtfAccessRpc('dtf_regenerate_link', { p_client_id: clientId }));
     showToast('Nuovo link generato');
@@ -1162,7 +1162,7 @@ async function dtfSubmitClient(id) {
 
 async function dtfDeleteClient(id) {
   const c = DtfState.clients.find(x => x.id === id);
-  if (!confirm(`Eliminare "${c?.nome}"?\n\nVengono cancellati anche tutti i metri e i dettagli registrati per questo cliente.`)) return;
+  if (!(await uiConfirm(`Eliminare "${c?.nome}"?\n\nVengono cancellati anche tutti i metri e i dettagli registrati per questo cliente.`, { ok: 'Elimina', danger: true }))) return;
   try {
     const { error } = await supabaseClient.from('dtf_clients').delete().eq('id', id);
     if (error) throw error;

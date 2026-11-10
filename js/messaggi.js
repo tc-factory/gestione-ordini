@@ -382,7 +382,7 @@ async function enableMessageNotifications() {
 
 async function deleteMessageConfirm(id) {
   const m = Messages._list.find(x => x.id === id);
-  if (!m || !confirm(Messages._arrivato(m) ? 'Eliminare il messaggio anche per chi lo ha ricevuto?' : 'Annullare il promemoria?')) return;
+  if (!m || !(await uiConfirm(Messages._arrivato(m) ? 'Eliminare il messaggio anche per chi lo ha ricevuto?' : 'Annullare il promemoria?', { ok: Messages._arrivato(m) ? 'Elimina' : 'Annulla promemoria', cancel: 'Indietro', danger: true }))) return;
   try { await Messages.remove(id); showToast(Messages._arrivato(m) ? 'Messaggio eliminato' : 'Promemoria annullato'); }
   catch (e) { showToast(e.message, 'error'); }
 }

@@ -283,7 +283,7 @@ async function setProductImage(id, fields) {
 
 async function removeProductImage(id) {
   const img = ImgState.images.find(i => i.id === id);
-  if (!img || !confirm('Eliminare questa immagine?')) return;
+  if (!img || !(await uiConfirm('Eliminare questa immagine?', { ok: 'Elimina', danger: true }))) return;
   try {
     await TCFactory.deleteProductImage(img);
     ImgState.images = ImgState.images.filter(i => i.id !== id);

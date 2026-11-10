@@ -218,7 +218,7 @@ function renderClientDetail(c) {
 async function deleteClientConfirm(id) {
   const c = TCFactory.getClient(id);
   const n = TCFactory.getOrdersForClient(id).length;
-  if (!confirm(`Eliminare "${TCFactory.clientName(c)}"?${n ? `\n\nI suoi ${n} ordini resteranno, ma senza cliente.` : ''}`)) return;
+  if (!(await uiConfirm(`Eliminare "${TCFactory.clientName(c)}"?${n ? `\n\nI suoi ${n} ordini resteranno, ma senza cliente.` : ''}`, { ok: 'Elimina', danger: true }))) return;
   try {
     await TCFactory.deleteClient(id);
     showToast('Cliente eliminato');
@@ -228,7 +228,7 @@ async function deleteClientConfirm(id) {
 
 async function unlinkOrderConfirm(orderId) {
   const o = TCFactory.getOrderById(orderId);
-  if (!confirm(`Scollegare "${o?.nome}" da questo cliente?`)) return;
+  if (!(await uiConfirm(`Scollegare "${o?.nome}" da questo cliente?`, { ok: 'Scollega', danger: true }))) return;
   try {
     await TCFactory.setOrderClient(orderId, null);
     showToast('Ordine scollegato');
