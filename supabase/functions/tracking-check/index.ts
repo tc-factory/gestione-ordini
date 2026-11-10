@@ -19,8 +19,8 @@ const PER_GIRO = 120;
 const PAUSA_MS = 300;              // una richiesta alla volta, per non pesare sul sito GLS
 const GIORNI_RITARDO = 3;          // giorni lavorativi dalla spedizione oltre i quali è un ritardo (sabato, domenica e festivi esclusi: li conta il database)
 const TIME_BUDGET_MS = 110_000;
-// Codici cliente GLS del webservice XML. Le spedizioni fatte da altri conti GLS non le trova.
-const CLIENTI_GLS = ['2067'];
+// Codici cliente GLS del webservice XML (2067 T&C Factory, 5456 Bien Jugado). Le spedizioni fatte da altri conti GLS non le trova.
+const CLIENTI_GLS = ['2067', '5456'];
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
