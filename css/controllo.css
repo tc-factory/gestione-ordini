@@ -305,6 +305,16 @@ html .ctrl-skill-people .ctrl-btn.is-secondary { background: transparent; box-sh
   background: color-mix(in srgb, #f59e0b 13%, transparent);
 }
 .td-todo.is-reason { background: var(--fill-hover); font-weight: 450; }
+.td-todo.is-note { padding: 10px 14px; border-radius: 14px; background: var(--fill-hover); font-size: 0.86rem; }
+
+/* Istruzioni a GLS (svincolo giacenza) */
+.td-svincolo .td-small { margin: 0 0 10px; }
+.td-sv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.td-sv-f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.td-sv-f > span { font-size: 0.74rem; font-weight: 600; color: var(--text-muted); }
+.td-sv-f.is-wide { grid-column: 1 / -1; }
+.td-svincolo:not([data-scelta="altro_indirizzo"]) .is-addr { display: none; }
+.td-svincolo .td-reply-actions { margin-top: 10px; }
 
 .td-box { padding: 12px 14px; border-radius: 16px; background: var(--fill-hover); }
 .td-box h3 { margin: 0; font-size: 0.86rem; font-weight: 700; }

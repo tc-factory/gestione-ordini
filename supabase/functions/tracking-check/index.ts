@@ -93,8 +93,9 @@ type Row = Record<string, any>;
 const entita = (s: string) => s.replace(/&amp;/g, '&').replace(/&ndash;/g, '–').replace(/&#0?39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ');
 const DATA = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/;
 
-// Webservice XML: null se la spedizione non è di nessuno dei nostri codici cliente
-async function leggiXml(numero: string): Promise<Evento[] | null> {
+// Webservice XML: null se la spedizione non è di nessuno dei nostri codici cliente.
+// Il codice cliente che la trova serve allo svincolo (gls-svincolo usa le credenziali di quel conto).
+async function leggiXml(numero: string): Promise<{ eventi: Evento[]; cli: string } | null> {
   const sede = numero.slice(0, 2), sped = numero.slice(2);
   for (const cli of CLIENTI_GLS) {
     const url = `https://infoweb.gls-italy.com/XML/get_xml_track.php?locpartenza=${sede}&NumSped=${sped}&Cli=${cli}`;
@@ -108,20 +109,20 @@ async function leggiXml(numero: string): Promise<Evento[] | null> {
       if (tag === 'Data') eventi.push({});
       if (eventi.length) eventi[eventi.length - 1][tag] = val.replace(/\s+/g, ' ').trim();
     }
-    return eventi.flatMap(e => {
+    return { cli, eventi: eventi.flatMap(e => {
       const d = `${e.Data || ''} ${e.Ora || ''}`.match(/^(\d{2})\/(\d{2})\/(\d{2,4}) (\d{2}):(\d{2})$/);
       if (!d) return [];
       const anno = d[3].length === 2 ? `20${d[3]}` : d[3];
       return [{ at: `${anno}-${d[2]}-${d[1]}T${d[4]}:${d[5]}:00+01:00`, luogo: e.Luogo || '', stato: e.Stato || '', nota: e.Note || '', codice: e.Codice }];
-    });
+    }) };
   }
   return null;
 }
 
-async function leggiStorico(numero: string): Promise<Evento[] | null> {
+async function leggiStorico(numero: string): Promise<{ eventi: Evento[] | null; cli: string | null }> {
   const xml = await leggiXml(numero).catch(e => { console.error('Tracking XML', numero, e); return null; });
-  if (xml?.length) return xml;
-  return await leggiPagina(numero);
+  if (xml?.eventi.length) return xml;
+  return { eventi: await leggiPagina(numero), cli: xml?.cli || null };
 }
 
 // Pagina pubblica di tracking, in inglese
@@ -278,8 +279,8 @@ Deno.serve(async (req) => {
   const avvisi: Row[] = [];
   for (const s of (lista || []) as Row[]) {
     if (Date.now() > fine) break;
-    let eventi: Evento[] | null = null;
-    try { eventi = await leggiStorico(s.tracking); }
+    let eventi: Evento[] | null = null, cli: string | null = null;
+    try { ({ eventi, cli } = await leggiStorico(s.tracking)); }
     catch (e) { console.error('Tracking', s.tracking, e); continue; }
 
     const esito = classifica(eventi, s.giorni_lav || 0, s.giorni_testo || '');
@@ -288,7 +289,7 @@ Deno.serve(async (req) => {
       ordine_id: s.ordine_id, store_id: s.store_id, numero: s.tracking, spedito_at: s.spedito_at,
       stato: esito.stato, problema: esito.problema, ultimo_evento: ultimo ? inItaliano(ultimo.stato) : null, ultimo_at: ultimo?.at || null,
       eventi: eventi || [], consegnata_at: esito.stato === 'consegnata' ? ultimo?.at : null,
-      controllata_at: new Date().toISOString(),
+      controllata_at: new Date().toISOString(), ...(cli ? { cliente_gls: cli } : {}),
     });
     const avvisata = await avvisaCliente(db, s, esito);
     if (avvisata) avvisi.push(avvisata);
