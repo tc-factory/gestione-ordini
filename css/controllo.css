@@ -662,3 +662,6 @@ html.dark .is-task .td-tag { color: color-mix(in srgb, var(--c) 45%, #fff); }
 .td-contatto.is-chiamare, .td-contatto.is-senza_email, .td-contatto.is-da_contattare { background: color-mix(in srgb, #ef4444 13%, transparent); }
 .td-contatto.is-risposto { background: color-mix(in srgb, #22c55e 14%, transparent); }
 .td-anomalie { margin: 6px 0 0; padding-left: 18px; }
+
+.td-sv-check { flex-direction: row; align-items: center; gap: 8px; }
+.td-sv-check > span { font-size: 0.82rem; color: var(--text-primary); font-weight: 500; }

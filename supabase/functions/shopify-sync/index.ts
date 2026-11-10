@@ -44,6 +44,7 @@ query Orders($first: Int!, $after: String, $query: String!) {
       totalPriceSet { shopMoney { amount currencyCode } }
       customer { displayName }
       shippingAddress { name address1 address2 city zip province countryCodeV2 phone }
+      billingAddress { phone }
       lineItems(first: 15) { nodes { title variantTitle sku quantity } }
       fulfillments(first: 5) {
         status createdAt displayStatus
@@ -87,7 +88,7 @@ function toRow(storeId: string, o: any) {
     annullato_at: o.cancelledAt,
     cliente: o.customer?.displayName || addr?.name || null,
     email: o.email || null,
-    telefono: o.phone || addr?.phone || null,
+    telefono: o.phone || addr?.phone || o.billingAddress?.phone || null,
     totale: o.totalPriceSet?.shopMoney?.amount != null ? Number(o.totalPriceSet.shopMoney.amount) : null,
     valuta: o.totalPriceSet?.shopMoney?.currencyCode || null,
     stato_pagamento: o.displayFinancialStatus,

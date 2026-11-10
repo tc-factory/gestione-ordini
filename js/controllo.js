@@ -1082,12 +1082,15 @@ function renderTaskSvincolo(t, can) {
           </select></label>
         ${campo('telefono', 'Telefono', 'telefono', 15)}
         ${campo('note', 'Note per il corriere', 'note', 65)}
+        <label class="td-sv-f is-wide td-sv-check"><input type="checkbox" id="sv-preavviso" ${sv.preavviso || sv.ripetuta ? 'checked' : ''} ${can ? '' : 'disabled'}>
+          <span>Il corriere telefona prima di passare${sv.ripetuta ? ' (giacenza ripetuta: si mette sempre)' : ''}</span></label>
         ${campo('nome', 'Nome sul campanello', 'nome', 20, 'is-addr')}
         ${campo('via', 'Via e civico', 'via', 30, 'is-addr')}
         ${campo('cap', 'CAP', 'cap', 10, 'is-addr')}
         ${campo('citta', 'Città', 'citta', 30, 'is-addr')}
         ${campo('provincia', 'Provincia', 'provincia', 2, 'is-addr')}
       </div>
+      ${!sv.telefono ? `<p class="td-todo is-advice"><strong>Telefono mancante:</strong> non lo troviamo nell'ordine né nelle mail. Se lo hai, scrivilo qui sopra.</p>` : ''}
       ${sv.errore ? `<p class="td-todo is-advice"><strong>Ultimo tentativo:</strong> ${escapeHtml(sv.errore)}</p>` : ''}
       ${can ? `<div class="td-reply-actions"><button type="button" class="btn btn-primary btn-sm" id="sv-send" onclick="sendTaskSvincolo('${t.id}')">Manda a GLS e rispondi</button></div>` : ''}
     </section>`;
@@ -1096,7 +1099,7 @@ function renderTaskSvincolo(t, can) {
 async function sendTaskSvincolo(id) {
   const t = Ctrl.get(id);
   const val = (k) => (document.getElementById(`sv-${k}`)?.value || '').trim();
-  const body = { task_id: id, scelta: val('scelta'), telefono: val('telefono'), note: val('note'), nome: val('nome'), via: val('via'), cap: val('cap'), citta: val('citta'), provincia: val('provincia') };
+  const body = { task_id: id, preavviso: !!document.getElementById('sv-preavviso')?.checked, scelta: val('scelta'), telefono: val('telefono'), note: val('note'), nome: val('nome'), via: val('via'), cap: val('cap'), citta: val('citta'), provincia: val('provincia') };
   const testo = t?.risposta_inviata_at ? '' : (_taskBozza || '').trim();
   const label = SVINCOLO_SCELTE.find(([k]) => k === body.scelta)?.[1] || body.scelta;
   if (!confirm(`Mandare a GLS: ${label}?${testo ? ' Poi parte la risposta al cliente e il task viene completato.' : ' Il task verrà completato.'}`)) return;

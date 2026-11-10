@@ -14,7 +14,7 @@ begin
     url := 'https://gdtlpyowpbwetnovxget.supabase.co/functions/v1/gls-svincolo',
     headers := jsonb_build_object('Content-Type', 'application/json', 'x-sync-key', v_key),
     body := jsonb_build_object('task_id', p_task, 'scelta', v_sv->>'scelta', 'telefono', v_sv->>'telefono',
-      'note', v_sv->>'note', 'nome', v_sv->>'nome', 'via', v_sv->>'via', 'cap', v_sv->>'cap',
+      'note', v_sv->>'note', 'preavviso', coalesce((v_sv->>'preavviso')::boolean, false), 'nome', v_sv->>'nome', 'via', v_sv->>'via', 'cap', v_sv->>'cap',
       'citta', v_sv->>'citta', 'provincia', v_sv->>'provincia', 'testo', coalesce(v_t.bozza_risposta, '')),
     timeout_milliseconds := 90000);
 end $$;

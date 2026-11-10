@@ -284,12 +284,16 @@ function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string)
   if (!ferma) return {};
   const ordine = suoi.find(o => o.id === ferma.ordine_id)!;
   const tel = String(s.telefono || ordine.telefono || '').replace(/[^\d+]/g, '');
+  // Giacenza ripetuta (due o più giorni con consegna fallita): telefonata del corriere sempre
+  const giorni = new Set((ferma.eventi || []).filter((e: Row) => ['1', '7', '66', '68'].includes(String(e.codice))).map((e: Row) => String(e.at).slice(0, 10)));
+  const ripetuta = giorni.size >= 2;
   return {
     svincolo: {
       stato: 'da_approvare', tracking: ferma.numero, cliente_gls: ferma.cliente_gls || null,
       ordine: ordine.numero, negozio: ordine.store_id, problema: ferma.problema,
       scelta: s.scelta, telefono: tel, nome: s.nome || '', via: s.via || '', cap: s.cap || '',
       citta: s.citta || '', provincia: (s.provincia || '').toUpperCase().slice(0, 2), note: (s.note_corriere || '').slice(0, 65),
+      ripetuta, preavviso: ripetuta || s.scelta === 'riconsegna_preavviso',
     },
   };
 }
@@ -320,7 +324,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
 
     // Stato vero della spedizione dallo storico GLS: lo stato di Shopify spesso non si aggiorna
     const { data: tracciate } = ordini.length
-      ? await db.from('spedizioni_tracking').select('ordine_id, numero, cliente_gls, stato, problema, ultimo_evento, ultimo_at, consegnata_at').in('ordine_id', ordini.map(o => o.id))
+      ? await db.from('spedizioni_tracking').select('ordine_id, numero, cliente_gls, stato, problema, ultimo_evento, ultimo_at, consegnata_at, eventi').in('ordine_id', ordini.map(o => o.id))
       : { data: [] };
     const fermate = (tracciate || []).filter((t: Row) => t.problema && GIACENZE.has(t.problema));
     const spedizioni = new Map((tracciate || []).map((t: Row) => [t.ordine_id, {
