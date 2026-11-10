@@ -1007,6 +1007,26 @@ async function sendTaskReply(id) {
 const TASK_ORIGINI = { manuale: 'Inserito a mano', mail: 'Mail', shopify: 'Shopify', gestionale: 'Gestionale', automazione: 'Automazione' };
 
 // Spedizione del task: storico GLS come linea del tempo
+// Contatto col cliente per un pacco fermo (tracking-check): mail mandate, risposta, quando chiamare
+function renderTaskContatto(t) {
+  const c = t.analisi?.contatto;
+  if (!c) return '';
+  const g = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : '';
+  const tel = c.telefono ? `<a class="ctrl-btn is-primary td-call" href="tel:${escapeHtml(c.telefono)}">${Icons.phone ? Icons.phone(14) : ''} Chiama ${escapeHtml(c.telefono)}</a>` : `<span class="td-small">Nell'ordine non c'è il telefono.</span>`;
+  const testo = {
+    chiamare: `<strong>Da chiamare.</strong> ${c.mail_n} ${c.mail_n === 1 ? 'mail inviata' : 'mail inviate'}, l'ultima il ${g(c.ultima_mail_at)}: nessuna risposta.`,
+    in_attesa: `<strong>Mail inviata il ${g(c.ultima_mail_at)}</strong>, in attesa di risposta. Se non risponde entro un giorno lavorativo diventa da chiamare.`,
+    risposto: `<strong>Il cliente ha risposto il ${g(c.risposta_at)}.</strong> La sua mail è nel task della mail, con le istruzioni per GLS.`,
+    da_contattare: `<strong>Non ancora contattato.</strong> Nessuna mail inviata al cliente per questa spedizione.`,
+    senza_email: `<strong>Nell'ordine non c'è l'email:</strong> va chiamato.`,
+  }[c.stato] || '';
+  return `
+    <section class="td-box td-contatto is-${escapeHtml(c.stato)}">
+      <p class="td-todo">${testo}</p>
+      ${['chiamare', 'senza_email'].includes(c.stato) || c.telefono ? `<div class="td-contacts">${tel}</div>` : ''}
+    </section>`;
+}
+
 function renderTaskShipment(t) {
   const sp = t.analisi?.spedizione;
   if (!sp) return '';
@@ -1021,6 +1041,8 @@ function renderTaskShipment(t) {
         <span class="td-mono">${escapeHtml(sp.tracking)}</span>
         <a class="ctrl-btn td-push" href="${escapeHtml(sp.url)}" target="_blank" rel="noopener">${Icons.truck(14)} Apri su GLS</a>
       </div>
+      ${(sp.anomalie || []).length ? `<div class="td-todo is-advice"><strong>Indirizzo da verificare:</strong><ul class="td-anomalie">${sp.anomalie.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul></div>` : ''}
+      ${sp.destinazione?.sede ? `<p class="td-small">Sede GLS: ${escapeHtml(sp.destinazione.sede)}${sp.destinazione.sede_indirizzo ? `, ${escapeHtml(sp.destinazione.sede_indirizzo)}` : ''}${sp.destinazione.sede_telefono ? ` · <a href="tel:${escapeHtml(sp.destinazione.sede_telefono.replace(/\s+/g, ''))}">${escapeHtml(sp.destinazione.sede_telefono)}</a>` : ''}</p>` : ''}
       ${(sp.storico || []).length ? `<ol class="td-time">${sp.storico.map((e, i) => `
         <li class="${i === 0 ? 'is-now' : ''}">
           <strong>${escapeHtml(e.stato)}</strong>
@@ -1190,6 +1212,7 @@ function renderTaskDetail(id, storico) {
         ${t.descrizione ? `<section class="td-sec"><h3>Cosa fare</h3><p class="td-todo">${escapeHtml(t.descrizione)}</p></section>` : ''}
         ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
         ${t.analisi?.dubbi ? `<p class="td-todo is-advice"><strong>Da controllare:</strong> ${escapeHtml(t.analisi.dubbi)}</p>` : ''}
+        ${renderTaskContatto(t)}
         ${t.analisi?.rimborso ? `<p class="td-todo is-advice"><strong>Rimborso richiesto:</strong> va gestito a mano.</p>` : ''}
         ${t.analisi?.note ? `<p class="td-todo is-note"><strong>Note:</strong> ${escapeHtml(t.analisi.note)}</p>` : ''}
         ${renderTaskSvincolo(t, can)}
