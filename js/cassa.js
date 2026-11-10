@@ -192,7 +192,7 @@ async function cassaTogglePayment(orderId, done) {
   const msg = done
     ? `Segnare "${o?.nome}" come riscosso oggi (${euro(o?.importo)})?`
     : `Riportare "${o?.nome}" tra i da riscuotere?`;
-  if (!confirm(msg)) return;
+  if (!(await uiConfirm(msg, { ok: done ? 'Segna riscosso' : 'Riporta' }))) return;
   await togglePayment(orderId, done);
   showToast(done ? 'Segnato come riscosso' : 'Riportato tra i da riscuotere');
 }

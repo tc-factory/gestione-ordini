@@ -607,3 +607,23 @@ html .ctrl-btn.is-primary, html .ctrl-btn.is-primary:hover:not(:disabled) {
   border-color: transparent; color: var(--lq-on-yellow); opacity: 1;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 -2px 6px rgba(190, 130, 0, 0.2);
 }
+
+/* ── Popup di conferma / inserimento / avviso (js/dialogs.js): sempre al centro, anche su telefono ── */
+.modal-overlay.ui-dialog-overlay { z-index: 1200; align-items: center; justify-content: center; padding: 16px; }
+.modal-overlay.ui-dialog-overlay .modal.ui-dialog {
+  width: 100%; max-width: 440px; max-height: calc(100dvh - 32px);
+  border-radius: var(--radius-panel); margin: 0;
+  animation: modalIn 280ms var(--ease-spring);
+}
+.modal-overlay.ui-dialog-overlay.closing:not(.active) .modal.ui-dialog { animation: modalOut 180ms var(--ease-out) forwards; }
+.ui-dialog-body { padding: 26px 26px 6px; display: flex; flex-direction: column; gap: 10px; }
+.ui-dialog-title { font-size: 1.15rem; font-weight: 700; margin: 0; }
+.ui-dialog-text { margin: 0; font-size: 1rem; font-weight: 600; line-height: 1.45; color: var(--text-primary); white-space: pre-line; overflow-wrap: anywhere; }
+.ui-dialog-note { margin: 0; font-size: 0.9rem; line-height: 1.45; color: var(--text-secondary); white-space: pre-line; overflow-wrap: anywhere; }
+.ui-dialog-body .form-input { margin-top: 6px; width: 100%; }
+.ui-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 18px 26px 24px; }
+@media (max-width: 480px) {
+  .ui-dialog-body { padding: 22px 20px 4px; }
+  .ui-dialog-actions { padding: 16px 20px 20px; }
+  .ui-dialog-actions .btn { flex: 1 1 0; justify-content: center; }
+}

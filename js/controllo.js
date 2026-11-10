@@ -362,8 +362,8 @@ function controlDayNav() {
     </div>`;
 }
 
-function setControlView(view) {
-  if (!leaveRulesOk()) return;
+async function setControlView(view) {
+  if (!(await leaveRulesOk())) return;
   Ctrl.view = view;
   refreshControlPage();
   loadControlExtras();
@@ -873,7 +873,7 @@ async function applyRealTime(id, minuti) {
 
 async function removeTaskType(id) {
   const tp = Ctrl.tipo(id);
-  if (!confirm(`Eliminare il tipo "${tp?.nome}"? I task già creati restano, senza tipo.`)) return;
+  if (!(await uiConfirm(`Eliminare il tipo "${tp?.nome}"? I task già creati restano, senza tipo.`, { ok: 'Elimina', danger: true }))) return;
   try {
     await Ctrl.deleteTipo(id);
     showToast('Tipo eliminato');
@@ -975,7 +975,7 @@ function taskMailParts(t, can) {
 
 async function markTaskSpam(id) {
   const dest = _taskMail?.taskId === id ? _taskMail.mail?.da_email : '';
-  if (!confirm(`Segnare come spam${dest ? ` ${dest}` : ''}? Il task sparisce e il cervello imparerà a scartare mail simili.`)) return;
+  if (!(await uiConfirm(`Segnare come spam${dest ? ` ${dest}` : ''}? Il task sparisce e il cervello imparerà a scartare mail simili.`, { ok: 'Segna come spam' }))) return;
   try {
     await Ctrl._rpc('tc_task_spam', { p_id: id });
     closeModal(CTRL_MODAL);
@@ -1001,7 +1001,7 @@ async function sendTaskReply(id) {
   const dest = _taskMail?.taskId === id ? _taskMail.mail?.da_email : '';
   const tipo = Ctrl.tipo(Ctrl.tasks.find(x => x.id === id)?.tipo_id);
   const dopo = tipo?.chiude_con_risposta === false ? 'Il task resta aperto finché il lavoro non è fatto.' : 'Il task verrà completato.';
-  if (!confirm(`Inviare la risposta a ${dest || 'al cliente'}? ${dopo}`.replace(' a al ', ' al '))) return;
+  if (!(await uiConfirm(`Inviare la risposta a ${dest || 'al cliente'}? ${dopo}`.replace(' a al ', ' al '), { ok: 'Invia' }))) return;
   const btn = document.getElementById('task-send');
   if (btn) { btn.disabled = true; btn.textContent = 'Invio…'; }
   try {
@@ -1120,7 +1120,7 @@ async function sendTaskSvincolo(id) {
   const body = { task_id: id, preavviso: !!document.getElementById('sv-preavviso')?.checked, scelta: val('scelta'), telefono: val('telefono'), note: val('note'), nome: val('nome'), via: val('via'), cap: val('cap'), citta: val('citta'), provincia: val('provincia') };
   const testo = t?.risposta_inviata_at ? '' : (_taskBozza || '').trim();
   const label = SVINCOLO_SCELTE.find(([k]) => k === body.scelta)?.[1] || body.scelta;
-  if (!confirm(`Mandare a GLS: ${label}?${testo ? ' Poi parte la risposta al cliente e il task viene completato.' : ' Il task verrà completato.'}`)) return;
+  if (!(await uiConfirm(`Mandare a GLS: ${label}?${testo ? ' Poi parte la risposta al cliente e il task viene completato.' : ' Il task verrà completato.'}`, { ok: 'Manda a GLS' }))) return;
   const btn = document.getElementById('sv-send');
   if (btn) { btn.disabled = true; btn.textContent = 'Invio a GLS…'; }
   try {
@@ -1308,7 +1308,7 @@ async function submitTaskMotivo(id) {
 
 async function removeTask(id) {
   const t = Ctrl.get(id);
-  if (!confirm(`Eliminare il task "${t?.titolo}"? Impossibile annullare.`)) return;
+  if (!(await uiConfirm(`Eliminare il task "${t?.titolo}"? Impossibile annullare.`, { ok: 'Elimina', danger: true }))) return;
   try {
     await Ctrl.deleteTask(id);
     closeModal(CTRL_MODAL);
@@ -1995,20 +1995,20 @@ async function loadBrainRules() {
   refreshControlPage();
 }
 
-function setBrainSection(id) {
-  if (!leaveRulesOk()) return;
+async function setBrainSection(id) {
+  if (!(await leaveRulesOk())) return;
   CtrlBrain.sez = id;
   refreshControlPage();
 }
 
-function setBrainStore(id) {
-  if (!leaveRulesOk()) return;
+async function setBrainStore(id) {
+  if (!(await leaveRulesOk())) return;
   CtrlBrain.negozio = id;
   refreshControlPage();
 }
 
-function leaveRulesOk() {
-  if (CtrlBrain.modificato && !confirm('Ci sono modifiche non salvate alle regole. Uscire senza salvare?')) return false;
+async function leaveRulesOk() {
+  if (CtrlBrain.modificato && !(await uiConfirm('Ci sono modifiche non salvate alle regole. Uscire senza salvare?', { ok: 'Esci senza salvare', danger: true }))) return false;
   CtrlBrain.modificato = false;
   return true;
 }
@@ -2189,7 +2189,7 @@ function renderControlLinks() {
 // ─────────────────────────────────────────────
 
 async function distributeQueue() {
-  if (!confirm('Distribuire ora la coda comune tra gli operatori attivi?')) return;
+  if (!(await uiConfirm('Distribuire ora la coda comune tra gli operatori attivi?', { ok: 'Distribuisci' }))) return;
   try {
     const data = await Ctrl._rpc('tc_task_distribuisci');
     showToast(data.assegnati ? `${data.assegnati} task assegnati` : 'Nessun task assegnato: niente in coda o minuti esauriti');
@@ -2337,7 +2337,7 @@ async function submitMemberForm(nick) {
 }
 
 async function removeMailRule(mittente) {
-  if (!confirm(`Togliere la correzione per ${mittente}?`)) return;
+  if (!(await uiConfirm(`Togliere la correzione per ${mittente}?`, { ok: 'Togli', danger: true }))) return;
   const { error } = await supabaseClient.from('mail_regole').delete().eq('mittente', mittente);
   if (error) { showToast(Ctrl._fail(error).message, 'error'); return; }
   await loadShopifyLinks();

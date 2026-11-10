@@ -245,7 +245,7 @@ async function toggleCatalogItem(id, attivo) {
 
 async function removeCatalogItem(id) {
   const r = TCFactory._clientCatalog.find(x => x.id === id);
-  if (!confirm(`Togliere "${TCFactory.catalogItemName(r)}" dal catalogo?\n\nSi perdono anche il nome, il prezzo di rivendita e le scorte che il cliente ha inserito. Per nasconderlo soltanto, spegni "Attivo".`)) return;
+  if (!(await uiConfirm(`Togliere "${TCFactory.catalogItemName(r)}" dal catalogo?\n\nSi perdono anche il nome, il prezzo di rivendita e le scorte che il cliente ha inserito. Per nasconderlo soltanto, spegni "Attivo".`, { ok: 'Togli', danger: true }))) return;
   try { await TCFactory.removeFromCatalog(id); showToast('Prodotto tolto dal catalogo'); }
   catch (e) { showToast('Errore — riprova', 'error'); }
 }
@@ -392,7 +392,7 @@ async function submitCatalogUser(clientId) {
 
 async function resetCatalogUserPassword(authId) {
   const u = TCFactory._catalogUsers.find(x => x.auth_id === authId);
-  const password = prompt(`Nuova password per ${u?.email} (almeno 8 caratteri):`);
+  const password = await uiPrompt(`Nuova password per ${u?.email} (almeno 8 caratteri):`, { ok: 'Salva password' });
   if (password === null) return;
   if (password.length < 8) return showToast('La password deve avere almeno 8 caratteri', 'error');
   try { await TCFactory.catalogUsersAction('password', { auth_id: authId, password }); showToast('Password aggiornata'); }
@@ -401,7 +401,7 @@ async function resetCatalogUserPassword(authId) {
 
 async function deleteCatalogUser(authId) {
   const u = TCFactory._catalogUsers.find(x => x.auth_id === authId);
-  if (!confirm(`Togliere l'accesso all'app a ${u?.email}?\n\nIl catalogo, le scorte e gli ordini del cliente restano.`)) return;
+  if (!(await uiConfirm(`Togliere l'accesso all'app a ${u?.email}?\n\nIl catalogo, le scorte e gli ordini del cliente restano.`, { ok: 'Togli', danger: true }))) return;
   try { await TCFactory.catalogUsersAction('delete', { auth_id: authId }); showToast('Accesso tolto'); }
   catch (e) { showToast(e.message, 'error'); }
 }
