@@ -252,6 +252,9 @@ async function avvisaCliente(db: SupabaseClient, s: Row, esito: Row, dest: Row |
 async function statoContatto(db: SupabaseClient, s: Row) {
   const email = String(s.email || '').toLowerCase();
   if (!email) return { stato: 'senza_email', telefono: s.telefono || null };
+  // Telefono: ordine, altrimenti quello dato dal cliente in una mail (memoria del cliente)
+  const { data: ricordo } = await db.from('clienti_memoria').select('telefono').eq('email', email).maybeSingle();
+  s = { ...s, telefono: s.telefono || ricordo?.telefono || null };
   const dal = s.spedito_at || new Date(Date.now() - 30 * 86_400_000).toISOString();
   const [{ data: inviate }, { data: ricevute }] = await Promise.all([
     db.from('mail_messaggi').select('ricevuto_at').eq('direzione', 'out').ilike('a', email).gte('ricevuto_at', dal).order('ricevuto_at', { ascending: false }),

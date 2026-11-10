@@ -159,7 +159,7 @@ async function decodifica(source: Uint8Array): Promise<any> {
 
 // ── Posta inviata ──
 
-// Solo intestazioni: per capire a quale mail si è risposto non serve il testo.
+// Intestazioni e testo: a quale mail si è risposto e cosa abbiamo scritto.
 async function syncInviata(db: SupabaseClient, imap: Imap, c: Casella, deadline: number) {
   const cartella = await cartellaInviata(imap);
   if (!cartella) throw new Error('cartella non trovata');
@@ -184,6 +184,9 @@ async function syncInviata(db: SupabaseClient, imap: Imap, c: Casella, deadline:
     if (msg.arrivata >= dal) {
       const env = await PostalMime.parse(msg.intestazioni);
       const destinatari = [...(env.to || []), ...(env.cc || [])].flatMap(t => t.address ? [t.address.toLowerCase()] : []);
+      // Anche il testo: serve a sapere cosa abbiamo già detto al cliente
+      const sorgente = await scaricaSorgente(imap, msg).catch(() => null);
+      const pieno = sorgente ? ((await decodifica(sorgente).catch(() => null))?.text || '').trim() : '';
       // Senza uid: gli UID di questa cartella si sovrappongono a quelli della posta in arrivo.
       // Le risposte mandate da CS sono già salvate: il Message-ID uguale le fa saltare (23505).
       const { error } = await db.from('mail_messaggi').insert({
@@ -197,6 +200,8 @@ async function syncInviata(db: SupabaseClient, imap: Imap, c: Casella, deadline:
         a: destinatari.join(', ') || null,
         oggetto: env.subject || null,
         ricevuto_at: (env.date && !isNaN(new Date(env.date).getTime()) ? new Date(env.date) : msg.arrivata).toISOString(),
+        testo: pieno ? (senzaCitazione(pieno) || pieno).slice(0, MAX_TESTO) : null,
+        testo_citato: pieno ? parteCitata(pieno).slice(0, MAX_TESTO) : null,
       });
       if (error && error.code !== '23505') throw new Error(`salvataggio: ${error.message}`);
       if (!error) salvate++;

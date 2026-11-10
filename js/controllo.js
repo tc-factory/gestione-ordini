@@ -921,6 +921,22 @@ async function openTaskDetail(id, action = null) {
 }
 
 // Mail d'origine e risposta, divise per colonna del dettaglio
+// Cosa sappiamo già del cliente dalle mail precedenti (clienti_memoria)
+function renderTaskMemoria(m) {
+  if (!m || !(m.telefono || m.campanello || m.indirizzo || (m.note || []).length)) return '';
+  const ind = m.indirizzo ? [m.indirizzo.via, [m.indirizzo.cap, m.indirizzo.citta].filter(Boolean).join(' '), m.indirizzo.provincia].filter(Boolean).join(', ') : '';
+  return `
+    <div class="td-memoria">
+      <strong>Già detto dal cliente</strong>
+      <ul>
+        ${m.telefono ? `<li>Telefono: <a href="tel:${escapeHtml(m.telefono)}">${escapeHtml(m.telefono)}</a></li>` : ''}
+        ${ind ? `<li>Indirizzo indicato: ${escapeHtml(ind)}</li>` : ''}
+        ${m.campanello ? `<li>Campanello: ${escapeHtml(m.campanello)}</li>` : ''}
+        ${(m.note || []).map(n => `<li>${escapeHtml(n.testo)} <span class="td-small">(${escapeHtml(String(n.at).slice(8, 10) + '/' + String(n.at).slice(5, 7))})</span></li>`).join('')}
+      </ul>
+    </div>`;
+}
+
 function taskMailParts(t, can) {
   if (!t.mail_id) return null;
   const m = _taskMail?.taskId === t.id ? _taskMail.mail : null;
@@ -936,6 +952,7 @@ function taskMailParts(t, can) {
         ${(m.allegati || []).length ? `<div class="td-small">Allegati: ${m.allegati.map(x => escapeHtml(x.nome)).join(', ')}</div>` : ''}`
       : `<p class="td-empty">${_taskMail?.taskId === t.id ? 'Mail non disponibile.' : 'Caricamento…'}</p>`}
       ${ordini.length ? `<div class="td-small"><strong>Ordini trovati:</strong> ${ordini.join(' · ')}</div>` : ''}
+      ${renderTaskMemoria(t.analisi?.memoria)}
     </section>`;
   const risposta = t.risposta_inviata_at ? `
     <section class="td-sec td-reply">
