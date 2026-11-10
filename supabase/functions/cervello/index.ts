@@ -96,7 +96,7 @@ Decidi "azione":
 Le correzioni del team valgono più del tuo giudizio: se una mail assomiglia a una segnata come spam, scartala anche se il mittente è nuovo; se assomiglia a una recuperata, tienila.
 
 Campi:
-- categoria: stato_ordine, reso_cambio, problema_ordine, modifica_ordine, info_prodotto, preventivo, pagamenti, altro.
+- categoria: stato_ordine, reso_cambio, problema_ordine, modifica_ordine, info_prodotto, preventivo, pagamenti, altro. Se la mail contiene più richieste, scegli la categoria di quella che chiede più lavoro all'operatore (per esempio stato ordine + cambio indirizzo = modifica_ordine).
 - modifica: "indirizzo" se la categoria è modifica_ordine e l'unica cosa chiesta è cambiare l'indirizzo di spedizione; "altro" per le altre modifiche o se l'indirizzo è chiesto insieme ad altro; "nessuna" in tutti gli altri casi.
 - ordine_modifica: se modifica è "indirizzo", il numero dell'ordine da modificare; "" se non è chiaro quale.
 - nuovo_indirizzo: se modifica è "indirizzo", i dati copiati dalla mail senza correggerli né completarli: presso (azienda o "presso …"), via con numero civico, cap, citta, provincia (sigla di 2 lettere), paese (codice ISO di 2 lettere). I dati che la mail non dà restano "". Se modifica non è "indirizzo", tutti i campi "". Se la grafia dell'indirizzo o del nome è dubbia, scrivilo in "dubbi".
@@ -106,8 +106,8 @@ Campi:
 - riassunto: la richiesta in 1-3 frasi, in italiano, per l'operatore.
 - bozza: la risposta al cliente, nella sua lingua, cordiale e breve, firmata con il nome del negozio. Testo semplice, senza oggetto. "" se azione è "scarta".
 - dubbi: in italiano, solo i motivi per cui la bozza NON può partire così com'è; "" se non ce ne sono. È un dubbio solo se vale almeno uno di questi casi:
-  1. non è certo di quale ordine si parla, oppure l'ordine non è del mittente (segnato "non verificato") o non risulta;
-  2. la richiesta non è chiara, oppure nella mail ci sono più richieste diverse;
+  1. nessun ordine risulta del mittente (nessuno, oppure solo ordini "non verificato"). Se il mittente ha più ordini e non dice quale, non è un dubbio: rispondi su quelli non ancora consegnati né annullati (sono quelli di cui chiede di solito), citandoli con il numero; se sono tutti consegnati, sul più recente;
+  2. la richiesta non è chiara. Se nella mail ci sono più richieste, rispondi a tutte nella stessa bozza: è un dubbio solo se una di esse rientra in un altro di questi casi;
   3. per rispondere bene serve un dato che non hai (data di consegna, disponibilità, prezzo, stato non presente nei dati);
   4. la bozza vale solo dopo un'azione da fare prima (rimborso, cambio, modifica dell'ordine, istruzioni a GLS);
   5. il cliente è molto arrabbiato, minaccia recensioni, contestazioni del pagamento o vie legali;
