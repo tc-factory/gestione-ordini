@@ -79,6 +79,11 @@ const Tickets = {
     if (t) t.risposte = [...(t.risposte || []), data.risposta];
   },
 
+  async remove(id) {
+    await this._rpc('tc_ticket_delete', { p_id: id });
+    this._list = this._list.filter(t => t.id !== id);
+  },
+
   get(id)        { return this._list.find(t => t.id === id); },
   countOpen()    { return this._list.filter(t => t.stato === 'da_fare').length; },
 
@@ -276,9 +281,12 @@ function renderTicketCard(t, isAdmin) {
           <button type="submit" class="btn btn-secondary btn-sm">Rispondi</button>
         </form>` : ''}
       ${isAdmin ? `
-        <div class="segmented ticket-actions" role="radiogroup" aria-label="Stato del ticket">
+        <div class="ticket-actions-row">
+          <div class="segmented ticket-actions" role="radiogroup" aria-label="Stato del ticket">
           ${TICKET_STATI.map(s => `<button type="button" role="radio" aria-checked="${t.stato === s.id}" class="${t.stato === s.id ? 'active' : ''}"
             style="--st:${s.color};" onclick="setTicketStatus('${t.id}','${s.id}')">${s.label}</button>`).join('')}
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm ticket-delete" onclick="deleteTicketConfirm('${t.id}')">${Icons.trash(13)} Elimina</button>
         </div>` : ''}
     </article>`;
 }
@@ -313,6 +321,19 @@ async function setTicketStatus(id, stato) {
   try {
     await Tickets.setStatus(id, stato);
     showToast(`Ticket segnato come "${ticketStato(stato).label}"`);
+    renderSupportPage();
+    renderSidebar();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function deleteTicketConfirm(id) {
+  const t = Tickets.get(id);
+  if (!t) return;
+  if (!(await uiConfirm(`Eliminare il ticket "${t.oggetto}" di ${t.created_by}?\n\nSparisce anche dai suoi ticket, con tutte le risposte.`,
+    { ok: 'Elimina', cancel: 'Indietro', danger: true }))) return;
+  try {
+    await Tickets.remove(id);
+    showToast('Ticket eliminato');
     renderSupportPage();
     renderSidebar();
   } catch (e) { showToast(e.message, 'error'); }
