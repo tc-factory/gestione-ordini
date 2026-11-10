@@ -323,6 +323,32 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
   if (error && error.code !== '23505') throw new Error(error.message);
 }
 
+// ── Task delle mail risolti su GLS ──
+// Il lavoro può essere fatto anche fuori da qui (sito GLS, telefono): i task delle mail sull'ordine
+// si chiudono quando GLS lo mostra. Consegnata: stato ordine e problemi. Pacco che riparte dopo una
+// giacenza o una consegna fallita (in viaggio, in sede, in consegna) dopo la mail: problemi.
+const RIPARTITA = ['902', '903', '904', '905'];
+const FALLITA = ['1', '7', '66', '68'];
+async function chiudiTaskMail(db: SupabaseClient, s: Row, esito: Row, eventi: Evento[] | null) {
+  const { data: aperti } = await db.from('tasks').select('id, created_at, analisi').eq('fonte', 'mail')
+    .not('stato', 'in', '(completato,non_completato)')
+    .contains('analisi', { ordini: [{ negozio: s.store_id, numero: s.numero_ordine }] });
+  if (!aperti?.length) return 0;
+  const ultimo = eventi?.[0];
+  const ripartita = !!ultimo && RIPARTITA.includes(String(ultimo.codice)) && (eventi || []).some(e => FALLITA.includes(String(e.codice)));
+  let chiusi = 0;
+  for (const t of aperti) {
+    const cat = t.analisi?.categoria;
+    let motivo = '';
+    if (esito.stato === 'consegnata' && ['stato_ordine', 'problema_ordine'].includes(cat)) motivo = `Chiuso da solo: GLS ha consegnato l'ordine ${s.numero_ordine}`;
+    else if (cat === 'problema_ordine' && ripartita && new Date(ultimo!.at) > new Date(t.created_at)) motivo = `Chiuso da solo: GLS ha ripreso la consegna (${inItaliano(ultimo!.stato)})`;
+    if (!motivo) continue;
+    const { error } = await db.from('tasks').update({ stato: 'completato', motivo }).eq('id', t.id);
+    if (!error) chiusi++;
+  }
+  return chiusi;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return fail('Metodo non consentito', 405);
@@ -364,6 +390,7 @@ Deno.serve(async (req) => {
     if (avvisata) avvisi.push(avvisata);
     const { data: avviso } = await db.from('spedizioni_tracking').select('avviso_cliente_at, avviso_cliente_esito').eq('ordine_id', s.ordine_id).maybeSingle();
     await aggiornaTask(db, s, esito, eventi, tipo?.id || null, avviso, dest);
+    await chiudiTaskMail(db, s, esito, eventi).catch(e => console.error('Chiusura task mail', s.numero_ordine, e));
     conteggio[esito.stato] = (conteggio[esito.stato] || 0) + 1;
     await new Promise(r => setTimeout(r, PAUSA_MS));
   }
