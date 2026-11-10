@@ -1029,6 +1029,76 @@ function renderTaskShipment(t) {
     </section>`;
 }
 
+// Istruzioni a GLS per un pacco in giacenza, proposte dal cervello dalla risposta del cliente.
+// Partono solo con il clic (gls-svincolo): fase di prova fino a venerdì 13/11/2026.
+const SVINCOLO_SCELTE = [
+  ['riconsegna_preavviso', 'Riconsegna con telefonata del corriere'],
+  ['riconsegna', 'Riconsegna allo stesso indirizzo'],
+  ['altro_indirizzo', 'Consegna a un altro indirizzo'],
+  ['ritiro_sede', 'Ritiro alla sede GLS'],
+  ['reso_mittente', 'Reso al mittente'],
+];
+
+function renderTaskSvincolo(t, can) {
+  const sv = t.analisi?.svincolo;
+  if (!sv?.tracking) return '';
+  if (sv.stato === 'inviato') return `
+    <section class="td-sec td-box">
+      <div class="td-box-head"><h3>Istruzioni a GLS</h3><span class="td-mono">${escapeHtml(sv.tracking)}</span></div>
+      <p class="td-todo">${escapeHtml(sv.tipo_label || '')} · mandate ${ctrlFmtQuando(sv.inviato_at)}${sv.inviato_da ? ` da ${escapeHtml(sv.inviato_da)}` : ''}${sv.data ? ` · riconsegna dal ${escapeHtml(sv.data)}` : ''}</p>
+    </section>`;
+  const v = (k) => escapeHtml(sv[k] || '');
+  const campo = (id, label, k, max, extra = '') => `<label class="td-sv-f ${extra}"><span>${label}</span><input id="sv-${id}" class="form-input" maxlength="${max}" value="${v(k)}" ${can ? '' : 'disabled'}></label>`;
+  return `
+    <section class="td-sec td-box td-svincolo" data-scelta="${v('scelta')}">
+      <div class="td-box-head"><h3>Istruzioni a GLS</h3><span class="td-mono">${escapeHtml(sv.tracking)}</span></div>
+      <p class="td-small">Il cliente ha risposto all'avviso di ${escapeHtml((sv.problema || 'giacenza').toLowerCase())}. Controlla e manda: GLS riceve le istruzioni e il cliente la risposta qui accanto.</p>
+      <div class="td-sv-grid">
+        <label class="td-sv-f is-wide"><span>Cosa fare</span>
+          <select id="sv-scelta" class="form-input" ${can ? '' : 'disabled'} onchange="document.querySelector('.td-svincolo').dataset.scelta=this.value">
+            ${SVINCOLO_SCELTE.map(([k, l]) => `<option value="${k}" ${sv.scelta === k ? 'selected' : ''}>${l}</option>`).join('')}
+          </select></label>
+        ${campo('telefono', 'Telefono', 'telefono', 15)}
+        ${campo('note', 'Note per il corriere', 'note', 65)}
+        ${campo('nome', 'Nome sul campanello', 'nome', 20, 'is-addr')}
+        ${campo('via', 'Via e civico', 'via', 30, 'is-addr')}
+        ${campo('cap', 'CAP', 'cap', 10, 'is-addr')}
+        ${campo('citta', 'Città', 'citta', 30, 'is-addr')}
+        ${campo('provincia', 'Provincia', 'provincia', 2, 'is-addr')}
+      </div>
+      ${sv.errore ? `<p class="td-todo is-advice"><strong>Ultimo tentativo:</strong> ${escapeHtml(sv.errore)}</p>` : ''}
+      ${can ? `<div class="td-reply-actions"><button type="button" class="btn btn-primary btn-sm" id="sv-send" onclick="sendTaskSvincolo('${t.id}')">Manda a GLS e rispondi</button></div>` : ''}
+    </section>`;
+}
+
+async function sendTaskSvincolo(id) {
+  const t = Ctrl.get(id);
+  const val = (k) => (document.getElementById(`sv-${k}`)?.value || '').trim();
+  const body = { task_id: id, scelta: val('scelta'), telefono: val('telefono'), note: val('note'), nome: val('nome'), via: val('via'), cap: val('cap'), citta: val('citta'), provincia: val('provincia') };
+  const testo = t?.risposta_inviata_at ? '' : (_taskBozza || '').trim();
+  const label = SVINCOLO_SCELTE.find(([k]) => k === body.scelta)?.[1] || body.scelta;
+  if (!confirm(`Mandare a GLS: ${label}?${testo ? ' Poi parte la risposta al cliente e il task viene completato.' : ' Il task verrà completato.'}`)) return;
+  const btn = document.getElementById('sv-send');
+  if (btn) { btn.disabled = true; btn.textContent = 'Invio a GLS…'; }
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('gls-svincolo', { body: { ...body, testo } });
+    if (error) {
+      const dett = await error.context?.json?.().catch(() => null);
+      throw new Error(dett?.error || error.message || 'Invio non riuscito');
+    }
+    if (!data?.success) throw new Error(data?.error || 'Invio non riuscito');
+    closeModal(CTRL_MODAL);
+    showToast(data.conferma?.startsWith('non inviata') ? `GLS ok, ma la risposta al cliente ${data.conferma}` : 'Istruzioni mandate a GLS', data.conferma?.startsWith('non inviata') ? 'error' : undefined);
+    await Ctrl.load();
+    refreshControlPage();
+    Ctrl.loadBadge();
+  } catch (e) {
+    showToast(e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Manda a GLS e rispondi'; }
+    await Ctrl.load();
+  }
+}
+
 function renderTaskCustomer(t) {
   const c = t.analisi?.cliente;
   if (!c || !(c.email || c.telefono)) return '';
@@ -1120,6 +1190,8 @@ function renderTaskDetail(id, storico) {
         ${t.descrizione ? `<section class="td-sec"><h3>Cosa fare</h3><p class="td-todo">${escapeHtml(t.descrizione)}</p></section>` : ''}
         ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
         ${t.analisi?.dubbi ? `<p class="td-todo is-advice"><strong>Da controllare:</strong> ${escapeHtml(t.analisi.dubbi)}</p>` : ''}
+        ${t.analisi?.note ? `<p class="td-todo is-note"><strong>Note:</strong> ${escapeHtml(t.analisi.note)}</p>` : ''}
+        ${renderTaskSvincolo(t, can)}
         ${t.riferimento ? `<div>${MsgRef.chip(t.riferimento, `closeModal('${CTRL_MODAL}');MsgRef.open(Ctrl.get('${t.id}').riferimento)`)}</div>` : ''}
         ${renderTaskCustomer(t)}
         ${mail ? sped + mail.ricevuta : ''}
