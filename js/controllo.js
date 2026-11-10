@@ -655,9 +655,24 @@ function renderTaskQueue(coda, emptyText = '') {
         <span class="ctrl-group-hint">Non assegnati: li prende chi li fa</span></div>
       ${taskMacroBar(coda)}
       ${taskAutoNote(list)}
-      ${list.length ? `<div class="task-list task-stack ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${renderTaskItems(list, { showStore: !Ctrl.macroarea, showAuto: false })}</div>`
+      ${list.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${taskSections(list).map(([titolo, righe]) =>
+          taskSub(`${titolo} · ${righe.length}`, righe, { showStore: !Ctrl.macroarea, showAuto: false })).join('')}</div>`
                     : `<div class="empty-list">${emptyText || 'Nessun task in questa macroarea.'}</div>`}
     </section>`;
+}
+
+// Un task è in ritardo se la scadenza è passata o se arriva dai giorni prima
+const taskInRitardo = (t) => (t.scadenza && new Date(t.scadenza) < new Date()) || t.giorno < Ctrl.giorno;
+
+// La coda divisa per urgenza; i task dello stesso ordine restano insieme, nella sezione del più importante
+function taskSections(list) {
+  const livello = (t) => t.priorita === 'urgente' ? 0 : taskInRitardo(t) ? 1 : 2;
+  const chiave = (t) => { const n = taskOrdine(t); return n ? `${t.macroarea || ''}|${n}` : t.id; };
+  const min = new Map();
+  list.forEach(t => { const k = chiave(t); min.set(k, Math.min(min.get(k) ?? 9, livello(t))); });
+  return [['Urgenti', 0], ['In ritardo', 1], ['Da fare', 2]]
+    .map(([titolo, n]) => [titolo, list.filter(t => min.get(chiave(t)) === n)])
+    .filter(([, righe]) => righe.length);
 }
 
 function taskMacroBar(list) {
@@ -675,6 +690,14 @@ function setControlMacro(id) {
   refreshControlPage();
 }
 
+// Scadenza: l'ora se è nel giorno del task, la sola data se è a mezzanotte
+function taskScadenzaTesto(t) {
+  const ts = t.scadenza, giorno = ctrlGiornoDi(ts);
+  if (giorno === t.giorno) return `le ${ctrlFmtOra(ts)}`;
+  const data = new Date(ts).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', timeZone: 'Europe/Rome' });
+  return ctrlFmtOra(ts) === '00:00' ? `il ${data}` : `il ${data}, ${ctrlFmtOra(ts)}`;
+}
+
 function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true, titolo = t.titolo } = {}) {
   const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id);
   const scaduto = t.scadenza && !['completato', 'non_completato'].includes(t.stato) && new Date(t.scadenza) < new Date();
@@ -683,9 +706,10 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
     showOwner ? `<strong>${t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune'}</strong>` : '',
     showAuto && t.automazione_errore ? '<span class="task-late">automazione non riuscita</span>' : '',
     t.delega?.da ? `delegato da ${escapeHtml(t.delega.da)}` : '',
-    tipo ? escapeHtml(tipo.nome) : '',
-    t.scadenza ? `<span class="${scaduto ? 'task-late' : ''}">entro ${new Date(t.scadenza).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }) === t.giorno ? ctrlFmtOra(t.scadenza) : ctrlFmtQuando(t.scadenza)}</span>` : '',
-    t.giorno < Ctrl.giorno ? `<span class="task-late">dal ${ctrlFmtGiorno(t.giorno).toLowerCase()}</span>` : '',
+    // Il tipo solo se il titolo non lo dice già
+    tipo && !titolo.toLowerCase().startsWith(tipo.nome.toLowerCase()) ? escapeHtml(tipo.nome) : '',
+    t.scadenza ? `<span class="${scaduto ? 'task-late' : ''}">${scaduto ? 'scaduto' : 'entro'} ${taskScadenzaTesto(t)}</span>` : '',
+    t.giorno < Ctrl.giorno ? `<span class="${scaduto ? '' : 'task-late'}">in lista dal ${ctrlFmtGiorno(t.giorno).toLowerCase()}</span>` : '',
     t.rinvii ? `rimandato ${t.rinvii}×` : '',
   ].filter(Boolean).join('<span aria-hidden="true"> · </span>');
   const chip = (label, color) => `<span class="td-tag" style="--c:${color};">${label}</span>`;
@@ -1379,6 +1403,7 @@ const ShopLinks = {
   negozi: null,      // stato dei negozi (tc_shopify_stato)
   caselle: null,     // stato delle caselle email (tc_mail_stato)
   mail: null,        // ultime mail scritte da persone
+  mailEsiti: null,   // mail_id → evento del cervello e suo task
   scartate: [],      // mail scartate dal cervello
   regole: [],        // correzioni del team (mail_regole)
   consegne: null,    // spedizioni con problemi o ritardi (tc_spedizioni_problemi)
@@ -1429,8 +1454,23 @@ async function loadShopifyLinks() {
   ShopLinks.scartate = scartate.error ? [] : (scartate.data || []);
   ShopLinks.caselle = caselle.data?.success ? caselle.data.caselle : [];
   ShopLinks.mail = mail.error ? [] : (mail.data || []);
-  await searchShopifyOrders(ShopLinks.query, false);
+  await Promise.all([loadMailEsiti(), searchShopifyOrders(ShopLinks.query, false)]);
   refreshControlPage();
+}
+
+// Per ogni mail, cosa ne ha fatto il cervello: l'evento della mail e il suo task
+async function loadMailEsiti() {
+  const ids = (ShopLinks.mail || []).map(m => m.id);
+  if (!ids.length) { ShopLinks.mailEsiti = {}; return; }
+  const { data: eventi, error } = await supabaseClient.from('eventi').select('id, payload, esito, task_id, elaborato_at')
+    .eq('fonte', 'mail').in('payload->>mail_id', ids);
+  if (error) { ShopLinks.mailEsiti = null; return; }
+  const taskIds = [...new Set((eventi || []).map(e => e.task_id).filter(Boolean))];
+  const { data: tasks } = taskIds.length
+    ? await supabaseClient.from('tasks').select('id, stato, assegnato_a').in('id', taskIds)
+    : { data: [] };
+  const perId = Object.fromEntries((tasks || []).map(t => [t.id, t]));
+  ShopLinks.mailEsiti = Object.fromEntries((eventi || []).map(e => [e.payload?.mail_id, { ...e, task: perId[e.task_id] || null }]));
 }
 
 async function searchShopifyOrders(q, render = true) {
@@ -1495,31 +1535,98 @@ async function syncShopify(storeId = null) {
 
 const shopNome = (id) => taskMacro(id)?.label || id;
 
-// ── Shopify: ordini in arrivo, divisi per negozio ──
+// ── Liste a colonne di Shopify, GLS e mail: date, giorni, importi ──
+
+// Festività nazionali: i giorni lavorativi escludono sabato, domenica e festivi
+const CTRL_FESTIVI = ['01-01', '01-06', '04-25', '05-01', '06-02', '08-15', '11-01', '12-08', '12-25', '12-26'];
+function ctrlPasquetta(y) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mese = Math.floor((h + l - 7 * m + 114) / 31), giorno = (h + l - 7 * m + 114) % 31 + 1;
+  return ctrlAddDays(`${y}-${String(mese).padStart(2, '0')}-${String(giorno).padStart(2, '0')}`, 1);
+}
+const ctrlLavorativo = (iso) => {
+  const dow = new Date(iso + 'T12:00:00Z').getUTCDay();
+  return dow !== 0 && dow !== 6 && !CTRL_FESTIVI.includes(iso.slice(5)) && iso !== ctrlPasquetta(+iso.slice(0, 4));
+};
+const ctrlGiornoDi = (ts) => new Date(ts).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+// Giorni passati da una data a oggi: totali e lavorativi
+function ctrlGiorniDa(ts) {
+  const dal = ctrlGiornoDi(ts), oggi = ctrlOggi();
+  let tot = 0, lav = 0;
+  for (let d = ctrlAddDays(dal, 1); d <= oggi && tot < 400; d = ctrlAddDays(d, 1)) { tot++; if (ctrlLavorativo(d)) lav++; }
+  return { tot, lav };
+}
+const ctrlTestoGiorni = ({ tot, lav }) => `${tot} ${tot === 1 ? 'giorno' : 'giorni'}${lav !== tot ? ` (${lav} lavorativ${lav === 1 ? 'o' : 'i'})` : ''}`;
+// "oggi, 09:29" · "ieri, 20:41" · "6 nov, 14:02"
+function ctrlQuandoBreve(ts) {
+  const g = ctrlGiornoDi(ts), oggi = ctrlOggi();
+  const giorno = g === oggi ? 'oggi' : g === ctrlAddDays(oggi, -1) ? 'ieri'
+    : new Date(ts).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', timeZone: 'Europe/Rome' });
+  return `${giorno}, ${ctrlFmtOra(ts)}`;
+}
+function ctrlSoldi(v, valuta) {
+  if (v == null) return '';
+  try { return Number(v).toLocaleString('it-IT', { style: 'currency', currency: valuta || 'EUR' }); }
+  catch { return `${Number(v).toLocaleString('it-IT', { minimumFractionDigits: 2 })} ${valuta || ''}`; }
+}
+const ctrlDot = (id) => `<i class="ctrl-dot" style="--m:${taskMacro(id)?.color || '#94a3b8'};" aria-hidden="true"></i>`;
+const ctrlKpi = (label, valore, cls = '') => `<div class="ctrl-kpi ${cls}"><b>${valore}</b><span>${label}</span></div>`;
+const ctrlStoreBar = (attivo, conta, totale, label, set) => `
+  <div class="ctrl-macro-bar" role="group" aria-label="Filtra per negozio">
+    ${ctrlFilter(attivo === null, label, totale, null, `${set}(null)`)}
+    ${TASK_MACROAREE.map(m => ctrlFilter(attivo === m.id, m.label, conta(m.id), m.color, `${set}('${m.id}')`)).join('')}
+  </div>`;
+
+// ── Shopify: ordini da evadere, divisi per negozio ──
 
 function setOrdersStore(id) { ShopLinks.negozio = id; refreshControlPage(); }
 
+const ORD_COLONNE = `<div class="ctrl-thead ctrl-ord" aria-hidden="true"><span>Ordine</span><span>Cliente</span><span>Articoli</span><span class="is-num">Totale</span><span></span></div>`;
+const ORD_ARTICOLI_MAX = 4;
+
+function renderOrderRow(o, conNegozio = true) {
+  const track = (o.tracking || []).find(t => t.numero || t.url);
+  const righe = o.righe || [];
+  const pezzi = righe.reduce((n, r) => n + (Number(r.qnt) || 0), 0);
+  const articolo = (r) => `<li><b>${r.qnt}×</b> ${escapeHtml(r.titolo)}${r.variante ? ` <span>${escapeHtml(r.variante)}</span>` : ''}</li>`;
+  const eta = ctrlGiorniDa(o.creato_at);
+  const pagato = o.stato_pagamento === 'PAID';
+  const evasione = o.annullato_at ? ['Annullato', '#94a3b8']
+    : o.stato_evasione === 'FULFILLED' ? ['Evaso', '#16a34a']
+    : o.stato_evasione && o.stato_evasione !== 'UNFULFILLED' ? [SHOP_EVASIONE[o.stato_evasione] || o.stato_evasione, '#f59e0b'] : null;
+  return `
+    <article class="ctrl-trow ctrl-ord">
+      <div class="ctrl-cell">
+        <strong class="ctrl-num">${escapeHtml(o.numero)}</strong>
+        ${conNegozio && taskMacro(o.store_id) ? `<small class="ctrl-macro-tag" style="--m:${taskMacro(o.store_id).color};">${ctrlDot(o.store_id)} ${taskMacro(o.store_id).label}</small>` : ''}
+        <small>${ctrlQuandoBreve(o.creato_at)}</small>
+        ${eta.tot >= 2 ? `<small class="ctrl-age">da ${ctrlTestoGiorni(eta)}</small>` : ''}
+      </div>
+      <div class="ctrl-cell">
+        <strong>${escapeHtml(o.cliente || 'Cliente senza nome')}</strong>
+        ${o.email ? `<small>${escapeHtml(o.email)}</small>` : ''}
+        ${o.telefono ? `<small>${escapeHtml(o.telefono)}</small>` : ''}
+      </div>
+      <div class="ctrl-cell">
+        ${righe.length ? `<ul class="ctrl-items">${righe.slice(0, ORD_ARTICOLI_MAX).map(articolo).join('')}</ul>
+          ${righe.length > ORD_ARTICOLI_MAX ? `<details class="ctrl-items-more"><summary>Altri ${righe.length - ORD_ARTICOLI_MAX} articoli</summary>
+            <ul class="ctrl-items">${righe.slice(ORD_ARTICOLI_MAX).map(articolo).join('')}</ul></details>` : ''}
+          ${pezzi > 1 ? `<small>${pezzi} pezzi</small>` : ''}` : '<small>Nessun articolo</small>'}
+      </div>
+      <div class="ctrl-cell is-num">
+        <strong>${ctrlSoldi(o.totale, o.valuta)}</strong>
+        ${pagato ? '<small>Pagato</small>' : `<span class="td-tag" style="--c:#dc2626;">${o.stato_pagamento === 'PENDING' ? 'Da pagare' : escapeHtml(SHOP_PAGAMENTO[o.stato_pagamento] || 'Non pagato')}</span>`}
+        ${evasione ? `<span class="td-tag" style="--c:${evasione[1]};">${escapeHtml(evasione[0])}</span>` : ''}
+      </div>
+      <div class="ctrl-cell ctrl-cell-act">
+        ${track?.url ? `<a class="ctrl-btn" href="${escapeHtml(track.url)}" target="_blank" rel="noopener">${Icons.truck(14)} ${escapeHtml(track.corriere || 'Tracking')}</a>` : ''}
+      </div>
+    </article>`;
+}
+
 function renderControlOrders() {
-  const ordine = (o, conNegozio = true) => {
-    const track = (o.tracking || []).find(t => t.numero || t.url);
-    const righe = (o.righe || []).map(r => `${r.qnt}× ${r.titolo}${r.variante ? ` (${r.variante})` : ''}`).join(' · ');
-    return `
-      <article class="task-row ctrl-order" style="--p:${o.annullato_at ? '#94a3b8' : o.stato_evasione === 'FULFILLED' ? '#22c55e' : '#f59e0b'};">
-        <div class="task-main" style="cursor:default;">
-          <span class="task-title">${escapeHtml(o.numero)} · ${escapeHtml(o.cliente || 'Cliente senza nome')}</span>
-          <span class="task-meta">${[
-            conNegozio && taskMacro(o.store_id) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(o.store_id).color};">${taskMacro(o.store_id).label}</span>` : '',
-            ctrlFmtQuando(o.creato_at),
-            o.totale != null ? `${Number(o.totale).toLocaleString('it-IT', { minimumFractionDigits: 2 })} ${o.valuta || ''}` : '',
-            SHOP_PAGAMENTO[o.stato_pagamento] || o.stato_pagamento || '',
-            o.annullato_at ? '<span class="task-late">Annullato</span>' : (SHOP_EVASIONE[o.stato_evasione] || o.stato_evasione || ''),
-            o.email ? escapeHtml(o.email) : '', o.telefono ? escapeHtml(o.telefono) : '',
-          ].filter(Boolean).join('<span aria-hidden="true"> · </span>')}</span>
-          ${righe ? `<span class="ctrl-row-text">${escapeHtml(righe)}</span>` : ''}
-        </div>
-        ${track?.url ? `<a class="ctrl-btn" href="${escapeHtml(track.url)}" target="_blank" rel="noopener">${Icons.truck(14)} ${escapeHtml(track.corriere || 'Tracking')}</a>` : '<span></span>'}
-      </article>`;
-  };
   return `
     <form class="ctrl-search glass-card" onsubmit="event.preventDefault();searchShopifyOrders(this.q.value)" role="search">
       <label class="sr-only" for="shop-q">Cerca ordine</label>
@@ -1530,93 +1637,136 @@ function renderControlOrders() {
     </form>
     ${ShopLinks.query ? `
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>Ordini trovati</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span></div>
+      <div class="page-card-head"><h2>Ordini trovati</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span>
+        <span class="ctrl-group-hint">Per «${escapeHtml(ShopLinks.query)}», in tutti i negozi, anche evasi</span></div>
       ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
-        : ShopLinks.ordini.length ? `<div class="task-list">${ShopLinks.ordini.map(o => ordine(o)).join('')}</div>`
+        : ShopLinks.ordini.length ? `<div class="ctrl-table">${ORD_COLONNE}${ShopLinks.ordini.map(o => renderOrderRow(o)).join('')}</div>`
         : `<div class="empty-list">Nessun ordine trovato.</div>`}
-    </section>` : renderOrdersIncoming(ordine)}`;
+    </section>` : renderOrdersIncoming()}`;
 }
 
-function renderOrdersIncoming(ordine) {
-  const head = (n) => `<div class="page-card-head"><h2>Ordini in arrivo</h2>${n != null ? `<span class="table-count">${n}</span>` : ''}
-    <span class="ctrl-group-hint">Da evadere, aggiornati ogni 5 minuti</span></div>`;
+function renderOrdersIncoming() {
+  const head = (n) => `<div class="page-card-head"><h2>Ordini da evadere</h2>${n != null ? `<span class="table-count">${n}</span>` : ''}
+    <span class="ctrl-group-hint">Da Shopify, aggiornati ogni 5 minuti</span></div>`;
   if (ShopLinks.arrivoErrore) return `<section class="glass-card page-card ctrl-group">${head()}<div class="empty-list">Ordini non caricati: ${escapeHtml(ShopLinks.arrivoErrore)}</div></section>`;
   if (!ShopLinks.arrivo) return `<section class="glass-card page-card ctrl-group">${head()}<div class="empty-list">Caricamento…</div></section>`;
   const tutti = ShopLinks.arrivo;
   const conta = (id) => tutti.filter(o => o.store_id === id).length;
-  const chip = (id, label, n, color) => ctrlFilter(ShopLinks.negozio === id, label, n, color, `setOrdersStore(${id ? `'${id}'` : 'null'})`);
+  const vis = ShopLinks.negozio ? tutti.filter(o => o.store_id === ShopLinks.negozio) : tutti;
   const gruppi = TASK_MACROAREE.filter(m => (!ShopLinks.negozio || ShopLinks.negozio === m.id) && conta(m.id));
+
+  const oggi = ctrlOggi();
+  const nOggi = vis.filter(o => ctrlGiornoDi(o.creato_at) === oggi).length;
+  const nIeri = vis.filter(o => ctrlGiornoDi(o.creato_at) === ctrlAddDays(oggi, -1)).length;
+  const nonPagati = vis.filter(o => o.stato_pagamento !== 'PAID').length;
+  const vecchio = vis.reduce((a, o) => !a || o.creato_at < a.creato_at ? o : a, null);
   return `
     <section class="glass-card page-card ctrl-group">
       ${head(tutti.length)}
-      <div class="ctrl-macro-bar" role="group" aria-label="Filtra per negozio">
-        ${chip(null, 'Tutti', tutti.length)}
-        ${TASK_MACROAREE.map(m => chip(m.id, m.label, conta(m.id), m.color)).join('')}
-      </div>
+      ${ctrlStoreBar(ShopLinks.negozio, conta, tutti.length, 'Tutti', 'setOrdersStore')}
+      ${vis.length ? `
+        <div class="ctrl-kpis">
+          ${ctrlKpi('Arrivati oggi', nOggi)}
+          ${ctrlKpi('Ieri', nIeri)}
+          ${ctrlKpi('Da prima', vis.length - nOggi - nIeri)}
+          ${ctrlKpi('Non pagati', nonPagati, nonPagati ? 'is-alert' : '')}
+          ${vecchio ? ctrlKpi(`Il più vecchio: ${escapeHtml(vecchio.numero)}`, `${ctrlGiorniDa(vecchio.creato_at).lav} <small>gg lavorativi</small>`) : ''}
+        </div>` : ''}
       ${gruppi.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${gruppi.map(m => `
         <div class="ctrl-store-head" style="--m:${m.color};"><i aria-hidden="true"></i>${m.label}<b>${conta(m.id)}</b></div>
-        <div class="task-list">${tutti.filter(o => o.store_id === m.id).map(o => ordine(o, false)).join('')}</div>`).join('')}</div>`
-        : `<div class="empty-list">Nessun ordine in arrivo.</div>`}
+        <div class="ctrl-table">${ORD_COLONNE}${tutti.filter(o => o.store_id === m.id).map(o => renderOrderRow(o, false)).join('')}</div>`).join('')}</div>`
+        : `<div class="empty-list">Nessun ordine da evadere.</div>`}
     </section>`;
 }
 
-// ── GLS: spedizioni con ritardi e problemi ──
+// ── GLS: spedizioni con problemi e ritardi, raggruppate per problema ──
 
 function setGlsStore(id) { ShopLinks.negozioGls = id; refreshControlPage(); }
 
 const glsUrl = (numero) => `https://www.gls-italy.com/?option=com_gls&view=track_e_trace&mode=search&diretto=yes&numsped=${encodeURIComponent(numero.slice(2))}&locpartenza=${encodeURIComponent(numero.slice(0, 2))}`;
 
+function renderGlsRow(c, { ritardo = false, conFare = true } = {}) {
+  const giorni = (c.giorni_testo || '').match(/^(\d+\s+\S+)\s*\((.+)\)$/);
+  const tel = c.telefono ? String(c.telefono).replace(/[^\d+]/g, '') : '';
+  return `
+    <article class="ctrl-trow ctrl-gls">
+      <div class="ctrl-cell">
+        <strong><span class="ctrl-num">${escapeHtml(c.ordine || '')}</span> · ${escapeHtml(c.cliente || 'Cliente senza nome')}</strong>
+        <small class="ctrl-macro-tag" style="--m:${taskMacro(c.store_id)?.color || '#94a3b8'};">${ctrlDot(c.store_id)} ${escapeHtml(shopNome(c.store_id))}${c.citta ? ` <span>· ${escapeHtml(c.citta)}</span>` : ''}</small>
+      </div>
+      <div class="ctrl-cell">
+        ${ritardo && c.problema ? `<strong>${escapeHtml(c.problema)}</strong>` : ''}
+        ${c.ultimo_evento ? `<span>${escapeHtml(c.ultimo_evento)}</span>` : ''}
+        ${c.ultimo_at ? `<small>Ultimo aggiornamento GLS: ${ctrlQuandoBreve(c.ultimo_at)}</small>` : ''}
+        ${conFare && c.fare ? `<span class="ctrl-fare"><strong>Da fare:</strong> ${escapeHtml(c.fare)}</span>` : ''}
+      </div>
+      <div class="ctrl-cell">
+        ${giorni ? `<strong>${escapeHtml(giorni[1])}</strong><small>${escapeHtml(giorni[2])}</small>` : c.giorni_testo ? `<strong>${escapeHtml(c.giorni_testo)}</strong>` : '<small>—</small>'}
+      </div>
+      <div class="ctrl-cell">
+        ${tel ? `<a class="ctrl-link" href="tel:${escapeHtml(tel)}">${escapeHtml(c.telefono)}</a>` : ''}
+        ${c.email ? `<a class="ctrl-link" href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>` : ''}
+        ${!tel && !c.email ? '<small>Nessun contatto</small>' : ''}
+      </div>
+      <div class="ctrl-cell ctrl-cell-act">
+        ${c.task_id && Ctrl.get(c.task_id) ? `<button class="ctrl-btn is-primary" type="button" onclick="openTaskDetail('${c.task_id}')">Apri task</button>` : ''}
+        <a class="ctrl-btn" href="${escapeHtml(glsUrl(c.numero))}" target="_blank" rel="noopener" title="Tracking GLS">${Icons.truck(14)} ${escapeHtml(c.numero)}</a>
+      </div>
+    </article>`;
+}
+
 function renderControlGls() {
   const head = (n) => `<div class="page-card-head"><h2>Spedizioni da seguire</h2>${n != null ? `<span class="table-count">${n}</span>` : ''}
-    <span class="ctrl-group-hint">Dallo storico del tracking GLS, controllato ogni ora dalle 7 alle 17</span></div>`;
+    <span class="ctrl-group-hint">Tracking GLS controllato ogni ora, dalle 7 alle 17</span></div>`;
   if (ShopLinks.consegneErrore) return `<section class="glass-card page-card ctrl-group">${head()}<div class="empty-list">Spedizioni non caricate: ${escapeHtml(ShopLinks.consegneErrore)}</div></section>`;
   if (!ShopLinks.consegne) return `<section class="glass-card page-card ctrl-group">${head()}<div class="empty-list">Caricamento…</div></section>`;
 
   const tutte = ShopLinks.consegne;
   const list = ShopLinks.negozioGls ? tutte.filter(c => c.store_id === ShopLinks.negozioGls) : tutte;
-  const chip = (id, label, n, color) => ctrlFilter(ShopLinks.negozioGls === id, label, n, color, `setGlsStore(${id ? `'${id}'` : 'null'})`);
-  const sep = '<span aria-hidden="true"> · </span>';
-  const riga = (c) => `
-    <article class="task-row ctrl-order" style="--p:${c.stato === 'problema' ? '#ef4444' : '#f59e0b'};">
-      <div class="task-main" style="cursor:default;">
-        <span class="task-title">${escapeHtml(c.problema || '')}</span>
-        <span class="task-meta">${[
-          `<span class="ctrl-macro-tag" style="--m:${taskMacro(c.store_id)?.color || '#94a3b8'};">${escapeHtml(shopNome(c.store_id))}</span>`,
-          `${escapeHtml(c.ordine || '')} ${escapeHtml(c.cliente || '')}`,
-          c.citta ? escapeHtml(c.citta) : '',
-          c.giorni_testo ? `spedita da ${escapeHtml(c.giorni_testo)}` : '',
-          escapeHtml(c.numero),
-        ].filter(Boolean).join(sep)}</span>
-        ${c.ultimo_evento ? `<span class="ctrl-row-text">${escapeHtml(c.ultimo_evento)}${c.ultimo_at ? ` (${ctrlFmtQuando(c.ultimo_at)})` : ''}</span>` : ''}
-        ${c.fare ? `<span class="ctrl-row-text"><strong>Da fare:</strong> ${escapeHtml(c.fare)}</span>` : ''}
-        ${c.email || c.telefono ? `<span class="task-meta">${[c.telefono, c.email].filter(Boolean).map(escapeHtml).join(sep)}</span>` : ''}
+  const problemi = list.filter(c => c.stato === 'problema');
+  const ritardi = list.filter(c => c.stato === 'ritardo');
+
+  // I problemi uguali stanno insieme: titolo e "da fare" si scrivono una volta sola
+  const tipi = new Map();
+  problemi.forEach(c => { const k = c.problema || 'Altro problema'; tipi.set(k, [...(tipi.get(k) || []), c]); });
+  const gruppiProblemi = [...tipi.entries()].sort((a, b) => b[1].length - a[1].length);
+  const colonne = `<div class="ctrl-thead ctrl-gls" aria-hidden="true"><span>Ordine e cliente</span><span>Situazione</span><span>Spedita da</span><span>Contatti</span><span></span></div>`;
+  const gruppo = (titolo, righe, colore, ritardo = false) => {
+    const fare = [...new Set(righe.map(c => c.fare).filter(Boolean))];
+    const fareUnico = !ritardo && fare.length === 1 && righe.every(c => c.fare) ? fare[0] : null;
+    return `
+      <div class="ctrl-ghead" style="--g:${colore};">
+        <h3>${escapeHtml(titolo)}</h3><b>${righe.length}</b>
+        ${fareUnico ? `<p><strong>Da fare:</strong> ${escapeHtml(fareUnico)}</p>` : ''}
       </div>
-      <div class="ctrl-row-actions">
-        ${c.task_id && Ctrl.get(c.task_id) ? `<button class="ctrl-btn" type="button" onclick="openTaskDetail('${c.task_id}')">Apri task</button>` : ''}
-        <a class="ctrl-btn" href="${escapeHtml(glsUrl(c.numero))}" target="_blank" rel="noopener">${Icons.truck(14)} GLS</a>
-      </div>
-    </article>`;
-  const gruppo = (titolo, righe) => righe.length ? `<div class="ctrl-sub">${titolo} (${righe.length})</div><div class="task-list">${righe.map(riga).join('')}</div>` : '';
+      <div class="ctrl-table">${colonne}${righe.map(c => renderGlsRow(c, { ritardo, conFare: !fareUnico })).join('')}</div>`;
+  };
+  const conTask = list.filter(c => c.task_id).length;
   return `
     <section class="glass-card page-card ctrl-group">
       ${head(tutte.length)}
-      <div class="ctrl-macro-bar" role="group" aria-label="Filtra per negozio">
-        ${chip(null, 'Tutti', tutte.length)}
-        ${TASK_MACROAREE.map(m => chip(m.id, m.label, tutte.filter(c => c.store_id === m.id).length, m.color)).join('')}
-      </div>
-      ${list.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">
-        ${gruppo('Problemi', list.filter(c => c.stato === 'problema'))}
-        ${gruppo('Ritardi', list.filter(c => c.stato === 'ritardo'))}
-      </div>` : `<div class="empty-list">Nessuna spedizione con ritardi o problemi.</div>`}
+      ${ctrlStoreBar(ShopLinks.negozioGls, (id) => tutte.filter(c => c.store_id === id).length, tutte.length, 'Tutti', 'setGlsStore')}
+      ${list.length ? `
+        <div class="ctrl-kpis">
+          ${ctrlKpi('Problemi', problemi.length, problemi.length ? 'is-alert' : '')}
+          ${ctrlKpi('Ritardi', ritardi.length, ritardi.length ? 'is-warn' : '')}
+          ${ctrlKpi('Con un task aperto', conTask)}
+          ${ctrlKpi('Senza task', list.length - conTask)}
+        </div>
+        <div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">
+          ${gruppiProblemi.map(([titolo, righe]) => gruppo(titolo, righe, '#ef4444')).join('')}
+          ${ritardi.length ? gruppo('Ritardi', ritardi, '#f59e0b', true) : ''}
+        </div>` : `<div class="empty-list">Nessuna spedizione con ritardi o problemi.</div>`}
     </section>`;
 }
 
 // ── Comunicazioni: mail, WhatsApp, social ──
 
-const CtrlComms = { canale: 'mail', macroarea: null };
+const CtrlComms = { canale: 'mail', macroarea: null, esito: null };
 
 function setCommsChannel(id) { CtrlComms.canale = id; refreshControlPage(); }
 function setCommsMacro(id) { CtrlComms.macroarea = id; refreshControlPage(); }
+function setCommsEsito(id) { CtrlComms.esito = id; refreshControlPage(); }
 
 function renderControlComms() {
   const canali = [['mail', 'Mail'], ['whatsapp', 'WhatsApp'], ['social', 'Social']];
@@ -1629,27 +1779,69 @@ function renderControlComms() {
     ${CtrlComms.canale === 'mail' ? renderCommsMail() : renderCommsPending(CtrlComms.canale)}`;
 }
 
+// Cosa ne ha fatto il cervello: task aperto, gestita, scartata, ancora da leggere
+const MAIL_ESITI = {
+  aperta:   { label: 'Task aperto',  color: '#f59e0b' },
+  gestita:  { label: 'Gestita',      color: '#16a34a' },
+  scartata: { label: 'Scartata',     color: '#94a3b8' },
+  attesa:   { label: 'Da analizzare', color: '#6366f1' },
+};
+function mailEsito(m) {
+  const e = ShopLinks.mailEsiti?.[m.id];
+  if (!e) return null;
+  if (!e.elaborato_at) return { id: 'attesa' };
+  if (e.task) return { id: ['completato', 'non_completato'].includes(e.task.stato) ? 'gestita' : 'aperta', task: e.task };
+  if (e.task_id) return { id: 'gestita' };   // task eliminato
+  return { id: 'scartata', motivo: (e.esito || '').replace(/^Scartata[^:]*:\s*/, ''), evento: e.id };
+}
+
+function renderMailRow(m) {
+  const es = mailEsito(m), def = es && MAIL_ESITI[es.id];
+  const anteprima = (m.testo || '').replace(/\s+/g, ' ').trim();
+  return `
+    <article class="ctrl-trow ctrl-mailrow">
+      <div class="ctrl-cell"><strong class="ctrl-num">${ctrlFmtOra(m.ricevuto_at)}</strong></div>
+      <div class="ctrl-cell">
+        <strong>${escapeHtml(m.da_nome || m.da_email || 'Mittente sconosciuto')}</strong>
+        ${m.da_nome && m.da_email ? `<small>${escapeHtml(m.da_email)}</small>` : ''}
+        <small class="ctrl-macro-tag" style="--m:${taskMacro(m.casella_id)?.color || '#6366f1'};">${ctrlDot(m.casella_id)} ${escapeHtml(shopNome(m.casella_id))}</small>
+      </div>
+      <div class="ctrl-cell">
+        <strong>${escapeHtml(m.oggetto || '(senza oggetto)')}${(m.allegati || []).length ? ` <span class="ctrl-clip" title="${m.allegati.length} allegati">${Icons.paperclip(12)} ${m.allegati.length}</span>` : ''}</strong>
+        ${anteprima ? `<span class="ctrl-preview-text">${escapeHtml(anteprima.slice(0, 300))}</span>` : ''}
+      </div>
+      <div class="ctrl-cell ctrl-cell-act">
+        ${def ? `<span class="td-tag" style="--c:${def.color};" ${es.motivo ? `title="${escapeHtml(es.motivo)}"` : ''}>${def.label}</span>` : ''}
+        ${es?.task ? `<small>${es.task.assegnato_a ? `a ${escapeHtml(es.task.assegnato_a)}` : 'in coda comune'}</small>` : ''}
+        ${es?.motivo ? `<small class="ctrl-why">${escapeHtml(es.motivo)}</small>` : ''}
+        ${es?.task && Ctrl.get(es.task.id) ? `<button class="ctrl-btn" type="button" onclick="openTaskDetail('${es.task.id}')">Apri task</button>` : ''}
+        ${es?.evento ? `<button class="ctrl-btn" type="button" onclick="recoverDiscarded('${es.evento}')">Recupera</button>` : ''}
+      </div>
+    </article>`;
+}
+
 function renderCommsMail() {
   const tutte = ShopLinks.mail || [];
-  const list = CtrlComms.macroarea ? tutte.filter(m => m.casella_id === CtrlComms.macroarea) : tutte;
-  const chip = (id, label, n, color) => ctrlFilter(CtrlComms.macroarea === id, label, n, color, `setCommsMacro(${id ? `'${id}'` : 'null'})`);
-  const riga = (m) => `
-    <article class="task-row ctrl-order" style="--p:${taskMacro(m.casella_id)?.color || '#6366f1'};">
-      <div class="task-main" style="cursor:default;">
-        <span class="task-title">${escapeHtml(m.oggetto || '(senza oggetto)')}</span>
-        <span class="task-meta"><span class="ctrl-macro-tag" style="--m:${taskMacro(m.casella_id)?.color || '#6366f1'};">${escapeHtml(shopNome(m.casella_id))}</span><span aria-hidden="true"> · </span>${escapeHtml(m.da_nome || m.da_email || '')}<span aria-hidden="true"> · </span>${ctrlFmtQuando(m.ricevuto_at)}${(m.allegati || []).length ? `<span aria-hidden="true"> · </span>${Icons.paperclip(12)} ${m.allegati.length}` : ''}</span>
-        ${m.testo ? `<span class="ctrl-row-text">${escapeHtml(m.testo.slice(0, 220))}${m.testo.length > 220 ? '…' : ''}</span>` : ''}
-      </div>
-      <span></span>
-    </article>`;
+  const delNegozio = CtrlComms.macroarea ? tutte.filter(m => m.casella_id === CtrlComms.macroarea) : tutte;
+  const conEsito = (id) => delNegozio.filter(m => mailEsito(m)?.id === id);
+  const list = CtrlComms.esito ? conEsito(CtrlComms.esito) : delNegozio;
+  const esitoChip = (id, label, n, color = null) => ctrlFilter(CtrlComms.esito === id, label, n, color, `setCommsEsito(${id ? `'${id}'` : 'null'})`);
+  // Divise per giorno, dalla più recente
+  const giorni = new Map();
+  list.forEach(m => { const g = ctrlGiornoDi(m.ricevuto_at); giorni.set(g, [...(giorni.get(g) || []), m]); });
   return `
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>Ultime mail dai clienti</h2><span class="table-count">${list.length}</span></div>
-      <div class="ctrl-macro-bar" role="group" aria-label="Filtra per negozio">
-        ${chip(null, 'Tutte', tutte.length)}
-        ${TASK_MACROAREE.map(m => chip(m.id, m.label, tutte.filter(x => x.casella_id === m.id).length, m.color)).join('')}
+      <div class="page-card-head"><h2>Mail dai clienti</h2><span class="table-count">${tutte.length}</span>
+        <span class="ctrl-group-hint">Le ultime 50, senza le mail automatiche</span></div>
+      ${ctrlStoreBar(CtrlComms.macroarea, (id) => tutte.filter(x => x.casella_id === id).length, tutte.length, 'Tutte', 'setCommsMacro')}
+      <div class="ctrl-macro-bar ctrl-esiti" role="group" aria-label="Filtra per esito">
+        ${esitoChip(null, 'Tutti gli esiti', delNegozio.length)}
+        ${Object.entries(MAIL_ESITI).map(([id, e]) => esitoChip(id, e.label, conEsito(id).length, e.color)).join('')}
       </div>
-      ${list.length ? `<div class="task-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${list.map(riga).join('')}</div>` : `<div class="empty-list">Nessuna mail.</div>`}
+      ${list.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${[...giorni.entries()].map(([g, righe]) => `
+        <div class="ctrl-sub">${ctrlFmtGiorno(g)} · ${righe.length}</div>
+        <div class="ctrl-table">${righe.map(renderMailRow).join('')}</div>`).join('')}</div>`
+        : `<div class="empty-list">Nessuna mail.</div>`}
     </section>`;
 }
 
