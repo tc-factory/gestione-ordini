@@ -9,8 +9,9 @@
 // Si usa il conto che trova la spedizione (spedizioni_tracking.cliente_gls); se non si sa, si
 // prova prima quello del negozio e poi l'altro ("Spedizione non trovata" non tocca nessun pacco).
 //
-// Fase di prova fino a venerdì 13/11/2026: parte solo con il clic. Va pubblicata con
-// --no-verify-jwt: il controllo di chi chiama lo fa lei.
+// Fase di prova fino a venerdì 13/11/2026: parte con il clic di una persona, oppure come
+// automazione di claude (x-sync-key, chiamata dal database) sui task che l'utente gli affida.
+// Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { inviaRisposta } from '../_shared/mail.ts';
@@ -30,7 +31,7 @@ const TIPI: Record<string, { tipo: number; label: string }> = {
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-sync-key',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 const reply = (body: unknown, status = 200) =>
@@ -102,16 +103,22 @@ Deno.serve(async (req) => {
   const url = Deno.env.get('SUPABASE_URL')!;
   const db = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
   const auth = req.headers.get('Authorization') || '';
-  const { data: caller } = await db.auth.getUser(auth.replace(/^Bearer\s+/i, ''));
-  if (!caller?.user) return fail('Accesso richiesto', 401);
-  const { data: me } = await db.from('app_users').select('nickname, is_admin').eq('auth_id', caller.user.id).maybeSingle();
-  if (!me) return fail('Accesso riservato allo staff', 403);
+  const syncKey = Deno.env.get('SHOPIFY_SYNC_KEY');
+  const automazione = !!syncKey && req.headers.get('x-sync-key') === syncKey;   // claude, dal database
+  let me: Row | null = automazione ? { nickname: 'claude', is_admin: true } : null;
+  if (!me) {
+    const { data: caller } = await db.auth.getUser(auth.replace(/^Bearer\s+/i, ''));
+    if (!caller?.user) return fail('Accesso richiesto', 401);
+    const { data: u } = await db.from('app_users').select('nickname, is_admin').eq('auth_id', caller.user.id).maybeSingle();
+    if (!u) return fail('Accesso riservato allo staff', 403);
+    me = u;
+  }
 
   let body: Row;
   try { body = await req.json(); } catch { return fail('Richiesta non valida'); }
   const { data: task } = await db.from('tasks').select('id, assegnato_a, mail_id, analisi, risposta_inviata_at').eq('id', body.task_id || '').maybeSingle();
   if (!task) return fail('Task non trovato', 404);
-  if (!me.is_admin && task.assegnato_a && task.assegnato_a !== me.nickname) return fail(`Il task è assegnato a ${task.assegnato_a}`, 403);
+  if (!me!.is_admin && task.assegnato_a && task.assegnato_a !== me!.nickname) return fail(`Il task è assegnato a ${task.assegnato_a}`, 403);
   const sv = task.analisi?.svincolo;
   if (!sv?.tracking) return fail('Questo task non ha istruzioni per GLS');
   if (sv.stato === 'inviato') return fail('Le istruzioni sono già state mandate a GLS');
@@ -146,7 +153,7 @@ Deno.serve(async (req) => {
   }
   const registro = (stato: string, output: string) => db.from('automazione_esecuzioni').insert({
     nome: 'svincolo-gls', stato, fine: new Date().toISOString(),
-    riepilogo: { ordine: sv.ordine, tracking: sv.tracking, tipo: label, da: me.nickname },
+    riepilogo: { ordine: sv.ordine, tracking: sv.tracking, tipo: label, da: me!.nickname },
     output: `${sv.ordine} · ${sv.tracking} · ${label} · conto ${conto} · ${output}`.slice(0, 2000),
   });
 
@@ -158,7 +165,7 @@ Deno.serve(async (req) => {
 
   const inviato = {
     ...sv, ...dati, scelta, stato: 'inviato', cliente_gls: conto, tipo_label: label,
-    inviato_at: new Date().toISOString(), inviato_da: me.nickname, errore: null,
+    inviato_at: new Date().toISOString(), inviato_da: me!.nickname, errore: null,
   };
   await db.from('tasks').update({ analisi: { ...task.analisi, svincolo: inviato } }).eq('id', task.id);
   await registro('ok', 'OK');
@@ -183,9 +190,13 @@ Deno.serve(async (req) => {
   }
   if (conferma !== 'non richiesta' && conferma.startsWith('non inviata')) return reply({ success: true, conferma, completato: false });
 
-  const utente = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, {
-    auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: auth } },
-  });
-  await utente.rpc('tc_task_stato', { p_id: task.id, p_stato: 'completato' });
+  if (automazione) {
+    await db.from('tasks').update({ stato: 'completato', assegnato_a: 'claude' }).eq('id', task.id);
+  } else {
+    const utente = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, {
+      auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: auth } },
+    });
+    await utente.rpc('tc_task_stato', { p_id: task.id, p_stato: 'completato' });
+  }
   return reply({ success: true, conferma, completato: true });
 });
