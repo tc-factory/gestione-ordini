@@ -18,6 +18,7 @@ import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { inviaRisposta } from '../_shared/mail.ts';
 import { applicaIndirizzi, indirizzoDaMail } from './indirizzi.ts';
+import { numeriNostri, primoCellulare } from '../_shared/telefoni.ts';
 
 const PER_GIRO = 6;              // mail per giro, elaborate in parallelo
 const MAX_TENTATIVI = 3;         // poi la mail diventa comunque un task, senza bozza
@@ -127,7 +128,7 @@ Campi:
   9. il cliente chiede un rimborso, anche parziale: i rimborsi li gestisce sempre una persona.
   Scrivi il caso in una frase concreta. Tutto il resto va in "note".
 - chiede_rimborso: true se il cliente chiede un rimborso o la restituzione di soldi, anche parziale o insieme ad altro.
-- memoria: i dati utili per le prossime mail che il CLIENTE scrive in questa mail o nelle sue mail precedenti citate sotto (non quelli scritti da noi, non quelli già presenti in "Cosa sappiamo già del cliente" se uguali): telefono (solo cifre e +), campanello (nome sul campanello o presso chi consegnare), via/cap/citta/provincia (indirizzo di consegna che il cliente indica come giusto, copiato senza completarlo), note (al massimo 3 frasi brevi in italiano su fatti utili in futuro: orari in cui è a casa, interno, preferenze, cosa ha già chiesto o ricevuto). Campi "" e note [] se non ci sono.
+- memoria: i dati utili per le prossime mail che il CLIENTE scrive (mai i nostri: le firme del negozio con telefono e indirizzo sono nostre) in questa mail o nelle sue mail precedenti citate sotto (non quelli scritti da noi, non quelli già presenti in "Cosa sappiamo già del cliente" se uguali): telefono (solo cifre e +), campanello (nome sul campanello o presso chi consegnare), via/cap/citta/provincia (indirizzo di consegna che il cliente indica come giusto, copiato senza completarlo), note (al massimo 3 frasi brevi in italiano su fatti utili in futuro: orari in cui è a casa, interno, preferenze, cosa ha già chiesto o ricevuto). Campi "" e note [] se non ci sono.
 - note: in italiano, consigli per l'operatore che non bloccano l'invio (cosa fare dopo, cosa tenere d'occhio); "" se non servono.
 - svincolo: compilalo solo se un ordine verificato ha la spedizione con problema "Giacenza in deposito GLS" o "Indirizzo errato" e il cliente dice come vuole riceverlo; altrimenti scelta "nessuna" e tutti gli altri campi "".
   scelta: "riconsegna_preavviso" per una nuova consegna allo stesso indirizzo con telefonata del corriere (l'opzione 1 della nostra mail), "riconsegna" se chiede la riconsegna e dice esplicitamente che non serve la telefonata, "altro_indirizzo" se dà un indirizzo diverso o corretto (opzione 2), "ritiro_sede" se passa a ritirarlo alla sede GLS (opzione 3), "reso_mittente" se vuole che il pacco torni indietro.
@@ -312,7 +313,7 @@ async function ricorda(db: SupabaseClient, email: string, mail: Row, prima: Row 
   return riga;
 }
 
-function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string, testi: unknown[] = [], memoria: Row | null = null) {
+function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string, dalleMail = '', memoria: Row | null = null) {
   const s = a.svincolo;
   if (!s || s.scelta === 'nessuna' || !SCELTE_SVINCOLO.includes(s.scelta)) return {};
   const suoi = ordini.filter(o => (o.email || '').toLowerCase() === mittente);
@@ -320,7 +321,6 @@ function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string,
   if (!ferma) return {};
   const ordine = suoi.find(o => o.id === ferma.ordine_id)!;
   // Telefono: scritto ora, nell'ordine, oppure in una mail precedente del cliente
-  const dalleMail = testi.map(t => String(t || '').match(/(?<![\d])(?:\+39[\s.]?)?3\d{2}[\s.]?\d{3}[\s.]?\d{3,4}(?!\d)/)?.[0]).find(Boolean);
   const tel = String(s.telefono || memoria?.telefono || ordine.telefono || dalleMail || '').replace(/[^\d+]/g, '');
   // Altro indirizzo: se la mail non lo ripete, quello che il cliente ci ha già indicato
   const mi = s.scelta === 'altro_indirizzo' && !s.via && memoria?.indirizzo ? memoria.indirizzo : null;
@@ -407,6 +407,9 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       return { evento: evento.id, esito: 'scartata', categoria: a.categoria };
     }
 
+    // I nostri numeri (firme) non sono mai il telefono del cliente
+    const nostri = await numeriNostri(db);
+    if (a.memoria?.telefono && nostri.has(String(a.memoria.telefono).replace(/\D/g, '').replace(/^39(?=3)/, ''))) a.memoria.telefono = '';
     const ricordo = mittente ? await ricorda(db, mittente, mail, memoria, a.memoria) : memoria;
 
     const riferimenti = ordini.map(o => ({ negozio: o.store_id, numero: o.numero, verificato: (o.email || '').toLowerCase() === mittente, ...(o.trovato_con ? { trovato_con: o.trovato_con } : {}) }));
@@ -420,7 +423,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
         categoria: a.categoria, modifica: a.modifica, lingua: a.lingua, dubbi: a.dubbi, note: a.note, ordini: riferimenti,
         ...(a.chiede_rimborso ? { rimborso: true } : {}),
         ...indirizzoDaMail(a, mail, mittente, ordini),
-        ...svincoloDaMail(a, ordini, fermate, mittente, [mail.testo, mail.testo_citato, ...(precedenti || []).map(p => p.testo)], ricordo),
+        ...svincoloDaMail(a, ordini, fermate, mittente, primoCellulare([mail.testo, mail.testo_citato, ...(precedenti || []).map(p => p.testo)], nostri), ricordo),
         ...(ricordo ? { memoria: { telefono: ricordo.telefono, campanello: ricordo.campanello, indirizzo: ricordo.indirizzo, note: (ricordo.note || []).slice(-5) } } : {}),
       },
     });

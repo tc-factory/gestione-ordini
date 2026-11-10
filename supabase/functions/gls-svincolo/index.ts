@@ -15,6 +15,7 @@
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { inviaRisposta } from '../_shared/mail.ts';
+import { numeriNostri, primoCellulare } from '../_shared/telefoni.ts';
 
 const CONTI: Record<string, string> = { '2067': 'GLS_TCFACTORY', '5456': 'GLS_BIENJUGADO' };
 const CONTO_NEGOZIO: Record<string, string> = { bienjugado: '5456' };
@@ -74,10 +75,8 @@ async function trovaTelefono(db: SupabaseClient, sv: Row, mailId: string | null)
       .order('ricevuto_at', { ascending: false }).limit(20);
     // Prima quello che ha scritto il cliente, poi le mail precedenti citate nelle sue risposte
     const testi = [...(mail || []).map(m => m.testo), ...(mail || []).map(m => m.testo_citato)];
-    for (const testo of testi) {
-      const t = String(testo || '').match(/(?<![\d])(?:\+39[\s.]?)?3\d{2}[\s.]?\d{3}[\s.]?\d{3,4}(?!\d)/);
-      if (t) return cifre(t[0]);
-    }
+    const trovato = primoCellulare(testi, await numeriNostri(db));
+    if (trovato) return trovato;
   }
   return '';
 }
