@@ -41,6 +41,35 @@ const fail = (error: string, status = 400) => reply({ success: false, error }, s
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
 
+// Giacenza ripetuta: almeno due giorni con consegna fallita o giacenza, oppure già svincolata una volta.
+// In quel caso il corriere telefona sempre prima di passare (regola dell'utente, 2026-11-10).
+const FALLITA = ['1', '7', '66', '68'];
+async function giacenzaRipetuta(db: SupabaseClient, tracking: string) {
+  const [{ data: sp }, { count }] = await Promise.all([
+    db.from('spedizioni_tracking').select('eventi').eq('numero', tracking).maybeSingle(),
+    db.from('automazione_esecuzioni').select('id', { count: 'exact', head: true }).eq('nome', 'svincolo-gls').eq('stato', 'ok').eq('riepilogo->>tracking', tracking),
+  ]);
+  const giorni = new Set((sp?.eventi || []).filter((e: Row) => FALLITA.includes(String(e.codice))).map((e: Row) => String(e.at).slice(0, 10)));
+  return giorni.size >= 2 || (count ?? 0) > 0;
+}
+
+// Il telefono del cliente, se lo abbiamo da qualche parte: ordine, altri suoi ordini, mail del task
+async function trovaTelefono(db: SupabaseClient, sv: Row, mailId: string | null) {
+  const cifre = (t: unknown) => String(t || '').replace(/[^\d+]/g, '');
+  const { data: ordine } = await db.from('shopify_orders').select('telefono, email').eq('store_id', sv.negozio).eq('numero', sv.ordine).maybeSingle();
+  if (cifre(ordine?.telefono).length >= 6) return cifre(ordine!.telefono);
+  if (ordine?.email) {
+    const { data: altri } = await db.from('shopify_orders').select('telefono').ilike('email', ordine.email).not('telefono', 'is', null).limit(1);
+    if (cifre(altri?.[0]?.telefono).length >= 6) return cifre(altri![0].telefono);
+  }
+  if (mailId) {
+    const { data: mail } = await db.from('mail_messaggi').select('testo').eq('id', mailId).maybeSingle();
+    const m = String(mail?.testo || '').match(/(?<![\d])(?:\+39\s?)?3\d{2}[\s.]?\d{3}[\s.]?\d{3,4}(?!\d)/);
+    if (m) return cifre(m[0]);
+  }
+  return '';
+}
+
 const xml = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const taglia = (s: unknown, n: number) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
@@ -126,11 +155,16 @@ Deno.serve(async (req) => {
   const scelta = TIPI[body.scelta] ? body.scelta : '';
   if (!scelta) return fail('Scegli cosa fare del pacco');
   const { tipo, label } = TIPI[scelta];
-  const telefono = String(body.telefono || '').replace(/[^\d+]/g, '').slice(0, 15);
-  const preavviso = scelta === 'riconsegna_preavviso';
-  if (preavviso && telefono.replace(/\D/g, '').length < 6) return fail('Per la telefonata del corriere serve il numero del cliente');
+  // Telefono sempre, se lo abbiamo; preavviso se richiesto o se la giacenza si è ripetuta
+  const telefono = (String(body.telefono || '').replace(/[^\d+]/g, '') || await trovaTelefono(db, sv, task.mail_id)).slice(0, 15);
+  const ripetuta = tipo <= 2 && await giacenzaRipetuta(db, sv.tracking);
+  const haTelefono = telefono.replace(/\D/g, '').length >= 6;
+  const preavviso = tipo <= 2 && (scelta === 'riconsegna_preavviso' || body.preavviso === true || ripetuta) && haTelefono;
+  if ((scelta === 'riconsegna_preavviso' || body.preavviso === true) && !haTelefono) return fail('Per la telefonata del corriere serve il numero del cliente');
   const dati: Row = {
-    tracking: sv.tracking, tipo, preavviso, telefono, note: taglia(body.note, 65),
+    // Senza telefonata del corriere il numero del cliente va comunque nelle note, in testa
+    tracking: sv.tracking, tipo, preavviso, telefono, ripetuta,
+    note: taglia(!preavviso && haTelefono && !String(body.note || '').includes(telefono) ? `Tel ${telefono}. ${body.note || ''}` : body.note, 65),
     nome: taglia(body.nome, 20), via: taglia(body.via, 30), citta: taglia(body.citta, 30),
     cap: taglia(body.cap, 10), provincia: taglia(body.provincia, 2).toUpperCase(),
     data: tipo <= 2 ? await prossimoLavorativo(db) : '',
