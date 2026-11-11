@@ -2260,7 +2260,9 @@ function renderControlGls() {
 
   const tutte = ShopLinks.consegne;
   const list = ShopLinks.negozioGls ? tutte.filter(c => c.store_id === ShopLinks.negozioGls) : tutte;
-  const problemi = list.filter(c => c.stato === 'problema');
+  // Svincolate: istruzioni già mandate a GLS, che mostra ancora la giacenza finché il pacco non riparte
+  const svincolate = list.filter(c => c.stato === 'problema' && c.svincolata);
+  const problemi = list.filter(c => c.stato === 'problema' && !c.svincolata);
   const ritardi = list.filter(c => c.stato === 'ritardo');
 
   // I problemi uguali stanno insieme: titolo e "da fare" si scrivono una volta sola
@@ -2278,7 +2280,7 @@ function renderControlGls() {
       </div>
       <div class="ctrl-table">${colonne}${righe.map(c => renderGlsRow(c, { ritardo, conFare: !fareUnico })).join('')}</div>`;
   };
-  const conTask = list.filter(c => c.task_id).length;
+  const conTask = list.filter(c => c.task_id && !c.svincolata).length;
   return `
     <section class="glass-card page-card ctrl-group">
       ${head(tutte.length)}
@@ -2287,12 +2289,14 @@ function renderControlGls() {
         <div class="ctrl-kpis">
           ${ctrlKpi('Problemi', problemi.length, problemi.length ? 'is-alert' : '')}
           ${ctrlKpi('Ritardi', ritardi.length, ritardi.length ? 'is-warn' : '')}
+          ${svincolate.length ? ctrlKpi('Svincolate', svincolate.length) : ''}
           ${ctrlKpi('Con un task aperto', conTask)}
-          ${ctrlKpi('Senza task', list.length - conTask)}
+          ${ctrlKpi('Senza task', list.length - svincolate.length - conTask)}
         </div>
         <div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">
           ${gruppiProblemi.map(([titolo, righe]) => gruppo(titolo, righe, '#ef4444')).join('')}
           ${ritardi.length ? gruppo('Ritardi', ritardi, '#f59e0b', true) : ''}
+          ${svincolate.length ? gruppo('Svincolate, in attesa che GLS riparta', svincolate.map(c => ({ ...c, task_id: null, ultimo_evento: `Svincolata il ${ctrlQuandoBreve(c.svincolata_at)}${c.svincolo_tipo ? ` · ${c.svincolo_tipo}` : ''}`, fare: 'Niente: GLS mostra la giacenza finché il deposito non rimette in consegna il pacco. Se si ferma di nuovo, il task si riapre da solo.' })), '#64748b') : ''}
         </div>` : `<div class="empty-list">Nessuna spedizione con ritardi o problemi.</div>`}
     </section>`;
 }
