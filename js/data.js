@@ -267,6 +267,22 @@ const TCFactory = {
     const next = Math.max(0, ...this._orders.map(o => this.orderNumber(o.id))) + 1;
     return String(next).padStart(5, '0');
   },
+  // Codice libero per un ordine nuovo: il più alto tra quelli in memoria e quelli nel database.
+  // Gli ordini creati da un collega, da Kamon o dall'app clienti possono non essere ancora arrivati
+  // in tempo reale: contando solo la memoria si riusava un codice già preso e il salvataggio falliva.
+  async _nextFreeId() {
+    let dbMax = 0;
+    const { data } = await supabaseClient.from('orders').select('id')
+      .not('id', 'like', 'ORD-%').order('id', { ascending: false }).limit(1);
+    if (data?.[0]) dbMax = this.orderNumber(data[0].id);
+    const localMax = Math.max(0, ...this._orders.map(o => this.orderNumber(o.id)));
+    return String(Math.max(dbMax, localMax) + 1).padStart(5, '0');
+  },
+  _isDuplicateId(error) { return error?.code === '23505'; },
+  // Solo una colonna mancante (database non aggiornato) giustifica il salvataggio senza le colonne opzionali:
+  // per qualsiasi altro errore si salverebbe l'ordine perdendo modulo d'ordine, importo, cliente…
+  _isMissingColumn(error) { return ['PGRST204', '42703'].includes(error?.code); },
+  _OPTIONAL_COLS: ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module','lavorazione_esterna','client_id'],
 
   emptyStages() {
     return {
@@ -300,12 +316,20 @@ const TCFactory = {
       stages: this.emptyStages(),
       archived: false,
     };
-    let { data: row, error } = await supabaseClient.from('orders').insert(this._toDb(order)).select().single();
-    if (error && error.message) {
+    let row, error, stripCols = false;
+    for (let tentativo = 0; tentativo < 6; tentativo++) {
       const payload = this._toDb(order);
-      // Rimuovi TUTTE le colonne opzionali in un colpo solo
-      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module','lavorazione_esterna','client_id'].forEach(col => delete payload[col]);
+      if (stripCols) this._OPTIONAL_COLS.forEach(col => delete payload[col]);
       ({ data: row, error } = await supabaseClient.from('orders').insert(payload).select().single());
+      if (!error) break;
+      if (this._isDuplicateId(error)) {
+        // Codice già preso: si prende il primo libero dal database e si riprova
+        const preso = this.orderNumber(order.id);
+        const libero = this.orderNumber(await this._nextFreeId());
+        order.id = String(Math.max(libero, preso + 1)).padStart(5, '0');
+      } else if (!stripCols && this._isMissingColumn(error)) {
+        stripCols = true;
+      } else break;
     }
     if (error) throw error;
     const created = this._fromDb(row);
@@ -320,10 +344,10 @@ const TCFactory = {
     if (!current) throw new Error('Ordine non trovato');
     const merged = { ...current, ...patch };
     let { data: row, error } = await supabaseClient.from('orders').update(this._toDb(merged)).eq('id', id).select().single();
-    if (error && error.message) {
+    if (error && this._isMissingColumn(error)) {
       const payload = this._toDb(merged);
-      // Rimuovi TUTTE le colonne opzionali in un colpo solo
-      ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module','lavorazione_esterna','client_id'].forEach(col => delete payload[col]);
+      // Database senza le colonne opzionali: si salva il resto
+      this._OPTIONAL_COLS.forEach(col => delete payload[col]);
       ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
     }
     if (error) throw error;
