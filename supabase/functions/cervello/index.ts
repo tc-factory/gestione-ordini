@@ -116,7 +116,7 @@ Campi:
 - lingua: codice della lingua del cliente (it, es, en…).
 - titolo: cosa deve fare l'operatore, massimo 90 caratteri, in italiano, con il nome del cliente e il numero dell'ordine con # se c'è.
 - riassunto: la richiesta in 1-3 frasi, in italiano, per l'operatore.
-- bozza: la risposta al cliente, nella sua lingua, firmata con il nome del negozio. Testo semplice, senza oggetto. "" se azione è "scarta". Come scriverla è spiegato sotto, in "Tono della bozza".
+- bozza: la risposta al cliente, nella sua lingua, firmata con il nome del negozio. Non nominare mai T&C Factory: per il cliente esiste solo il negozio a cui ha scritto. Testo semplice, senza oggetto. "" se azione è "scarta". Come scriverla è spiegato sotto, in "Tono della bozza".
 - dubbi: in italiano, solo i motivi per cui la bozza NON può partire così com'è; "" se non ce ne sono. È un dubbio solo se vale almeno uno di questi casi:
   1. nessun ordine risulta del mittente (nessuno, oppure solo ordini "non verificato"). Se il mittente ha più ordini e non dice quale, non è un dubbio: rispondi su quelli non ancora consegnati né annullati (sono quelli di cui chiede di solito), citandoli con il numero; se sono tutti consegnati, sul più recente;
   2. la richiesta non è chiara. Se nella mail ci sono più richieste, rispondi a tutte nella stessa bozza: è un dubbio solo se una di esse rientra in un altro di questi casi;
