@@ -280,7 +280,8 @@ Deno.serve(async (req) => {
         ordine_id: o.id, store_id: o.store_id, mancanti: probs.map(p => p[1]), inviata_at: new Date().toISOString(), inviata_da: 'automatica', esito: 'in invio',
       }, { onConflict: 'ordine_id', ignoreDuplicates: true }).select('ordine_id');
       if (!prenotata?.length) continue;
-      const { oggetto, corpo } = testoRichiesta(o, probs);
+      const { data: verifica } = await db.from('ordini_verifiche').select('esito, suggerimento').eq('ordine_id', o.id).maybeSingle();
+      const { oggetto, corpo } = testoRichiesta(o, probs, verifica);
       try {
         await inviaNuova(db, casella, o.email, o.cliente || null, oggetto, `${corpo}\n\n${casella.nome}`);
         await db.from('ordini_richieste_dati').update({ esito: 'inviata' }).eq('ordine_id', o.id);
