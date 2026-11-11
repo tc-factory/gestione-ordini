@@ -54,8 +54,8 @@ Deno.serve(async (req) => {
     global: { headers: { Authorization: auth } },
   });
 
-  if (body.nuova) return mailNuova(db, utente, body.nuova, testo);
-  if (!body.task_id) return rispondiAMail(db, utente, body.mail_id!, testo);
+  if (body.nuova) return mailNuova(db, utente, me.nickname, body.nuova, testo);
+  if (!body.task_id) return rispondiAMail(db, utente, me.nickname, body.mail_id!, testo);
 
   const { data: task } = await db.from('tasks').select('id, assegnato_a, mail_id, risposta_inviata_at, task_tipi(chiude_con_risposta)').eq('id', body.task_id).maybeSingle();
   if (!task) return fail('Task non trovato', 404);
@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
   if (!prenotato?.length) return fail('La risposta è già stata inviata');
 
   try {
-    const { copia_in_inviata } = await inviaRisposta(db, casella, mail, testo);
+    const { copia_in_inviata } = await inviaRisposta(db, casella, mail, testo, { persona: me.nickname });
     await db.from('tasks').update({ bozza_risposta: testo }).eq('id', task.id);
 
     // deno-lint-ignore no-explicit-any
@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
 
 // Risposta dalla sezione Mail
 // deno-lint-ignore no-explicit-any
-async function rispondiAMail(db: any, utente: any, mailId: string, testo: string) {
+async function rispondiAMail(db: any, utente: any, nickname: string, mailId: string, testo: string) {
   const { data: puo } = await utente.rpc('app_vede_scheda', { p_scheda: 'mail' });
   if (puo !== true) return fail('Non hai accesso alle mail', 403);
 
@@ -109,7 +109,7 @@ async function rispondiAMail(db: any, utente: any, mailId: string, testo: string
     .select('id, task_tipi(chiude_con_risposta)');
 
   try {
-    const { copia_in_inviata } = await inviaRisposta(db, casella, mail, testo);
+    const { copia_in_inviata } = await inviaRisposta(db, casella, mail, testo, { persona: nickname });
     let completati = 0;
     for (const t of prenotati || []) {
       await db.from('tasks').update({ bozza_risposta: testo }).eq('id', t.id);
@@ -130,7 +130,7 @@ async function rispondiAMail(db: any, utente: any, mailId: string, testo: string
 
 // Mail nuova dalla sezione Mail
 // deno-lint-ignore no-explicit-any
-async function mailNuova(db: any, utente: any, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string }, testo: string) {
+async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string }, testo: string) {
   const { data: puo } = await utente.rpc('app_vede_scheda', { p_scheda: 'mail' });
   if (puo !== true) return fail('Non hai accesso alle mail', 403);
   const a = (n.a || '').trim().toLowerCase();
@@ -143,7 +143,7 @@ async function mailNuova(db: any, utente: any, n: { casella?: string; a?: string
   const { data: casella } = await db.from('mail_caselle').select('*').eq('id', n.casella || '').eq('attivo', true).maybeSingle();
   if (!casella) return fail('Scegli la casella da cui inviare');
   try {
-    const { copia_in_inviata } = await inviaNuova(db, casella, a, (n.a_nome || '').trim() || null, oggetto, testo);
+    const { copia_in_inviata } = await inviaNuova(db, casella, a, (n.a_nome || '').trim() || null, oggetto, testo, { persona: nickname });
     return reply({ success: true, copia_in_inviata });
   } catch (e) {
     console.error('Mail nuova', e);
