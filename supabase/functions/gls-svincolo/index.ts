@@ -98,6 +98,19 @@ async function prossimoLavorativo(db: SupabaseClient) {
   throw new Error('Nessun giorno lavorativo trovato');
 }
 
+// Dopo lo svincolo GLS mostra ancora "in giacenza" finché il deposito non rimette in consegna il
+// pacco: la spedizione si segna svincolata e il task della giacenza si chiude. Se dopo lo svincolo
+// GLS registra un nuovo problema, tracking-check lo riapre.
+async function segnaSvincolata(db: SupabaseClient, tracking: string, tipo: string, at: string) {
+  const { data: sp } = await db.from('spedizioni_tracking').update({ svincolata_at: at, svincolo_tipo: tipo })
+    .eq('numero', tracking).select('ordine_id');
+  for (const s of sp || []) {
+    const giorno = new Date(at).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit' });
+    await db.from('tasks').update({ stato: 'completato', motivo: `Chiuso da solo: svincolata il ${giorno} (${tipo.toLowerCase()}), si aspetta che GLS riparta` })
+      .eq('fonte_rif->>evento_id', `consegna:${s.ordine_id}`).not('stato', 'in', '(completato,non_completato)');
+  }
+}
+
 function credenziali(cli: string) {
   const p = CONTI[cli];
   const c = p && {
@@ -214,6 +227,7 @@ Deno.serve(async (req) => {
   };
   await db.from('tasks').update({ analisi: { ...task.analisi, svincolo: inviato } }).eq('id', task.id);
   await registro('ok', 'OK');
+  await segnaSvincolata(db, sv.tracking, label, inviato.inviato_at).catch(e => console.error('Spedizione svincolata', sv.tracking, e));
 
   // Conferma al cliente nella stessa conversazione, poi il task è fatto
   let conferma = 'non richiesta';

@@ -282,6 +282,17 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
   }
   if (!esito.problema) return;
 
+  // Svincolata: GLS mostra ancora la giacenza finché il deposito non rimette in consegna il pacco.
+  // Finché non c'è un evento nuovo dopo lo svincolo non c'è niente da fare; se c'è ed è ancora
+  // fermo, il task (chiuso dallo svincolo) si riapre.
+  const svAt = avviso?.svincolata_at ? new Date(avviso.svincolata_at) : null;
+  const ultimoAt = eventi?.[0]?.at ? new Date(eventi[0].at) : null;
+  if (svAt && esito.stato === 'problema' && (!ultimoAt || ultimoAt <= svAt)) {
+    if (aperto) await db.from('tasks').update({ stato: 'completato', motivo: `Chiuso da solo: svincolata il ${fmtGiorno(avviso.svincolata_at)}, si aspetta che GLS riparta` }).eq('id', aperto.id);
+    return;
+  }
+  const diNuovo = !!svAt && !!ultimoAt && ultimoAt > svAt;
+
   const fermo = DA_AVVISARE.has(esito.problema);
   const contatto = fermo ? await statoContatto(db, s) : null;
   let anomalie: string[] = [];
@@ -289,7 +300,7 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
     const { data: ordine } = await db.from('shopify_orders').select('indirizzo').eq('id', s.ordine_id).maybeSingle();
     anomalie = anomalieIndirizzo(dest, ordine?.indirizzo);
   }
-  const prefisso = contatto?.stato === 'chiamare' ? 'CHIAMARE · ' : contatto?.stato === 'risposto' ? 'RISPOSTA ARRIVATA · ' : '';
+  const prefisso = diNuovo ? 'DI NUOVO FERMA · ' : contatto?.stato === 'chiamare' ? 'CHIAMARE · ' : contatto?.stato === 'risposto' ? 'RISPOSTA ARRIVATA · ' : '';
   const titolo = `${prefisso}${esito.problema} · ordine ${s.numero_ordine}${s.cliente ? ` · ${s.cliente}` : ''}`.slice(0, 200);
   const sede = s.tracking.slice(0, 2), sped = s.tracking.slice(2);
   const analisi = {
@@ -305,16 +316,23 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
     ...(avviso?.avviso_cliente_esito === 'inviata' ? { avviso_cliente: { inviata_at: avviso.avviso_cliente_at, a: s.email } } : {}),
   };
   const tel = contatto?.telefono ? ` al ${contatto.telefono}` : ' (nell\'ordine non c\'è il telefono: cercalo o scrivi di nuovo)';
-  const descrizione = !contatto ? (avviso?.avviso_cliente_esito === 'inviata' ? `${esito.fare} Mail al cliente già inviata in automatico: aspetta la sua risposta.` : esito.fare)
+  const descrizione = diNuovo ? `Svincolata il ${fmtGiorno(avviso.svincolata_at)}${avviso.svincolo_tipo ? ` (${String(avviso.svincolo_tipo).toLowerCase()})` : ''}, ma il ${fmtGiorno(eventi![0].at)} GLS l'ha di nuovo fermata: chiama il cliente${contatto?.telefono ? ` al ${contatto.telefono}` : ''} e dai nuove istruzioni a GLS.`
+    : !contatto ? (avviso?.avviso_cliente_esito === 'inviata' ? `${esito.fare} Mail al cliente già inviata in automatico: aspetta la sua risposta.` : esito.fare)
     : contatto.stato === 'chiamare' ? `Chiama il cliente${tel}: gli abbiamo scritto il ${fmtGiorno(contatto.ultima_mail_at!)} (${contatto.mail_n} mail) e non ha risposto. Chiedi come vuole ricevere il pacco${anomalie.length ? ' e conferma l\'indirizzo' : ''}, poi dai le istruzioni a GLS.`
     : contatto.stato === 'risposto' ? `Il cliente ha risposto il ${fmtGiorno(contatto.risposta_at!)}: trovi la sua mail nel task della mail, con le istruzioni per GLS.`
     : contatto.stato === 'in_attesa' ? `Mail inviata il ${fmtGiorno(contatto.ultima_mail_at!)}: aspetta la risposta. Se domani non ha risposto, il task passa a "chiamare".`
     : contatto.stato === 'senza_email' ? `Nell'ordine non c'è l'email: chiama il cliente${tel}.`
     : `Cliente non ancora contattato: scrivigli${anomalie.length ? ' e chiedi conferma dell\'indirizzo' : ''}.`;
-  const priorita = contatto?.stato === 'chiamare' ? 'urgente' : esito.priorita;
+  const priorita = diNuovo || contatto?.stato === 'chiamare' ? 'urgente' : esito.priorita;
   if (aperto) {
     await db.from('tasks').update({ titolo, descrizione, priorita, analisi }).eq('id', aperto.id);
     return;
+  }
+  if (diNuovo) {
+    // Riapre il task chiuso dallo svincolo (la chiave è unica: un secondo task non si può creare)
+    const { data: riaperto } = await db.from('tasks').update({ stato: 'da_fare', motivo: null, titolo, descrizione, priorita, analisi })
+      .eq('fonte_rif->>evento_id', chiave).eq('stato', 'completato').like('motivo', 'Chiuso da solo: svincolata%').select('id');
+    if (riaperto?.length) return;
   }
   const { error } = await db.from('tasks').insert({
     tipo_id: tipoId, titolo, descrizione, analisi, priorita, macroarea: s.store_id, fonte: 'shopify',
@@ -388,7 +406,7 @@ Deno.serve(async (req) => {
     });
     const avvisata = await avvisaCliente(db, s, esito, dest);
     if (avvisata) avvisi.push(avvisata);
-    const { data: avviso } = await db.from('spedizioni_tracking').select('avviso_cliente_at, avviso_cliente_esito').eq('ordine_id', s.ordine_id).maybeSingle();
+    const { data: avviso } = await db.from('spedizioni_tracking').select('avviso_cliente_at, avviso_cliente_esito, svincolata_at, svincolo_tipo').eq('ordine_id', s.ordine_id).maybeSingle();
     await aggiornaTask(db, s, esito, eventi, tipo?.id || null, avviso, dest);
     await chiudiTaskMail(db, s, esito, eventi).catch(e => console.error('Chiusura task mail', s.numero_ordine, e));
     conteggio[esito.stato] = (conteggio[esito.stato] || 0) + 1;
