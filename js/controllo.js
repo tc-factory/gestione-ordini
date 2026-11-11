@@ -1564,6 +1564,7 @@ const ShopLinks = {
   query: '',
   negozio: null,     // filtro degli ordini in arrivo (null = tutti)
   vista: 'tutti',    // box scelta sopra gli ordini: tutti, oggi, nonpagati, problemi
+  richieste: new Map(),   // richieste dei dati mancanti aperte, per ordine
   negozioGls: null,  // filtro delle spedizioni GLS (null = tutti)
   error: null,
   syncing: new Set(),
@@ -1576,6 +1577,13 @@ const SHOP_EVASIONE = { UNFULFILLED: 'Da evadere', FULFILLED: 'Evaso', PARTIALLY
 
 const SHOP_DA_EVADERE = ['UNFULFILLED', 'PARTIALLY_FULFILLED', 'ON_HOLD', 'IN_PROGRESS', 'SCHEDULED'];   // come tc_shopify_stato
 const SHOP_ORDINE_CAMPI = 'id, store_id, numero, creato_at, annullato_at, cliente, email, telefono, totale, valuta, stato_pagamento, stato_evasione, tracking, righe, indirizzo';
+
+// Richieste dei dati mancanti ancora aperte (ordini-dati, o mandate a mano): ordine → richiesta
+async function loadRichiesteDati(render = true) {
+  const { data, error } = await supabaseClient.from('ordini_richieste_dati').select('ordine_id, inviata_at, inviata_da, esito, task_id').is('risolta_at', null);
+  ShopLinks.richieste = new Map(error ? [] : (data || []).map(r => [r.ordine_id, r]));
+  if (render) refreshControlPage();
+}
 
 async function loadShopifyLinks() {
   try {
@@ -1601,6 +1609,7 @@ async function loadShopifyLinks() {
   ShopLinks.consegne = ShopLinks.consegneErrore ? null : consegne.data.spedizioni;
   ShopLinks.arrivoErrore = arrivo.error?.message || null;
   ShopLinks.arrivo = arrivo.error ? null : (arrivo.data || []);
+  await loadRichiesteDati(false);
   ShopLinks.regole = regole.error ? [] : (regole.data || []);
   ShopLinks.scartate = scartate.error ? [] : (scartate.data || []);
   ShopLinks.caselle = caselle.data?.success ? caselle.data.caselle : [];
@@ -1746,9 +1755,13 @@ function ctrlShopOrderRow(o, conNegozio = true) {
   const pagato = ordPagato(o);
   // I problemi d'indirizzo contano solo finché l'ordine non è spedito
   const problemi = !o.annullato_at && SHOP_DA_EVADERE.includes(o.stato_evasione) ? ordProblemi(o) : [];
-  // Etichetta rossa: col clic parte la mail che chiede al cliente il dato mancante
+  // Etichetta rossa: col clic parte la mail che chiede al cliente il dato mancante.
+  // Già chiesto: arancione con la data, il clic riapre la mail per sollecitare
+  const chiesta = problemi.length && ShopLinks.richieste.get(o.id);
+  const chiestaTesto = chiesta?.inviata_at ? `chiesto ${ctrlGiornoDi(chiesta.inviata_at) === ctrlOggi() ? 'oggi' : new Date(chiesta.inviata_at).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', timeZone: 'Europe/Rome' })}` : '';
+  const chiestaTitolo = chiesta?.inviata_at ? `Chiesto al cliente ${ctrlQuandoBreve(chiesta.inviata_at)}${chiesta.inviata_da === 'automatica' ? ' in automatico' : ` da ${chiesta.inviata_da}`}${chiesta.esito && chiesta.esito !== 'inviata' ? ` (${chiesta.esito})` : ''}. Clic per scrivergli di nuovo` : 'Scrivi al cliente per chiederlo';
   const tagProb = (campo) => problemi.filter(p => p[0] === campo).map(p => o.email
-    ? `<button type="button" class="td-tag ctrl-prob" style="--c:#dc2626;" onclick="ordineRichiediDati('${o.id}')" title="Scrivi al cliente per chiederlo">${escapeHtml(p[1])}</button>`
+    ? `<button type="button" class="td-tag ctrl-prob" style="--c:${chiestaTesto ? '#d97706' : '#dc2626'};" onclick="ordineRichiediDati('${o.id}')" title="${escapeHtml(chiestaTitolo)}">${escapeHtml(p[1])}${chiestaTesto ? ` · ${chiestaTesto}` : ''}</button>`
     : `<span class="td-tag" style="--c:#dc2626;" title="Nessuna mail: va chiesto per telefono">${escapeHtml(p[1])}</span>`).join('');
   const evasione = o.annullato_at ? ['Annullato', '#94a3b8']
     : o.stato_evasione === 'FULFILLED' ? ['Evaso', '#16a34a']
@@ -1786,7 +1799,8 @@ function ctrlShopOrderRow(o, conNegozio = true) {
 }
 
 // ── Problemi prima della spedizione: indirizzo o telefono che il corriere non può usare ──
-// (dopo la spedizione i problemi li segue la scheda Spedizioni, dal tracking)
+// (dopo la spedizione i problemi li segue la scheda Spedizioni, dal tracking).
+// Stesse regole in supabase/functions/_shared/ordini-dati.ts: se ne cambi una, cambia anche l'altra.
 const ordPagato = (o) => ['PAID', 'PARTIALLY_REFUNDED'].includes(o.stato_pagamento);
 function ordProblemi(o) {
   const out = [];                                   // [campo, testo]
@@ -1833,6 +1847,7 @@ async function ordineScriviMail(id, testo = null) {
   pickComposeOrder(o.id);
   document.getElementById('mc-a').value = o.email;
   if (testo) {
+    MailNuova.richiesta = o.id;
     document.getElementById('mc-oggetto').value = testo.oggetto;
     document.getElementById('mc-testo').value = MailFirme.applica(testo.corpo, MailNuova.casella);
     setTimeout(() => document.getElementById('mc-send')?.focus(), 60);
@@ -2048,7 +2063,7 @@ function renderOrdersIncoming() {
         <div class="ctrl-kpis" role="group" aria-label="Filtra gli ordini">
           ${box('oggi')}${box('tutti')}${box('nonpagati', 'is-alert')}${box('problemi', 'is-alert')}
         </div>
-        ${vista === 'problemi' && gruppiVis.length ? `<p class="ctrl-kpi-hint">Indirizzi senza civico, CAP, città o provincia e telefoni mancanti, da sistemare prima di spedire. Dopo la spedizione i problemi passano in Spedizioni.</p>` : ''}` : ''}
+        ${vista === 'problemi' && gruppiVis.length ? `<p class="ctrl-kpi-hint">Indirizzi senza civico, CAP, città o provincia e telefoni mancanti, da sistemare prima di spedire. In rosso da chiedere, in arancione già chiesti al cliente. Dopo la spedizione i problemi passano in Spedizioni.</p>` : ''}` : ''}
       ${gruppiVis.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${gruppiVis.map(m => `
         <div class="ctrl-store-head" style="--m:${m.color};"><i aria-hidden="true"></i>${m.label}<b>${elenco(m.id).length}</b></div>
         <div class="ctrl-table">${ORD_COLONNE}${elenco(m.id).map(o => ctrlShopOrderRow(o, false)).join('')}</div>`).join('')}</div>`
@@ -2615,18 +2630,38 @@ const AUTOMAZIONI = {
   mattino: { nome: 'DDT e file di stampa', quando: 'Giorni lavorativi alle 5:00' },
   pulizia: { nome: 'Pulizia della cartella', quando: 'Domenica alle 23:59' },
   'avviso-giacenza': { nome: 'Mail ai clienti per le giacenze', quando: 'Ogni ora, anche nel weekend' },
+  'richiesta-dati': { nome: 'Richiesta dei dati mancanti', quando: 'Ogni 5 minuti; mail dalle 8 alle 21', modo: true },
 };
+const AUTOMAZIONE_MODI = [['prova', 'Prova', 'La mail la manda una persona, col clic sull\'etichetta rossa nella scheda Shop'],
+  ['automatica', 'Automatica', 'La mail parte da sola'], ['spenta', 'Spenta', 'Niente mail, niente task']];
 const AUTOMAZIONE_STATI = {
   in_corso: ['In corso', '#f59e0b'], ok: ['Riuscita', '#22c55e'], errore: ['Errore', '#ef4444'],
   saltato: ['Non lavorativo', '#94a3b8'], prova: ['Prova', '#6366f1'], interrotta: ['Interrotta', '#ef4444'],
 };
-const CtrlAuto = { righe: null, error: null };
+const CtrlAuto = { righe: null, error: null, modi: {} };
 
 async function loadControlAutomations() {
-  const { data, error } = await supabaseClient.from('automazione_esecuzioni').select('*').order('at', { ascending: false }).limit(100);
+  const [{ data, error }, imp] = await Promise.all([
+    supabaseClient.from('automazione_esecuzioni').select('*').order('at', { ascending: false }).limit(100),
+    supabaseClient.from('automazioni_impostazioni').select('nome, modo, aggiornato_at, aggiornato_da'),
+  ]);
+  CtrlAuto.modi = Object.fromEntries((imp.data || []).map(r => [r.nome, r]));
   CtrlAuto.righe = data || [];
   CtrlAuto.error = error ? Ctrl._fail(error) : null;
   if (Ctrl.view === 'automazioni') refreshControlPage();
+}
+
+async function setAutomazioneModo(nome, modo) {
+  const ora = CtrlAuto.modi[nome];
+  if (!ora || ora.modo === modo) return;
+  const label = AUTOMAZIONE_MODI.find(x => x[0] === modo)?.[1] || modo;
+  if (modo === 'automatica' && !(await uiConfirm(`${AUTOMAZIONI[nome]?.nome || nome}: passare ad Automatica? Le mail ai clienti partiranno da sole.`, { ok: 'Attiva' }))) return;
+  const { error } = await supabaseClient.from('automazioni_impostazioni')
+    .update({ modo, aggiornato_at: new Date().toISOString(), aggiornato_da: TCAuth.getNickname() }).eq('nome', nome);
+  if (error) { showToast(error.message, 'error'); return; }
+  CtrlAuto.modi[nome] = { ...ora, modo };
+  showToast(`${AUTOMAZIONI[nome]?.nome || nome}: ${label}`);
+  refreshControlPage();
 }
 
 // Partita da più di due ore e mai conclusa: il processo si è fermato senza dire nulla
@@ -2648,6 +2683,11 @@ function renderControlAutomations() {
         <header><h3 style="text-transform:none;">${a.nome}</h3></header>
         <div class="ctrl-person-meta"><span>${a.quando}</span></div>
         <div class="ctrl-person-now">${ultima ? `${pillola(ultima)} <span class="ctrl-cell-sub">${ctrlFmtQuando(ultima.at)}</span>` : '<span class="ctrl-idle">Non è ancora partita</span>'}</div>
+        ${a.modo && CtrlAuto.modi[id] ? `
+          <div class="segmented ctrl-auto-modo" role="radiogroup" aria-label="Modalità di ${escapeHtml(a.nome)}">
+            ${AUTOMAZIONE_MODI.map(([m, label, aiuto]) => `<button type="button" role="radio" aria-checked="${CtrlAuto.modi[id].modo === m}" class="${CtrlAuto.modi[id].modo === m ? 'active' : ''}" title="${escapeHtml(aiuto)}" onclick="setAutomazioneModo('${id}', '${m}')">${label}</button>`).join('')}
+          </div>
+          <small class="ctrl-cell-sub">${escapeHtml(AUTOMAZIONE_MODI.find(x => x[0] === CtrlAuto.modi[id].modo)?.[2] || '')}</small>` : ''}
       </article>`;
   };
   const durata = (r) => r.fine ? `${Math.max(1, Math.round((new Date(r.fine) - new Date(r.at)) / 1000))} s` : '';

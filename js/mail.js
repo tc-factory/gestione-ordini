@@ -932,12 +932,12 @@ async function sendMailReply() {
 // MAIL NUOVA
 // ─────────────────────────────────────────────
 
-const MailNuova = { casella: null, ordini: [], ordine: null, cerca: '', modello: null, _timer: null };
+const MailNuova = { casella: null, ordini: [], ordine: null, cerca: '', modello: null, richiesta: null, _timer: null };   // richiesta: ordine di cui si chiedono i dati mancanti
 
 function openMailCompose() {
   const caselle = MailBox.caselle;
   if (!caselle.length) { showToast('Caselle non ancora caricate', 'error'); return; }
-  Object.assign(MailNuova, { casella: MailBox.casella || caselle[0].id, ordini: [], ordine: null, cerca: '', modello: null });
+  Object.assign(MailNuova, { casella: MailBox.casella || caselle[0].id, ordini: [], ordine: null, cerca: '', modello: null, richiesta: null });
   const modal = document.getElementById('mail-modal');
   modal.innerHTML = `
     <div class="modal mail-dialog mail-compose" role="dialog" aria-modal="true" aria-labelledby="mc-title">
@@ -1067,7 +1067,7 @@ async function sendMailCompose() {
   btn.disabled = true; btn.lastChild.textContent = ' Invio…';
   try {
     const { data, error } = await supabaseClient.functions.invoke('mail-send', {
-      body: { nuova: { casella: MailNuova.casella, a, a_nome: aNome, oggetto }, testo },
+      body: { nuova: { casella: MailNuova.casella, a, a_nome: aNome, oggetto, richiesta_ordine: MailNuova.richiesta || undefined }, testo },
     });
     if (error) {
       const dett = await error.context?.json?.().catch(() => null);
@@ -1077,6 +1077,7 @@ async function sendMailCompose() {
     closeModal('mail-modal');
     showToast(data.copia_in_inviata ? 'Mail inviata' : 'Mail inviata (copia in Inviata non riuscita)');
     if (Nav.current === 'mail') { await MailBox.loadLista().catch(() => {}); renderMailList(); }
+    if (MailNuova.richiesta && typeof loadRichiesteDati === 'function') loadRichiesteDati();
   } catch (e) {
     showToast(e.message, 'error');
     btn.disabled = false; btn.lastChild.textContent = ' Invia';
