@@ -6,6 +6,10 @@
 // tipi in cui rispondere non basta (task_tipi.chiude_con_risposta): quelli restano aperti.
 //
 // Può inviare chi può lavorare il task: admin, l'assegnatario, o chiunque se è in coda comune.
+//
+// Dalla sezione Mail (body.mail_id al posto di task_id): risposta a una mail qualsiasi, per chi vede
+// la scheda Mail. Se la mail ha un task aperto ancora senza risposta, il task si aggiorna come
+// se si fosse risposto da lì.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -35,12 +39,20 @@ Deno.serve(async (req) => {
   const { data: me } = await db.from('app_users').select('nickname, is_admin').eq('auth_id', caller.user.id).maybeSingle();
   if (!me) return fail('Accesso riservato allo staff', 403);
 
-  let body: { task_id?: string; testo?: string };
+  let body: { task_id?: string; mail_id?: string; testo?: string };
   try { body = await req.json(); } catch { return fail('Richiesta non valida'); }
   const testo = (body.testo || '').trim();
-  if (!body.task_id || !testo) return fail('Scrivi il testo della risposta');
+  if ((!body.task_id && !body.mail_id) || !testo) return fail('Scrivi il testo della risposta');
   if (testo.length > 20_000) return fail('Risposta troppo lunga');
   if (/\[[^\]\n]{2,300}\]|\{\{[^}\n]*\}\}|<[A-Z_ ]{3,}>/.test(testo)) return fail('La risposta contiene ancora un segnaposto tra parentesi quadre');
+
+  // Con il login di chi invia, così lo storico del task registra la persona giusta
+  const utente = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: auth } },
+  });
+
+  if (!body.task_id) return rispondiAMail(db, utente, body.mail_id!, testo);
 
   const { data: task } = await db.from('tasks').select('id, assegnato_a, mail_id, risposta_inviata_at, task_tipi(chiude_con_risposta)').eq('id', body.task_id).maybeSingle();
   if (!task) return fail('Task non trovato', 404);
@@ -62,11 +74,6 @@ Deno.serve(async (req) => {
     const { copia_in_inviata } = await inviaRisposta(db, casella, mail, testo);
     await db.from('tasks').update({ bozza_risposta: testo }).eq('id', task.id);
 
-    // Con il login di chi invia, così lo storico del task registra la persona giusta
-    const utente = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { Authorization: auth } },
-    });
     // deno-lint-ignore no-explicit-any
     const completa = (task as any).task_tipi?.chiude_con_risposta !== false;
     if (completa) await utente.rpc('tc_task_stato', { p_id: task.id, p_stato: 'completato' });
@@ -78,3 +85,42 @@ Deno.serve(async (req) => {
     return fail(`Invio non riuscito: ${e instanceof Error ? e.message : e}`, 502);
   }
 });
+
+// Risposta dalla sezione Mail
+// deno-lint-ignore no-explicit-any
+async function rispondiAMail(db: any, utente: any, mailId: string, testo: string) {
+  const { data: puo } = await utente.rpc('app_vede_scheda', { p_scheda: 'mail' });
+  if (puo !== true) return fail('Non hai accesso alle mail', 403);
+
+  const { data: mail } = await db.from('mail_messaggi').select('*').eq('id', mailId).maybeSingle();
+  if (!mail) return fail('Mail non trovata', 404);
+  if (mail.direzione !== 'in' || !mail.da_email) return fail('Si può rispondere solo a una mail ricevuta');
+  const { data: casella } = await db.from('mail_caselle').select('*').eq('id', mail.casella_id).maybeSingle();
+  if (!casella) return fail('Casella non trovata');
+
+  // Task aperti di questa mail ancora senza risposta: si prenotano come nell'invio dal task,
+  // così né il cron delle risposte né un altro invio li toccano nel frattempo
+  const { data: prenotati } = await db.from('tasks')
+    .update({ risposta_inviata_at: new Date().toISOString() })
+    .eq('mail_id', mail.id).is('risposta_inviata_at', null).not('stato', 'in', '("completato","non_completato")')
+    .select('id, task_tipi(chiude_con_risposta)');
+
+  try {
+    const { copia_in_inviata } = await inviaRisposta(db, casella, mail, testo);
+    let completati = 0;
+    for (const t of prenotati || []) {
+      await db.from('tasks').update({ bozza_risposta: testo }).eq('id', t.id);
+      if (t.task_tipi?.chiude_con_risposta === false) continue;
+      const { data: esito, error } = await utente.rpc('tc_task_stato', { p_id: t.id, p_stato: 'completato' });
+      // Task assegnato a un altro: lo chiude il sistema, come quando si risponde dal programma di posta
+      if (error || esito?.success === false) await db.from('tasks').update({ stato: 'completato', motivo: 'Risposta inviata dalla sezione Mail' }).eq('id', t.id);
+      completati++;
+    }
+    return reply({ success: true, copia_in_inviata, task_completati: completati });
+  } catch (e) {
+    const ids = (prenotati || []).map((t: { id: string }) => t.id);
+    if (ids.length) await db.from('tasks').update({ risposta_inviata_at: null }).in('id', ids);
+    console.error('Invio dalla sezione Mail', e);
+    return fail(`Invio non riuscito: ${e instanceof Error ? e.message : e}`, 502);
+  }
+}
