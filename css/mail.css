@@ -278,3 +278,17 @@
   .mail-tagedit { grid-template-columns: minmax(0, 1fr) auto 32px; }
   .mail-tag-colori { grid-column: 1 / -1; order: 5; flex-wrap: wrap; }
 }
+
+/* Anteprima della firma: bianca, come nella mail del cliente */
+.mail-firma-anteprima { display: flex; flex-direction: column; gap: 6px; }
+.mail-firma-anteprima:empty { display: none; }
+.mail-firma-anteprima > small { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; }
+.mfa-card {
+  display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: 12px; background: #fff;
+  border: 1px solid var(--border-light); overflow: hidden; max-width: 100%;
+  font-family: Arial, Helvetica, sans-serif; font-size: 13px; line-height: 1.5; color: #555;
+}
+.mfa-card img { display: block; height: auto; max-width: 55%; flex: none; }
+.mfa-testo b { color: #111; font-size: 14px; }
+.mfa-testo.con-logo { padding-left: 16px; border-left: 2px solid #e6e6e6; }
+.mfa-link { color: #666; }

@@ -151,7 +151,7 @@ const mailFmtSize = (b) => !b ? '' : b < 1024 ? `${b} B` : b < 1048576 ? `${Math
 // Tutte e due possono avere un'immagine (logo o firma già fatta): la mail parte in HTML con l'immagine incorporata.
 // ─────────────────────────────────────────────
 
-const MAIL_FIRMA_MISURE = [[140, 'Piccola'], [220, 'Media'], [320, 'Grande'], [480, 'Molto grande']];
+const MAIL_FIRMA_MISURE = [[120, 'Piccola'], [160, 'Media'], [220, 'Grande'], [320, 'Molto grande']];
 
 const MailFirme = {
   firme: {},          // casella_id → { testo, immagine, larghezza } della persona
@@ -188,7 +188,9 @@ const MailFirme = {
   },
 
   di(casellaId) { const f = this.firme[casellaId]; return (f ? f.testo || '' : this.automatica(casellaId)).trim(); },
-  immagine(casellaId) { return this.firme[casellaId]?.immagine || null; },
+  // Senza un'immagine sua, la persona ha il logo del negozio (come fa il server in _shared/mail.ts)
+  immagine(casellaId) { return this.firme[casellaId]?.immagine || this.negozio[casellaId]?.immagine || null; },
+  larghezza(casellaId) { const f = this.firme[casellaId]; return (f?.immagine ? f.larghezza : this.negozio[casellaId]?.larghezza) || 160; },
 
   // Testo con la firma in fondo: sostituisce il nome del negozio messo dal cervello, non la ripete se c'è già
   applica(testo, casellaId) {
@@ -221,7 +223,7 @@ function mailFirmaImmagineNota(casellaId) {
   if (!p) return '';
   const url = MailFirme.anteprime[p];
   if (!url) MailFirme.anteprima(p).then(u => { const img = document.querySelector(`.mail-firma-nota[data-p="${CSS.escape(p)}"] img`); if (u && img) img.src = u; });
-  return `<div class="mail-firma-nota" data-p="${escapeHtml(p)}"><span>In fondo alla mail, sotto la firma:</span><img alt="Immagine della firma" ${url ? `src="${url}"` : ''}></div>`;
+  return `<div class="mail-firma-nota" data-p="${escapeHtml(p)}"><span>Accanto alla firma va questa immagine:</span><img alt="Immagine della firma" ${url ? `src="${url}"` : ''}></div>`;
 }
 
 // Finestra delle firme: stato di lavoro, salvato solo con "Salva"
@@ -235,7 +237,7 @@ function openMailFirme(scheda = 'mie') {
     const f = negozio ? MailFirme.negozio[c.id] : MailFirme.firme[c.id];
     return [c.id, {
       testo: negozio ? (f ? f.testo : MailFirme.automaticaNegozio(c.id)) : MailFirme.di(c.id),
-      immagine: f?.immagine || null, larghezza: f?.larghezza || 220, anteprima: null,
+      immagine: f?.immagine || null, larghezza: f?.larghezza || 160, anteprima: null,
     }];
   }));
   MailFirmeEdit.caricate = [];
@@ -254,13 +256,16 @@ function openMailFirme(scheda = 'mie') {
         <p class="mail-form-hint">${negozio
           ? 'Neutra, con il nome del negozio: va in fondo alle mail che il gestionale manda da solo (risposte automatiche, avvisi di giacenza, svincoli automatici).'
           : 'Va in fondo a ogni mail che scrivi da quella casella, anche nelle risposte del Centro di controllo.'}
-          Puoi aggiungere un logo o caricare una firma già fatta come immagine (PNG, JPG o GIF).</p>
+          ${negozio ? 'Ogni negozio ha già il suo logo.' : 'Senza un\'immagine tua, accanto alla firma va il logo del negozio; puoi metterne una tua (anche una firma già fatta, PNG, JPG o GIF).'}
+          Niente numeri di telefono.</p>
         ${caselle.map(c => `
           <section class="mail-firma-box">
             <label class="form-label mail-firma-label" for="mf-${c.id}"><i class="ctrl-dot" style="--m:${mailColore(c.id)};" aria-hidden="true"></i>${escapeHtml(mailNomeCasella(c.id))} <span>${escapeHtml(c.indirizzo)}</span></label>
             <textarea id="mf-${c.id}" class="form-textarea" rows="3" maxlength="2000" data-casella="${c.id}"
+              oninput="MailFirmeEdit.voci['${c.id}'].testo=this.value;renderMailFirmaAnteprima('${c.id}')"
               placeholder="${negozio ? 'Solo immagine' : 'Solo immagine, senza testo'}">${escapeHtml(MailFirmeEdit.voci[c.id].testo)}</textarea>
             <div class="mail-firma-img" id="mfi-${c.id}"></div>
+            <div class="mail-firma-anteprima" id="mfa-${c.id}" aria-label="Anteprima della firma"></div>
           </section>`).join('')}
         <div class="mail-form-actions">
           <button type="button" class="btn btn-secondary" onclick="closeMailFirme()">Annulla</button>
@@ -278,16 +283,41 @@ async function renderMailFirmaImg(id) {
   const v = MailFirmeEdit.voci[id];
   if (!box || !v) return;
   if (v.immagine && !v.anteprima) v.anteprima = await MailFirme.anteprima(v.immagine);
-  box.innerHTML = v.immagine ? `
-    <div class="mail-firma-preview"><img src="${v.anteprima || ''}" alt="Immagine della firma" style="width:${v.larghezza}px"></div>
+  renderMailFirmaAnteprima(id);
+  const logoNegozio = MailFirmeEdit.scheda === 'mie' && !v.immagine && MailFirme.negozio[id]?.immagine;
+  box.innerHTML = logoNegozio ? `
+    <div class="mail-firma-tools">
+      <span class="mail-form-opt">Immagine: logo del negozio</span>
+      <label class="btn btn-ghost btn-sm">${Icons.image(14)} Usa un'immagine tua<input type="file" accept="image/png,image/jpeg,image/gif" hidden onchange="uploadMailFirmaImg('${id}', this)"></label>
+    </div>` : v.immagine ? `
     <div class="mail-firma-tools">
       <div class="segmented" role="radiogroup" aria-label="Larghezza dell'immagine">
         ${MAIL_FIRMA_MISURE.map(([w, l]) => `<button type="button" role="radio" aria-checked="${v.larghezza === w}" class="${v.larghezza === w ? 'active' : ''}" onclick="setMailFirmaSize('${id}', ${w})">${l}</button>`).join('')}
       </div>
       <label class="btn btn-ghost btn-sm">Cambia<input type="file" accept="image/png,image/jpeg,image/gif" hidden onchange="uploadMailFirmaImg('${id}', this)"></label>
-      <button type="button" class="btn btn-ghost btn-sm mail-danger" onclick="removeMailFirmaImg('${id}')">Togli</button>
+      <button type="button" class="btn btn-ghost btn-sm mail-danger" onclick="removeMailFirmaImg('${id}')">${MailFirmeEdit.scheda === 'mie' && MailFirme.negozio[id]?.immagine ? 'Torna al logo del negozio' : 'Togli'}</button>
     </div>` : `
     <label class="btn btn-secondary btn-sm mail-firma-add">${Icons.image(14)} Aggiungi logo o firma<input type="file" accept="image/png,image/jpeg,image/gif" hidden onchange="uploadMailFirmaImg('${id}', this)"></label>`;
+}
+
+// Anteprima come la vedrà il cliente: logo, riga sottile, nome in grassetto, negozio e sito (come _shared/mail.ts)
+const MAIL_TELEFONO = /(\+|\b00)?\d[\d\s./()-]{6,}\d|\b(tel|telefono|cell|cellulare|whats\s?app|phone|fax)\b/i;
+async function renderMailFirmaAnteprima(id) {
+  const box = document.getElementById(`mfa-${id}`);
+  const v = MailFirmeEdit.voci[id];
+  if (!box || !v) return;
+  const negozioLogo = MailFirmeEdit.scheda === 'mie' && !v.immagine ? MailFirme.negozio[id] : null;
+  const percorso = v.immagine || negozioLogo?.immagine || null;
+  const larg = v.immagine ? v.larghezza : negozioLogo?.larghezza || v.larghezza;
+  const url = v.immagine ? v.anteprima : percorso ? await MailFirme.anteprima(percorso) : null;
+  const righe = (v.testo || '').split('\n').map(r => r.trim()).filter(r => r && !MAIL_TELEFONO.test(r));
+  const riga = (r, i) => /^(https?:\/\/|www\.)\S+$/i.test(r) ? `<span class="mfa-link">${escapeHtml(r.replace(/^https?:\/\//i, ''))}</span>` : i === 0 ? `<b>${escapeHtml(r)}</b>` : escapeHtml(r);
+  box.innerHTML = (url || righe.length) ? `
+    <small>Come la vede il cliente</small>
+    <div class="mfa-card">
+      ${url ? `<img src="${url}" alt="" style="width:${larg}px">` : ''}
+      ${righe.length ? `<div class="mfa-testo ${url ? 'con-logo' : ''}">${righe.map(riga).join('<br>')}</div>` : ''}
+    </div>` : '';
 }
 
 function setMailFirmaSize(id, w) { MailFirmeEdit.voci[id].larghezza = w; renderMailFirmaImg(id); }
@@ -322,7 +352,7 @@ async function uploadMailFirmaImg(id, input) {
     const v = MailFirmeEdit.voci[id];
     Object.assign(v, { immagine: percorso, anteprima: URL.createObjectURL(pronta) });
     // Una firma già fatta di solito è più larga di un logo
-    if (!v.testo?.trim() && v.larghezza === 220) v.larghezza = 320;
+    if (!v.testo?.trim() && v.larghezza === 160) v.larghezza = 320;
     renderMailFirmaImg(id);
   } catch {
     showToast('Immagine non caricata', 'error');
@@ -343,6 +373,14 @@ async function saveMailFirme() {
   const me = TCAuth.getNickname();
   const ora = new Date().toISOString();
   const salva = [], togli = [];
+  // Nelle firme non vanno numeri di telefono (il server li toglierebbe comunque)
+  const conTelefono = [...document.querySelectorAll('#mail-modal textarea[data-casella]')].find(t => MAIL_TELEFONO.test(t.value));
+  if (conTelefono) {
+    showToast('Nelle firme non si mettono numeri di telefono', 'error');
+    conTelefono.focus();
+    btn.disabled = false;
+    return;
+  }
   document.querySelectorAll('#mail-modal textarea[data-casella]').forEach(t => {
     const id = t.dataset.casella, v = MailFirmeEdit.voci[id];
     v.testo = t.value.trim();
