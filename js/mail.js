@@ -81,7 +81,7 @@ const MailBox = {
   async load() {
     this.caricamento = true;
     try {
-      await Promise.all([this.loadCaselle(), this.loadLista(), MailFirme.load(), MailModelli.load(), MailTag.load()]);
+      await Promise.all([this.loadCaselle(), this.loadLista(), MailFirme.load(), MailModelli.load(), MailTag.load(), MailBozze.load()]);
       this.errore = null;
     } catch (e) { this.errore = e; }
     this.caricamento = false;
@@ -932,17 +932,72 @@ async function sendMailReply() {
 // MAIL NUOVA
 // ─────────────────────────────────────────────
 
-const MailNuova = { casella: null, ordini: [], ordine: null, cerca: '', modello: null, richiesta: null, _timer: null };   // richiesta: ordine di cui si chiedono i dati mancanti
+const MailNuova = { casella: null, ordini: [], ordine: null, cerca: '', modello: null, richiesta: null, bozza: null, _timer: null };   // richiesta: ordine di cui si chiedono i dati mancanti; bozza: id in mail_bozze
 
-function openMailCompose() {
+// ── Bozze preparate per la persona collegata (mail_bozze): si controllano e si inviano da "Nuova mail" ──
+const MailBozze = {
+  lista: [],
+  async load() {
+    if (!Nav.isAllowed('mail')) return;
+    const { data, error } = await supabaseClient.rpc('tc_mail_bozze');
+    this.lista = !error && data?.success ? data.bozze || [] : [];
+    if (Nav.current === 'mail' && typeof renderHeader === 'function') renderHeader();
+  },
+};
+window.MailBozze = MailBozze;
+
+function openMailBozze() {
+  const modal = document.getElementById('mail-modal');
+  const lista = MailBozze.lista;
+  modal.innerHTML = `
+    <div class="modal mail-dialog" role="dialog" aria-modal="true" aria-labelledby="mb-title">
+      <div class="modal-header">
+        <h2 id="mb-title">Bozze da inviare</h2>
+        <button class="btn-icon" onclick="closeModal('mail-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body">
+        ${lista.length ? `<p class="mail-form-hint">Preparate per te: aprile, controllale e inviale. Partono dalla casella indicata.</p>
+        <ul class="mail-bozze">${lista.map(b => `
+          <li class="mail-bozza-riga">
+            <button type="button" class="mail-bozza-apri" onclick="openMailBozza('${b.id}')">
+              <strong>${escapeHtml(b.oggetto)}</strong>
+              <span>A ${escapeHtml(b.a_nome ? `${b.a_nome} <${b.a}>` : b.a)} · da ${escapeHtml(mailCasella(b.casella_id)?.indirizzo || b.casella_id)}</span>
+              ${b.nota ? `<small>${escapeHtml(b.nota)}</small>` : ''}
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="scartaMailBozza('${b.id}')">Scarta</button>
+          </li>`).join('')}</ul>`
+        : '<div class="empty-list">Nessuna bozza da inviare.</div>'}
+      </div>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('mail-modal'); };
+}
+
+function openMailBozza(id) {
+  const b = MailBozze.lista.find(x => x.id === id);
+  if (!b) return;
+  if (!MailBox.caselle.some(c => c.id === b.casella_id)) { showToast('La casella di questa bozza non è attiva', 'error'); return; }
+  openMailCompose(b);
+}
+
+async function scartaMailBozza(id) {
+  const b = MailBozze.lista.find(x => x.id === id);
+  if (!b || !(await uiConfirm(`Scartare la bozza "${b.oggetto}" per ${b.a}? Non si recupera.`, { ok: 'Scarta', danger: true }))) return;
+  const { data, error } = await supabaseClient.rpc('tc_mail_bozza_scarta', { p_id: id });
+  if (error || !data?.success) { showToast(data?.error || 'Bozza non scartata', 'error'); return; }
+  await MailBozze.load();
+  openMailBozze();
+}
+
+function openMailCompose(bozza = null) {
   const caselle = MailBox.caselle;
   if (!caselle.length) { showToast('Caselle non ancora caricate', 'error'); return; }
-  Object.assign(MailNuova, { casella: MailBox.casella || caselle[0].id, ordini: [], ordine: null, cerca: '', modello: null, richiesta: null });
+  Object.assign(MailNuova, { casella: bozza?.casella_id || MailBox.casella || caselle[0].id, ordini: [], ordine: null, cerca: '', modello: null, richiesta: null, bozza: bozza?.id || null });
   const modal = document.getElementById('mail-modal');
   modal.innerHTML = `
     <div class="modal mail-dialog mail-compose" role="dialog" aria-modal="true" aria-labelledby="mc-title">
       <div class="modal-header">
-        <h2 id="mc-title">Nuova mail</h2>
+        <h2 id="mc-title">${bozza ? 'Bozza da inviare' : 'Nuova mail'}</h2>
         <button class="btn-icon" onclick="closeModal('mail-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <form class="modal-body mail-form" onsubmit="event.preventDefault();sendMailCompose()">
@@ -976,8 +1031,13 @@ function openMailCompose() {
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('mail-modal'); };
   renderComposeBoxes();
-  document.getElementById('mc-testo').value = MailFirme.applica('', MailNuova.casella);
-  setTimeout(() => document.getElementById('mc-ordine')?.focus(), 50);
+  document.getElementById('mc-testo').value = MailFirme.applica(bozza?.testo || '', MailNuova.casella);
+  if (bozza) {
+    document.getElementById('mc-a').value = bozza.a;
+    document.getElementById('mc-a-nome').value = bozza.a_nome || '';
+    document.getElementById('mc-oggetto').value = bozza.oggetto;
+    setTimeout(() => document.getElementById('mc-testo')?.focus(), 50);
+  } else setTimeout(() => document.getElementById('mc-ordine')?.focus(), 50);
 }
 
 function renderComposeBoxes() {
@@ -1067,7 +1127,7 @@ async function sendMailCompose() {
   btn.disabled = true; btn.lastChild.textContent = ' Invio…';
   try {
     const { data, error } = await supabaseClient.functions.invoke('mail-send', {
-      body: { nuova: { casella: MailNuova.casella, a, a_nome: aNome, oggetto, richiesta_ordine: MailNuova.richiesta || undefined }, testo },
+      body: { nuova: { casella: MailNuova.casella, a, a_nome: aNome, oggetto, richiesta_ordine: MailNuova.richiesta || undefined, bozza: MailNuova.bozza || undefined }, testo },
     });
     if (error) {
       const dett = await error.context?.json?.().catch(() => null);
@@ -1078,6 +1138,7 @@ async function sendMailCompose() {
     showToast(data.copia_in_inviata ? 'Mail inviata' : 'Mail inviata (copia in Inviata non riuscita)');
     if (Nav.current === 'mail') { await MailBox.loadLista().catch(() => {}); renderMailList(); }
     if (MailNuova.richiesta && typeof loadRichiesteDati === 'function') loadRichiesteDati();
+    if (MailNuova.bozza) await MailBozze.load();
   } catch (e) {
     showToast(e.message, 'error');
     btn.disabled = false; btn.lastChild.textContent = ' Invia';

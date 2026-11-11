@@ -353,7 +353,7 @@ Deno.serve(async (req) => {
   let body: { casella?: string } = {};
   try { body = await req.json(); } catch { /* corpo vuoto */ }
 
-  let q = db.from('mail_caselle').select('id, indirizzo, nome, imap_host, attiva_dal, uidvalidity, ultimo_uid, inviata_uidvalidity, inviata_ultimo_uid').eq('attivo', true).order('nome');
+  let q = db.from('mail_caselle').select('id, indirizzo, nome, imap_host, attiva_dal, uidvalidity, ultimo_uid, inviata_uidvalidity, inviata_ultimo_uid').eq('attivo', true).eq('interna', false).order('nome');   // le caselle interne servono solo a inviare
   if (body.casella) q = q.eq('id', body.casella);
   const { data: caselle, error } = await q;
   if (error) return fail(`Caselle non leggibili: ${error.message}`, 500);
