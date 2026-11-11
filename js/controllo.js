@@ -1946,6 +1946,8 @@ async function ordineCambiaVia(id) {
       throw new Error(dett?.error || error.message || 'Cambio non riuscito');
     }
     if (!data?.success) throw new Error(data?.error || 'Cambio non riuscito');
+    // Funzione ordini-dati non ancora aggiornata: ha fatto il suo giro normale, l'indirizzo non è cambiato
+    if (!data.dopo || !data.indirizzo) throw new Error('Cambio non disponibile: va pubblicata la funzione ordini-dati');
     o.indirizzo = data.indirizzo;
     showToast(`Indirizzo cambiato su Shopify: ${data.dopo}`);
     await loadRichiesteDati(true);
