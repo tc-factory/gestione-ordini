@@ -6,6 +6,8 @@
 //   azione 'allegato' { mail_id, indice, nome }  scarica la mail dalla casella e restituisce l'allegato
 //
 // Le mail si ritrovano per Message-ID nella cartella dove stanno: gli UID cambiano a ogni spostamento.
+// Senza Message-ID (es. gli avvisi di Aruba) si usa l'UID salvato all'arrivo, solo in Posta in arrivo
+// e solo se mittente e data della mail a quell'UID sono quelli giusti.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
@@ -44,7 +46,7 @@ const nomeCartella = (c: Cartelle, id: string) => id === 'archivio' ? c.archivio
 async function sposta(db: SupabaseClient, casella: Row) {
   const deadline = Date.now() + TIME_BUDGET_MS;
   const { data: righe } = await db.from('mail_messaggi')
-    .select('id, message_id, cartella, cartella_voluta, sposta_tentativi')
+    .select('id, message_id, uid, da_email, ricevuto_at, cartella, cartella_voluta, sposta_tentativi')
     .eq('casella_id', casella.id).not('cartella_voluta', 'is', null).lt('sposta_tentativi', 5)
     .order('ricevuto_at').limit(MAX_PER_GIRO);
   const daFare = (righe || []).filter((r: Row) => r.cartella_voluta !== r.cartella);
@@ -72,7 +74,8 @@ async function sposta(db: SupabaseClient, casella: Row) {
         if (Date.now() > deadline) break;
         const dest = nomeCartella(cartelle, r.cartella_voluta);
         try {
-          const uids = r.message_id ? await uidDaMessageId(imap, r.message_id) : [];
+          const controllo = !r.message_id && origine === 'inbox' && r.uid ? await stessaMail(imap, r) : null;
+          const uids = r.message_id ? await uidDaMessageId(imap, r.message_id) : controllo === true ? [r.uid] : [];
           if (uids.length) {
             const set = uids.join(',');
             if (move) await imap.comando(`UID MOVE ${set} ${quota(dest)}`, 30_000, 'spostamento');
@@ -88,7 +91,8 @@ async function sposta(db: SupabaseClient, casella: Row) {
             // Non c'è più nella casella (spostata o cancellata dal programma di posta): vale solo nel gestionale
             await db.from('mail_messaggi').update({
               cartella: r.cartella_voluta, cartella_voluta: null, sposta_tentativi: 0,
-              sposta_errore: r.message_id ? 'Non trovata nella casella Aruba: spostata solo nel gestionale' : 'Mail senza Message-ID: spostata solo nel gestionale',
+              sposta_errore: r.message_id ? 'Non trovata nella casella Aruba: spostata solo nel gestionale'
+                : `Mail senza Message-ID${typeof controllo === 'string' ? ` (${controllo})` : ''}: spostata solo nel gestionale`,
             }).eq('id', r.id);
             soloGestionale++;
           }
@@ -107,6 +111,27 @@ async function sposta(db: SupabaseClient, casella: Row) {
     imap.chiudi();
   }
   return { spostate, solo_gestionale: soloGestionale };
+}
+
+// La mail a quell'UID è proprio questa? Mittente uguale e arrivata entro un giorno
+// true, oppure il motivo per cui non lo è
+async function stessaMail(imap: Imap, r: Row): Promise<true | string> {
+  const risp = await imap.comando(`UID FETCH ${Number(r.uid)} (UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM)])`, 15_000, 'controllo mail senza Message-ID');
+  const x = risp.find(y => / FETCH /.test(y.testo));
+  if (!x) {
+    // Diagnosi: c'è ancora, con un altro UID?
+    const d = new Date(r.ricevuto_at);
+    const mesi = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const imapData = (t: Date) => `${t.getUTCDate()}-${mesi[t.getUTCMonth()]}-${t.getUTCFullYear()}`;
+    const cerca = await imap.comando(`UID SEARCH FROM ${quota(String(r.da_email || ''))} SINCE ${imapData(new Date(d.getTime() - 86_400_000))} BEFORE ${imapData(new Date(d.getTime() + 2 * 86_400_000))}`, 20_000, 'ricerca per mittente');
+    const altri = cerca.find(y => y.testo.startsWith('* SEARCH'))?.testo.match(/\d+/g) || [];
+    return `UID ${r.uid} non più in Posta in arrivo; stesso mittente e giorno: ${altri.length ? 'UID ' + altri.join(',') : 'nessuna'}`;
+  }
+  const da = (new TextDecoder().decode(x.literal[0] || new Uint8Array()) + ' ' + x.testo).toLowerCase();
+  const arrivata = Date.parse(x.testo.match(/INTERNALDATE "([^"]+)"/)?.[1]?.trim().replace(/^(\d)-/, '0$1-') || '');
+  if (!r.da_email || !da.includes(String(r.da_email).toLowerCase())) return `a UID ${r.uid} c'è un altro mittente: ${da.replace(/\s+/g, ' ').slice(0, 120)}`;
+  if (!Number.isFinite(arrivata) || Math.abs(arrivata - Date.parse(r.ricevuto_at)) >= 86_400_000) return `data diversa: ${x.testo.slice(0, 120)}`;
+  return true;
 }
 
 // Problema della casella (accesso, cartelle): resta scritto sulle mail ancora da spostare, il cron riprova
