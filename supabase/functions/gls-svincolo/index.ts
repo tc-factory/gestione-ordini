@@ -224,7 +224,8 @@ Deno.serve(async (req) => {
         const { data: mail } = await db.from('mail_messaggi').select('*').eq('id', task.mail_id).maybeSingle();
         const { data: casella } = mail ? await db.from('mail_caselle').select('*').eq('id', mail.casella_id).maybeSingle() : { data: null };
         if (!mail?.da_email || !casella) throw new Error('mail d\'origine non trovata');
-        await inviaRisposta(db, casella, mail, testo);
+        // Col clic firma chi l'ha mandata; quando partirà da solo, la firma del negozio
+        await inviaRisposta(db, casella, mail, testo, automazione || !me?.nickname ? 'negozio' : { persona: me.nickname });
         await db.from('tasks').update({ bozza_risposta: testo }).eq('id', task.id);
         conferma = 'inviata';
       } catch (e) {

@@ -144,36 +144,49 @@ const mailFmtSize = (b) => !b ? '' : b < 1024 ? `${b} B` : b < 1048576 ? `${Math
 
 // ─────────────────────────────────────────────
 // FIRME
-// Una per persona e per casella. Senza firma salvata vale quella automatica: nome, negozio, sito.
-// Nelle bozze del cervello (che finiscono col nome del negozio) la firma prende il posto di quella riga.
+// Personale: una per persona e per casella, per le mail scritte a mano. Senza firma salvata vale quella
+// automatica (nome, negozio, sito). Nelle bozze del cervello prende il posto della riga col nome del negozio.
+// Del negozio: neutra, per le mail che partono da sole; la mette il server (_shared/mail.ts), la modifica l'admin.
+// Tutte e due possono avere un'immagine (logo o firma già fatta): la mail parte in HTML con l'immagine incorporata.
 // ─────────────────────────────────────────────
 
+const MAIL_FIRMA_MISURE = [[140, 'Piccola'], [220, 'Media'], [320, 'Grande'], [480, 'Molto grande']];
+
 const MailFirme = {
-  firme: {},          // casella_id → testo salvato
+  firme: {},          // casella_id → { testo, immagine, larghezza } della persona
+  negozio: {},        // casella_id → { testo, immagine, larghezza } del negozio
   caselle: [],        // per le firme automatiche anche fuori dalla pagina Mail
+  anteprime: {},      // percorso → URL firmato per vedere l'immagine
   caricate: false,
 
   async load() {
     if (!TCAuth.isLoggedIn()) return;
-    const [f, c] = await Promise.all([
-      supabaseClient.from('mail_firme').select('casella_id, testo'),
+    const [f, n, c] = await Promise.all([
+      supabaseClient.from('mail_firme').select('casella_id, testo, immagine, larghezza'),
+      supabaseClient.from('mail_firme_negozio').select('casella_id, testo, immagine, larghezza'),
       this.caselle.length ? null : supabaseClient.rpc('tc_mail_caselle'),
     ]);
-    if (!f.error) this.firme = Object.fromEntries((f.data || []).map(r => [r.casella_id, r.testo]));
+    if (!f.error) this.firme = Object.fromEntries((f.data || []).map(r => [r.casella_id, r]));
+    if (!n.error) this.negozio = Object.fromEntries((n.data || []).map(r => [r.casella_id, r]));
     if (c?.data?.caselle) this.caselle = c.data.caselle;
     this.caricate = true;
   },
 
+  casella(id) { return this.caselle.find(x => x.id === id) || MailBox.caselle.find(x => x.id === id); },
+  sito(id) { const c = this.casella(id); return c?.indirizzo ? `www.${c.indirizzo.split('@')[1]}` : ''; },
+
   automatica(casellaId) {
-    const c = this.caselle.find(x => x.id === casellaId) || MailBox.caselle.find(x => x.id === casellaId);
     const nick = TCAuth.getNickname();
     const nome = nick.charAt(0).toUpperCase() + nick.slice(1);
-    const negozio = c?.nome || taskMacro(casellaId)?.label || '';
-    const sito = c?.indirizzo ? `www.${c.indirizzo.split('@')[1]}` : '';
-    return [nome, negozio, sito].filter(Boolean).join('\n');
+    return [nome, this.casella(casellaId)?.nome || taskMacro(casellaId)?.label || '', this.sito(casellaId)].filter(Boolean).join('\n');
+  },
+  // Firma neutra predefinita: come quella del server (_shared/mail.ts)
+  automaticaNegozio(casellaId) {
+    return [this.casella(casellaId)?.nome || taskMacro(casellaId)?.label || '', this.sito(casellaId)].filter(Boolean).join('\n');
   },
 
-  di(casellaId) { return (this.firme[casellaId] ?? this.automatica(casellaId)).trim(); },
+  di(casellaId) { const f = this.firme[casellaId]; return (f ? f.testo || '' : this.automatica(casellaId)).trim(); },
+  immagine(casellaId) { return this.firme[casellaId]?.immagine || null; },
 
   // Testo con la firma in fondo: sostituisce il nome del negozio messo dal cervello, non la ripete se c'è già
   applica(testo, casellaId) {
@@ -182,8 +195,7 @@ const MailFirme = {
     if (!firma) return t;
     if (t.endsWith(firma)) return t;
     if (!t) return `\n\n${firma}`;
-    const c = this.caselle.find(x => x.id === casellaId) || MailBox.caselle.find(x => x.id === casellaId);
-    const negozi = [c?.nome, taskMacro(casellaId)?.label].filter(Boolean).map(s => s.toLowerCase());
+    const negozi = [this.casella(casellaId)?.nome, taskMacro(casellaId)?.label].filter(Boolean).map(s => s.toLowerCase());
     const righe = t.split('\n');
     if (negozi.includes(righe[righe.length - 1].trim().toLowerCase())) {
       righe[righe.length - 1] = firma;
@@ -191,52 +203,170 @@ const MailFirme = {
     }
     return t + (/[,:]$/.test(t) ? '\n' : '\n\n') + firma;
   },
+
+  async anteprima(percorso) {
+    if (!percorso) return null;
+    if (this.anteprime[percorso]) return this.anteprime[percorso];
+    const { data } = await supabaseClient.storage.from('mail-firme').createSignedUrl(percorso, 3600);
+    return (this.anteprime[percorso] = data?.signedUrl || null);
+  },
 };
 window.MailFirme = MailFirme;
 
-function openMailFirme() {
+// Sotto la risposta: l'immagine che andrà in fondo alla mail
+function mailFirmaImmagineNota(casellaId) {
+  const p = MailFirme.immagine(casellaId);
+  if (!p) return '';
+  const url = MailFirme.anteprime[p];
+  if (!url) MailFirme.anteprima(p).then(u => { const img = document.querySelector(`.mail-firma-nota[data-p="${CSS.escape(p)}"] img`); if (u && img) img.src = u; });
+  return `<div class="mail-firma-nota" data-p="${escapeHtml(p)}"><span>In fondo alla mail, sotto la firma:</span><img alt="Immagine della firma" ${url ? `src="${url}"` : ''}></div>`;
+}
+
+// Finestra delle firme: stato di lavoro, salvato solo con "Salva"
+const MailFirmeEdit = { scheda: 'mie', voci: {}, caricate: [] };
+
+function openMailFirme(scheda = 'mie') {
   const caselle = MailBox.caselle.length ? MailBox.caselle : MailFirme.caselle;
+  const negozio = scheda === 'negozio' && TCAuth.isAdmin();
+  MailFirmeEdit.scheda = negozio ? 'negozio' : 'mie';
+  MailFirmeEdit.voci = Object.fromEntries(caselle.map(c => {
+    const f = negozio ? MailFirme.negozio[c.id] : MailFirme.firme[c.id];
+    return [c.id, {
+      testo: negozio ? (f ? f.testo : MailFirme.automaticaNegozio(c.id)) : MailFirme.di(c.id),
+      immagine: f?.immagine || null, larghezza: f?.larghezza || 220, anteprima: null,
+    }];
+  }));
+  MailFirmeEdit.caricate = [];
   const modal = document.getElementById('mail-modal');
   modal.innerHTML = `
     <div class="modal mail-dialog" role="dialog" aria-modal="true" aria-labelledby="mf-title">
       <div class="modal-header">
-        <h2 id="mf-title">La mia firma</h2>
-        <button class="btn-icon" onclick="closeModal('mail-modal')" aria-label="Chiudi">${Icons.x()}</button>
+        <h2 id="mf-title">${negozio ? 'Firma dei negozi' : 'La mia firma'}</h2>
+        <button class="btn-icon" onclick="closeMailFirme()" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <form class="modal-body mail-form" onsubmit="event.preventDefault();saveMailFirme()">
-        <p class="mail-form-hint">Va in fondo a ogni mail che scrivi da quella casella, anche nelle risposte del Centro di controllo. Lasciata com'è, resta la firma automatica.</p>
+        ${TCAuth.isAdmin() ? `<div class="segmented" role="tablist" aria-label="Quale firma">
+          <button type="button" role="tab" aria-selected="${!negozio}" class="${negozio ? '' : 'active'}" onclick="openMailFirme('mie')">La mia firma</button>
+          <button type="button" role="tab" aria-selected="${negozio}" class="${negozio ? 'active' : ''}" onclick="openMailFirme('negozio')">Firma del negozio</button>
+        </div>` : ''}
+        <p class="mail-form-hint">${negozio
+          ? 'Neutra, con il nome del negozio: va in fondo alle mail che il gestionale manda da solo (risposte automatiche, avvisi di giacenza, svincoli automatici).'
+          : 'Va in fondo a ogni mail che scrivi da quella casella, anche nelle risposte del Centro di controllo.'}
+          Puoi aggiungere un logo o caricare una firma già fatta come immagine (PNG, JPG o GIF).</p>
         ${caselle.map(c => `
-          <div class="form-group">
+          <section class="mail-firma-box">
             <label class="form-label mail-firma-label" for="mf-${c.id}"><i class="ctrl-dot" style="--m:${mailColore(c.id)};" aria-hidden="true"></i>${escapeHtml(mailNomeCasella(c.id))} <span>${escapeHtml(c.indirizzo)}</span></label>
-            <textarea id="mf-${c.id}" class="form-textarea" rows="3" maxlength="2000" data-casella="${c.id}">${escapeHtml(MailFirme.di(c.id))}</textarea>
-          </div>`).join('')}
+            <textarea id="mf-${c.id}" class="form-textarea" rows="3" maxlength="2000" data-casella="${c.id}"
+              placeholder="${negozio ? 'Solo immagine' : 'Solo immagine, senza testo'}">${escapeHtml(MailFirmeEdit.voci[c.id].testo)}</textarea>
+            <div class="mail-firma-img" id="mfi-${c.id}"></div>
+          </section>`).join('')}
         <div class="mail-form-actions">
-          <button type="button" class="btn btn-secondary" onclick="closeModal('mail-modal')">Annulla</button>
-          <button type="submit" class="btn btn-primary" id="mf-save">Salva firme</button>
+          <button type="button" class="btn btn-secondary" onclick="closeMailFirme()">Annulla</button>
+          <button type="submit" class="btn btn-primary" id="mf-save">Salva</button>
         </div>
       </form>
     </div>`;
   modal.classList.add('active');
-  modal.onclick = (e) => { if (e.target === modal) closeModal('mail-modal'); };
+  modal.onclick = (e) => { if (e.target === modal) closeMailFirme(); };
+  caselle.forEach(c => renderMailFirmaImg(c.id));
+}
+
+async function renderMailFirmaImg(id) {
+  const box = document.getElementById(`mfi-${id}`);
+  const v = MailFirmeEdit.voci[id];
+  if (!box || !v) return;
+  if (v.immagine && !v.anteprima) v.anteprima = await MailFirme.anteprima(v.immagine);
+  box.innerHTML = v.immagine ? `
+    <div class="mail-firma-preview"><img src="${v.anteprima || ''}" alt="Immagine della firma" style="width:${v.larghezza}px"></div>
+    <div class="mail-firma-tools">
+      <div class="segmented" role="radiogroup" aria-label="Larghezza dell'immagine">
+        ${MAIL_FIRMA_MISURE.map(([w, l]) => `<button type="button" role="radio" aria-checked="${v.larghezza === w}" class="${v.larghezza === w ? 'active' : ''}" onclick="setMailFirmaSize('${id}', ${w})">${l}</button>`).join('')}
+      </div>
+      <label class="btn btn-ghost btn-sm">Cambia<input type="file" accept="image/png,image/jpeg,image/gif" hidden onchange="uploadMailFirmaImg('${id}', this)"></label>
+      <button type="button" class="btn btn-ghost btn-sm mail-danger" onclick="removeMailFirmaImg('${id}')">Togli</button>
+    </div>` : `
+    <label class="btn btn-secondary btn-sm mail-firma-add">${Icons.image(14)} Aggiungi logo o firma<input type="file" accept="image/png,image/jpeg,image/gif" hidden onchange="uploadMailFirmaImg('${id}', this)"></label>`;
+}
+
+function setMailFirmaSize(id, w) { MailFirmeEdit.voci[id].larghezza = w; renderMailFirmaImg(id); }
+function removeMailFirmaImg(id) { Object.assign(MailFirmeEdit.voci[id], { immagine: null, anteprima: null }); renderMailFirmaImg(id); }
+
+// Immagini grandi: ridotte a 1200 px di larghezza (le GIF restano com'erano, per non perdere l'animazione)
+async function mailFirmaPrepara(file) {
+  if (file.type === 'image/gif') return file;
+  const img = await createImageBitmap(file);
+  if (img.width <= 1200 && file.size <= 900_000) return file;
+  const k = Math.min(1, 1200 / img.width);
+  const cv = Object.assign(document.createElement('canvas'), { width: Math.round(img.width * k), height: Math.round(img.height * k) });
+  cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+  const tipo = file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+  return await new Promise(ok => cv.toBlob(b => ok(new File([b], file.name, { type: tipo })), tipo, 0.9));
+}
+
+async function uploadMailFirmaImg(id, input) {
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  if (!/^image\/(png|jpeg|gif)$/.test(file.type)) { showToast('Usa un\'immagine PNG, JPG o GIF', 'error'); return; }
+  try {
+    const pronta = await mailFirmaPrepara(file);
+    if (pronta.size > 1048576) { showToast('Immagine troppo pesante: massimo 1 MB', 'error'); return; }
+    const ext = pronta.type === 'image/jpeg' ? 'jpg' : pronta.type === 'image/gif' ? 'gif' : 'png';
+    const base = MailFirmeEdit.scheda === 'negozio' ? `negozi/${id}` : `persone/${TCAuth.getNickname()}/${id}`;
+    const percorso = `${base}-${Date.now()}.${ext}`;
+    const { error } = await supabaseClient.storage.from('mail-firme').upload(percorso, pronta, { contentType: pronta.type });
+    if (error) throw error;
+    MailFirmeEdit.caricate.push(percorso);
+    const v = MailFirmeEdit.voci[id];
+    Object.assign(v, { immagine: percorso, anteprima: URL.createObjectURL(pronta) });
+    // Una firma già fatta di solito è più larga di un logo
+    if (!v.testo?.trim() && v.larghezza === 220) v.larghezza = 320;
+    renderMailFirmaImg(id);
+  } catch {
+    showToast('Immagine non caricata', 'error');
+  }
+}
+
+// Chiusa senza salvare: le immagini appena caricate non servono più
+function closeMailFirme() {
+  if (MailFirmeEdit.caricate.length) supabaseClient.storage.from('mail-firme').remove(MailFirmeEdit.caricate);
+  MailFirmeEdit.caricate = [];
+  closeModal('mail-modal');
 }
 
 async function saveMailFirme() {
   const btn = document.getElementById('mf-save');
   btn.disabled = true;
+  const negozio = MailFirmeEdit.scheda === 'negozio';
   const me = TCAuth.getNickname();
+  const ora = new Date().toISOString();
   const salva = [], togli = [];
   document.querySelectorAll('#mail-modal textarea[data-casella]').forEach(t => {
-    const id = t.dataset.casella, testo = t.value.trim();
-    // Uguale a quella automatica (o vuota): non si salva, così segue il nome se cambia
-    if (!testo || testo === MailFirme.automatica(id)) togli.push(id);
-    else salva.push({ nickname: me, casella_id: id, testo, aggiornato_at: new Date().toISOString() });
+    const id = t.dataset.casella, v = MailFirmeEdit.voci[id];
+    v.testo = t.value.trim();
+    const predefinita = negozio ? MailFirme.automaticaNegozio(id) : MailFirme.automatica(id);
+    // Uguale a quella automatica e senza immagine: non si salva, così segue il nome se cambia
+    if (!v.immagine && (v.testo === predefinita || (!negozio && !v.testo))) togli.push(id);
+    else salva.push({ ...(negozio ? { aggiornato_da: me } : { nickname: me }), casella_id: id, testo: v.testo, immagine: v.immagine, larghezza: v.larghezza, aggiornato_at: ora });
   });
+  const tabella = negozio ? 'mail_firme_negozio' : 'mail_firme';
+  const prima = negozio ? MailFirme.negozio : MailFirme.firme;
+  const inUso = new Set(salva.map(r => r.immagine).filter(Boolean));
+  const vecchie = Object.values(prima).map(r => r.immagine).filter(p => p && !inUso.has(p));
   try {
-    if (salva.length) { const { error } = await supabaseClient.from('mail_firme').upsert(salva); if (error) throw error; }
-    if (togli.length) { const { error } = await supabaseClient.from('mail_firme').delete().eq('nickname', me).in('casella_id', togli); if (error) throw error; }
+    if (salva.length) { const { error } = await supabaseClient.from(tabella).upsert(salva); if (error) throw error; }
+    if (togli.length) {
+      let q = supabaseClient.from(tabella).delete().in('casella_id', togli);
+      if (!negozio) q = q.eq('nickname', me);
+      const { error } = await q; if (error) throw error;
+    }
+    const scartate = [...vecchie, ...MailFirmeEdit.caricate.filter(p => !inUso.has(p))];
+    if (scartate.length) supabaseClient.storage.from('mail-firme').remove(scartate);
+    MailFirmeEdit.caricate = [];
     await MailFirme.load();
     closeModal('mail-modal');
-    showToast('Firme salvate');
+    showToast(negozio ? 'Firme dei negozi salvate' : 'Firme salvate');
+    if (MailBox.aperto) renderMailReaderKeepText();
   } catch {
     showToast('Firme non salvate: errore di connessione', 'error');
     btn.disabled = false;
@@ -498,6 +628,7 @@ function renderMailReader() {
       ${bozzaCervello && MailBox.bozza === MailFirme.applica(bozzaCervello, f.casella_id) ? `<small class="mail-reply-note">Bozza preparata dal cervello: controllala prima di inviare.</small>` : ''}
       <textarea id="mail-bozza" class="form-textarea" maxlength="20000" rows="9" placeholder="Scrivi la risposta…"
         oninput="MailBox.bozza=this.value">${escapeHtml(MailBox.bozza)}</textarea>
+      ${mailFirmaImmagineNota(f.casella_id)}
       <div class="mail-reply-actions">
         ${taskAperti.length ? `<small>Inviando, ${taskAperti.length === 1 ? 'il task collegato viene completato' : 'i task collegati vengono completati'}.</small>` : '<small>Parte da ' + escapeHtml(casella?.indirizzo || 'la casella del negozio') + ', con copia nella cartella Inviata.</small>'}
         <button type="submit" class="btn btn-primary btn-sm" id="mail-send" ${MailBox.invio ? 'disabled' : ''}>${Icons.reply(14)} ${MailBox.invio ? 'Invio…' : 'Invia risposta'}</button>
@@ -783,7 +914,8 @@ function openMailCompose() {
         <div class="form-group"><label class="form-label" for="mc-oggetto">Oggetto</label>
           <input id="mc-oggetto" type="text" class="form-input" required maxlength="200"></div>
         <div class="form-group"><label class="form-label" for="mc-testo">Testo</label>
-          <textarea id="mc-testo" class="form-textarea" rows="11" maxlength="20000" required></textarea></div>
+          <textarea id="mc-testo" class="form-textarea" rows="11" maxlength="20000" required></textarea>
+          <div id="mc-firma-img">${mailFirmaImmagineNota(MailNuova.casella)}</div></div>
         <div class="mail-form-actions">
           <button type="button" class="btn btn-secondary" onclick="closeModal('mail-modal')">Annulla</button>
           <button type="submit" class="btn btn-primary" id="mc-send">${Icons.reply(14)} Invia</button>
@@ -815,6 +947,8 @@ function setComposeBox(id) {
   if (t && t.value.trimEnd().endsWith(firmaVecchia)) t.value = MailFirme.applica(t.value.trimEnd().slice(0, -firmaVecchia.length), id);
   MailNuova.casella = id;
   MailNuova.ordini = []; MailNuova.ordine = null;
+  const fi = document.getElementById('mc-firma-img');
+  if (fi) fi.innerHTML = mailFirmaImmagineNota(id);
   renderComposeBoxes();
   renderComposeOrders();
   if (MailNuova.cerca) searchComposeOrders(MailNuova.cerca);

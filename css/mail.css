@@ -201,3 +201,18 @@
   .mail-form-row { grid-template-columns: 1fr; }
   .mail-att-open span { max-width: 160px; }
 }
+
+/* Firme: testo + immagine (logo o firma già fatta) */
+.mail-firma-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border-light); border-radius: 14px; }
+.mail-firma-img { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.mail-firma-preview {
+  max-width: 100%; overflow: hidden; padding: 10px; border-radius: 10px;
+  background: #fff; border: 1px solid var(--border-light);   /* bianco come nella mail del cliente */
+}
+.mail-firma-preview img { display: block; max-width: 100%; height: auto; }
+.mail-firma-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mail-firma-tools .segmented button { font-size: 0.74rem; padding-left: 9px; padding-right: 9px; }
+.mail-firma-tools label, .mail-firma-add { cursor: pointer; gap: 6px; }
+.mail-firma-nota { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.74rem; color: var(--text-muted); }
+.mail-firma-nota img { max-height: 44px; max-width: 220px; padding: 4px 6px; border-radius: 8px; background: #fff; border: 1px solid var(--border-light); }
+.mail-form > .segmented { align-self: flex-start; }
