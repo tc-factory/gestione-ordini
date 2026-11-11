@@ -1574,7 +1574,7 @@ const SHOP_EVASIONE = { UNFULFILLED: 'Da evadere', FULFILLED: 'Evaso', PARTIALLY
   IN_PROGRESS: 'In lavorazione', SCHEDULED: 'Programmato', RESTOCKED: 'Rifornito', PENDING_FULFILLMENT: 'In attesa di evasione', OPEN: 'Aperto' };
 
 const SHOP_DA_EVADERE = ['UNFULFILLED', 'PARTIALLY_FULFILLED', 'ON_HOLD', 'IN_PROGRESS', 'SCHEDULED'];   // come tc_shopify_stato
-const SHOP_ORDINE_CAMPI = 'id, store_id, numero, creato_at, annullato_at, cliente, email, telefono, totale, valuta, stato_pagamento, stato_evasione, tracking, righe';
+const SHOP_ORDINE_CAMPI = 'id, store_id, numero, creato_at, annullato_at, cliente, email, telefono, totale, valuta, stato_pagamento, stato_evasione, tracking, righe, indirizzo';
 
 async function loadShopifyLinks() {
   try {
@@ -1733,7 +1733,7 @@ const ctrlStoreBar = (attivo, conta, totale, label, set) => `
 
 function setOrdersStore(id) { ShopLinks.negozio = id; refreshControlPage(); }
 
-const ORD_COLONNE = `<div class="ctrl-thead ctrl-ord" aria-hidden="true"><span>Ordine</span><span>Data</span><span>Cliente</span><span>Mail</span><span>Telefono</span><span>Articoli</span><span class="is-num">Totale</span><span></span></div>`;
+const ORD_COLONNE = `<div class="ctrl-thead ctrl-ord" aria-hidden="true"><span>Ordine</span><span>Data</span><span>Cliente</span><span>Mail</span><span>Telefono</span><span>Indirizzo</span><span>Articoli</span><span class="is-num">Totale</span><span></span></div>`;
 
 function ctrlShopOrderRow(o, conNegozio = true) {
   const track = (o.tracking || []).find(t => t.numero || t.url);
@@ -1747,6 +1747,8 @@ function ctrlShopOrderRow(o, conNegozio = true) {
     : o.stato_evasione && o.stato_evasione !== 'UNFULFILLED' ? [SHOP_EVASIONE[o.stato_evasione] || o.stato_evasione, '#f59e0b'] : null;
   const tel = o.telefono ? String(o.telefono).replace(/[^\d+]/g, '') : '';
   const negozio = conNegozio && taskMacro(o.store_id);
+  const ind = ctrlIndirizzo(o.indirizzo);
+  ctrlOrdiniVisti.set(o.id, o);
   return `
     <article class="ctrl-trow ctrl-ord">
       <div class="ctrl-cell ctrl-ord-num">
@@ -1754,9 +1756,10 @@ function ctrlShopOrderRow(o, conNegozio = true) {
         ${evasione ? `<span class="td-tag" style="--c:${evasione[1]};">${escapeHtml(evasione[0])}</span>` : ''}
       </div>
       <div class="ctrl-cell"><span class="${eta.lav >= 2 && !evasione ? 'ctrl-age' : ''}" ${eta.tot >= 2 ? `title="Da ${escapeHtml(ctrlTestoGiorni(eta))}"` : ''}>${ctrlQuandoBreve(o.creato_at)}</span></div>
-      <div class="ctrl-cell"><strong class="ctrl-ell">${escapeHtml(o.cliente || 'Cliente senza nome')}</strong></div>
-      <div class="ctrl-cell">${o.email ? `<a class="ctrl-link ctrl-ell" href="mailto:${escapeHtml(o.email)}" title="${escapeHtml(o.email)}">${escapeHtml(o.email)}</a>` : '<small>—</small>'}</div>
-      <div class="ctrl-cell">${tel ? `<a class="ctrl-link" href="tel:${escapeHtml(tel)}">${escapeHtml(o.telefono)}</a>` : '<small>—</small>'}</div>
+      <div class="ctrl-cell">${o.email || tel ? `<button type="button" class="ctrl-click ctrl-ell is-strong" onclick="apriStoricoCliente('${o.id}')" title="Storico ordini del cliente">${escapeHtml(o.cliente || 'Cliente senza nome')}</button>` : `<strong class="ctrl-ell">${escapeHtml(o.cliente || 'Cliente senza nome')}</strong>`}</div>
+      <div class="ctrl-cell">${o.email ? `<button type="button" class="ctrl-click ctrl-ell" onclick="ordineScriviMail('${o.id}')" title="Scrivi a ${escapeHtml(o.email)}">${escapeHtml(o.email)}</button>` : '<small>—</small>'}</div>
+      <div class="ctrl-cell">${tel ? `<button type="button" class="ctrl-click" onclick="ctrlCopia(this.textContent, 'Telefono copiato')" title="Clic per copiare">${escapeHtml(o.telefono)}</button>` : '<small>—</small>'}</div>
+      <div class="ctrl-cell">${ind ? `<button type="button" class="ctrl-click ctrl-ell" onclick="ctrlCopia(this.textContent, 'Indirizzo copiato')" title="${escapeHtml(ind)} · clic per copiare">${escapeHtml(ind)}</button>` : '<small>—</small>'}</div>
       <div class="ctrl-cell">
         ${righe.length ? `<details class="ctrl-art">
           <summary>${pezzi} ${pezzi === 1 ? 'articolo' : 'articoli'}</summary>
@@ -1769,9 +1772,55 @@ function ctrlShopOrderRow(o, conNegozio = true) {
       </div>
       <div class="ctrl-cell ctrl-cell-act">
         ${track?.url ? `<a class="ctrl-btn is-icon" href="${escapeHtml(track.url)}" target="_blank" rel="noopener" title="Tracking ${escapeHtml(track.corriere || '')}" aria-label="Tracking">${Icons.truck(14)}</a>` : ''}
-        <button type="button" class="ctrl-btn" onclick="apriDdt('${o.id}')">DDT</button>
+        <button type="button" class="ctrl-btn is-primary ctrl-ddt" onclick="apriDdt('${o.id}')">DDT</button>
       </div>
     </article>`;
+}
+
+// Ordini mostrati, per ritrovarli dai clic (mail, storico)
+const ctrlOrdiniVisti = new Map();
+const ctrlIndirizzo = (a) => !a?.via ? '' : `${a.via}, ${[a.cap, a.citta].filter(Boolean).join(' ')}${a.provincia ? ` (${a.provincia})` : ''}${a.paese && a.paese !== 'IT' ? `, ${a.paese}` : ''}`;
+
+async function ctrlCopia(testo, msg = 'Copiato') {
+  try { await navigator.clipboard.writeText(String(testo).trim()); showToast(msg); }
+  catch { showToast('Copia non riuscita', 'error'); }
+}
+
+// Mail al cliente: la finestra "Nuova mail" della sezione Mail, già col negozio e l'ordine scelti
+async function ordineScriviMail(id) {
+  const o = ctrlOrdiniVisti.get(id);
+  if (!o?.email) return;
+  if (typeof openMailCompose !== 'function' || typeof MailBox === 'undefined') { location.href = `mailto:${o.email}`; return; }
+  try {
+    if (!MailBox.caselle.length) await Promise.all([MailBox.loadCaselle(), window.MailFirme?.load?.(), window.MailModelli?.load?.()]);
+  } catch (e) { showToast(e.message, 'error'); return; }
+  openMailCompose();
+  if (MailBox.caselle.some(c => c.id === o.store_id)) setComposeBox(o.store_id);
+  MailNuova.ordini = [o];
+  pickComposeOrder(o.id);
+  document.getElementById('mc-a').value = o.email;
+  setTimeout(() => document.getElementById('mc-oggetto')?.focus(), 60);
+}
+
+// Storico ordini del cliente: stessa email, oppure stesso telefono se l'email manca
+async function apriStoricoCliente(id) {
+  const o = ctrlOrdiniVisti.get(id);
+  if (!o) return;
+  const cifre = String(o.telefono || '').replace(/\D/g, '').slice(-9);
+  const titolo = `<div class="modal-header"><h2 id="ctrl-modal-title">${escapeHtml(o.cliente || 'Cliente')}</h2>
+    <button class="btn-icon" onclick="closeModal(CTRL_MODAL)" aria-label="Chiudi">${Icons.x()}</button></div>`;
+  ctrlModal(`${titolo}<div class="modal-body"><div class="empty-list">Caricamento…</div></div>`, 1240, 'ctrl-storico');
+  let q = supabaseClient.from('shopify_orders').select(SHOP_ORDINE_CAMPI);
+  q = o.email ? q.ilike('email', o.email.replace(/[%_]/g, '\\$&')) : q.eq('telefono_cifre', cifre);
+  const { data, error } = await q.order('creato_at', { ascending: false }).limit(100);
+  const lista = data || [];
+  const spesa = lista.filter(x => !x.annullato_at).reduce((n, x) => n + (Number(x.totale) || 0), 0);
+  ctrlModal(`${titolo}
+    <div class="modal-body">
+      ${error ? `<div class="empty-list">Storico non caricato: ${escapeHtml(error.message)}</div>` : `
+      <p class="ctrl-storico-sub">${escapeHtml(o.email || o.telefono || '')} · ${lista.length} ${lista.length === 1 ? 'ordine' : 'ordini'} · ${ctrlSoldi(spesa, o.valuta)} in totale</p>
+      <div class="ctrl-table">${ORD_COLONNE}${lista.map(x => ctrlShopOrderRow(x)).join('')}</div>`}
+    </div>`, 1240, 'ctrl-storico');
 }
 
 // ── DDT: stesso modello del PDF dell'automazione del mattino (automazioni/shopify-mattino/mattino.py) ──
