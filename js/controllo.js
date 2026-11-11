@@ -1746,7 +1746,10 @@ function ctrlShopOrderRow(o, conNegozio = true) {
   const pagato = ordPagato(o);
   // I problemi d'indirizzo contano solo finché l'ordine non è spedito
   const problemi = !o.annullato_at && SHOP_DA_EVADERE.includes(o.stato_evasione) ? ordProblemi(o) : [];
-  const tagProb = (campo) => problemi.filter(p => p[0] === campo).map(p => `<span class="td-tag" style="--c:#dc2626;">${escapeHtml(p[1])}</span>`).join('');
+  // Etichetta rossa: col clic parte la mail che chiede al cliente il dato mancante
+  const tagProb = (campo) => problemi.filter(p => p[0] === campo).map(p => o.email
+    ? `<button type="button" class="td-tag ctrl-prob" style="--c:#dc2626;" onclick="ordineRichiediDati('${o.id}')" title="Scrivi al cliente per chiederlo">${escapeHtml(p[1])}</button>`
+    : `<span class="td-tag" style="--c:#dc2626;" title="Nessuna mail: va chiesto per telefono">${escapeHtml(p[1])}</span>`).join('');
   const evasione = o.annullato_at ? ['Annullato', '#94a3b8']
     : o.stato_evasione === 'FULFILLED' ? ['Evaso', '#16a34a']
     : o.stato_evasione && o.stato_evasione !== 'UNFULFILLED' ? [SHOP_EVASIONE[o.stato_evasione] || o.stato_evasione, '#f59e0b'] : null;
@@ -1764,7 +1767,7 @@ function ctrlShopOrderRow(o, conNegozio = true) {
       <div class="ctrl-cell">${o.email || tel ? `<button type="button" class="ctrl-click ctrl-ell is-strong" onclick="apriStoricoCliente('${o.id}')" title="Storico ordini del cliente">${escapeHtml(o.cliente || 'Cliente senza nome')}</button>` : `<strong class="ctrl-ell">${escapeHtml(o.cliente || 'Cliente senza nome')}</strong>`}</div>
       <div class="ctrl-cell">${o.email ? `<button type="button" class="ctrl-click ctrl-ell" onclick="ordineScriviMail('${o.id}')" title="Scrivi a ${escapeHtml(o.email)}">${escapeHtml(o.email)}</button>` : '<small>—</small>'}</div>
       <div class="ctrl-cell">${tel ? `<button type="button" class="ctrl-click" onclick="ctrlCopia(this.textContent, 'Telefono copiato')" title="Clic per copiare">${escapeHtml(o.telefono)}</button>` : ''}${tagProb('tel') || (tel ? '' : '<small>—</small>')}</div>
-      <div class="ctrl-cell">${ind ? `<button type="button" class="ctrl-click ctrl-ell" onclick="ctrlCopia(this.textContent, 'Indirizzo copiato')" title="${escapeHtml(ind)} · clic per copiare">${escapeHtml(ind)}</button>` : ''}${tagProb('ind') || (ind ? '' : '<small>—</small>')}</div>
+      <div class="ctrl-cell">${tagProb('ind')}${ind ? `<button type="button" class="ctrl-click ctrl-ell ${problemi.some(p => p[0] === 'ind') ? 'is-prob' : ''}" onclick="ctrlCopia(this.textContent, 'Indirizzo copiato')" title="${escapeHtml(ind)} · clic per copiare">${escapeHtml(ind)}</button>` : ''}${!ind && !problemi.some(p => p[0] === 'ind') ? '<small>—</small>' : ''}</div>
       <div class="ctrl-cell">
         ${righe.length ? `<details class="ctrl-art">
           <summary>${pezzi} ${pezzi === 1 ? 'articolo' : 'articoli'}</summary>
@@ -1814,10 +1817,13 @@ async function ctrlCopia(testo, msg = 'Copiato') {
 }
 
 // Mail al cliente: la finestra "Nuova mail" della sezione Mail, già col negozio e l'ordine scelti
-async function ordineScriviMail(id) {
+async function ordineScriviMail(id, testo = null) {
   const o = ctrlOrdiniVisti.get(id);
   if (!o?.email) return;
-  if (typeof openMailCompose !== 'function' || typeof MailBox === 'undefined') { location.href = `mailto:${o.email}`; return; }
+  if (typeof openMailCompose !== 'function' || typeof MailBox === 'undefined') {
+    location.href = `mailto:${o.email}${testo ? `?subject=${encodeURIComponent(testo.oggetto)}&body=${encodeURIComponent(testo.corpo)}` : ''}`;
+    return;
+  }
   try {
     if (!MailBox.caselle.length) await Promise.all([MailBox.loadCaselle(), window.MailFirme?.load?.(), window.MailModelli?.load?.()]);
   } catch (e) { showToast(e.message, 'error'); return; }
@@ -1826,7 +1832,37 @@ async function ordineScriviMail(id) {
   MailNuova.ordini = [o];
   pickComposeOrder(o.id);
   document.getElementById('mc-a').value = o.email;
-  setTimeout(() => document.getElementById('mc-oggetto')?.focus(), 60);
+  if (testo) {
+    document.getElementById('mc-oggetto').value = testo.oggetto;
+    document.getElementById('mc-testo').value = MailFirme.applica(testo.corpo, MailNuova.casella);
+    setTimeout(() => document.getElementById('mc-send')?.focus(), 60);
+  } else setTimeout(() => document.getElementById('mc-oggetto')?.focus(), 60);
+}
+
+// Mail pronta per chiedere i dati che mancano per spedire: telefono, indirizzo, o tutti e due
+const ORD_MANCA = { 'Manca il numero civico': 'il numero civico', 'Manca il CAP': 'il CAP', 'CAP non valido': 'il CAP corretto',
+  'Manca la città': 'la città', 'Manca la provincia': 'la provincia' };
+function ordineRichiediDati(id) {
+  const o = ctrlOrdiniVisti.get(id);
+  if (!o) return;
+  const probs = ordProblemi(o);
+  const tel = probs.some(p => p[0] === 'tel');
+  const ind = probs.filter(p => p[0] === 'ind').map(p => p[1]);
+  const nome = String(o.indirizzo?.nome || o.cliente || '').trim().split(/\s+/)[0];
+  const elenco = (v) => v.length > 1 ? `${v.slice(0, -1).join(', ')} e ${v[v.length - 1]}` : v[0];
+  const righe = [`${nome ? `Ciao ${nome}` : 'Ciao'},`, '', `grazie per il tuo ordine ${o.numero}! Lo stiamo preparando, ma prima di spedirlo ci serve un aiuto.`, ''];
+  if (ind.includes('Manca l\'indirizzo')) righe.push('Nell\'ordine non è arrivato l\'indirizzo di spedizione: ci scrivi via, numero civico, CAP, città e provincia?');
+  else if (ind.length) {
+    righe.push(`Nell'indirizzo di spedizione che ci hai lasciato manca ${elenco(ind.map(t => ORD_MANCA[t] || t.toLowerCase()))}:`, '', ctrlIndirizzo(o.indirizzo), '',
+      'Ci rispondi con l\'indirizzo completo? Così il corriere riesce a consegnare senza intoppi.');
+  }
+  if (tel) {
+    if (ind.length) righe.push('');
+    righe.push(`${ind.length ? 'Ci serve anche' : 'Ci serve'} un numero di telefono: il corriere lo usa per avvisarti della consegna e per contattarti se non ti trova.`);
+  }
+  righe.push('', 'Appena ci rispondi spediamo. Grazie!');
+  const cosa = ind.length && tel ? 'ci servono l\'indirizzo completo e il telefono' : ind.length ? 'ci serve l\'indirizzo completo' : 'ci serve il tuo numero di telefono';
+  ordineScriviMail(id, { oggetto: `Ordine ${o.numero}: ${cosa} per spedire`, corpo: righe.join('\n') });
 }
 
 // Storico ordini del cliente: stessa email, oppure stesso telefono se l'email manca

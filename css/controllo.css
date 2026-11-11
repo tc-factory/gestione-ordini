@@ -595,6 +595,10 @@ html.dark .is-task .td-tag { color: color-mix(in srgb, var(--c) 45%, #fff); }
 .ctrl-kpi.is-click:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 .ctrl-kpi-hint { margin: 8px 16px 0; font-size: 0.78rem; color: var(--text-muted); }
 .ctrl-ord .ctrl-cell .td-tag { margin-top: 3px; align-self: flex-start; }
+.ctrl-prob { border: 0; font: inherit; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: filter var(--transition); }
+.ctrl-prob:hover { filter: brightness(0.94); text-decoration: underline; }
+.ctrl-prob:focus-visible { outline: 2px solid #dc2626; outline-offset: 2px; }
+.ctrl-click.is-prob { color: var(--priority-urgent, #dc2626); }
 
 .ctrl-table { display: flex; flex-direction: column; }
 .ctrl-thead, .ctrl-trow {
@@ -633,7 +637,7 @@ html.dark .is-task .td-tag { color: color-mix(in srgb, var(--c) 45%, #fff); }
 .ctrl-items-more summary { cursor: pointer; font-size: 0.76rem; font-weight: 600; color: var(--text-muted); }
 .ctrl-items-more[open] summary { margin-bottom: 2px; }
 
-.ctrl-ord { --cols: 104px 96px minmax(110px, 1fr) minmax(130px, 1.2fr) 118px minmax(140px, 1.4fr) 92px 86px 84px; gap: 14px; }
+.ctrl-ord { --cols: 96px 92px minmax(100px, 0.8fr) minmax(120px, 0.95fr) 136px minmax(220px, 2.4fr) 92px 86px 64px; gap: 14px; }
 .ctrl-click {
   min-width: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--text-secondary);
   text-align: left; cursor: pointer; text-decoration: underline dotted transparent; text-underline-offset: 3px;
