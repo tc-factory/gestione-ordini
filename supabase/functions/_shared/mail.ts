@@ -167,11 +167,11 @@ async function invia(db: SupabaseClient, casella: Row, m: Invio, firma: Firma) {
 
   const smtp = nodemailer.createTransport({
     host: casella.smtp_host, port: 465, secure: true,
-    auth: { user: casella.indirizzo, pass },
+    auth: { user: casella.utente || casella.indirizzo, pass },   // utente: login diverso dall'indirizzo (info@tcfactory.it → riccardo@tcfactory.it)
   });
   await smtp.sendMail({ envelope: { from: casella.indirizzo, to: m.a }, raw });
 
-  const inviata = await copiaInInviata(casella.imap_host, casella.indirizzo, pass, raw);
+  const inviata = await copiaInInviata(casella.imap_host, casella.utente || casella.indirizzo, pass, raw);
 
   await db.from('mail_messaggi').insert({
     casella_id: casella.id, direzione: 'out', message_id: messageId, in_reply_to: m.inReplyTo || null,
