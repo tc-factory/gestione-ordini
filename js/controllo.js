@@ -399,7 +399,7 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['ordini', 'Shopify'], ['gls', 'GLS'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']] : [])];
+  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['ordini', 'Shop'], ['gls', 'Spedizioni'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
@@ -1563,6 +1563,7 @@ const ShopLinks = {
   ordini: null,      // risultati della ricerca
   query: '',
   negozio: null,     // filtro degli ordini in arrivo (null = tutti)
+  vista: 'tutti',    // box scelta sopra gli ordini: tutti, oggi, nonpagati, problemi
   negozioGls: null,  // filtro delle spedizioni GLS (null = tutti)
   error: null,
   syncing: new Set(),
@@ -1732,6 +1733,7 @@ const ctrlStoreBar = (attivo, conta, totale, label, set) => `
 // ── Shopify: ordini da evadere, divisi per negozio ──
 
 function setOrdersStore(id) { ShopLinks.negozio = id; refreshControlPage(); }
+function setOrdersView(v) { ShopLinks.vista = v; refreshControlPage(); }
 
 const ORD_COLONNE = `<div class="ctrl-thead ctrl-ord" aria-hidden="true"><span>Ordine</span><span>Data</span><span>Cliente</span><span>Mail</span><span>Telefono</span><span>Indirizzo</span><span>Articoli</span><span class="is-num">Totale</span><span></span></div>`;
 
@@ -1741,7 +1743,10 @@ function ctrlShopOrderRow(o, conNegozio = true) {
   const pezzi = righe.reduce((n, r) => n + (Number(r.qnt) || 0), 0);
   const articolo = (r) => `<li><b>${r.qnt}×</b> ${escapeHtml(r.titolo)}${r.variante ? ` <span>${escapeHtml(r.variante)}</span>` : ''}</li>`;
   const eta = ctrlGiorniDa(o.creato_at);
-  const pagato = ['PAID', 'PARTIALLY_REFUNDED'].includes(o.stato_pagamento);
+  const pagato = ordPagato(o);
+  // I problemi d'indirizzo contano solo finché l'ordine non è spedito
+  const problemi = !o.annullato_at && SHOP_DA_EVADERE.includes(o.stato_evasione) ? ordProblemi(o) : [];
+  const tagProb = (campo) => problemi.filter(p => p[0] === campo).map(p => `<span class="td-tag" style="--c:#dc2626;">${escapeHtml(p[1])}</span>`).join('');
   const evasione = o.annullato_at ? ['Annullato', '#94a3b8']
     : o.stato_evasione === 'FULFILLED' ? ['Evaso', '#16a34a']
     : o.stato_evasione && o.stato_evasione !== 'UNFULFILLED' ? [SHOP_EVASIONE[o.stato_evasione] || o.stato_evasione, '#f59e0b'] : null;
@@ -1758,8 +1763,8 @@ function ctrlShopOrderRow(o, conNegozio = true) {
       <div class="ctrl-cell"><span class="${eta.lav >= 2 && !evasione ? 'ctrl-age' : ''}" ${eta.tot >= 2 ? `title="Da ${escapeHtml(ctrlTestoGiorni(eta))}"` : ''}>${ctrlQuandoBreve(o.creato_at)}</span></div>
       <div class="ctrl-cell">${o.email || tel ? `<button type="button" class="ctrl-click ctrl-ell is-strong" onclick="apriStoricoCliente('${o.id}')" title="Storico ordini del cliente">${escapeHtml(o.cliente || 'Cliente senza nome')}</button>` : `<strong class="ctrl-ell">${escapeHtml(o.cliente || 'Cliente senza nome')}</strong>`}</div>
       <div class="ctrl-cell">${o.email ? `<button type="button" class="ctrl-click ctrl-ell" onclick="ordineScriviMail('${o.id}')" title="Scrivi a ${escapeHtml(o.email)}">${escapeHtml(o.email)}</button>` : '<small>—</small>'}</div>
-      <div class="ctrl-cell">${tel ? `<button type="button" class="ctrl-click" onclick="ctrlCopia(this.textContent, 'Telefono copiato')" title="Clic per copiare">${escapeHtml(o.telefono)}</button>` : '<small>—</small>'}</div>
-      <div class="ctrl-cell">${ind ? `<button type="button" class="ctrl-click ctrl-ell" onclick="ctrlCopia(this.textContent, 'Indirizzo copiato')" title="${escapeHtml(ind)} · clic per copiare">${escapeHtml(ind)}</button>` : '<small>—</small>'}</div>
+      <div class="ctrl-cell">${tel ? `<button type="button" class="ctrl-click" onclick="ctrlCopia(this.textContent, 'Telefono copiato')" title="Clic per copiare">${escapeHtml(o.telefono)}</button>` : ''}${tagProb('tel') || (tel ? '' : '<small>—</small>')}</div>
+      <div class="ctrl-cell">${ind ? `<button type="button" class="ctrl-click ctrl-ell" onclick="ctrlCopia(this.textContent, 'Indirizzo copiato')" title="${escapeHtml(ind)} · clic per copiare">${escapeHtml(ind)}</button>` : ''}${tagProb('ind') || (ind ? '' : '<small>—</small>')}</div>
       <div class="ctrl-cell">
         ${righe.length ? `<details class="ctrl-art">
           <summary>${pezzi} ${pezzi === 1 ? 'articolo' : 'articoli'}</summary>
@@ -1775,6 +1780,28 @@ function ctrlShopOrderRow(o, conNegozio = true) {
         <button type="button" class="ctrl-btn is-primary ctrl-ddt" onclick="apriDdt('${o.id}')">DDT</button>
       </div>
     </article>`;
+}
+
+// ── Problemi prima della spedizione: indirizzo o telefono che il corriere non può usare ──
+// (dopo la spedizione i problemi li segue la scheda Spedizioni, dal tracking)
+const ordPagato = (o) => ['PAID', 'PARTIALLY_REFUNDED'].includes(o.stato_pagamento);
+function ordProblemi(o) {
+  const out = [];                                   // [campo, testo]
+  const a = o.indirizzo;
+  const cifre = String(o.telefono || '').replace(/\D/g, '');
+  if (!cifre) out.push(['tel', 'Manca il telefono']);
+  else if (cifre.length < 8) out.push(['tel', 'Telefono incompleto']);
+  if (!a || !String(a.via || '').trim()) { out.push(['ind', 'Manca l\'indirizzo']); return out; }
+  const via = String(a.via);
+  // Il civico è un numero nella via; "snc" (senza numero civico) va bene
+  if (!/\d/.test(via) && !/\bs\.?\s?n\.?\s?c\.?(\b|$)/i.test(via)) out.push(['ind', 'Manca il numero civico']);
+  const italia = !a.paese || a.paese === 'IT';
+  const cap = String(a.cap || '').trim();
+  if (!cap) out.push(['ind', 'Manca il CAP']);
+  else if (italia && !/^\d{5}$/.test(cap)) out.push(['ind', 'CAP non valido']);
+  if (!String(a.citta || '').trim()) out.push(['ind', 'Manca la città']);
+  if (italia && !String(a.provincia || '').trim()) out.push(['ind', 'Manca la provincia']);
+  return out;
 }
 
 // Ordini mostrati, per ritrovarli dai clic (mail, storico)
@@ -1962,26 +1989,34 @@ function renderOrdersIncoming() {
   const gruppi = TASK_MACROAREE.filter(m => (!ShopLinks.negozio || ShopLinks.negozio === m.id) && conta(m.id));
 
   const oggi = ctrlOggi();
-  const nOggi = vis.filter(o => ctrlGiornoDi(o.creato_at) === oggi).length;
-  const nIeri = vis.filter(o => ctrlGiornoDi(o.creato_at) === ctrlAddDays(oggi, -1)).length;
-  const nonPagati = vis.filter(o => o.stato_pagamento !== 'PAID').length;
-  const vecchio = vis.reduce((a, o) => !a || o.creato_at < a.creato_at ? o : a, null);
+  const filtri = {
+    tutti:     { label: 'Da evadere',    test: () => true,                                    vuoto: 'Nessun ordine da evadere.' },
+    oggi:      { label: 'Arrivati oggi', test: (o) => ctrlGiornoDi(o.creato_at) === oggi,    vuoto: 'Nessun ordine arrivato oggi.' },
+    nonpagati: { label: 'Non pagati',    test: (o) => !ordPagato(o),                          vuoto: 'Nessun ordine da pagare.' },
+    problemi:  { label: 'Problemi',      test: (o) => ordProblemi(o).length > 0,              vuoto: 'Nessun problema: indirizzi e telefoni a posto.' },
+  };
+  const vista = filtri[ShopLinks.vista] ? ShopLinks.vista : 'tutti';
+  const n = (k) => vis.filter(filtri[k].test).length;
+  const box = (k, cls = '') => {
+    const v = n(k), on = vista === k;
+    return `<button type="button" class="ctrl-kpi is-click ${on ? 'is-on' : ''} ${v && cls ? cls : ''}" aria-pressed="${on}"
+      onclick="CtrlAnim.filtro='kpi-${k}';setOrdersView('${on && k !== 'tutti' ? 'tutti' : k}')"><b>${v}</b><span>${filtri[k].label}</span></button>`;
+  };
+  const elenco = (id) => tutti.filter(o => o.store_id === id && filtri[vista].test(o));
+  const gruppiVis = gruppi.filter(m => elenco(m.id).length);
   return `
     <section class="glass-card page-card ctrl-group ctrl-ord-card">
       ${head(tutti.length)}
       ${ctrlStoreBar(ShopLinks.negozio, conta, tutti.length, 'Tutti', 'setOrdersStore')}
       ${vis.length ? `
-        <div class="ctrl-kpis">
-          ${ctrlKpi('Arrivati oggi', nOggi)}
-          ${ctrlKpi('Ieri', nIeri)}
-          ${ctrlKpi('Da prima', vis.length - nOggi - nIeri)}
-          ${ctrlKpi('Non pagati', nonPagati, nonPagati ? 'is-alert' : '')}
-          ${vecchio ? ctrlKpi(`Il più vecchio: ${escapeHtml(vecchio.numero)}`, `${ctrlGiorniDa(vecchio.creato_at).lav} <small>gg lavorativi</small>`) : ''}
-        </div>` : ''}
-      ${gruppi.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${gruppi.map(m => `
-        <div class="ctrl-store-head" style="--m:${m.color};"><i aria-hidden="true"></i>${m.label}<b>${conta(m.id)}</b></div>
-        <div class="ctrl-table">${ORD_COLONNE}${tutti.filter(o => o.store_id === m.id).map(o => ctrlShopOrderRow(o, false)).join('')}</div>`).join('')}</div>`
-        : `<div class="empty-list">Nessun ordine da evadere.</div>`}
+        <div class="ctrl-kpis" role="group" aria-label="Filtra gli ordini">
+          ${box('oggi')}${box('tutti')}${box('nonpagati', 'is-alert')}${box('problemi', 'is-alert')}
+        </div>
+        ${vista === 'problemi' && gruppiVis.length ? `<p class="ctrl-kpi-hint">Indirizzi senza civico, CAP, città o provincia e telefoni mancanti, da sistemare prima di spedire. Dopo la spedizione i problemi passano in Spedizioni.</p>` : ''}` : ''}
+      ${gruppiVis.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${gruppiVis.map(m => `
+        <div class="ctrl-store-head" style="--m:${m.color};"><i aria-hidden="true"></i>${m.label}<b>${elenco(m.id).length}</b></div>
+        <div class="ctrl-table">${ORD_COLONNE}${elenco(m.id).map(o => ctrlShopOrderRow(o, false)).join('')}</div>`).join('')}</div>`
+        : `<div class="empty-list">${vis.length ? filtri[vista].vuoto : 'Nessun ordine da evadere.'}</div>`}
     </section>`;
 }
 
