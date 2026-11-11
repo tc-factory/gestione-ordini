@@ -1565,6 +1565,7 @@ const ShopLinks = {
   negozio: null,     // filtro degli ordini in arrivo (null = tutti)
   vista: 'tutti',    // box scelta sopra gli ordini: tutti, oggi, nonpagati, problemi
   richieste: new Map(),   // richieste dei dati mancanti aperte, per ordine
+  verifiche: new Map(),   // riscontro degli indirizzi sulle mappe (ordini_verifiche), per ordine
   negozioGls: null,  // filtro delle spedizioni GLS (null = tutti)
   error: null,
   syncing: new Set(),
@@ -1580,8 +1581,14 @@ const SHOP_ORDINE_CAMPI = 'id, store_id, numero, creato_at, annullato_at, client
 
 // Richieste dei dati mancanti ancora aperte (ordini-dati, o mandate a mano): ordine → richiesta
 async function loadRichiesteDati(render = true) {
-  const { data, error } = await supabaseClient.from('ordini_richieste_dati').select('ordine_id, inviata_at, inviata_da, esito, task_id').is('risolta_at', null);
+  const [{ data, error }, ver] = await Promise.all([
+    supabaseClient.from('ordini_richieste_dati').select('ordine_id, inviata_at, inviata_da, esito, task_id').is('risolta_at', null),
+    // Solo gli esiti da mostrare; gli ordini spediti non contano
+    supabaseClient.from('ordini_verifiche').select('ordine_id, esito, nota, suggerimento, prima, dopo, corretta_at')
+      .in('esito', ['corretta', 'simile', 'ambigua', 'non_trovata']).gte('verificata_at', new Date(Date.now() - 30 * 86400e3).toISOString()),
+  ]);
   ShopLinks.richieste = new Map(error ? [] : (data || []).map(r => [r.ordine_id, r]));
+  ShopLinks.verifiche = new Map(ver.error ? [] : (ver.data || []).map(r => [r.ordine_id, r]));
   if (render) refreshControlPage();
 }
 
@@ -1763,6 +1770,10 @@ function ctrlShopOrderRow(o, conNegozio = true) {
   const tagProb = (campo) => problemi.filter(p => p[0] === campo).map(p => o.email
     ? `<button type="button" class="td-tag ctrl-prob" style="--c:${chiestaTesto ? '#d97706' : '#dc2626'};" onclick="ordineRichiediDati('${o.id}')" title="${escapeHtml(chiestaTitolo)}">${escapeHtml(p[1])}${chiestaTesto ? ` · ${chiestaTesto}` : ''}</button>`
     : `<span class="td-tag" style="--c:#dc2626;" title="Nessuna mail: va chiesto per telefono">${escapeHtml(p[1])}</span>`).join('');
+  // Avvisi del riscontro (mappe, mail): arancioni, li valuta una persona; verde = corretto da solo
+  const avvisi = !o.annullato_at && SHOP_DA_EVADERE.includes(o.stato_evasione) ? ordAvvisi(o) : [];
+  const tagAvviso = (campo) => avvisi.filter(x => x.campo === campo).map(x =>
+    `<span class="td-tag" style="--c:${x.colore};" title="${escapeHtml(x.titolo)}">${escapeHtml(x.testo)}</span>`).join('');
   const evasione = o.annullato_at ? ['Annullato', '#94a3b8']
     : o.stato_evasione === 'FULFILLED' ? ['Evaso', '#16a34a']
     : o.stato_evasione && o.stato_evasione !== 'UNFULFILLED' ? [SHOP_EVASIONE[o.stato_evasione] || o.stato_evasione, '#f59e0b'] : null;
@@ -1778,9 +1789,9 @@ function ctrlShopOrderRow(o, conNegozio = true) {
       </div>
       <div class="ctrl-cell"><span class="${eta.lav >= 2 && !evasione ? 'ctrl-age' : ''}" ${eta.tot >= 2 ? `title="Da ${escapeHtml(ctrlTestoGiorni(eta))}"` : ''}>${ctrlQuandoBreve(o.creato_at)}</span></div>
       <div class="ctrl-cell">${o.email || tel ? `<button type="button" class="ctrl-click ctrl-ell is-strong" onclick="apriStoricoCliente('${o.id}')" title="Storico ordini del cliente">${escapeHtml(o.cliente || 'Cliente senza nome')}</button>` : `<strong class="ctrl-ell">${escapeHtml(o.cliente || 'Cliente senza nome')}</strong>`}</div>
-      <div class="ctrl-cell">${o.email ? `<button type="button" class="ctrl-click ctrl-ell" onclick="ordineScriviMail('${o.id}')" title="Scrivi a ${escapeHtml(o.email)}">${escapeHtml(o.email)}</button>` : '<small>—</small>'}</div>
+      <div class="ctrl-cell">${o.email ? `<button type="button" class="ctrl-click ctrl-ell" onclick="ordineScriviMail('${o.id}')" title="Scrivi a ${escapeHtml(o.email)}">${escapeHtml(o.email)}</button>` : '<small>—</small>'}${tagAvviso('mail')}</div>
       <div class="ctrl-cell">${tel ? `<button type="button" class="ctrl-click" onclick="ctrlCopia(this.textContent, 'Telefono copiato')" title="Clic per copiare">${escapeHtml(o.telefono)}</button>` : ''}${tagProb('tel') || (tel ? '' : '<small>—</small>')}</div>
-      <div class="ctrl-cell">${tagProb('ind')}${ind ? `<button type="button" class="ctrl-click ctrl-ell ${problemi.some(p => p[0] === 'ind') ? 'is-prob' : ''}" onclick="ctrlCopia(this.textContent, 'Indirizzo copiato')" title="${escapeHtml(ind)} · clic per copiare">${escapeHtml(ind)}</button>` : ''}${!ind && !problemi.some(p => p[0] === 'ind') ? '<small>—</small>' : ''}</div>
+      <div class="ctrl-cell">${tagProb('ind')}${tagAvviso('ind')}${ind ? `<button type="button" class="ctrl-click ctrl-ell ${problemi.some(p => p[0] === 'ind') ? 'is-prob' : ''}" onclick="ctrlCopia(this.textContent, 'Indirizzo copiato')" title="${escapeHtml(ind)} · clic per copiare">${escapeHtml(ind)}</button>` : ''}${!ind && !problemi.some(p => p[0] === 'ind') ? '<small>—</small>' : ''}</div>
       <div class="ctrl-cell">
         ${righe.length ? `<details class="ctrl-art">
           <summary>${pezzi} ${pezzi === 1 ? 'articolo' : 'articoli'}</summary>
@@ -1808,6 +1819,7 @@ function ordProblemi(o) {
   const cifre = String(o.telefono || '').replace(/\D/g, '');
   if (!cifre) out.push(['tel', 'Manca il telefono']);
   else if (cifre.length < 8) out.push(['tel', 'Telefono incompleto']);
+  else if (ordTelefonoNonValido(o.telefono, a?.paese)) out.push(['tel', 'Telefono non valido']);
   if (!a || !String(a.via || '').trim()) { out.push(['ind', 'Manca l\'indirizzo']); return out; }
   const via = String(a.via);
   // Il civico è un numero nella via; "snc" (senza numero civico) va bene
@@ -1818,6 +1830,61 @@ function ordProblemi(o) {
   else if (italia && !/^\d{5}$/.test(cap)) out.push(['ind', 'CAP non valido']);
   if (!String(a.citta || '').trim()) out.push(['ind', 'Manca la città']);
   if (italia && !String(a.provincia || '').trim()) out.push(['ind', 'Manca la provincia']);
+  return out;
+}
+
+// Numero italiano che non può esistere (stessa regola di telefonoNonValido in _shared/ordini-dati.ts)
+function ordTelefonoNonValido(tel, paese) {
+  const raw = String(tel || '').trim();
+  const c = raw.replace(/\D/g, '');
+  if (c.length < 8) return false;
+  let naz = c;
+  if (/^(\+|00)/.test(raw)) {
+    const n = raw.startsWith('00') ? c.slice(2) : c;
+    if (n.startsWith('39')) naz = n.slice(2);
+    else if (/^3\d{9}$/.test(n)) naz = n;
+    else return false;
+  } else if (paese && paese !== 'IT') return false;
+  else if (c.length >= 11 && c.startsWith('39')) naz = c.slice(2);
+  if (/^(\d)\1+$/.test(naz)) return true;
+  return !(/^3\d{8,9}$/.test(naz) || /^0\d{5,10}$/.test(naz));
+}
+
+// Mail con il dominio scritto male: "gmial.com", "hotmail.it" va bene, "libero.ir" no
+const ORD_DOMINI = ['gmail.com', 'hotmail.com', 'hotmail.it', 'libero.it', 'yahoo.it', 'yahoo.com', 'icloud.com', 'outlook.it', 'outlook.com',
+  'live.it', 'live.com', 'alice.it', 'virgilio.it', 'tiscali.it', 'tin.it', 'msn.com', 'me.com', 'email.it', 'fastwebnet.it', 'pec.it', 'aruba.it', 'inwind.it', 'katamail.com'];
+function ordMailSospetta(email) {
+  const d = String(email || '').toLowerCase().split('@')[1];
+  if (!d) return null;
+  if (ORD_DOMINI.includes(d)) return null;
+  if (/\.(con|cmo|ocm|co|comm|itt|ir|tt)$/.test(d) && !/\.co\.\w+$/.test(d)) {
+    const giusto = ORD_DOMINI.find(x => x.split('.')[0] === d.split('.')[0]);
+    if (giusto || /\.(con|cmo|ocm|comm|itt)$/.test(d)) return giusto || d.replace(/\.\w+$/, '.com');
+  }
+  // Una o due lettere di differenza da un dominio comune
+  const dist = (a, b) => {
+    const r = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) { let p = r[0]; r[0] = i; for (let j = 1; j <= b.length; j++) { const t = r[j]; r[j] = Math.min(r[j] + 1, r[j - 1] + 1, p + (a[i - 1] === b[j - 1] ? 0 : 1)); p = t; } }
+    return r[b.length];
+  };
+  // I domini corti si somigliano tutti (tim.it, tin.it): niente confronto
+  if (d.length < 7) return null;
+  return ORD_DOMINI.find(x => { const k = dist(d, x); return k > 0 && k <= (x.length > 8 ? 2 : 1); }) || null;
+}
+
+// Avvisi da far valutare a una persona: indirizzo riscontrato sulle mappe, mail forse sbagliata
+function ordAvvisi(o) {
+  const out = [];
+  const v = ShopLinks.verifiche.get(o.id);
+  if (v) {
+    if (v.esito === 'corretta' && v.corretta_at) out.push({ campo: 'ind', colore: '#16a34a', testo: 'Via corretta', titolo: `Corretta in automatico su Shopify: "${v.prima}" → "${v.dopo}"`, avviso: false });
+    else if (v.esito === 'corretta') out.push({ campo: 'ind', colore: '#d97706', testo: `Forse "${v.dopo}"`, titolo: `${v.nota}. Non corretta su Shopify`, avviso: true });
+    else if (v.esito === 'simile') out.push({ campo: 'ind', colore: '#d97706', testo: `Forse ${v.suggerimento}`, titolo: `${v.nota} (riscontro sulle mappe)`, avviso: true });
+    else if (v.esito === 'ambigua') out.push({ campo: 'ind', colore: '#d97706', testo: 'Via o piazza?', titolo: v.nota, avviso: true });
+    else if (v.esito === 'non_trovata') out.push({ campo: 'ind', colore: '#d97706', testo: 'Via non trovata', titolo: `${v.nota} (riscontro sulle mappe: controlla prima di spedire)`, avviso: true });
+  }
+  const m = ordMailSospetta(o.email);
+  if (m) out.push({ campo: 'mail', colore: '#d97706', testo: `Forse @${m}`, titolo: `La mail ${o.email} sembra scritta male: forse @${m}`, avviso: true });
   return out;
 }
 
@@ -2044,7 +2111,7 @@ function renderOrdersIncoming() {
     tutti:     { label: 'Da evadere',    test: () => true,                                    vuoto: 'Nessun ordine da evadere.' },
     oggi:      { label: 'Arrivati oggi', test: (o) => ctrlGiornoDi(o.creato_at) === oggi,    vuoto: 'Nessun ordine arrivato oggi.' },
     nonpagati: { label: 'Non pagati',    test: (o) => !ordPagato(o),                          vuoto: 'Nessun ordine da pagare.' },
-    problemi:  { label: 'Problemi',      test: (o) => ordProblemi(o).length > 0,              vuoto: 'Nessun problema: indirizzi e telefoni a posto.' },
+    problemi:  { label: 'Problemi',      test: (o) => ordProblemi(o).length > 0 || ordAvvisi(o).some(x => x.avviso), vuoto: 'Nessun problema: indirizzi e telefoni a posto.' },
   };
   const vista = filtri[ShopLinks.vista] ? ShopLinks.vista : 'tutti';
   const n = (k) => vis.filter(filtri[k].test).length;
@@ -2631,6 +2698,10 @@ const AUTOMAZIONI = {
   pulizia: { nome: 'Pulizia della cartella', quando: 'Domenica alle 23:59' },
   'avviso-giacenza': { nome: 'Mail ai clienti per le giacenze', quando: 'Ogni ora, anche nel weekend' },
   'richiesta-dati': { nome: 'Richiesta dei dati mancanti', quando: 'Ogni 5 minuti; mail dalle 8 alle 21', modo: true },
+  'verifica-indirizzi': { nome: 'Riscontro degli indirizzi', quando: 'Ogni 5 minuti, sugli ordini nuovi', modo: true, modi: [
+    ['prova', 'Prova', 'Segnala soltanto, nella scheda Shop: non cambia niente su Shopify'],
+    ['automatica', 'Automatica', 'Se manca solo "Via" o "Piazza" e la via è unica nel comune, la aggiunge su Shopify; il resto lo segnala'],
+    ['spenta', 'Spenta', 'Nessun riscontro']] },
 };
 const AUTOMAZIONE_MODI = [['prova', 'Prova', 'La mail la manda una persona, col clic sull\'etichetta rossa nella scheda Shop'],
   ['automatica', 'Automatica', 'La mail parte da sola'], ['spenta', 'Spenta', 'Niente mail, niente task']];
@@ -2654,8 +2725,10 @@ async function loadControlAutomations() {
 async function setAutomazioneModo(nome, modo) {
   const ora = CtrlAuto.modi[nome];
   if (!ora || ora.modo === modo) return;
-  const label = AUTOMAZIONE_MODI.find(x => x[0] === modo)?.[1] || modo;
-  if (modo === 'automatica' && !(await uiConfirm(`${AUTOMAZIONI[nome]?.nome || nome}: passare ad Automatica? Le mail ai clienti partiranno da sole.`, { ok: 'Attiva' }))) return;
+  const modi = AUTOMAZIONI[nome]?.modi || AUTOMAZIONE_MODI;
+  const label = modi.find(x => x[0] === modo)?.[1] || modo;
+  const effetto = AUTOMAZIONI[nome]?.modi ? 'Le correzioni sicure verranno scritte da sole su Shopify.' : 'Le mail ai clienti partiranno da sole.';
+  if (modo === 'automatica' && !(await uiConfirm(`${AUTOMAZIONI[nome]?.nome || nome}: passare ad Automatica? ${effetto}`, { ok: 'Attiva' }))) return;
   const { error } = await supabaseClient.from('automazioni_impostazioni')
     .update({ modo, aggiornato_at: new Date().toISOString(), aggiornato_da: TCAuth.getNickname() }).eq('nome', nome);
   if (error) { showToast(error.message, 'error'); return; }
@@ -2685,9 +2758,9 @@ function renderControlAutomations() {
         <div class="ctrl-person-now">${ultima ? `${pillola(ultima)} <span class="ctrl-cell-sub">${ctrlFmtQuando(ultima.at)}</span>` : '<span class="ctrl-idle">Non è ancora partita</span>'}</div>
         ${a.modo && CtrlAuto.modi[id] ? `
           <div class="segmented ctrl-auto-modo" role="radiogroup" aria-label="Modalità di ${escapeHtml(a.nome)}">
-            ${AUTOMAZIONE_MODI.map(([m, label, aiuto]) => `<button type="button" role="radio" aria-checked="${CtrlAuto.modi[id].modo === m}" class="${CtrlAuto.modi[id].modo === m ? 'active' : ''}" title="${escapeHtml(aiuto)}" onclick="setAutomazioneModo('${id}', '${m}')">${label}</button>`).join('')}
+            ${(a.modi || AUTOMAZIONE_MODI).map(([m, label, aiuto]) => `<button type="button" role="radio" aria-checked="${CtrlAuto.modi[id].modo === m}" class="${CtrlAuto.modi[id].modo === m ? 'active' : ''}" title="${escapeHtml(aiuto)}" onclick="setAutomazioneModo('${id}', '${m}')">${label}</button>`).join('')}
           </div>
-          <small class="ctrl-cell-sub">${escapeHtml(AUTOMAZIONE_MODI.find(x => x[0] === CtrlAuto.modi[id].modo)?.[2] || '')}</small>` : ''}
+          <small class="ctrl-cell-sub">${escapeHtml((a.modi || AUTOMAZIONE_MODI).find(x => x[0] === CtrlAuto.modi[id].modo)?.[2] || '')}</small>` : ''}
       </article>`;
   };
   const durata = (r) => r.fine ? `${Math.max(1, Math.round((new Date(r.fine) - new Date(r.at)) / 1000))} s` : '';
@@ -2698,6 +2771,8 @@ function renderControlAutomations() {
       x.pagine_stampa != null ? `${x.pagine_stampa} pagine di stampa` : '',
       x.tag != null ? `${x.tag} tag` : '',
       x.mail != null ? (x.mail === 1 ? '1 mail inviata' : `${x.mail} mail inviate`) : '',
+      x.verificati != null ? `${x.verificati} ${x.verificati === 1 ? 'ordine verificato' : 'ordini verificati'}` : '',
+      x.corretti ? `${x.corretti} ${x.corretti === 1 ? 'indirizzo corretto' : 'indirizzi corretti'}` : '',
       x.errori ? (x.errori === 1 ? '1 errore' : `${x.errori} errori`) : '',
       x.cancellate != null ? (x.cancellate === 1 ? '1 cartella cancellata' : `${x.cancellate} cartelle cancellate`) : '',
       x.motivo ? escapeHtml(x.motivo) : '',

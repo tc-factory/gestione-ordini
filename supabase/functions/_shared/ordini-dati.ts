@@ -7,6 +7,24 @@ type Row = Record<string, any>;
 export const SHOP_DA_EVADERE = ['UNFULFILLED', 'PARTIALLY_FULFILLED', 'ON_HOLD', 'IN_PROGRESS', 'SCHEDULED'];
 export const MANCA_INDIRIZZO = 'Manca l\'indirizzo';
 
+// Numero italiano che non può esistere: cellulare 3 + 8/9 cifre, fisso 0 + 5/10 cifre, tutte cifre uguali.
+// I numeri esteri (+ e prefisso diverso da 39) non si controllano
+export function telefonoNonValido(tel: string, paese?: string | null) {
+  const raw = String(tel || '').trim();
+  const c = raw.replace(/\D/g, '');
+  if (c.length < 8) return false;
+  let naz = c;
+  if (/^(\+|00)/.test(raw)) {
+    const n = raw.startsWith('00') ? c.slice(2) : c;
+    if (n.startsWith('39')) naz = n.slice(2);
+    else if (/^3\d{9}$/.test(n)) naz = n;          // "+3471234567": il + scritto per sbaglio
+    else return false;
+  } else if (paese && paese !== 'IT') return false;
+  else if (c.length >= 11 && c.startsWith('39')) naz = c.slice(2);
+  if (/^(\d)\1+$/.test(naz)) return true;
+  return !(/^3\d{8,9}$/.test(naz) || /^0\d{5,10}$/.test(naz));
+}
+
 // [campo, testo]: campo 'tel' o 'ind'
 export function problemiOrdine(o: Row, telefonoNoto = false): [string, string][] {
   const out: [string, string][] = [];
@@ -15,6 +33,7 @@ export function problemiOrdine(o: Row, telefonoNoto = false): [string, string][]
   if (!telefonoNoto) {
     if (!cifre) out.push(['tel', 'Manca il telefono']);
     else if (cifre.length < 8) out.push(['tel', 'Telefono incompleto']);
+    else if (telefonoNonValido(o.telefono, a?.paese)) out.push(['tel', 'Telefono non valido']);
   }
   if (!a || !String(a.via || '').trim()) { out.push(['ind', MANCA_INDIRIZZO]); return out; }
   const via = String(a.via);

@@ -7,6 +7,8 @@
 //   2. telefono dato dal cliente in una mail (clienti_memoria): lo scrive nell'ordine su Shopify
 //   3. dati arrivati nell'ordine, o ordine spedito o annullato: la richiesta si chiude, e il suo task
 //   4. un giorno lavorativo dopo la mail senza risposta: task per chiamare il cliente
+//   5. riscontro degli ordini nuovi sulle mappe (sql/verifica-ordini.sql): la via esiste in quel comune?
+//      Se manca solo "Via"/"Piazza" la corregge su Shopify (in Automatica), gli altri dubbi li mostra la scheda Shop
 //
 // Chi la può chiamare: il cron del database (x-sync-key) oppure un admin collegato.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
@@ -15,6 +17,7 @@ import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { inviaNuova } from '../_shared/mail.ts';
 import { API_VERSION, getToken, type Store } from '../_shared/shopify.ts';
 import { MANCA_INDIRIZZO, SHOP_DA_EVADERE, problemiOrdine, testoRichiesta } from '../_shared/ordini-dati.ts';
+import { verificaIndirizzo } from '../_shared/verifica-indirizzo.ts';
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
@@ -22,6 +25,9 @@ type Row = Record<string, any>;
 const GIORNI_RECENTI = 7;
 const ORE_INVIO = [8, 21];
 const MAX_INVII = 20;              // per giro: un errore nelle regole non scrive a tutti in una volta
+const VERIFICA_GIORNI = 14;        // ordini da riscontrare: quelli recenti
+const VERIFICA_MAX = 10;           // per giro: le mappe vogliono una domanda al secondo
+const VERIFICA_SECONDI = 60;
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -32,7 +38,7 @@ const reply = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 const fail = (error: string, status = 400) => reply({ success: false, error }, status);
 
-const COSA: Record<string, string> = { 'Manca il telefono': 'il telefono', 'Telefono incompleto': 'il telefono completo', 'Manca il numero civico': 'il numero civico',
+const COSA: Record<string, string> = { 'Manca il telefono': 'il telefono', 'Telefono incompleto': 'il telefono completo', 'Telefono non valido': 'un telefono valido', 'Manca il numero civico': 'il numero civico',
   'Manca il CAP': 'il CAP', 'CAP non valido': 'il CAP corretto', 'Manca la città': 'la città', 'Manca la provincia': 'la provincia' };
 const pagato = (o: Row) => ['PAID', 'PARTIALLY_REFUNDED'].includes(o.stato_pagamento);
 const giorno = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
@@ -55,23 +61,99 @@ const LEGGI = `query($id: ID!) { order(id: $id) { displayFulfillmentStatus cance
   shippingAddress { firstName lastName company address1 address2 city zip provinceCode countryCodeV2 phone } } }`;
 const AGGIORNA = `mutation($input: OrderInput!) { orderUpdate(input: $input) { userErrors { field message } } }`;
 
-async function scriviTelefono(db: SupabaseClient, o: Row, telefono: string) {
-  const { data: store } = await db.from('shopify_stores').select('id, nome, dominio, client_id').eq('id', o.store_id).maybeSingle();
-  if (!store) throw new Error(`Negozio ${o.store_id} non trovato`);
-  const token = await getToken(db, store as Store);
-  const { order } = await shopify(store as Store, token, LEGGI, { id: o.shopify_id });
-  const a = order?.shippingAddress;
-  if (!order || order.cancelledAt || order.displayFulfillmentStatus !== 'UNFULFILLED' || !a) return false;
-  const { orderUpdate } = await shopify(store as Store, token, AGGIORNA, { input: {
+// Negozio e token, una volta per giro
+const negozi = new Map<string, Promise<{ store: Store; token: string }>>();
+function negozio(db: SupabaseClient, id: string) {
+  if (!negozi.has(id)) negozi.set(id, (async () => {
+    const { data: store } = await db.from('shopify_stores').select('id, nome, dominio, client_id').eq('id', id).maybeSingle();
+    if (!store) throw new Error(`Negozio ${id} non trovato`);
+    return { store: store as Store, token: await getToken(db, store as Store) };
+  })());
+  const p = negozi.get(id)!;
+  p.catch(() => negozi.delete(id));
+  return p;
+}
+
+// Riscrive l'indirizzo di spedizione su Shopify con qualche campo cambiato (Shopify vuole l'indirizzo intero)
+async function aggiornaSpedizione(store: Store, token: string, o: Row, a: Row, cambia: Row) {
+  const { orderUpdate } = await shopify(store, token, AGGIORNA, { input: {
     id: o.shopify_id,
     shippingAddress: {
       firstName: a.firstName, lastName: a.lastName, company: a.company, address1: a.address1, address2: a.address2,
-      city: a.city, zip: a.zip, provinceCode: a.provinceCode, countryCode: a.countryCodeV2, phone: telefono,
+      city: a.city, zip: a.zip, provinceCode: a.provinceCode, countryCode: a.countryCodeV2, phone: a.phone, ...cambia,
     },
   } });
   if (orderUpdate.userErrors?.length) throw new Error(`Shopify: ${orderUpdate.userErrors.map((e: Row) => e.message).join('; ').slice(0, 300)}`);
+}
+
+async function scriviTelefono(db: SupabaseClient, o: Row, telefono: string) {
+  const { store, token } = await negozio(db, o.store_id);
+  const { order } = await shopify(store, token, LEGGI, { id: o.shopify_id });
+  const a = order?.shippingAddress;
+  if (!order || order.cancelledAt || order.displayFulfillmentStatus !== 'UNFULFILLED' || !a) return false;
+  await aggiornaSpedizione(store, token, o, a, { phone: telefono });
   await db.from('shopify_orders').update({ telefono }).eq('id', o.id);
   return true;
+}
+
+// ── Riscontro dell'indirizzo sulle mappe ──
+const impronta = (a: Row) => [a?.via, a?.cap, a?.citta].map(x => String(x || '').trim().toLowerCase()).join('|');
+const TAG = `mutation($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { message } } }`;
+
+async function verificaOrdini(db: SupabaseClient, ordini: Row[], correggi: boolean, registro: string[]) {
+  const limite = Date.now() - VERIFICA_GIORNI * 86_400_000;
+  const recenti = ordini.filter(o => o.indirizzo?.via && (!o.indirizzo.paese || o.indirizzo.paese === 'IT') && new Date(o.creato_at).getTime() >= limite);
+  if (!recenti.length) return { verificati: 0, corretti: 0, errori: 0 };
+  const fatte = new Map<string, string>();
+  for (let i = 0; i < recenti.length; i += 200) {
+    const { data } = await db.from('ordini_verifiche').select('ordine_id, impronta').in('ordine_id', recenti.slice(i, i + 200).map(o => o.id));
+    (data || []).forEach((v: Row) => fatte.set(v.ordine_id, v.impronta));
+  }
+  // I più nuovi per primi; si riverifica se l'indirizzo è cambiato
+  const daFare = recenti.filter(o => fatte.get(o.id) !== impronta(o.indirizzo))
+    .sort((a, b) => String(b.creato_at).localeCompare(String(a.creato_at))).slice(0, VERIFICA_MAX);
+  const fine = Date.now() + VERIFICA_SECONDI * 1000;
+  let verificati = 0, corretti = 0, errori = 0;
+  for (const o of daFare) {
+    if (Date.now() > fine) break;
+    try {
+      const { store, token } = await negozio(db, o.store_id);
+      const { order } = await shopify(store, token, LEGGI, { id: o.shopify_id });
+      const a = order?.shippingAddress;
+      if (!order || !a) continue;
+      const r = await verificaIndirizzo({ address1: a.address1, address2: a.address2, citta: a.city, cap: a.zip, paese: a.countryCodeV2 });
+      const riga: Row = { ordine_id: o.id, store_id: o.store_id, impronta: impronta(o.indirizzo), esito: r.esito, nota: r.nota,
+        suggerimento: r.suggerimento || null, prima: null, dopo: null, corretta_at: null, verificata_at: new Date().toISOString() };
+      if (r.esito === 'corretta' && r.nuova) {
+        riga.prima = a.address1;
+        riga.dopo = r.nuova;
+        if (correggi && !order.cancelledAt && order.displayFulfillmentStatus === 'UNFULFILLED') {
+          try {
+            await aggiornaSpedizione(store, token, o, a, { address1: r.nuova });
+            await shopify(store, token, TAG, { id: o.shopify_id, tags: ['indirizzo-corretto'] }).catch(() => null);
+            const indirizzo = { ...o.indirizzo, via: [r.nuova, a.address2].filter(Boolean).join(', ') };
+            await db.from('shopify_orders').update({ indirizzo }).eq('id', o.id);
+            o.indirizzo = indirizzo;
+            riga.impronta = impronta(indirizzo);
+            riga.corretta_at = new Date().toISOString();
+            corretti++;
+            registro.push(`${o.numero} (${o.store_id}) · indirizzo corretto su Shopify: "${a.address1}" → "${r.nuova}"`);
+          } catch (e) {
+            errori++;
+            registro.push(`${o.numero} (${o.store_id}) · correzione non scritta su Shopify: ${e instanceof Error ? e.message : e}`);
+          }
+        } else registro.push(`${o.numero} (${o.store_id}) · da correggere: "${a.address1}" → "${r.nuova}"${correggi ? ' (ordine non più da evadere)' : ' (in prova: non scritto)'}`);
+      } else if (['simile', 'ambigua', 'non_trovata'].includes(r.esito)) {
+        registro.push(`${o.numero} (${o.store_id}) · ${r.nota}`);
+      }
+      await db.from('ordini_verifiche').upsert(riga, { onConflict: 'ordine_id' });
+      verificati++;
+    } catch (e) {
+      errori++;
+      registro.push(`${o.numero} (${o.store_id}) · riscontro indirizzo non riuscito: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  return { verificati, corretti, errori };
 }
 
 Deno.serve(async (req) => {
@@ -90,9 +172,11 @@ Deno.serve(async (req) => {
     if (!me?.is_admin) return fail('Solo gli admin', 403);
   }
 
-  const { data: imp } = await db.from('automazioni_impostazioni').select('modo').eq('nome', 'richiesta-dati').maybeSingle();
-  const modo = imp?.modo || 'prova';
-  if (modo === 'spenta') return reply({ success: true, modo });
+  const { data: imp } = await db.from('automazioni_impostazioni').select('nome, modo').in('nome', ['richiesta-dati', 'verifica-indirizzi']);
+  const modi = new Map((imp || []).map((r: Row) => [r.nome, r.modo]));
+  const modo = modi.get('richiesta-dati') || 'prova';
+  const modoVerifica = modi.get('verifica-indirizzi') || 'prova';
+  if (modo === 'spenta' && modoVerifica === 'spenta') return reply({ success: true, modo });
 
   const [{ data: ordini, error }, { data: richieste }] = await Promise.all([
     db.from('shopify_orders').select('id, shopify_id, store_id, numero, creato_at, cliente, email, telefono, indirizzo, stato_pagamento')
@@ -103,6 +187,19 @@ Deno.serve(async (req) => {
   const aperti = new Map((ordini || []).map((o: Row) => [o.id, o]));
   const registro: string[] = [];
   let inviate = 0, errori = 0, task = 0;
+
+  // Prima il riscontro: un indirizzo corretto qui non va chiesto al cliente
+  if (modoVerifica !== 'spenta') {
+    const regVerifica: string[] = [];
+    const v = await verificaOrdini(db, (ordini || []) as Row[], modoVerifica === 'automatica', regVerifica);
+    if (regVerifica.length) {
+      await db.from('automazione_esecuzioni').insert({
+        nome: 'verifica-indirizzi', stato: v.errori ? 'errore' : modoVerifica === 'prova' ? 'prova' : 'ok', fine: new Date().toISOString(),
+        riepilogo: { verificati: v.verificati, corretti: v.corretti, errori: v.errori }, output: regVerifica.join('\n'),
+      });
+    }
+  }
+  if (modo === 'spenta') return reply({ success: true, modo });
 
   // Telefoni che il cliente ci ha già dato per mail
   const emails = [...new Set((ordini || []).map((o: Row) => String(o.email || '').toLowerCase()).filter(Boolean))];

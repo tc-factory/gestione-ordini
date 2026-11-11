@@ -7,7 +7,8 @@
 --   • _tc_mail_tag_auto: i tag automatici di una conversazione, calcolati al momento (scelte utente 2026-11-11):
 --       argomento (categoria del cervello), Giacenza GLS, Rimborso,
 --       Senza risposta (il cliente aspetta da 1 giorno lavorativo o più),
---       Aspetta il cliente (ultima mail nostra, nessuna risposta da 3 giorni lavorativi)
+--       Aspetta il cliente (ultima mail nostra, nessuna risposta da 3 giorni lavorativi),
+--       Contabile (2026-11-11: il cliente ha mandato la contabile di un bonifico; il riscontro resta manuale)
 --
 -- Richiede mail-archivio-firme-modelli.sql e automazioni-registro.sql. Si può rieseguire.
 -- ════════════════════════════════════════════════════════
@@ -34,6 +35,7 @@ insert into mail_tag (id, nome, colore, tipo, ordine) values
   ('aspetta_cliente',     'Aspetta il cliente', '#64748b', 'auto', 2),
   ('giacenza',            'Giacenza GLS',       '#d97706', 'auto', 3),
   ('rimborso',            'Rimborso',           '#be123c', 'auto', 4),
+  ('contabile',           'Contabile',          '#15803d', 'auto', 5),
   ('arg_problema_ordine', 'Problema',           '#ef4444', 'auto', 10),
   ('arg_modifica_ordine', 'Modifica',           '#f97316', 'auto', 11),
   ('arg_stato_ordine',    'Stato ordine',       '#3b82f6', 'auto', 12),
@@ -77,6 +79,14 @@ begin
   if exists (select 1 from tasks t join mail_messaggi mm on mm.id = t.mail_id
               where mm.casella_id = p_casella and mm.filo = p_filo and (t.analisi->>'rimborso')::boolean is true) then
     v_out := v_out || 'rimborso'::text;
+  end if;
+
+  -- Contabile: mail sul bonifico (categoria del cervello o tipo del task) con un allegato, cioè la ricevuta
+  if exists (select 1 from tasks t join mail_messaggi mm on mm.id = t.mail_id left join task_tipi tt on tt.id = t.tipo_id
+              where mm.casella_id = p_casella and mm.filo = p_filo
+                and (t.analisi->>'categoria' = 'bonifico' or tt.nome = 'Riscontro pagamento con bonifico')
+                and mm.direzione = 'in' and jsonb_array_length(mm.allegati) > 0) then
+    v_out := v_out || 'contabile'::text;
   end if;
 
   -- Giacenza: un pacco del cliente fermo da GLS, non ancora consegnato
