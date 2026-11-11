@@ -289,6 +289,27 @@ async function analizza(client: Anthropic, contesto: string, modello = MODELLO) 
   return { dati: JSON.parse(text), uso: consumo(res.model || modello, res.usage) };
 }
 
+// ── Filtro con Haiku (scelta utente 2026-11-11, dopo la prova su 50 mail) ──
+// Costa circa 0,15 centesimi a mail. Scarta solo spam e mail senza azione, e mai:
+//   • se il mittente ha ordini (clienti veri: decide sempre Opus)
+//   • se il team ha segnato il mittente come reale
+//   • se la mail parla di soldi (fatture, pagamenti, solleciti): nella prova Haiku scambiava solleciti veri per truffe
+// Se Haiku sbaglia o non risponde decide Opus. Le scartate restano nell'elenco e si recuperano.
+const SOLDI = /fattur|pagament|pagare|sollecit|scadenz|scadut|estratto conto|bonific|insolut|rimbors|addebit|invoice|payment|overdue|refund/i;
+async function filtroHaiku(db: SupabaseClient, client: Anthropic, evento: Row, mail: Row, contesto: string, ordini: Row[], regola: Row | null) {
+  if (ordini.length || regola?.azione === 'task') return null;
+  if (SOLDI.test(`${mail.oggetto || ''}\n${mail.testo || ''}`)) return null;
+  try {
+    const { dati, uso } = await analizza(client, contesto, 'claude-haiku-5-5');
+    await db.from('cervello_consumi').insert({ ...uso, evento_id: evento.id, mail_id: mail.id });
+    if (dati?.azione !== 'scarta' || !['spam_phishing', 'nessuna_azione'].includes(dati.categoria)) return null;
+    return { categoria: dati.categoria, esito: `Scartata (${dati.categoria}): ${dati.motivo_scarto || dati.riassunto || ''} [filtro Haiku]` };
+  } catch (e) {
+    console.error('Filtro Haiku', evento.id, e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 // ── Filtro prima di Claude: mail sicuramente inutili, solo da sconosciuti ──
 // (nessun ordine con quella mail e nessuna nostra mail a quell'indirizzo). Il resto lo legge Claude.
 const AGGANCI = /^\s*(exclusive offer for|quick question about|is the owner|hey\b|hi\b|a new month|an idea for your|a new message from your customer)/i;
@@ -467,6 +488,13 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
     if (filtro) {
       await chiudi(db, evento.id, `Scartata (filtro): ${filtro}`);
       return { evento: evento.id, esito: 'scartata', categoria: 'filtro' };
+    }
+
+    // Haiku fa da filtro: se dice spam o "nessuna azione" la mail si scarta senza chiamare Opus
+    const scartoHaiku = await filtroHaiku(db, client, evento, mail, contesto, ordini, regola);
+    if (scartoHaiku) {
+      await chiudi(db, evento.id, scartoHaiku.esito);
+      return { evento: evento.id, esito: 'scartata', categoria: scartoHaiku.categoria };
     }
 
     const { dati: a, uso } = await analizza(client, contesto);
