@@ -2341,6 +2341,15 @@ function renderSettingsDialog() {
             </div>
             ${switchRow('Riduci trasparenza', 'Superfici opache al posto del vetro', A11yPrefs.get('transparency'), "A11yPrefs.set('transparency', this.checked)")}
             ${switchRow('Riduci movimento', 'Disattiva animazioni e transizioni', A11yPrefs.get('motion'), "A11yPrefs.set('motion', this.checked)")}
+            <div class="switch-row" style="cursor:default;flex-wrap:wrap;">
+              <span><strong>Salvaschermo</strong><small>Dopo quanto tempo senza usare il gestionale parte la rete neurale. Si sblocca toccando lo schermo o un tasto. Vale per questo dispositivo.</small></span>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <div class="segmented" role="radiogroup" aria-label="Salvaschermo">
+                  ${Salvaschermo.OPZIONI.map(m => `<button type="button" role="radio" aria-checked="${Salvaschermo.minuti() === m}" class="${Salvaschermo.minuti() === m ? 'active' : ''}" onclick="Salvaschermo.set(${m})">${m ? m + ' min' : 'Mai'}</button>`).join('')}
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="Salvaschermo.mostra()">Prova</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -3125,6 +3134,7 @@ async function startApp() {
   Messages.start();
   Ctrl.start();
   MailBox.start();
+  Salvaschermo.start();
 }
 
 async function doLogout() {
@@ -3134,6 +3144,7 @@ async function doLogout() {
   Messages.stop();
   Ctrl.stop();
   MailBox.stop();
+  Salvaschermo.stop();
   ['msg-modal', 'msg-compose-modal', 'ctrl-modal'].forEach(closeModal);
   TCFactory.reset();
   await TCAuth.logout();

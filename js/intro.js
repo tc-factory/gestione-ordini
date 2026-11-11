@@ -52,6 +52,18 @@ const Intro = {
     Promise.resolve(p).then(n => { if (Array.isArray(n) && n.length) this._nomi = n.slice(0, 14); }, () => {});
   },
 
+  // Salvaschermo: la stessa rete, continua, finché non si tocca lo schermo o un tasto
+  screensaver(onEnd) {
+    if (document.getElementById('cs-intro') || document.getElementById('cs-saver')) return null;
+    const root = document.createElement('div');
+    root.id = 'cs-saver'; root.className = 'cs-intro ss'; root.setAttribute('aria-hidden', 'true');
+    root.style.opacity = '0';
+    document.body.appendChild(root);
+    const chiudi = this._run(root, true, onEnd);
+    requestAnimationFrame(() => requestAnimationFrame(() => { root.style.transition = 'opacity 0.9s ease'; root.style.opacity = '1'; }));
+    return chiudi;
+  },
+
   play() {
     const root = document.getElementById('cs-intro');
     if (!root) return;
@@ -59,7 +71,8 @@ const Intro = {
     this._run(root);
   },
 
-  _run(root) {
+  // ss = salvaschermo: gira all'infinito, niente esplosione; onEnd quando si chiude
+  _run(root, ss = false, onEnd = null) {
     const self = this;
     const T_BOOM = self.T_BOOM, T_CLOSE = self.T_CLOSE;
     root.innerHTML = `
@@ -69,7 +82,7 @@ const Intro = {
       <div class="cs-intro-brand" role="img" aria-label="Creative System">
         <span class="fill"></span><span class="sheen"></span>
       </div>
-      <div class="cs-intro-skip">Tocca per saltare</div>`;
+      <div class="cs-intro-skip">${ss ? 'Tocca lo schermo o premi un tasto' : 'Tocca per saltare'}</div>`;
     new Image().src = 'img/brand/cs-testo-bianco.png'; // la maschera della scritta deve essere pronta al botto
     const net = root.querySelector('.cs-intro-net'), fx = root.querySelector('.cs-intro-fx');
     const ctx = net.getContext('2d'), fxc = fx.getContext('2d');
@@ -173,15 +186,17 @@ const Intro = {
       const t = (now - t0) / 1000, dt = Math.min(0.05, (now - last) / 1000); last = now;
 
       // velocità angolare: lenta, poi cresce in modo esponenziale fino all'esplosione
-      if (!tags.length && (t >= 0.28 || self._nomi)) buildTags(t);
-      const acc = Math.max(0, (t - 0.5) / (T_BOOM - 0.5));
-      const omega = 0.55 + 30 * acc ** 3.2;
+      if (!tags.length && (ss || t >= 0.28 || self._nomi)) buildTags(ss ? 0.4 : t);
+      // salvaschermo: velocità costante, inclinazione che ondeggia piano, battito ogni tanto
+      const acc = ss ? 0 : Math.max(0, (t - 0.5) / (T_BOOM - 0.5));
+      const omega = ss ? 0.3 : 0.55 + 30 * acc ** 3.2;
       theta += omega * dt;
-      const tilt = 0.38 + Math.sin(t * 0.9) * 0.08;
+      const tilt = ss ? 0.36 + Math.sin(t * 0.21) * 0.2 : 0.38 + Math.sin(t * 0.9) * 0.08;
+      const beat = ss ? Math.max(0, Math.sin(t * 0.8)) ** 12 : 0;
       // compressione prima del botto
-      const squeeze = t < T_BOOM ? 1 - 0.28 * ease((t - (T_BOOM - 0.38)) / 0.38) : 1;
+      const squeeze = !ss && t < T_BOOM ? 1 - 0.28 * ease((t - (T_BOOM - 0.38)) / 0.38) : 1;
       const appear = backOut(t / 0.75);
-      const rad = R * appear * squeeze * (1 + 0.04 * Math.sin(t * 6) * (1 - acc));
+      const rad = R * appear * squeeze * (1 + (ss ? 0.03 * Math.sin(t * 0.8) + 0.04 * beat : 0.04 * Math.sin(t * 6) * (1 - acc)));
 
       // scia: con l'accelerazione la tela si cancella solo in parte
       ctx.globalCompositeOperation = 'destination-out';
@@ -193,7 +208,7 @@ const Intro = {
 
       if (!boomed) {
         // alone centrale: si accende con la velocità
-        const heat = acc ** 2;
+        const heat = acc ** 2 + beat * 0.35;
         const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad * 1.5);
         g.addColorStop(0, `rgba(255,211,92,${0.10 + heat * 0.45})`);
         g.addColorStop(0.45, `rgba(91,134,229,${0.08 + heat * 0.2})`);
@@ -201,15 +216,22 @@ const Intro = {
         ctx.fillStyle = g; ctx.fillRect(cx - rad * 1.6, cy - rad * 1.6, rad * 3.2, rad * 3.2);
 
         // sinapsi
+        // raggruppate per profondità: 5 tracciati invece di uno per linea
         ctx.lineWidth = 0.8;
-        for (const [a, b] of edges) {
-          const p = pn[a], q = pn[b], dz = (p.z + q.z) / 2;
-          const al = (0.10 + 0.32 * (1 - (dz + 1) / 2)) * appear;
-          ctx.strokeStyle = `rgba(${150 + heat * 105 | 0},${180 + heat * 40 | 0},255,${al})`;
-          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+        const fasce = [[], [], [], [], []];
+        for (const e of edges) {
+          const p = pn[e[0]], q = pn[e[1]], f = Math.min(4, ((1 - (p.z + q.z) / 2) / 2 * 5) | 0);
+          fasce[f].push(p, q);
         }
+        fasce.forEach((pts, f) => {
+          if (!pts.length) return;
+          ctx.strokeStyle = `rgba(${150 + heat * 105 | 0},${180 + heat * 40 | 0},255,${((0.10 + 0.32 * (f + 0.5) / 5) * appear).toFixed(3)})`;
+          ctx.beginPath();
+          for (let i = 0; i < pts.length; i += 2) { ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[i + 1].x, pts[i + 1].y); }
+          ctx.stroke();
+        });
         // impulsi lungo le sinapsi
-        const spawn = (2 + 40 * acc) * dt * 10;
+        const spawn = (2 + 40 * acc + 14 * beat) * dt * 10;
         for (let i = 0; i < spawn; i++) if (signals.length < 160) signals.push({ e: edges[(Math.random() * edges.length) | 0], p: 0, v: 1.2 + Math.random() * 2 });
         for (let i = signals.length - 1; i >= 0; i--) {
           const s = signals[i]; s.p += s.v * dt * (1 + acc * 3);
@@ -274,7 +296,7 @@ const Intro = {
         g.el.style.filter = blur > 0.3 ? `blur(${Math.min(4, blur).toFixed(1)}px)` : '';
       });
 
-      if (!boomed && t >= T_BOOM) boom(pn);
+      if (!ss && !boomed && t >= T_BOOM) boom(pn);
 
       // effetti: lampo, onda d'urto, scintille
       fxc.clearRect(0, 0, W, H);
@@ -318,7 +340,7 @@ const Intro = {
         brand.style.transform = `translate(-50%,-50%) scale(${((0.55 + 0.45 * backOut(b) + k * 0.03) * (1 + via * 0.7)).toFixed(4)})`;
       }
 
-      if (t >= T_CLOSE) close(false);
+      if (!ss && t >= T_CLOSE) close(false);
       if (!done) raf = requestAnimationFrame(frame);
     };
 
@@ -326,6 +348,7 @@ const Intro = {
       if (closing) { if (fast) root.classList.add('fast'); return; }
       closing = true;
       closeT = (performance.now() - t0) / 1000;
+      root.style.transition = ''; root.style.opacity = '';
       root.classList.add('out');
       if (fast) root.classList.add('fast');
       setTimeout(finish, fast ? 380 : 720);
@@ -336,12 +359,74 @@ const Intro = {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointermove', onMove, true);
       root.remove();
+      onEnd?.();
     };
-    const onKey = (e) => { if (['Escape', 'Enter', ' '].includes(e.key)) { e.preventDefault(); close(true); } };
-    root.addEventListener('pointerdown', () => close(true));
+    // Intro: solo Esc/Invio/Spazio. Salvaschermo: qualsiasi tasto, tocco o movimento del mouse.
+    const onKey = (e) => {
+      if (ss || ['Escape', 'Enter', ' '].includes(e.key)) { e.preventDefault(); e.stopPropagation(); close(true); }
+    };
+    let mossa0 = null;
+    const onMove = (e) => {
+      if (!ss || performance.now() - t0 < 600) return;
+      if (!mossa0) { mossa0 = [e.clientX, e.clientY]; return; }
+      if (Math.hypot(e.clientX - mossa0[0], e.clientY - mossa0[1]) > 12) close(true);
+    };
+    root.addEventListener('pointerdown', (e) => { e.preventDefault(); close(true); });
     window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointermove', onMove, true);
 
     raf = requestAnimationFrame((n) => { t0 = last = n; frame(n); });
+    return () => close(true);
+  },
+};
+
+/* Salvaschermo dopo un tempo di inattività scelto nelle Impostazioni (per dispositivo).
+   Si sblocca toccando lo schermo o un tasto: niente password. */
+const Salvaschermo = {
+  KEY: 'cs_salvaschermo_min',
+  OPZIONI: [0, 1, 5, 10, 15, 30],   // minuti; 0 = mai
+  DEFAULT: 5,
+  _ultimo: Date.now(),
+  _timer: 0,
+  _attivo: false,
+
+  minuti() {
+    let v = null;
+    try { v = localStorage.getItem(this.KEY); } catch {}
+    const n = v === null ? this.DEFAULT : parseInt(v, 10);
+    return this.OPZIONI.includes(n) ? n : this.DEFAULT;
+  },
+  set(min) {
+    try { localStorage.setItem(this.KEY, String(min)); } catch {}
+    this._ultimo = Date.now();
+    if (typeof Nav !== 'undefined' && Nav.current === 'impostazioni') renderSettingsDialog();
+  },
+
+  _attivita: () => { Salvaschermo._ultimo = Date.now(); },
+  start() {
+    if (this._timer) return;
+    this._ultimo = Date.now();
+    ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(ev =>
+      window.addEventListener(ev, this._attivita, { capture: true, passive: true }));
+    window.addEventListener('scroll', this._attivita, { capture: true, passive: true });
+    this._timer = setInterval(() => this._controlla(), 5000);
+  },
+  stop() {
+    clearInterval(this._timer); this._timer = 0;
+    ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev =>
+      window.removeEventListener(ev, this._attivita, { capture: true }));
+    this._chiudi?.();
+  },
+  _controlla() {
+    const min = this.minuti();
+    if (!min || this._attivo || document.visibilityState !== 'visible') return;
+    if (Date.now() - this._ultimo >= min * 60000) this.mostra();
+  },
+  mostra() {
+    if (this._attivo) return;
+    const chiudi = Intro.screensaver(() => { this._attivo = false; this._chiudi = null; this._ultimo = Date.now(); });
+    if (chiudi) { this._attivo = true; this._chiudi = chiudi; }
   },
 };
