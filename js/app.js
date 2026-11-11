@@ -622,7 +622,7 @@ function previewOrderModule(orderId) {
       <td style="padding:7px 10px;text-align:right;">${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.ordinato ? '✓' : ''}</td>
-      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.neutro ? '✓' : ''}</td>
+      <td style="padding:7px 10px;font-weight:600;">${escapeHtml(modRowLav(r))}</td>
     </tr>${c.s === 2 ? modPreviewNoteRow(order.id, idx, c.n) : ''}`;
   };
   const integHeaderRow = (label) => `<tr><td colspan="11" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(label)}</td></tr>`;
@@ -649,7 +649,7 @@ function previewOrderModule(orderId) {
           <thead>
             <tr style="background:#1e40af;">
               <th style="padding:9px 4px 9px 12px;width:1%;"></th>
-              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Catalogo</th>
+              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Fornitore</th>
               <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Codice</th>
               <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Descrizione</th>
               <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Colore</th>
@@ -658,7 +658,7 @@ function previewOrderModule(orderId) {
               <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Prezzo</th>
               <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Totale</th>
               <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Ord.</th>
-              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Neutro</th>
+              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Lavorazione</th>
             </tr>
           </thead>
           <tbody>${rowsHtml}</tbody>
@@ -830,17 +830,17 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
     const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
     return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
       r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
-      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : '', r.neutro ? 'SI' : ''];
+      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : '', modRowLav(r)];
   };
   const autoTableStyle = {
     styles: { fontSize: 9, cellPadding: 2 },
     headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 8 },
     alternateRowStyles: { fillColor: [239, 246, 255] },
-    columnStyles: { 3:{halign:'center'}, 4:{halign:'center'}, 5:{halign:'right'}, 6:{halign:'right'}, 7:{halign:'center'} },
+    columnStyles: { 4:{halign:'center'}, 5:{halign:'center'}, 6:{halign:'right'}, 7:{halign:'right'}, 8:{halign:'center'} },
   };
   doc.autoTable({
     startY: y + 3,
-    head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Neutro']],
+    head: [['Fornitore','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lavorazione']],
     body: pdfBase.length ? pdfBase.map(rowToArr) : [['','','','','','','','','','']],
     ...autoTableStyle,
   });
@@ -852,7 +852,7 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
     doc.text(m.label.toUpperCase(), 15, fy); fy += 5;
     doc.autoTable({
       startY: fy,
-      head: [['Catalogo','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Neutro']],
+      head: [['Fornitore','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lavorazione']],
       body: m.rows.map(rowToArr),
       ...autoTableStyle,
     });
@@ -911,9 +911,9 @@ ${dlHtml ? `<br><strong>Deadline:</strong> ${dlHtml}` : ''}
 ${tagsHtml ? `<br><strong>Tipologia:</strong> ${tagsHtml}` : ''}
 ${lav ? `<br><strong>Lavorazione:</strong> ${escapeHtml(lav)}` : ''}</div></div>
 ${isUrgent ? `<div class="urg">⚠️ URGENTE</div>` : ''}</div>
-<table><thead><tr><th>Catalogo</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th><th style="text-align:center">Neutro</th></tr></thead><tbody>
+<table><thead><tr><th>Fornitore</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th><th>Lavorazione</th></tr></thead><tbody>
 ${(() => {
-    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td><td style="text-align:center;color:#16a34a">${r.neutro?'✓':''}</td></tr>`; };
+    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td><td>${escapeHtml(modRowLav(r))}</td></tr>`; };
     const integHeaderHtml = (label) => `<tr><td colspan="10" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(label)}</td></tr>`;
     const { base, integ } = splitModuleRows(rows);
     return rows.length ? base.map(rowHtml).join('') + integ.map(m => integHeaderHtml(m.label) + m.rows.map(rowHtml).join('')).join('') : '<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
@@ -2000,6 +2000,11 @@ async function setLavTipo(orderId, kind, id, done) {
 function modRowEsterna(r, legacy = '✓') {
   if (r?.esterna) return lavEsternaName(r.esterna) || 'Esterna';
   return r?.lavEsterna ? legacy : '';
+}
+// Colonna "Lavorazione" del modulo stampato: solo il tipo (es. UV, RICAMO) oppure NEUTRO
+function modRowLav(r) {
+  if (r?.neutro) return 'NEUTRO';
+  return [modRowInterna(r), modRowEsterna(r, 'Esterna')].filter(Boolean).join(', ').toLocaleUpperCase('it-IT');
 }
 function modEsternaOptions(r) {
   const list = getLavEsterne();
