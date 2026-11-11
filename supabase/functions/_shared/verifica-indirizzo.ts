@@ -7,7 +7,8 @@
 // Esiti:
 //   ok               la via esiste in quel comune
 //   corretta         la via esiste ma manca "Via"/"Piazza"…: `nuova` è la riga corretta, sicura da scrivere su Shopify
-//   simile           non esiste così, ma ce n'è una molto simile (`suggerimento`): la sceglie una persona
+//   simile           non esiste così, ma ce n'è una molto simile (`suggerimento`): la sceglie una persona,
+//                    tranne gli errori di battitura sicuri (`nuova` valorizzata: si corregge da sola, vedi sicuraDaSola)
 //   ambigua          manca "Via"/"Piazza" e in quel comune ci sono sia la via sia la piazza con quel nome
 //   non_trovata      nel comune non c'è niente che le somigli
 //   non_verificabile comune non trovato, estero o servizio che non risponde: nessun avviso
@@ -20,7 +21,7 @@ type Row = Record<string, any>;
 export type EsitoIndirizzo = {
   esito: 'ok' | 'corretta' | 'simile' | 'ambigua' | 'non_trovata' | 'non_verificabile';
   nota: string;
-  nuova?: string;          // corretta: address1 da scrivere
+  nuova?: string;          // corretta, o simile sicura: address1 da scrivere
   suggerimento?: string;   // simile / ambigua: il nome com'è sulle mappe
   trovata?: string;        // ok / corretta: la via trovata
 };
@@ -185,6 +186,28 @@ async function zona(citta: string, cap: string, fetchFn: typeof fetch): Promise<
   return e ? [e[0] - 0.01, e[1] + 0.01, e[2] + 0.01, e[3] - 0.01] : [lon - 0.04, lat + 0.03, lon + 0.04, lat - 0.03];
 }
 
+// Via simile che si può correggere senza una persona (scelta utente 2026-11-11, dopo le prove col clic).
+// Solo errori di battitura: c'è il civico, i numeri del nome sono gli stessi ("XXVI Aprile" ≠ "XXV Aprile"),
+// le parole sono le stesse a parte "di/del…" e al massimo una scritta male ("valter" → "walter"): 1 lettera, 2 sui nomi lunghi.
+const LEGAME = new Set(['di', 'd', 'de', 'del', 'della', 'dello', 'dei', 'degli', 'delle', 'e']);
+export function sicuraDaSola(scritto: string, mappa: string, riga1: string): boolean {
+  if (!/\d/.test(riga1)) return false;   // senza civico la riga è da sistemare comunque col cliente
+  const a = scritto.split(' ').filter(w => w && !LEGAME.has(w));
+  const b = mappa.split(' ').filter(w => w && !LEGAME.has(w));
+  const cifre = (w: string[]) => w.filter(x => /^\d+$/.test(x)).join(' ');
+  if (!a.length || cifre(a) !== cifre(b)) return false;
+  // Il nome sulle mappe può avere il nome di battesimo in più davanti ("tobagi" = "walter tobagi"): si confronta la coda
+  const coda = b.slice(Math.max(0, b.length - a.length));
+  if (coda.length !== a.length) return false;
+  const diverse = a.map((w, i) => [w, coda[i]]).filter(([x, y]) => x !== y);
+  if (diverse.length > 1) return false;
+  if (!diverse.length) return true;
+  const [x, y] = diverse[0];
+  // Parole corte: una lettera sola e almeno 5 lettere ("roma" ≠ "rosa"); due lettere solo sui nomi lunghi ("marconi" ≠ "mancini")
+  const d = distanza(x, y), corta = Math.min(x.length, y.length);
+  return !/\d/.test(x + y) && ((d === 1 && corta >= 5) || (d === 2 && corta >= 8));
+}
+
 export async function verificaIndirizzo(a: { address1?: string | null; address2?: string | null; citta?: string | null; cap?: string | null; paese?: string | null },
   fetchFn: typeof fetch = fetch): Promise<EsitoIndirizzo> {
   if (a.paese && a.paese !== 'IT') return { esito: 'non_verificabile', nota: 'Indirizzo estero' };
@@ -199,7 +222,7 @@ export async function verificaIndirizzo(a: { address1?: string | null; address2?
     const cercate = parti.map(p => ({ testo: p, ...nomeVia(p) })).filter(p => p.nome.replace(/[\d\s]/g, '').length >= 2);
     if (!cercate.length) return { esito: 'non_verificabile', nota: 'Nella via non c\'è un nome da cercare' };
 
-    let migliore: { simile: number; nome: string } | null = null;
+    let migliore: { simile: number; nome: string; sicura: boolean } | null = null;
     for (const [i, p] of cercate.slice(0, 2).entries()) {
       // Com'è scritta; se non si trova e la prima parola è corta e sconosciuta ("vua fillungo"), anche senza
       const testo = testoDaCercare(p.testo);
@@ -227,10 +250,17 @@ export async function verificaIndirizzo(a: { address1?: string | null; address2?
           return { esito: 'ok', nota: `Trovata: ${uguali[0]}`, trovata: uguali[0] };
         }
         // Trovata solo togliendo una parola: è un errore di battitura, la sceglie una persona
-        if (uguali.length) { migliore = { simile: 0.99, nome: uguali[0] }; break; }
+        // Sicura da sola solo se la parola tolta è un "via" scritto male ("vua fillungo") e la via è all'inizio della riga 1
+        const allInizio = i === 0 && parti[0] === p.testo && riga1.startsWith(p.testo);
+        if (uguali.length) {
+          migliore = { simile: 0.99, nome: uguali[0], sicura: allInizio && distanza(prima.toLowerCase(), 'via') <= 1 && /\d/.test(riga1) };
+          break;
+        }
         for (const n of nomi) {
           const s = quantoSimile(nomeCercato, nomeVia(n).nome);
-          if (s >= 0.8 && (!migliore || s > migliore.simile)) migliore = { simile: s, nome: n };
+          if (s >= 0.8 && (!migliore || s > migliore.simile)) {
+            migliore = { simile: s, nome: n, sicura: allInizio && !!p.tipo && sicuraDaSola(nomeCercato, nomeVia(n).nome, riga1) };
+          }
         }
         if (migliore) break;
       }
@@ -238,7 +268,10 @@ export async function verificaIndirizzo(a: { address1?: string | null; address2?
     }
     // Località, frazioni, contrade: spesso non sono sulle mappe, non è un errore
     if (!migliore && cercate.some(p => p.tipo && RURALI.has(p.tipo))) return { esito: 'non_verificabile', nota: 'Località non presente sulle mappe' };
-    if (migliore) return { esito: 'simile', nota: `Via non trovata così: forse ${migliore.nome}`, suggerimento: migliore.nome };
+    if (migliore) {
+      const nuova = migliore.sicura ? rigaConVia(riga1, migliore.nome) : null;
+      return { esito: 'simile', nota: `Via non trovata così: forse ${migliore.nome}`, suggerimento: migliore.nome, ...(nuova ? { nuova } : {}) };
+    }
     return { esito: 'non_trovata', nota: `Nessuna via simile a "${cercate[0].testo}" a ${a.citta}` };
   } catch (e) {
     return { esito: 'non_verificabile', nota: `Mappe non raggiungibili: ${e instanceof Error ? e.message : e}` };
