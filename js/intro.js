@@ -19,10 +19,10 @@ const Intro = {
     { t: 'Box Factory Lab',      c: '#818cf8' },
     { t: 'Asteroidi Store',      c: '#14b8a6' },
   ],
-  CORRIERI: ['GLS', 'Sendcloud'],
+  CORRIERI: ['GLS'],
   MACCHINE: [
-    { t: 'Stampante DTF', c: '#5AE1F0' },
-    { t: 'Stampante UV',  c: '#A078F0' },
+    { t: 'DTF', c: '#5AE1F0' },
+    { t: 'UV',  c: '#A078F0' },
     { t: 'Mimaki',        c: '#5AE1F0' },
     { t: 'Laser',         c: '#ff6b6b' },
   ],
@@ -129,9 +129,9 @@ const Intro = {
     const buildTags = (t) => {
     const voci = [
       ...(self._nomi || self.UTENTI).map(t => ({ t, c: '#FFD35C' })),
-      ...self.NEGOZI.map(n => ({ ...n, k: 'negozio' })),
-      ...self.CORRIERI.map(t => ({ t, c: '#5B86E5', k: 'corriere' })),
-      ...self.MACCHINE.map(m => ({ ...m, k: 'stampa' })),
+      ...self.NEGOZI,
+      ...self.CORRIERI.map(t => ({ t, c: '#5B86E5' })),
+      ...self.MACCHINE,
     ].sort(() => Math.random() - 0.5);
     const K = voci.length;
     tags = voci.map((v, i) => {
@@ -139,7 +139,7 @@ const Intro = {
       const el = document.createElement('div');
       el.className = 'cs-intro-tag';
       el.style.setProperty('--c', v.c);
-      el.innerHTML = `<i></i>${v.t.replace(/</g, '&lt;')}${v.k ? `<small>${v.k}</small>` : ''}`;
+      el.innerHTML = `<i></i>${v.t.replace(/</g, '&lt;')}`;
       tagsBox.appendChild(el);
       const d = { x: Math.cos(a) * r, y, z: Math.sin(a) * r };
       // neurone d'aggancio: il più vicino alla direzione dell'etichetta
