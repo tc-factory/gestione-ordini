@@ -30,6 +30,7 @@ const MailBox = {
   casella: null,          // null = tutte
   vista: 'arrivo',
   cerca: '',
+  tag: null,              // filtro per tag
   altre: false,           // ci sono altre conversazioni da caricare
   aperto: null,           // { casella_id, filo }
   conversazione: null,    // { messaggi, tasks }
@@ -68,7 +69,7 @@ const MailBox = {
     const gen = ++this._gen;
     const prima = altre && this.fili.length ? this.fili[this.fili.length - 1].ultima_at : null;
     const r = await this._rpc('tc_mail_lista', {
-      p_casella: this.casella, p_vista: this.vista, p_cerca: this.cerca || null, p_prima: prima, p_limite: MAIL_PAGINA,
+      p_casella: this.casella, p_vista: this.vista, p_cerca: this.cerca || null, p_prima: prima, p_limite: MAIL_PAGINA, p_tag: this.tag,
     });
     if (gen !== this._gen) return false;
     const nuovi = r.fili || [];
@@ -80,7 +81,7 @@ const MailBox = {
   async load() {
     this.caricamento = true;
     try {
-      await Promise.all([this.loadCaselle(), this.loadLista(), MailFirme.load(), MailModelli.load()]);
+      await Promise.all([this.loadCaselle(), this.loadLista(), MailFirme.load(), MailModelli.load(), MailTag.load()]);
       this.errore = null;
     } catch (e) { this.errore = e; }
     this.caricamento = false;
@@ -177,7 +178,8 @@ const MailFirme = {
 
   automatica(casellaId) {
     const nick = TCAuth.getNickname();
-    const nome = nick.charAt(0).toUpperCase() + nick.slice(1);
+    // Account condivisi (tcfactory, claude): nessun nome di persona, ai clienti va solo il negozio
+    const nome = /factory|^claude$/i.test(nick) ? '' : nick.charAt(0).toUpperCase() + nick.slice(1);
     return [nome, this.casella(casellaId)?.nome || taskMacro(casellaId)?.label || '', this.sito(casellaId)].filter(Boolean).join('\n');
   },
   // Firma neutra predefinita: come quella del server (_shared/mail.ts)
@@ -481,6 +483,7 @@ function renderMailPage() {
                 <input type="search" id="mail-cerca" placeholder="Cerca mittente, oggetto o testo…" aria-label="Cerca nelle mail"
                   value="${escapeHtml(MailBox.cerca)}" oninput="setMailCerca(this.value)">
               </div>
+              <div class="mail-tag-bar" id="mail-tag-bar" role="group" aria-label="Filtra per tag"></div>
             </div>
             <div class="mail-list" id="mail-list" aria-live="polite"></div>
           </section>
@@ -510,6 +513,14 @@ function renderMailBoxes() {
       ${MailBox.caselle.map(c => chip(c.id, mailNomeCasella(c.id), c.non_lette, mailColore(c.id))).join('')}
     </div>
     ${errori.length ? `<div class="mail-warn" role="status">${errori.map(c => `${escapeHtml(c.indirizzo)}: ultima lettura non riuscita (${escapeHtml(c.ultimo_errore.slice(0, 120))})`).join('<br>')}</div>` : ''}`;
+  const barra = document.getElementById('mail-tag-bar');
+  if (barra) {
+    const attivi = MailTag.attivi();
+    barra.innerHTML = attivi.length ? [
+      `<button type="button" class="mail-tag-filtro ${MailBox.tag ? '' : 'is-on'}" aria-pressed="${!MailBox.tag}" onclick="setMailTag(null)">Tutti i tag</button>`,
+      ...attivi.map(t => `<button type="button" class="mail-tag-filtro ${MailBox.tag === t.id ? 'is-on' : ''}" aria-pressed="${MailBox.tag === t.id}" style="--t:${t.colore};" onclick="setMailTag('${t.id}')"><i aria-hidden="true"></i>${escapeHtml(t.nome)}</button>`),
+    ].join('') : '';
+  }
   document.querySelectorAll('.mail-list-head [data-vista]').forEach(b => {
     const on = b.dataset.vista === MailBox.vista;
     b.classList.toggle('active', on);
@@ -544,6 +555,7 @@ function renderMailList() {
       </span>
       <span class="mail-row-subj">${f.ultima_out ? `<span class="mail-row-replied" title="Ultimo messaggio: nostra mail">${Icons.reply(12)}</span>` : ''}${escapeHtml(f.oggetto || '(senza oggetto)')}${f.allegati ? ` <span class="mail-row-clip" aria-label="${f.allegati} allegati">${Icons.paperclip(11)}</span>` : ''}</span>
       ${f.anteprima ? `<span class="mail-row-prev">${escapeHtml(f.anteprima)}</span>` : ''}
+      ${mailTagPills(f.tag, 3)}
     </button>`;
   }).join('') + (MailBox.altre ? `<div class="mail-more"><button type="button" class="btn btn-secondary btn-sm" onclick="loadMoreMail(this)">Carica le precedenti</button></div>` : '');
 }
@@ -591,6 +603,7 @@ function renderMailReader() {
       <div class="mail-read-title">
         <h2>${escapeHtml(f.oggetto || '(senza oggetto)')}</h2>
         <span><i class="ctrl-dot" style="--m:${mailColore(f.casella_id)};" aria-hidden="true"></i>${escapeHtml(casella?.indirizzo || mailNomeCasella(f.casella_id))}${cartella && cartella !== 'inbox' ? ` · ${MAIL_CARTELLE[cartella]}` : ''}</span>
+        ${c ? renderMailReadTags(f) : ''}
       </div>
       <div class="mail-read-actions">${azioni}</div>
     </div>`;
@@ -680,7 +693,7 @@ async function openMailThread(i) {
   const f = MailBox.fili[i];
   if (!f) return;
   const k = MailBox.chiave(f);
-  MailBox.aperto = { casella_id: f.casella_id, filo: f.filo, oggetto: f.oggetto };
+  MailBox.aperto = { casella_id: f.casella_id, filo: f.filo, oggetto: f.oggetto, tag: f.tag };
   MailBox.conversazione = null;
   if (MailBox.bozzaDi !== k) { MailBox.bozza = ''; MailBox.bozzaDi = k; MailBox.ordini = []; MailBox.ordine = null; }
   renderMailList();
@@ -1142,6 +1155,7 @@ async function reloadMailList() {
 }
 
 function setMailCasella(id) { MailBox.casella = id; closeMailThread(); reloadMailList(); }
+function setMailTag(id) { MailBox.tag = id; closeMailThread(); reloadMailList(); renderMailBoxes(); }
 function setMailVista(id) { MailBox.vista = id; closeMailThread(); reloadMailList(); }
 function setMailCerca(v) {
   MailBox.cerca = v.trim();
@@ -1153,4 +1167,165 @@ async function loadMoreMail(btn) {
   btn.disabled = true; btn.textContent = 'Caricamento…';
   try { await MailBox.loadLista({ altre: true }); } catch (e) { showToast(e.message, 'error'); }
   renderMailList();
+}
+
+// ─────────────────────────────────────────────
+// TAG
+// Automatici (calcolati dal database: argomento, giacenza, rimborso, tempi) e a mano.
+// I tag di una conversazione arrivano con l'elenco (f.tag); quelli a mano si mettono dalla conversazione.
+// ─────────────────────────────────────────────
+
+const MailTag = {
+  lista: [],
+  async load() {
+    const { data, error } = await supabaseClient.from('mail_tag').select('*').order('ordine').order('nome');
+    if (!error) this.lista = data || [];
+  },
+  attivi() { return this.lista.filter(t => t.attivo); },
+  manuali() { return this.attivi().filter(t => t.tipo === 'manuale'); },
+  get(id) { return this.lista.find(t => t.id === id); },
+};
+
+const MAIL_TAG_COLORI = ['#dc2626', '#ef4444', '#e11d48', '#be123c', '#f97316', '#d97706', '#a16207', '#16a34a', '#0d9488', '#0ea5e9', '#3b82f6', '#8b5cf6', '#7c3aed', '#64748b'];
+
+function mailTagPill(t, rimuovi = null) {
+  return `<span class="mail-tag" style="--t:${t.colore};" ${t.tipo === 'auto' ? 'title="Tag automatico"' : ''}><i aria-hidden="true"></i>${escapeHtml(t.nome)}${rimuovi ? `<button type="button" onclick="event.stopPropagation();${rimuovi}" aria-label="Togli il tag ${escapeHtml(t.nome)}">${Icons.x(11)}</button>` : ''}</span>`;
+}
+
+function mailTagPills(ids, max = 99) {
+  const tags = (ids || []).map(id => MailTag.get(id)).filter(t => t?.attivo);
+  if (!tags.length) return '';
+  return `<span class="mail-row-tags">${tags.slice(0, max).map(t => mailTagPill(t)).join('')}${tags.length > max ? `<span class="mail-tag mail-tag-more">+${tags.length - max}</span>` : ''}</span>`;
+}
+
+function renderMailReadTags(f) {
+  const ids = f.tag || [];
+  const tags = ids.map(id => MailTag.get(id)).filter(t => t?.attivo);
+  const manuali = MailTag.manuali();
+  return `<div class="mail-read-tags">
+    ${tags.map(t => mailTagPill(t, t.tipo === 'manuale' ? `toggleMailTag('${t.id}', false)` : null)).join('')}
+    ${manuali.length ? `<button type="button" class="mail-tag-add" onclick="openMailTagMenu(this)" aria-haspopup="menu">${Icons.plus(12)} Tag</button>` : ''}
+  </div>`;
+}
+
+function openMailTagMenu(btn) {
+  document.querySelector('.mail-tag-menu')?.remove();
+  const f = MailBox.fili.find(x => MailBox.chiave(x) === MailBox.chiave(MailBox.aperto)) || MailBox.aperto;
+  const ids = new Set(f.tag || []);
+  const menu = document.createElement('div');
+  menu.className = 'mail-tag-menu popover glass';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = MailTag.manuali().map(t => `
+    <button type="button" role="menuitemcheckbox" aria-checked="${ids.has(t.id)}" style="--t:${t.colore};" onclick="toggleMailTag('${t.id}', ${!ids.has(t.id)})">
+      <i aria-hidden="true"></i><span>${escapeHtml(t.nome)}</span>${ids.has(t.id) ? Icons.checkCircle('currentColor', 14) : ''}
+    </button>`).join('');
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  Object.assign(menu.style, { position: 'fixed', top: `${r.bottom + 6}px`, left: `${Math.min(r.left, window.innerWidth - 230)}px` });
+  menu.querySelector('button')?.focus();
+  const chiudi = (e) => {
+    if (e.type === 'keydown' && e.key !== 'Escape') return;
+    if (e.type === 'click' && (menu.contains(e.target) || e.target === btn)) return;
+    menu.remove();
+    document.removeEventListener('click', chiudi); document.removeEventListener('keydown', chiudi);
+  };
+  setTimeout(() => { document.addEventListener('click', chiudi); document.addEventListener('keydown', chiudi); });
+}
+
+async function toggleMailTag(id, on) {
+  const a = MailBox.aperto;
+  if (!a) return;
+  document.querySelector('.mail-tag-menu')?.remove();
+  try {
+    await MailBox._rpc('tc_mail_tag_set', { p_casella: a.casella_id, p_filo: a.filo, p_tag: id, p_on: on });
+    for (const f of [MailBox.fili.find(x => MailBox.chiave(x) === MailBox.chiave(a)), a].filter(Boolean)) {
+      f.tag = on ? [...new Set([...(f.tag || []), id])] : (f.tag || []).filter(x => x !== id);
+    }
+    renderMailList();
+    renderMailReaderKeepText();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+// Gestione dei tag (admin): nome, colore, acceso; i manuali si aggiungono e si eliminano
+function openMailTags() {
+  const riga = (t) => `
+    <div class="mail-tagedit" data-id="${t.id}">
+      <input class="form-input" maxlength="40" value="${escapeHtml(t.nome)}" aria-label="Nome del tag" data-campo="nome">
+      <div class="mail-tag-colori" role="radiogroup" aria-label="Colore">
+        ${MAIL_TAG_COLORI.map(c => `<button type="button" role="radio" aria-checked="${t.colore.toLowerCase() === c}" aria-label="Colore ${c}" style="--t:${c};" class="${t.colore.toLowerCase() === c ? 'is-on' : ''}" onclick="pickMailTagColor(this, '${c}')"></button>`).join('')}
+      </div>
+      <label class="mail-check"><input type="checkbox" data-campo="attivo" ${t.attivo ? 'checked' : ''}> Acceso</label>
+      ${t.tipo === 'manuale' ? `<button type="button" class="btn-icon mail-danger" onclick="deleteMailTag('${t.id}')" aria-label="Elimina il tag ${escapeHtml(t.nome)}">${Icons.trash(15)}</button>` : '<span class="mail-tagedit-auto" title="Lo mette il gestionale">auto</span>'}
+    </div>`;
+  const modal = document.getElementById('mail-modal');
+  modal.innerHTML = `
+    <div class="modal mail-dialog" role="dialog" aria-modal="true" aria-labelledby="mtg-title">
+      <div class="modal-header">
+        <h2 id="mtg-title">Tag delle mail</h2>
+        <button class="btn-icon" onclick="closeModal('mail-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <form class="modal-body mail-form" onsubmit="event.preventDefault();saveMailTags()">
+        <h3 class="mail-form-sub">Automatici</h3>
+        <p class="mail-form-hint">Li mette il gestionale: argomento (dal cervello), giacenza GLS, rimborso, "Senza risposta" (il cliente aspetta da almeno 1 giorno lavorativo) e "Aspetta il cliente" (nostra mail senza risposta da 3 giorni lavorativi).</p>
+        ${MailTag.lista.filter(t => t.tipo === 'auto').map(riga).join('')}
+        <h3 class="mail-form-sub">A mano</h3>
+        ${MailTag.lista.filter(t => t.tipo === 'manuale').map(riga).join('') || '<p class="mail-form-hint">Nessun tag a mano.</p>'}
+        <div class="mail-tagnew">
+          <input id="mtg-nuovo" class="form-input" maxlength="40" placeholder="Nuovo tag a mano, es. Reclamo" aria-label="Nome del nuovo tag">
+          <button type="button" class="btn btn-secondary" onclick="addMailTag()">${Icons.plus()} Aggiungi</button>
+        </div>
+        <div class="mail-form-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('mail-modal')">Annulla</button>
+          <button type="submit" class="btn btn-primary" id="mtg-save">Salva</button>
+        </div>
+      </form>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('mail-modal'); };
+}
+
+function pickMailTagColor(btn, c) {
+  btn.parentElement.querySelectorAll('button').forEach(b => { const on = b === btn; b.classList.toggle('is-on', on); b.setAttribute('aria-checked', on); });
+  btn.closest('.mail-tagedit').dataset.colore = c;
+}
+
+async function saveMailTags() {
+  const righe = [...document.querySelectorAll('#mail-modal .mail-tagedit')].map(r => {
+    const t = MailTag.get(r.dataset.id);
+    return { ...t, nome: r.querySelector('[data-campo="nome"]').value.trim() || t.nome, colore: r.dataset.colore || t.colore, attivo: r.querySelector('[data-campo="attivo"]').checked };
+  });
+  document.getElementById('mtg-save').disabled = true;
+  const { error } = await supabaseClient.from('mail_tag').upsert(righe.map(({ id, nome, colore, tipo, attivo, ordine }) => ({ id, nome, colore, tipo, attivo, ordine })));
+  if (error) { showToast('Tag non salvati', 'error'); document.getElementById('mtg-save').disabled = false; return; }
+  await MailTag.load();
+  closeModal('mail-modal');
+  showToast('Tag salvati');
+  renderMailBoxes();
+  await reloadMailList();
+}
+
+async function addMailTag() {
+  const nome = document.getElementById('mtg-nuovo').value.trim();
+  if (!nome) { document.getElementById('mtg-nuovo').focus(); return; }
+  const id = nome.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || `tag_${Date.now()}`;
+  if (MailTag.get(id)) { showToast('Esiste già un tag con questo nome', 'error'); return; }
+  const ordine = Math.max(30, ...MailTag.lista.map(t => t.ordine)) + 1;
+  const colore = MAIL_TAG_COLORI[MailTag.lista.length % MAIL_TAG_COLORI.length];
+  const { error } = await supabaseClient.from('mail_tag').insert({ id, nome, colore, tipo: 'manuale', ordine });
+  if (error) { showToast('Tag non aggiunto', 'error'); return; }
+  await MailTag.load();
+  openMailTags();
+  renderMailBoxes();
+}
+
+async function deleteMailTag(id) {
+  const t = MailTag.get(id);
+  if (!t || !(await uiConfirm(`Eliminare il tag "${t.nome}"? Sparisce da tutte le conversazioni.`, { ok: 'Elimina', danger: true }))) return;
+  const { error } = await supabaseClient.from('mail_tag').delete().eq('id', id);
+  if (error) { showToast('Tag non eliminato', 'error'); return; }
+  await MailTag.load();
+  if (MailBox.tag === id) MailBox.tag = null;
+  openMailTags();
+  renderMailBoxes();
+  reloadMailList();
 }

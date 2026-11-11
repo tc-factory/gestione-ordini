@@ -53,9 +53,20 @@ export function conFirmaNegozio(testo: string, firma: string, nomiNegozio: strin
   return t + (/[,:]$/.test(t) ? '\n' : '\n\n') + firma;
 }
 
+// Ai clienti non si nomina mai T&C Factory: solo il negozio. Una riga che è solo quel nome si toglie,
+// altrove diventa il nome del negozio. "Box Factory Lab" non c'entra (serve la T e la C).
+const TC_FACTORY = /\b(?:t\s*(?:&|&amp;|e|and)?\s*c\.?|tec|ti\s*e\s*ci)\s*factory(?:\s*s\.?\s*r\.?\s*l\.?)?\b|\btcfactory\b/gi;
+export function senzaTcFactory(testo: string, negozio: string): string {
+  return testo.split('\n')
+    .filter(r => !(r.search(TC_FACTORY) >= 0 && !r.replace(TC_FACTORY, '').replace(/[\s.,;:!\-–—]/g, '')))
+    .map(r => r.replace(TC_FACTORY, negozio))
+    .join('\n');
+}
+
 type Composta = { testo: string; html?: string; immagine?: { content: Uint8Array; contentType: string; filename: string } };
 
-async function componi(db: SupabaseClient, casella: Row, testo: string, firma: Firma): Promise<Composta> {
+async function componi(db: SupabaseClient, casella: Row, testoDato: string, firma: Firma): Promise<Composta> {
+  let testo = testoDato;
   let immagine: string | null = null, larghezza = 220;
   if (firma === 'negozio') {
     const { data: f } = await db.from('mail_firme_negozio').select('testo, immagine, larghezza').eq('casella_id', casella.id).maybeSingle();
@@ -76,6 +87,7 @@ async function componi(db: SupabaseClient, casella: Row, testo: string, firma: F
       larghezza = f.larghezza || 220;
     }
   }
+  testo = senzaTcFactory(testo, casella.nome);
   if (!immagine) return { testo };
 
   const { data: file, error } = await db.storage.from('mail-firme').download(immagine);
@@ -93,6 +105,7 @@ async function invia(db: SupabaseClient, casella: Row, m: Invio, firma: Firma) {
   if (!pass) throw new Error(`Manca la password della casella ${casella.indirizzo}`);
   const messageId = `<${crypto.randomUUID()}@${casella.indirizzo.split('@')[1]}>`;
   const c = await componi(db, casella, m.testo, firma);
+  m = { ...m, oggetto: senzaTcFactory(m.oggetto, casella.nome) };
 
   const raw: Uint8Array = await new MailComposer({
     from: { name: casella.nome, address: casella.indirizzo },

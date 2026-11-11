@@ -216,3 +216,65 @@
 .mail-firma-nota { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.74rem; color: var(--text-muted); }
 .mail-firma-nota img { max-height: 44px; max-width: 220px; padding: 4px 6px; border-radius: 8px; background: #fff; border: 1px solid var(--border-light); }
 .mail-form > .segmented { align-self: flex-start; }
+
+/* Tag: pillola col pallino del colore del tag */
+.mail-row-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.mail-tag {
+  display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px; min-height: 20px;
+  font-size: 0.7rem; font-weight: 650; line-height: 1.4; white-space: nowrap;
+  color: var(--text-secondary); background: color-mix(in srgb, var(--t, #64748b) 14%, transparent);
+}
+.mail-tag i { width: 7px; height: 7px; border-radius: 50%; background: var(--t, #64748b); flex: none; }
+.mail-tag button {
+  display: inline-flex; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; margin-left: 1px; opacity: 0.7;
+}
+.mail-tag button:hover { opacity: 1; }
+.mail-tag-more { background: var(--fill-hover); }
+.mail-read-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; align-items: center; }
+.mail-tag-add {
+  display: inline-flex; align-items: center; gap: 3px; min-height: 22px; padding: 1px 9px; border-radius: 999px;
+  border: 1px dashed var(--border); background: transparent; font: inherit; font-size: 0.72rem; font-weight: 600;
+  color: var(--text-muted); cursor: pointer;
+}
+.mail-tag-add:hover { color: var(--text-primary); border-color: var(--text-muted); }
+.mail-tag-menu { z-index: 1100; min-width: 210px; padding: 6px; border-radius: 14px; display: flex; flex-direction: column; gap: 2px; }
+.mail-tag-menu button {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px;
+  background: transparent; font: inherit; font-size: 0.84rem; color: var(--text-primary); cursor: pointer; text-align: left;
+}
+.mail-tag-menu button:hover, .mail-tag-menu button:focus-visible { background: var(--fill-hover); outline: none; }
+.mail-tag-menu button span { flex: 1; }
+.mail-tag-menu i { width: 9px; height: 9px; border-radius: 50%; background: var(--t); }
+
+/* Filtro per tag sotto la ricerca: una riga che scorre */
+.mail-tag-bar { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; margin: 0 -2px; padding: 0 2px; }
+.mail-tag-bar:empty { display: none; }
+.mail-tag-bar::-webkit-scrollbar { display: none; }
+.mail-tag-filtro {
+  display: inline-flex; align-items: center; gap: 5px; flex: none; min-height: 26px; padding: 2px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: transparent; font: inherit; font-size: 0.72rem; font-weight: 600;
+  color: var(--text-secondary); cursor: pointer; white-space: nowrap;
+}
+.mail-tag-filtro i { width: 7px; height: 7px; border-radius: 50%; background: var(--t); }
+.mail-tag-filtro:hover { background: var(--fill-hover); }
+.mail-tag-filtro.is-on { border-color: var(--t, var(--text-primary)); background: color-mix(in srgb, var(--t, var(--text-primary)) 16%, transparent); color: var(--text-primary); }
+.mail-tag-filtro:focus-visible, .mail-tag-add:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Gestione dei tag */
+.mail-form-sub { font-size: 0.8rem; font-weight: 750; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-top: 4px; }
+.mail-tagedit { display: grid; grid-template-columns: minmax(0, 1fr) auto auto 32px; gap: 10px; align-items: center; }
+.mail-tagedit .form-input { min-width: 0; }
+.mail-tagedit-auto { font-size: 0.7rem; color: var(--text-muted); text-align: center; }
+.mail-tag-colori { display: flex; gap: 5px; flex-wrap: wrap; max-width: 290px; }
+.mail-tag-colori button {
+  width: 15px !important; height: 15px !important; min-width: 0 !important; min-height: 0 !important; border-radius: 50% !important; corner-shape: round !important;
+  border: 0; background: var(--t); cursor: pointer; padding: 0; flex: none;
+}
+.mail-tag-colori button.is-on { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 3.5px var(--t); }
+.mail-tag-colori button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.mail-tagnew { display: flex; gap: 8px; }
+.mail-tagnew .form-input { flex: 1; }
+@media (max-width: 860px) {
+  .mail-tagedit { grid-template-columns: minmax(0, 1fr) auto 32px; }
+  .mail-tag-colori { grid-column: 1 / -1; order: 5; flex-wrap: wrap; }
+}

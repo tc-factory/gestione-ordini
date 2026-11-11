@@ -336,7 +336,8 @@ function renderHeader() {
        <button class="btn btn-primary" onclick="openTaskForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo task</span></button>`
     : Nav.current === 'mail'
     ? `<button class="btn btn-secondary" onclick="openMailFirme()">${Icons.edit(15)} <span class="new-order-btn-text">Firme</span></button>
-       ${TCAuth.isAdmin() ? `<button class="btn btn-secondary" onclick="openMailTemplates()">${Icons.copy(15)} <span class="new-order-btn-text">Modelli</span></button>` : ''}
+       ${TCAuth.isAdmin() ? `<button class="btn btn-secondary" onclick="openMailTags()">${Icons.tag(15)} <span class="new-order-btn-text">Tag</span></button>
+       <button class="btn btn-secondary" onclick="openMailTemplates()">${Icons.copy(15)} <span class="new-order-btn-text">Modelli</span></button>` : ''}
        <button class="btn btn-primary" onclick="openMailCompose()">${Icons.plus()} <span class="new-order-btn-text">Nuova mail</span></button>`
     : Nav.current === 'ordini'
     ? `<button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>`
