@@ -1274,7 +1274,7 @@ function interneLavId(section) {
   const list = getLavInterne();
   return (list.find(l => l.id === lav.id) || list.find(l => l.nome.toLowerCase() === lav.nome.toLowerCase()))?.id || lav.id;
 }
-const interneRows = (o) => (o.orderModule?.rows || []).filter(r => r.interna);
+const interneRows = (o) => (o.orderModule?.rows || []).filter(r => r.interna && !r.preventivo);   // preventivi: non si lavorano
 const interneDone = (o, section) => !!o.orderModule?.interneFatte?.[interneLavId(section)];
 
 function interneOrders(section) {

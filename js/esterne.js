@@ -23,6 +23,7 @@ function esterneGroups() {
     const rows = o.orderModule?.rows || [];
     const byType = new Map();
     rows.forEach(r => {
+      if (r.preventivo) return;   // preventivo da approvare: non si lavora
       const id = r.esterna ? r.esterna : (r.lavEsterna ? DA_SPECIFICARE : null);
       if (!id) return;
       if (!byType.has(id)) byType.set(id, []);

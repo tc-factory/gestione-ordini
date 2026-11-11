@@ -33,6 +33,7 @@ const AppState = {
   formModuleAcconto: '',
   formModuleCount: 1,
   formModuleClosed: [],
+  formPrevGroups: [],   // moduli del form che sono preventivi
   formPhotoCodes: [],          // codici letti da "Compila da file": se non sono in anagrafica vanno in Prodotti → Da inserire
 };
 
@@ -460,7 +461,7 @@ function renderOrderRow(o) {
   }).join('');
   const filesExtra = (o.files||[]).length > 2 ? `<span style="font-size:0.65rem;color:var(--text-muted);">+${(o.files||[]).length - 2}</span>` : '';
   const moduleBtn  = (o.orderModule?.rows?.length || 0) > 0
-    ? `<button class="file-quick-btn" onclick="event.stopPropagation();previewOrderModule('${o.id}')" title="Visualizza modulo d'ordine">📋</button>` : '';
+    ? `<button class="file-quick-btn ${orderPrevCount(o) ? 'has-prev' : ''}" onclick="event.stopPropagation();previewOrderModule('${o.id}')" title="Visualizza modulo d'ordine${orderPrevCount(o) ? ' (con preventivi da approvare)' : ''}">📋</button>` : '';
 
   // Pagamento con importo colorato condizionalmente
   const payDone  = o.paymentDone || false;
@@ -500,7 +501,7 @@ function renderOrderRow(o) {
     <div class="order-row-item ${isUrgent ? 'order-urgent' : ''} ${Pulsanti.rigaGialla(o) ? 'order-giallo' : ''} ${nearDeadline ? 'order-near-deadline' : ''}" role="button" tabindex="0"
       onclick="openOrderDetail('${o.id}')" onkeydown="if(event.key==='Enter')openOrderDetail('${o.id}')">
       <div class="order-row-grid" style="${Pulsanti.gridStyle(view)}">
-        <div class="orc-name">${escapeHtml(o.nome)}${section ? ` <span class="order-section-badge">${section}</span>` : ''}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
+        <div class="orc-name">${escapeHtml(o.nome)}${section ? ` <span class="order-section-badge">${section}</span>` : ''}${orderPrevCount(o) ? ` <span class="prev-badge" title="Righe in preventivo: non ordinare fino all'approvazione">${prevBadgeText(o)}</span>` : ''}${orderDesc(o) ? `<small class="orc-desc">${escapeHtml(orderDesc(o))}</small>` : ''}</div>
         <div class="orc-tags">${tagPills}</div>
         <div class="orc-date">${TCFactory.formatDate(o.dataOrdine,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>
         ${scadenzaCell}
@@ -568,26 +569,94 @@ async function quickToggleArchive(orderId, isArchived) {
 // Modulo a cui appartiene una riga: 0 = modulo d'ordine, 1… = integrazioni
 // (le righe vecchie con integrazione: true valgono come prima integrazione)
 const modGroup = (r) => r?.integrazione === true ? 1 : (parseInt(r?.integrazione) || 0);
-const modGroupLabel = (g) => g ? `Integrazione ${g}` : "Modulo d'ordine";
 
-// Separa le righe del modulo d'ordine da quelle delle integrazioni, raggruppate per modulo
-function splitModuleRows(rows) {
-  const base = rows.filter(r => !modGroup(r));
-  const max = rows.reduce((m, r) => Math.max(m, modGroup(r)), 0);
-  const integ = [];
-  for (let g = 1; g <= max; g++) {
+// Preventivi: un modulo (anche il primo) può essere un preventivo. Le sue righe hanno preventivo: true
+// e NON vanno ordinate né lavorate finché non viene approvato: niente spunta "Ord.", fuori dal totale
+// dell'ordine e dalle lavorazioni (schede Interne/Esterne). Approvato, diventa un modulo normale.
+const isPrevRow = (r) => !!r?.preventivo;
+const prevGroupsOf = (rows) => [...new Set((rows || []).filter(isPrevRow).map(modGroup))];
+const orderRows = (rows) => (rows || []).filter(r => !isPrevRow(r));        // righe da ordinare
+const rowsTotal = (rows) => (rows || []).reduce((s, r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
+const orderPrevCount = (o) => prevGroupsOf(o?.orderModule?.rows).length;
+
+// Moduli in ordine con la loro etichetta: i preventivi numerati a parte ("Preventivo 1, 2…"),
+// gli altri "Modulo d'ordine" il primo e "Integrazione 1, 2…" i successivi.
+// count: moduli aperti nel form (anche vuoti); prev: gruppi che sono preventivi.
+function moduleGroups(rows, count = 0, prev = prevGroupsOf(rows)) {
+  rows = rows || [];
+  const max = Math.max(count - 1, rows.reduce((m, r) => Math.max(m, modGroup(r)), 0));
+  const nPrev = prev.filter(g => g <= max).length;
+  const out = [];
+  let kMod = 0, kPrev = 0;
+  for (let g = 0; g <= max; g++) {
     const rs = rows.filter(r => modGroup(r) === g);
-    if (rs.length) integ.push({ label: modGroupLabel(g), rows: rs });
+    if (!rs.length && g >= count) continue;
+    const isPrev = prev.includes(g);
+    let label;
+    if (isPrev) { kPrev++; label = nPrev > 1 ? `Preventivo ${kPrev}` : 'Preventivo'; }
+    else { label = kMod ? `Integrazione ${kMod}` : "Modulo d'ordine"; kMod++; }
+    out.push({ g, label, rows: rs, prev: isPrev });
   }
-  return { base, integ };
+  return out;
 }
+// Avviso sugli ordini con preventivi: "solo preventivo" se non c'è ancora niente da ordinare
+function prevBadgeText(o) {
+  const n = orderPrevCount(o);
+  if (!n) return '';
+  const testo = n === 1 ? 'Preventivo da approvare' : `${n} preventivi da approvare`;
+  return orderRows(o.orderModule?.rows).length ? testo : `${testo} · non ordinare`;
+}
+
+// Approva un preventivo dall'anteprima del modulo: le sue righe diventano da ordinare e da lavorare
+async function approvePreventivo(orderId, g) {
+  const order = TCFactory.getOrderById(orderId);
+  const rows = order?.orderModule?.rows || [];
+  const m = moduleGroups(rows).find(x => x.g === g && x.prev);
+  if (!m) return;
+  const altri = orderPrevCount(order) - 1;
+  if (!(await uiConfirm(`Approvare ${m.label.toLowerCase()} (€ ${rowsTotal(m.rows).toFixed(2)})? Le sue righe diventano da ordinare e da lavorare.`
+    + (altri ? ` ${altri === 1 ? "L'altro preventivo resta" : `Gli altri ${altri} preventivi restano`} da approvare: eliminali dal modulo se non servono.` : ''),
+    { ok: 'Approva' }))) return;
+  const oldTot = rowsTotal(orderRows(rows));
+  const today = localISODate(new Date());
+  const nuove = rows.map(r => {
+    if (modGroup(r) !== g || !isPrevRow(r)) return r;
+    const u = { ...r, approvato: today };
+    delete u.preventivo;
+    return u;
+  });
+  const mod = { ...order.orderModule, rows: nuove };
+  const changes = { orderModule: mod };
+  // Le lavorazioni delle righe approvate valgono per l'ordine (se non è neutro)
+  if (!TCFactory.isNeutro(order)) {
+    if (m.rows.some(r => r.interna)) mod.interna = true;
+    if (m.rows.some(r => r.esterna || r.lavEsterna)) changes.lavorazioneEsterna = true;
+  }
+  // Importo: se era quello calcolato dal modulo (o vuoto) si aggiorna col nuovo totale
+  const imp = parseFloat(order.importo) || 0;
+  if (!imp || Math.abs(imp - oldTot) < 0.005) changes.importo = rowsTotal(orderRows(nuove));
+  try {
+    await TCFactory.updateOrder(orderId, changes);
+    TCFactory._log(`✓ ${m.label} approvato`, orderId, order.nome, { preventivo: g });
+    showToast(`${m.label} approvato ✓`);
+    previewOrderModule(orderId);
+    if (AppState.selectedOrder?.id === orderId) { AppState.selectedOrder = TCFactory.getOrderById(orderId); renderOrderDetail(); }
+    renderApp();
+  } catch (e) {
+    console.error('[preventivo]', e);
+    showToast('Errore — riprova', 'error');
+  }
+}
+
+const modGroupLabel = (g) => moduleGroups(AppState.formModuleRows, AppState.formModuleCount, AppState.formPrevGroups)
+  .find(m => m.g === g)?.label || (g ? `Integrazione ${g}` : "Modulo d'ordine");
 
 function previewOrderModule(orderId) {
   const order   = TCFactory.getOrderById(orderId);
   if (!order) return;
   const rows    = order.orderModule?.rows || [];
   const acconto = parseFloat(order.orderModule?.acconto || 0);
-  const total   = rows.reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
+  const total   = rowsTotal(orderRows(rows));
   const saldo   = total - acconto;
   const tags    = order.tags || [];
   const modal   = document.getElementById('file-preview-modal');
@@ -611,7 +680,7 @@ function previewOrderModule(orderId) {
     const bg  = i % 2 === 0 ? 'var(--bg-card)' : 'var(--bg-secondary)';
     const idx = rows.indexOf(r);
     const c   = checks[idx] || {};
-    return `<tr class="mod-preview-row ${MOD_CHECK_CLASS[c.s] || ''}" style="background:${bg};" onclick="toggleModPreviewRow('${order.id}',${idx},this)">
+    return `<tr class="mod-preview-row ${MOD_CHECK_CLASS[c.s] || ''} ${isPrevRow(r) ? 'is-prev' : ''}" style="background:${bg};" onclick="toggleModPreviewRow('${order.id}',${idx},this)">
       <td style="padding:7px 4px 7px 12px;text-align:center;"><button type="button" class="mod-preview-check" aria-label="Evidenzia riga (due volte: rossa con nota)" onclick="event.stopPropagation();toggleModPreviewRow('${order.id}',${idx},this.closest('tr'))"></button></td>
       <td style="padding:7px 10px;font-weight:600;">${escapeHtml(r.catalogo||'')}</td>
       <td style="padding:7px 10px;">${escapeHtml(r.codice||'')}</td>
@@ -621,21 +690,27 @@ function previewOrderModule(orderId) {
       <td style="padding:7px 10px;text-align:center;">${escapeHtml(r.tg||'')}</td>
       <td style="padding:7px 10px;text-align:right;">${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
-      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${r.ordinato ? '✓' : ''}</td>
+      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${isPrevRow(r) ? '<span class="mod-prev-no" title="Preventivo: non ordinare">—</span>' : r.ordinato ? '✓' : ''}</td>
       <td style="padding:7px 10px;font-weight:600;">${escapeHtml(modRowLav(r))}</td>
     </tr>${c.s === 2 ? modPreviewNoteRow(order.id, idx, c.n) : ''}`;
   };
   const integHeaderRow = (label) => `<tr><td colspan="11" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(label)}</td></tr>`;
-  const { base: modBase, integ: modInteg } = splitModuleRows(rows);
+  // Preventivo: intestazione ambra con il totale e il pulsante per approvarlo
+  const prevHeaderRow = (m) => `<tr><td colspan="11" class="mod-prev-head">
+      <div><strong>${escapeHtml(m.label)}</strong> · da approvare — non ordinare · Totale € ${rowsTotal(m.rows).toFixed(2)}</div>
+      <button type="button" class="btn btn-sm mod-prev-approve" onclick="event.stopPropagation();approvePreventivo('${order.id}',${m.g})">✓ Approva</button>
+    </td></tr>`;
+  const groups = moduleGroups(rows);
   const rowsHtml = rows.length
-    ? modBase.map(renderModRow).join('') + modInteg.map(m => integHeaderRow(m.label) + m.rows.map(renderModRow).join('')).join('')
+    ? groups.map((m, k) => (m.prev ? prevHeaderRow(m) : k ? integHeaderRow(m.label) : '') + m.rows.map(renderModRow).join('')).join('')
     : `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
+  const nPrev = groups.filter(m => m.prev).length;
 
   modal.innerHTML = `
     <div class="modal modal-fullscreen">
       <div class="modal-header">
         <div>
-          <div style="font-size:1.8rem;font-weight:900;color:#1e40af;line-height:1.1;">${escapeHtml(tags[0] || 'Ordine')}</div>
+          <div style="font-size:1.8rem;font-weight:900;color:#1e40af;line-height:1.1;">${escapeHtml(tags[0] || 'Ordine')}${nPrev ? ` <span class="prev-badge lg">${prevBadgeText(order)}</span>` : ''}</div>
           <div style="font-size:0.9rem;color:var(--text-muted);margin-top:3px;">${escapeHtml(order.nome)}${dlHtml ? ` · Deadline: ${dlHtml}` : ''}</div>
           ${modLavRiepilogo(order) ? `<div style="font-size:0.85rem;font-weight:700;margin-top:4px;"><span style="color:var(--text-muted);font-weight:600;">Lavorazione:</span> ${escapeHtml(modLavRiepilogo(order))}</div>` : ''}
         </div>
@@ -764,7 +839,7 @@ function modLavRiepilogo(order) {
   if (order ? TCFactory.isNeutro(order) : AppState.formLavNeutro) return 'NEUTRO';
   const o = order || {
     lavorazioneEsterna: !!AppState.formLavEsterna,
-    orderModule: { rows: AppState.formModuleRows || [], interna: !!AppState.formLavInterna,
+    orderModule: { rows: (AppState.formModuleRows || []).filter(r => !AppState.formPrevGroups.includes(modGroup(r))), interna: !!AppState.formLavInterna,
       lavInterne: AppState.formLavTipi?.interne || [], lavEsterne: AppState.formLavTipi?.esterne || [] },
   };
   const tipi = orderLavTipi(o);
@@ -779,10 +854,15 @@ function downloadOrderModule(orderId) {
   const order   = orderId ? TCFactory.getOrderById(orderId) : null;
   const desc    = order ? orderDesc(order) : (document.getElementById('of-descrizione')?.value || '').trim();
   const nome    = (order?.nome || document.getElementById('of-nome')?.value || 'Ordine') + (desc ? ` — ${desc}` : '');
-  const rows    = order?.orderModule?.rows || AppState.formModuleRows || [];
+  const rows    = order?.orderModule?.rows || (AppState.formModuleRows || []).map(r => {
+    // Dal form: le righe dei moduli segnati come preventivo
+    const u = { ...r };
+    if ((AppState.formPrevGroups || []).includes(modGroup(u))) u.preventivo = true; else delete u.preventivo;
+    return u;
+  });
   const acconto = parseFloat(order?.orderModule?.acconto || AppState.formModuleAcconto || 0);
   const notes   = order?.notes || document.getElementById('of-notes')?.value || '';
-  const total   = rows.reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
+  const total   = rowsTotal(orderRows(rows));
   const saldo   = total - acconto;
   const isUrgent = order ? isUrgentOrder(order) : !!document.getElementById('of-urgent')?.checked;
   const tags    = order?.tags || AppState.formTags || [];
@@ -825,12 +905,13 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
   }
 
   // Table
-  const { base: pdfBase, integ: pdfInteg } = splitModuleRows(rows);
+  const pdfGroups = moduleGroups(rows);
+  const pdfFirst = pdfGroups[0] && !pdfGroups[0].prev ? pdfGroups[0] : null;
   const rowToArr = r => {
     const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
     return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
       r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
-      t > 0 ? `€ ${t.toFixed(2)}` : '', r.ordinato ? 'SI' : '', modRowLav(r)];
+      t > 0 ? `€ ${t.toFixed(2)}` : '', isPrevRow(r) ? 'NO' : r.ordinato ? 'SI' : '', modRowLav(r)];
   };
   const autoTableStyle = {
     styles: { fontSize: 9, cellPadding: 2 },
@@ -838,25 +919,35 @@ function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags
     alternateRowStyles: { fillColor: [239, 246, 255] },
     columnStyles: { 4:{halign:'center'}, 5:{halign:'center'}, 6:{halign:'right'}, 7:{halign:'right'}, 8:{halign:'center'} },
   };
-  doc.autoTable({
-    startY: y + 3,
-    head: [['Fornitore','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lavorazione']],
-    body: pdfBase.length ? pdfBase.map(rowToArr) : [['','','','','','','','','','']],
-    ...autoTableStyle,
-  });
+  let fy = y + 3;
+  if (pdfFirst || !pdfGroups.length) {
+    doc.autoTable({
+      startY: fy,
+      head: [['Fornitore','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lavorazione']],
+      body: pdfFirst?.rows.length ? pdfFirst.rows.map(rowToArr) : [['','','','','','','','','','']],
+      ...autoTableStyle,
+    });
+    fy = doc.lastAutoTable.finalY + 6;
+  }
 
-  let fy = doc.lastAutoTable.finalY + 6;
-
-  pdfInteg.forEach(m => {
-    doc.setFontSize(10); doc.setFont(undefined,'bold'); doc.setTextColor(30, 64, 175);
-    doc.text(m.label.toUpperCase(), 15, fy); fy += 5;
+  // Integrazioni (blu) e preventivi (ambra, fuori dal totale ordine)
+  pdfGroups.filter(m => m !== pdfFirst).forEach(m => {
+    doc.setFontSize(10); doc.setFont(undefined,'bold');
+    if (m.prev) doc.setTextColor(180, 83, 9); else doc.setTextColor(30, 64, 175);
+    doc.text(m.prev ? `${m.label.toUpperCase()} — DA APPROVARE, NON ORDINARE` : m.label.toUpperCase(), 15, fy); fy += 5;
     doc.autoTable({
       startY: fy,
       head: [['Fornitore','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lavorazione']],
       body: m.rows.map(rowToArr),
       ...autoTableStyle,
+      ...(m.prev ? { headStyles: { ...autoTableStyle.headStyles, fillColor: [180, 83, 9] }, alternateRowStyles: { fillColor: [255, 247, 237] } } : {}),
     });
     fy = doc.lastAutoTable.finalY + 6;
+    if (m.prev) {
+      doc.setFontSize(9); doc.setFont(undefined,'bold'); doc.setTextColor(180, 83, 9);
+      doc.text(`Totale ${m.label.toLowerCase()}: € ${rowsTotal(m.rows).toFixed(2)} (non incluso nel totale ordine)`, pw - 15, fy, { align: 'right' });
+      fy += 8;
+    }
   });
 
   // Totals
@@ -913,10 +1004,12 @@ ${lav ? `<br><strong>Lavorazione:</strong> ${escapeHtml(lav)}` : ''}</div></div>
 ${isUrgent ? `<div class="urg">⚠️ URGENTE</div>` : ''}</div>
 <table><thead><tr><th>Fornitore</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th><th>Lavorazione</th></tr></thead><tbody>
 ${(() => {
-    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${r.catalogo||''}</strong></td><td>${r.codice||''}</td><td>${r.descrizione||''}</td><td>${r.colore||''}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${r.tg||''}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${r.ordinato?'✓':''}</td><td>${escapeHtml(modRowLav(r))}</td></tr>`; };
-    const integHeaderHtml = (label) => `<tr><td colspan="10" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(label)}</td></tr>`;
-    const { base, integ } = splitModuleRows(rows);
-    return rows.length ? base.map(rowHtml).join('') + integ.map(m => integHeaderHtml(m.label) + m.rows.map(rowHtml).join('')).join('') : '<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
+    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${escapeHtml(r.catalogo||'')}</strong></td><td>${escapeHtml(r.codice||'')}</td><td>${escapeHtml(r.descrizione||'')}</td><td>${escapeHtml(r.colore||'')}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${escapeHtml(r.tg||'')}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${isPrevRow(r)?'NO':r.ordinato?'✓':''}</td><td>${escapeHtml(modRowLav(r))}</td></tr>`; };
+    const headHtml = (m) => m.prev
+      ? `<tr><td colspan="10" style="padding:8px 10px;background:#fff7ed;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#b45309;border-top:2px solid #b45309;">${escapeHtml(m.label)} — da approvare, non ordinare · Totale € ${rowsTotal(m.rows).toFixed(2)} (fuori dal totale ordine)</td></tr>`
+      : `<tr><td colspan="10" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(m.label)}</td></tr>`;
+    const groups = moduleGroups(rows);
+    return rows.length ? groups.map((m, k) => (m.prev || k ? headHtml(m) : '') + m.rows.map(rowHtml).join('')).join('') : '<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
   })()}
 </tbody></table>
 <div class="tots"><div class="tr"><span class="tl">Totale ordine</span><span class="tv" style="color:#1e40af">€ ${total.toFixed(2)}</span></div><div class="tr"><span class="tl">Acconto</span><span class="tv">€ ${acconto.toFixed(2)}</span></div><div class="tr"><span class="tl">Saldo</span><span class="tv" style="color:#dc2626">€ ${saldo.toFixed(2)}</span></div></div>
@@ -1067,7 +1160,8 @@ function renderOrderDetail() {
           <div class="detail-files">
             <div class="detail-meta-label" style="margin-bottom:8px;">Modulo d'ordine</div>
             <button class="file-item" onclick="previewOrderModule('${order.id}')">
-              📋 <span>Visualizza modulo (${order.orderModule.rows.length} righe${(() => { const n = splitModuleRows(order.orderModule.rows).integ.length; return n ? ` · ${n} ${n === 1 ? 'integrazione' : 'integrazioni'}` : ''; })()})</span>
+              📋 <span>Visualizza modulo (${order.orderModule.rows.length} righe${(() => { const gs = moduleGroups(order.orderModule.rows); const n = gs.filter(m => !m.prev).length - (gs.some(m => !m.prev) ? 1 : 0); return n ? ` · ${n} ${n === 1 ? 'integrazione' : 'integrazioni'}` : ''; })()})</span>
+              ${orderPrevCount(order) ? `<span class="prev-badge">${prevBadgeText(order)}</span>` : ''}
             </button>
           </div>` : ''}
 
@@ -1134,6 +1228,7 @@ function openOrderForm(order = null, defaultDate = null, defaultClientId = null)
   AppState.formModuleAcconto = mod.acconto || '';
   AppState.formModuleCount   = AppState.formModuleRows.reduce((m, r) => Math.max(m, modGroup(r)), 0) + 1;
   AppState.formModuleClosed  = [];
+  AppState.formPrevGroups    = prevGroupsOf(AppState.formModuleRows);
   AppState.formPhotoCodes    = [];
 
   const isEdit    = !!order;
@@ -1301,9 +1396,10 @@ function toggleFormModule(g) {
   if (chev) chev.style.transform = `rotate(${open ? 180 : 0}deg)`;
 }
 
-// Nuovo modulo d'ordine: i moduli dopo il primo sono integrazioni
-function addFormModule() {
+// Nuovo modulo d'ordine: i moduli dopo il primo sono integrazioni (o preventivi)
+function addFormModule(prev = false) {
   const g = AppState.formModuleCount++;
+  if (prev && !AppState.formPrevGroups.includes(g)) AppState.formPrevGroups.push(g);
   addModRow(g);
   document.getElementById(`module-panel-${g}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -1317,26 +1413,56 @@ async function removeFormModule(g) {
     .map(r => modGroup(r) > g ? { ...r, integrazione: modGroup(r) - 1 } : r);
   AppState.formModuleCount = Math.max(1, AppState.formModuleCount - 1);
   AppState.formModuleClosed = AppState.formModuleClosed.filter(x => x !== g).map(x => x > g ? x - 1 : x);
+  AppState.formPrevGroups = AppState.formPrevGroups.filter(x => x !== g).map(x => x > g ? x - 1 : x);
+  renderModuleRows();
+}
+
+// Modulo ↔ preventivo. Da preventivo a modulo = approvato: le righe diventano da ordinare.
+async function toggleFormPreventivo(g) {
+  const prev = AppState.formPrevGroups.includes(g);
+  const rows = AppState.formModuleRows.filter(r => modGroup(r) === g);
+  if (prev) {
+    if (!(await uiConfirm(`Approvare ${modGroupLabel(g).toLowerCase()}? Le sue righe diventano da ordinare e da lavorare.`, { ok: 'Approva' }))) return;
+    const today = localISODate(new Date());
+    rows.forEach(r => { delete r.preventivo; r.approvato = today; });
+    AppState.formPrevGroups = AppState.formPrevGroups.filter(x => x !== g);
+    // Le lavorazioni delle righe approvate valgono per l'ordine
+    rows.forEach(r => {
+      if (r.interna) { if (!AppState.formLavInterna && !AppState.formLavNeutro) ofSetLav(false); ofAddLavTipo('interne', r.interna); }
+      if (r.esterna) { if (!AppState.formLavEsterna && !AppState.formLavNeutro) ofSetLav(true); ofAddLavTipo('esterne', r.esterna); }
+    });
+  } else {
+    if (rows.some(r => r.ordinato) && !(await uiConfirm(`In ${modGroupLabel(g).toLowerCase()} ci sono righe già ordinate. Trasformarlo comunque in preventivo?`, { ok: 'Sì, preventivo' }))) return;
+    rows.forEach(r => { r.preventivo = true; delete r.approvato; });
+    AppState.formPrevGroups.push(g);
+  }
   renderModuleRows();
 }
 
 function modPanelHtml(g) {
   const open = !AppState.formModuleClosed.includes(g);
+  const prev = AppState.formPrevGroups.includes(g);
   const chevron = `<svg id="module-chevron-${g}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="transform:rotate(${open?180:0}deg);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>`;
   return `
-    <div id="module-panel-${g}" style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);cursor:pointer;" onclick="toggleFormModule(${g})">
+    <div id="module-panel-${g}" class="mod-panel ${prev ? 'is-prev' : ''}" style="border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+      <div class="mod-panel-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:10px 14px;background:var(--bg-secondary);cursor:pointer;" onclick="toggleFormModule(${g})">
         <div style="display:flex;align-items:center;gap:8px;">
-          <span style="font-weight:700;font-size:0.88rem;">${g ? '➕' : '📋'} ${modGroupLabel(g)}</span>
+          <span style="font-weight:700;font-size:0.88rem;">${prev ? '📝' : g ? '➕' : '📋'} ${modGroupLabel(g)}</span>
+          ${prev ? `<span class="prev-badge">Da approvare · non ordinare</span>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
-          ${g ? `<button type="button" class="btn-icon" style="color:var(--priority-urgent);" title="Elimina integrazione" onclick="event.stopPropagation();removeFormModule(${g})">${Icons.trash(13)}</button>` : `
+          ${prev
+            ? `<button type="button" class="btn btn-sm mod-prev-approve" title="Il cliente ha approvato: le righe diventano da ordinare" onclick="event.stopPropagation();toggleFormPreventivo(${g})">✓ Approva</button>`
+            : `<button type="button" class="btn btn-secondary btn-sm" title="Trasforma in preventivo: le righe non si ordinano fino all'approvazione" onclick="event.stopPropagation();toggleFormPreventivo(${g})">📝 Preventivo</button>`}
+          ${g ? `<button type="button" class="btn-icon" style="color:var(--priority-urgent);" title="Elimina ${prev ? 'preventivo' : 'integrazione'}" onclick="event.stopPropagation();removeFormModule(${g})">${Icons.trash(13)}</button>` : `
           <button type="button" class="btn btn-secondary btn-sm btn-solo" title="Aggiungi modulo d'ordine (integrazione)" aria-label="Aggiungi modulo d'ordine" onclick="event.stopPropagation();addFormModule()">${Icons.plus(13)}</button>
+          <button type="button" class="btn btn-secondary btn-sm" title="Aggiungi un preventivo (da approvare, non si ordina)" onclick="event.stopPropagation();addFormModule(true)">${Icons.plus(13)} Preventivo</button>
           <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation();downloadOrderModule(null)">⬇ Scarica</button>`}
           ${chevron}
         </div>
       </div>
       <div id="module-body-${g}" style="display:${open?'block':'none'};padding:12px 14px;">
+        ${prev ? `<div class="mod-prev-note">Preventivo: queste righe <strong>non vanno ordinate</strong> e non entrano nel totale dell'ordine finché il cliente non lo approva.</div>` : ''}
         <div class="mod-table-scroll">
           <table class="mod-table" style="width:100%;table-layout:fixed;">
             <thead>
@@ -1361,7 +1487,7 @@ function modPanelHtml(g) {
         </div>
         <button type="button" onclick="addModRow(${g})" class="btn btn-secondary btn-sm" style="margin-top:8px;">${Icons.plus(13)} Aggiungi riga</button>
         <div style="margin-top:12px;display:flex;justify-content:flex-end;align-items:center;gap:12px;border-top:1px solid var(--border);padding-top:10px;font-size:0.82rem;">
-          <span style="color:var(--text-muted);">Totale ${g ? 'integrazione' : 'modulo'}</span>
+          <span style="color:var(--text-muted);">Totale ${prev ? 'preventivo' : g ? 'integrazione' : 'modulo'}</span>
           <strong id="mod-subtotal-${g}" style="font-size:1.05rem;min-width:80px;text-align:right;">€ 0.00</strong>
         </div>
       </div>
@@ -1687,7 +1813,9 @@ function renderModuleRows() {
       <td>${modVariantField(i, r, 'tg', prod && prod.taglie, 'mod-sm')}</td>
       <td><input class="mod-input mod-num" type="number" min="0" step="0.01" value="${r.prezzo||''}" oninput="storeMod(${i},'prezzo',this.value);calcModRow(${i})"></td>
       <td><span id="mod-tot-${i}" class="mod-calc">${tot>0 ? '€ '+tot.toFixed(2) : ''}</span></td>
-      <td style="text-align:center;"><input type="checkbox" ${r.ordinato?'checked':''} onchange="storeMod(${i},'ordinato',this.checked)"></td>
+      <td style="text-align:center;">${AppState.formPrevGroups.includes(modGroup(r))
+        ? `<input type="checkbox" disabled title="Preventivo: non ordinare fino all'approvazione" aria-label="Non ordinabile: preventivo">`
+        : `<input type="checkbox" ${r.ordinato?'checked':''} onchange="storeMod(${i},'ordinato',this.checked)">`}</td>
       <td><select class="mod-input mod-esterna" aria-label="Lavorazione interna" onchange="storeModInterna(${i},this.value)">${modInternaOptions(r)}</select></td>
       <td><select class="mod-input mod-esterna" aria-label="Lavorazione esterna" onchange="storeModEsterna(${i},this.value)">${modEsternaOptions(r)}</select></td>
       <td style="text-align:center;"><input type="checkbox" title="Neutro" ${r.neutro?'checked':''} onchange="storeMod(${i},'neutro',this.checked)"></td>
@@ -1904,7 +2032,8 @@ function calcModRow(i) {
   updateModuleTotals();
 }
 function updateModuleTotals() {
-  const total   = AppState.formModuleRows.reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0);
+  // I preventivi non entrano nel totale dell'ordine
+  const total   = rowsTotal(AppState.formModuleRows.filter(r => !AppState.formPrevGroups.includes(modGroup(r))));
   const acconto = parseFloat(AppState.formModuleAcconto) || 0;
   const saldo   = total - acconto;
   for (let g = 0; g < AppState.formModuleCount; g++) {
@@ -1913,7 +2042,7 @@ function updateModuleTotals() {
       .reduce((s,r) => s + (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0), 0).toFixed(2);
   }
   const gt = document.getElementById('mod-grand-total');
-  if (gt) gt.style.display = AppState.formModuleCount > 1 ? 'flex' : 'none';
+  if (gt) gt.style.display = AppState.formModuleCount - AppState.formPrevGroups.length > 1 ? 'flex' : 'none';
   const et = document.getElementById('mod-total-val');
   const es = document.getElementById('mod-saldo-val');
   if (et) et.textContent = '€ ' + total.toFixed(2);
@@ -1928,6 +2057,7 @@ function updateModuleTotals() {
 function addModRow(g = 0) {
   const row = { catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false, interna:'', esterna:'', lavEsterna:false, neutro:false };
   if (g) row.integrazione = g;
+  if (AppState.formPrevGroups.includes(g)) row.preventivo = true;
   AppState.formModuleRows.push(row);
   renderModuleRows();
 }
@@ -1951,7 +2081,7 @@ function orderLavTipi(o) {
   return typeof Pulsanti !== 'undefined' ? Pulsanti._perOrdine(o, 'lavTipi', () => _orderLavTipi(o)) : _orderLavTipi(o);
 }
 function _orderLavTipi(o) {
-  const rows = o?.orderModule?.rows || [];
+  const rows = orderRows(o?.orderModule?.rows);   // i preventivi non si lavorano
   const ids = {
     interne: isLavInterna(o) ? [...orderLavInterne(o), ...rows.map(r => r.interna)] : [],
     esterne: o?.lavorazioneEsterna && !TCFactory.isNeutro(o) ? [...orderLavEsterne(o), ...rows.map(r => r.esterna)] : [],
@@ -2027,6 +2157,7 @@ function storeModInterna(i, value) {
   const r = AppState.formModuleRows[i];
   if (!r) return;
   r.interna = value;
+  if (AppState.formPrevGroups.includes(modGroup(r))) return;   // preventivo: vale solo dopo l'approvazione
   // Una riga interna rende interno l'ordine
   if (value && !AppState.formLavInterna) ofSetLav(false);
   ofAddLavTipo('interne', value);
@@ -2037,6 +2168,7 @@ function storeModEsterna(i, value) {
   if (value === '__legacy') return;
   r.esterna = value;
   r.lavEsterna = !!value;
+  if (AppState.formPrevGroups.includes(modGroup(r))) return;   // preventivo: vale solo dopo l'approvazione
   // Una riga esterna rende esterno l'ordine
   if (value && !AppState.formLavEsterna) ofSetLav(true);
   ofAddLavTipo('esterne', value);
@@ -2156,6 +2288,7 @@ async function submitOrderForm() {
     importo: parseFloat(document.getElementById('of-importo')?.value) || 0,
     orderModule: { rows: AppState.formModuleRows.map(r => {
         const u = { ...r };
+        if (AppState.formPrevGroups.includes(modGroup(u))) { u.preventivo = true; u.ordinato = false; } else delete u.preventivo;
         ['catalogo', 'codice', 'descrizione', 'colore', 'tg'].forEach(k => { if (typeof u[k] === 'string') u[k] = ofUpper(u[k]); });
         return u;
       }), acconto: AppState.formModuleAcconto, interna: !!AppState.formLavInterna && !AppState.formLavNeutro, neutro: !!AppState.formLavNeutro,
