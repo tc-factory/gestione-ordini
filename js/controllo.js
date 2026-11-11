@@ -1733,8 +1733,7 @@ const ctrlStoreBar = (attivo, conta, totale, label, set) => `
 
 function setOrdersStore(id) { ShopLinks.negozio = id; refreshControlPage(); }
 
-const ORD_COLONNE = `<div class="ctrl-thead ctrl-ord" aria-hidden="true"><span>Ordine</span><span>Cliente</span><span>Articoli</span><span class="is-num">Totale</span><span></span></div>`;
-const ORD_ARTICOLI_MAX = 4;
+const ORD_COLONNE = `<div class="ctrl-thead ctrl-ord" aria-hidden="true"><span>Ordine</span><span>Data</span><span>Cliente</span><span>Mail</span><span>Telefono</span><span>Articoli</span><span class="is-num">Totale</span><span></span></div>`;
 
 function ctrlShopOrderRow(o, conNegozio = true) {
   const track = (o.tracking || []).find(t => t.numero || t.url);
@@ -1742,38 +1741,146 @@ function ctrlShopOrderRow(o, conNegozio = true) {
   const pezzi = righe.reduce((n, r) => n + (Number(r.qnt) || 0), 0);
   const articolo = (r) => `<li><b>${r.qnt}×</b> ${escapeHtml(r.titolo)}${r.variante ? ` <span>${escapeHtml(r.variante)}</span>` : ''}</li>`;
   const eta = ctrlGiorniDa(o.creato_at);
-  const pagato = o.stato_pagamento === 'PAID';
+  const pagato = ['PAID', 'PARTIALLY_REFUNDED'].includes(o.stato_pagamento);
   const evasione = o.annullato_at ? ['Annullato', '#94a3b8']
     : o.stato_evasione === 'FULFILLED' ? ['Evaso', '#16a34a']
     : o.stato_evasione && o.stato_evasione !== 'UNFULFILLED' ? [SHOP_EVASIONE[o.stato_evasione] || o.stato_evasione, '#f59e0b'] : null;
+  const tel = o.telefono ? String(o.telefono).replace(/[^\d+]/g, '') : '';
+  const negozio = conNegozio && taskMacro(o.store_id);
   return `
     <article class="ctrl-trow ctrl-ord">
-      <div class="ctrl-cell">
-        <strong class="ctrl-num">${escapeHtml(o.numero)}</strong>
-        ${conNegozio && taskMacro(o.store_id) ? `<small class="ctrl-macro-tag" style="--m:${taskMacro(o.store_id).color};">${ctrlDot(o.store_id)} ${taskMacro(o.store_id).label}</small>` : ''}
-        <small>${ctrlQuandoBreve(o.creato_at)}</small>
-        ${eta.tot >= 2 ? `<small class="ctrl-age">da ${ctrlTestoGiorni(eta)}</small>` : ''}
+      <div class="ctrl-cell ctrl-ord-num">
+        <strong class="ctrl-num">${negozio ? ctrlDot(o.store_id) + ' ' : ''}${escapeHtml(o.numero)}</strong>
+        ${evasione ? `<span class="td-tag" style="--c:${evasione[1]};">${escapeHtml(evasione[0])}</span>` : ''}
       </div>
+      <div class="ctrl-cell"><span class="${eta.lav >= 2 && !evasione ? 'ctrl-age' : ''}" ${eta.tot >= 2 ? `title="Da ${escapeHtml(ctrlTestoGiorni(eta))}"` : ''}>${ctrlQuandoBreve(o.creato_at)}</span></div>
+      <div class="ctrl-cell"><strong class="ctrl-ell">${escapeHtml(o.cliente || 'Cliente senza nome')}</strong></div>
+      <div class="ctrl-cell">${o.email ? `<a class="ctrl-link ctrl-ell" href="mailto:${escapeHtml(o.email)}" title="${escapeHtml(o.email)}">${escapeHtml(o.email)}</a>` : '<small>—</small>'}</div>
+      <div class="ctrl-cell">${tel ? `<a class="ctrl-link" href="tel:${escapeHtml(tel)}">${escapeHtml(o.telefono)}</a>` : '<small>—</small>'}</div>
       <div class="ctrl-cell">
-        <strong>${escapeHtml(o.cliente || 'Cliente senza nome')}</strong>
-        ${o.email ? `<small>${escapeHtml(o.email)}</small>` : ''}
-        ${o.telefono ? `<small>${escapeHtml(o.telefono)}</small>` : ''}
-      </div>
-      <div class="ctrl-cell">
-        ${righe.length ? `<ul class="ctrl-items">${righe.slice(0, ORD_ARTICOLI_MAX).map(articolo).join('')}</ul>
-          ${righe.length > ORD_ARTICOLI_MAX ? `<details class="ctrl-items-more"><summary>Altri ${righe.length - ORD_ARTICOLI_MAX} articoli</summary>
-            <ul class="ctrl-items">${righe.slice(ORD_ARTICOLI_MAX).map(articolo).join('')}</ul></details>` : ''}
-          ${pezzi > 1 ? `<small>${pezzi} pezzi</small>` : ''}` : '<small>Nessun articolo</small>'}
+        ${righe.length ? `<details class="ctrl-art">
+          <summary>${pezzi} ${pezzi === 1 ? 'articolo' : 'articoli'}</summary>
+          <ul class="ctrl-items">${righe.map(articolo).join('')}</ul>
+        </details>` : '<small>—</small>'}
       </div>
       <div class="ctrl-cell is-num">
         <strong>${ctrlSoldi(o.totale, o.valuta)}</strong>
-        ${pagato ? '<small>Pagato</small>' : `<span class="td-tag" style="--c:#dc2626;">${o.stato_pagamento === 'PENDING' ? 'Da pagare' : escapeHtml(SHOP_PAGAMENTO[o.stato_pagamento] || 'Non pagato')}</span>`}
-        ${evasione ? `<span class="td-tag" style="--c:${evasione[1]};">${escapeHtml(evasione[0])}</span>` : ''}
+        ${pagato ? '' : `<span class="td-tag" style="--c:#dc2626;">${o.stato_pagamento === 'PENDING' ? 'Da pagare' : escapeHtml(SHOP_PAGAMENTO[o.stato_pagamento] || 'Non pagato')}</span>`}
       </div>
       <div class="ctrl-cell ctrl-cell-act">
-        ${track?.url ? `<a class="ctrl-btn" href="${escapeHtml(track.url)}" target="_blank" rel="noopener">${Icons.truck(14)} ${escapeHtml(track.corriere || 'Tracking')}</a>` : ''}
+        ${track?.url ? `<a class="ctrl-btn is-icon" href="${escapeHtml(track.url)}" target="_blank" rel="noopener" title="Tracking ${escapeHtml(track.corriere || '')}" aria-label="Tracking">${Icons.truck(14)}</a>` : ''}
+        <button type="button" class="ctrl-btn" onclick="apriDdt('${o.id}')">DDT</button>
       </div>
     </article>`;
+}
+
+// ── DDT: stesso modello del PDF dell'automazione del mattino (automazioni/shopify-mattino/mattino.py) ──
+const DDT_CAMPI_NASCOSTI = ['stampa nome', 'stampe', 'cosa vuoi personalizzare?', 'quante bandiere vuoi stampare?'];
+const DDT_INIZI_NASCOSTI = ['stampa nome (', 'stampa nome alto (', 'stampa nome basso (', 'stampa logo ', 'stampa bandiera (', 'scegli il font', 'image-swatches'];
+const DDT_MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+
+function ddtHtml(o, shop) {
+  const e = escapeHtml;
+  const indirizzo = (a) => !a ? [] : [a.name, a.company, a.address1, a.address2,
+    [a.zip, a.city, a.provinceCode].filter(Boolean).join(' '), a.countryCodeV2 === 'IT' ? 'Italia' : a.country].filter(Boolean);
+  const aggiunta = (l) => l.title === 'Stampa Nome' || (l.customAttributes || []).some(a => a.key.startsWith('_gpo_parent') || a.key.startsWith('_customily-upsell-id'));
+  const spedibili = o.lineItems.nodes.filter(l => l.requiresShipping && !aggiunta(l));
+  const aperte = spedibili.filter(l => l.unfulfilledQuantity > 0);
+  const righe = aperte.length ? aperte : spedibili;   // ordine già evaso: tutte le righe
+  const visibile = (a) => { const k = a.key.trim().toLowerCase(); return !k.startsWith('_') && !DDT_CAMPI_NASCOSTI.includes(k) && !DDT_INIZI_NASCOSTI.some(x => k.startsWith(x)); };
+  const link = (v) => /^https?:\/\//.test(v || '');
+  const d = new Date(o.createdAt);
+  const giorno = Number(d.toLocaleDateString('it-IT', { day: 'numeric', timeZone: 'Europe/Rome' }));
+  const mese = Number(d.toLocaleDateString('it-IT', { month: 'numeric', timeZone: 'Europe/Rome' }));
+  const anno = d.toLocaleDateString('it-IT', { year: 'numeric', timeZone: 'Europe/Rome' });
+  const pagato = ['PAID', 'PARTIALLY_REFUNDED'].includes(o.displayFinancialStatus);
+  const sa = shop.billingAddress || {};
+  const sede = [sa.address1, [sa.zip, sa.city, sa.provinceCode].filter(Boolean).join(' '), sa.countryCodeV2 === 'IT' ? 'Italia' : sa.country].filter(Boolean).join(', ');
+  const riga = (l) => {
+    const attr = (l.customAttributes || []).filter(visibile);
+    return `<tr>
+      <td class="img">${l.image?.url ? `<img src="${e(l.image.url)}" alt="">` : ''}</td>
+      <td><div>${e(l.title)}</div>${l.variantTitle ? `<div>${e(l.variantTitle)}</div>` : ''}
+        ${attr.filter(a => !link(a.value)).map(a => `<div>${e(a.key)}: ${e(a.value)}</div>`).join('')}
+        ${attr.some(a => link(a.value)) ? `<div class="loghi">${attr.filter(a => link(a.value)).map(a => `<a href="${e(a.value)}" target="_blank" rel="noopener"><img src="${e(a.value)}" alt=""><span>${e(a.key.slice(0, 14))}</span></a>`).join('')}</div>` : ''}
+      </td>
+      <td class="q">${aperte.length ? l.unfulfilledQuantity : l.quantity} di ${l.quantity}</td>
+    </tr>`;
+  };
+  return `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>DDT ${e(o.name)}</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #e5e5e5; font: 12.3px/1.5 "Noto Sans", -apple-system, "Helvetica Neue", Arial, sans-serif; color: #000; }
+  .bar { position: sticky; top: 0; display: flex; gap: 8px; justify-content: center; padding: 10px; background: #111; }
+  .bar button { font: 600 13px/1 inherit; padding: 9px 18px; border-radius: 999px; border: 0; cursor: pointer; background: #f5c542; }
+  .bar button + button { background: #fff; }
+  .page { width: 210mm; min-height: 297mm; margin: 20px auto; padding: 22mm 32mm 20mm 29.6mm; background: #fff; }
+  .fascia { background: #cc1a1a; color: #fff; font-weight: 700; font-size: 11.3px; padding: 6px 10px; margin: -16mm 0 6mm; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; }
+  header h1 { margin: 0; font-size: 23px; font-weight: 400; letter-spacing: 0.01em; }
+  header div { text-align: right; }
+  .ind { display: grid; grid-template-columns: 65mm 1fr; margin-top: 9mm; padding-bottom: 3mm; border-bottom: 1.6px solid #000; }
+  h2 { margin: 0 0 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
+  .ind p { margin: 0; }
+  table { width: calc(100% - 4.9mm); margin: 7mm 0 0 2.5mm; border-collapse: collapse; }
+  th { font-size: 10px; font-weight: 700; text-align: left; padding-bottom: 6px; }
+  th:last-child, td.q { text-align: right; white-space: nowrap; }
+  td { vertical-align: middle; padding: 4px 0; }
+  td.img { width: 17mm; } td.img img { width: 12.7mm; height: 12.7mm; object-fit: contain; display: block; }
+  tbody tr:last-child td { padding-bottom: 8px; }
+  tfoot td { border-top: 1.6px solid #000; padding: 0; }
+  .loghi { display: flex; gap: 8px; margin-top: 4px; }
+  .loghi a { display: flex; flex-direction: column; align-items: center; color: #000; text-decoration: none; font-size: 10px; }
+  .loghi img { width: 18mm; height: 15mm; object-fit: contain; }
+  footer { text-align: center; margin-top: 9mm; }
+  footer p { margin: 0; }
+  footer .grazie { margin-bottom: 9mm; }
+  @media print { body { background: #fff; } .bar { display: none; } .page { margin: 0; } }
+</style></head><body>
+<div class="bar"><button onclick="print()">Stampa</button><button onclick="close()">Chiudi</button></div>
+<div class="page">
+  ${pagato ? '' : `<div class="fascia">ORDINE NON PAGATO (${e(String(o.displayFinancialStatus || '').toLowerCase().replace(/_/g, ' '))}): NON SPEDIRE</div>`}
+  <header><h1>${e((shop.name || '').toUpperCase())}</h1><div>Ordine ${e(o.name)}<br>${giorno} ${DDT_MESI[mese - 1]} ${anno}</div></header>
+  <section class="ind">
+    <div><h2>SPEDISCI A</h2>${indirizzo(o.shippingAddress).map(x => `<p>${e(x)}</p>`).join('')}</div>
+    <div><h2>DESTINATARIO FATTURA</h2>${indirizzo(o.billingAddress).map(x => `<p>${e(x)}</p>`).join('')}</div>
+  </section>
+  <table>
+    <thead><tr><th colspan="2">ARTICOLI</th><th>QUANTITÀ</th></tr></thead>
+    <tbody>${righe.map(riga).join('')}</tbody>
+    <tfoot><tr><td colspan="3"></td></tr></tfoot>
+  </table>
+  <footer>
+    <p class="grazie">Grazie per aver acquistato da noi!</p>
+    ${[shop.name, sede, shop.contactEmail, shop.primaryDomain?.host].filter(Boolean).map(x => `<p>${e(x)}</p>`).join('')}
+  </footer>
+</div></body></html>`;
+}
+
+// Elenco articoli: si chiude cliccando altrove, come su Shopify
+document.addEventListener('click', (ev) => {
+  document.querySelectorAll('.ctrl-art[open]').forEach(d => { if (!d.contains(ev.target)) d.open = false; });
+});
+
+async function apriDdt(id) {
+  // La finestra si apre subito, nel clic: dopo l'attesa il browser la bloccherebbe
+  const w = window.open('', '_blank');
+  if (!w) { uiAlert('Il browser ha bloccato la finestra del DDT: consenti i popup per cs.pngs.it.'); return; }
+  w.document.write('<!doctype html><meta charset="utf-8"><title>DDT</title><body style="font:15px -apple-system,sans-serif;display:grid;place-items:center;height:100vh;margin:0;color:#666">Preparo il DDT…</body>');
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('shopify-ddt', { body: { ordine_id: id } });
+    if (error) {
+      const dett = await error.context?.json?.().catch(() => null);
+      throw new Error(dett?.error || error.message || 'DDT non disponibile');
+    }
+    if (!data?.success) throw new Error(data?.error || 'DDT non disponibile');
+    w.document.open();
+    w.document.write(ddtHtml(data.ordine, data.negozio));
+    w.document.close();
+  } catch (e) {
+    w.document.body.textContent = `DDT non disponibile: ${e.message}`;
+  }
 }
 
 function renderControlOrders() {
@@ -1786,7 +1893,7 @@ function renderControlOrders() {
       ${ShopLinks.query ? `<button class="ctrl-btn" type="button" onclick="searchShopifyOrders('')">Azzera</button>` : ''}
     </form>
     ${ShopLinks.query ? `
-    <section class="glass-card page-card ctrl-group">
+    <section class="glass-card page-card ctrl-group ctrl-ord-card">
       <div class="page-card-head"><h2>Ordini trovati</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span>
         <span class="ctrl-group-hint">Per «${escapeHtml(ShopLinks.query)}», in tutti i negozi, anche evasi</span></div>
       ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
@@ -1811,7 +1918,7 @@ function renderOrdersIncoming() {
   const nonPagati = vis.filter(o => o.stato_pagamento !== 'PAID').length;
   const vecchio = vis.reduce((a, o) => !a || o.creato_at < a.creato_at ? o : a, null);
   return `
-    <section class="glass-card page-card ctrl-group">
+    <section class="glass-card page-card ctrl-group ctrl-ord-card">
       ${head(tutti.length)}
       ${ctrlStoreBar(ShopLinks.negozio, conta, tutti.length, 'Tutti', 'setOrdersStore')}
       ${vis.length ? `
