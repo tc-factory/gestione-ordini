@@ -520,6 +520,9 @@ function renderControlAdminTasks() {
     <div class="glass-card stat-card"><div class="stat-card-label">${label}</div>
       <div class="stat-card-value">${value}</div>${sub ? `<div class="ctrl-stat-sub">${sub}</div>` : ''}</div>`;
   const urgenti = aperti.filter(t => t.priorita === 'urgente');
+  // I task assegnati rimasti indietro: arretrati dei giorni prima o scadenza passata
+  const inRitardo = Ctrl.tasks.filter(t => t.assegnato_a && (t.giorno < d
+    || (t.scadenza && TASK_APERTI.includes(t.stato) && new Date(t.scadenza) < new Date())));
   return `
     <div class="stat-grid ctrl-stats">
       ${stat('Task aperti', aperti.length, `${coda.length} da assegnare`)}
@@ -532,7 +535,8 @@ function renderControlAdminTasks() {
       ${stat('Chiusi', chiusi.length, ctrlFmtGiorno(d).toLowerCase())}
     </div>
     ${renderTeamPreview()}
-    ${Ctrl.soloUrgenti ? taskGroupOwner('Task urgenti', urgenti, 'Nessun task urgente.') : renderTaskQueue(coda, 'Nessun task in coda.')}`;
+    ${Ctrl.soloUrgenti ? taskGroupOwner('Task urgenti', urgenti, 'Nessun task urgente.') : renderTaskQueue(coda, 'Nessun task in coda.')}
+    ${Ctrl.soloUrgenti ? '' : taskGroupOwner('In ritardo', inRitardo, '', 'Arretrati dei giorni prima o scadenza passata')}`;
 }
 
 // Anteprima dei task del giorno di ogni persona: i primi in vista, gli altri a richiesta
@@ -779,9 +783,6 @@ async function taskPrendi(id) {
 function renderControlTeam() {
   const d = Ctrl.giorno;
   const people = Ctrl.users;
-  const inRitardo = Ctrl.tasks.filter(t => t.assegnato_a && (t.giorno < d
-    || (t.scadenza && TASK_APERTI.includes(t.stato) && new Date(t.scadenza) < new Date())));
-
   const card = (nick) => {
     const list = Ctrl.tasks.filter(t => t.assegnato_a === nick && t.giorno === d);
     const p = Ctrl.punteggi[nick], p7 = Ctrl.punteggi7[nick];
@@ -815,7 +816,6 @@ function renderControlTeam() {
   return `
     <div class="ctrl-team">${attiviOggi.map(card).join('')}</div>
     ${renderTeamTable(people)}
-    ${taskGroupOwner('In ritardo', inRitardo, '', 'Arretrati dei giorni prima o scadenza passata')}
     ${taskGroupOwner('Tutti i task del giorno', tutti, 'Nessun task assegnato per questo giorno.')}
     <p class="settings-section-hint ctrl-note">Punteggio: 70% minuti standard completati sui minuti assegnati, 20% puntualità, 10% task non riaperti.
       I bloccati non contano, i rimandati contano dal nuovo giorno. Visibile solo agli admin.</p>`;
