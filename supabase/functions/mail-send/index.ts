@@ -16,6 +16,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { inviaRisposta, inviaNuova } from '../_shared/mail.ts';
+import { problemiOrdine } from '../_shared/ordini-dati.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -130,7 +131,7 @@ async function rispondiAMail(db: any, utente: any, nickname: string, mailId: str
 
 // Mail nuova dalla sezione Mail
 // deno-lint-ignore no-explicit-any
-async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string }, testo: string) {
+async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string; richiesta_ordine?: string }, testo: string) {
   const { data: puo } = await utente.rpc('app_vede_scheda', { p_scheda: 'mail' });
   if (puo !== true) return fail('Non hai accesso alle mail', 403);
   const a = (n.a || '').trim().toLowerCase();
@@ -144,9 +145,24 @@ async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: 
   if (!casella) return fail('Scegli la casella da cui inviare');
   try {
     const { copia_in_inviata } = await inviaNuova(db, casella, a, (n.a_nome || '').trim() || null, oggetto, testo, { persona: nickname });
+    // Richiesta dei dati mancanti mandata a mano: la segue ordini-dati (risposta, task, chiusura)
+    if (n.richiesta_ordine) await registraRichiesta(db, n.richiesta_ordine, a, nickname).catch(e => console.error('Richiesta dati', e));
     return reply({ success: true, copia_in_inviata });
   } catch (e) {
     console.error('Mail nuova', e);
     return fail(`Invio non riuscito: ${e instanceof Error ? e.message : e}`, 502);
   }
+}
+
+// deno-lint-ignore no-explicit-any
+async function registraRichiesta(db: any, ordineId: string, a: string, nickname: string) {
+  const { data: o } = await db.from('shopify_orders').select('id, store_id, email, telefono, indirizzo').eq('id', ordineId).maybeSingle();
+  if (!o || String(o.email || '').toLowerCase() !== a) return;
+  const probs = problemiOrdine(o);
+  if (!probs.length) return;
+  // Un sollecito a mano riparte da capo: nuova data, il task già aperto resta
+  await db.from('ordini_richieste_dati').upsert({
+    ordine_id: o.id, store_id: o.store_id, mancanti: probs.map(p => p[1]),
+    inviata_at: new Date().toISOString(), inviata_da: nickname, esito: 'inviata', risolta_at: null,
+  }, { onConflict: 'ordine_id' });
 }

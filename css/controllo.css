@@ -593,6 +593,7 @@ html.dark .is-task .td-tag { color: color-mix(in srgb, var(--c) 45%, #fff); }
 .ctrl-kpi.is-click:hover { border-color: var(--border); }
 .ctrl-kpi.is-click.is-on { border-color: var(--text-primary); background: var(--surface, var(--bg-card, #fff)); }
 .ctrl-kpi.is-click:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.ctrl-auto-modo { margin-top: 10px; align-self: flex-start; }
 .ctrl-kpi-hint { margin: 8px 16px 0; font-size: 0.78rem; color: var(--text-muted); }
 .ctrl-ord .ctrl-cell .td-tag { margin-top: 3px; align-self: flex-start; }
 .ctrl-prob { border: 0; font: inherit; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: filter var(--transition); }
