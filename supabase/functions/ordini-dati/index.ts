@@ -11,6 +11,9 @@
 //      Se manca solo "Via"/"Piazza" la corregge su Shopify (in Automatica), gli altri dubbi li mostra la scheda Shop.
 //      Corregge anche le mail col dominio scritto male (iclou.com → icloud.com), anche su ordini già spediti
 //
+// Con { azione: 'cambia-via', ordine_id, nuova } (un admin dalla scheda Shop): mette su Shopify la via suggerita
+// dalle mappe, rilegge l'ordine da Shopify e risponde con l'indirizzo com'è lì dopo il cambio.
+//
 // Chi la può chiamare: il cron del database (x-sync-key) oppure un admin collegato.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
@@ -18,7 +21,7 @@ import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { inviaNuova } from '../_shared/mail.ts';
 import { API_VERSION, getToken, type Store } from '../_shared/shopify.ts';
 import { MANCA_INDIRIZZO, SHOP_DA_EVADERE, mailCorretta, problemiOrdine, testoRichiesta } from '../_shared/ordini-dati.ts';
-import { verificaIndirizzo } from '../_shared/verifica-indirizzo.ts';
+import { rigaConVia, verificaIndirizzo } from '../_shared/verifica-indirizzo.ts';
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
@@ -183,6 +186,36 @@ async function verificaOrdini(db: SupabaseClient, ordini: Row[], correggi: boole
   return { verificati, corretti, errori };
 }
 
+// ── Via suggerita dalle mappe, messa su Shopify col clic di una persona ──
+async function cambiaVia(db: SupabaseClient, body: Row) {
+  const { data: o } = await db.from('shopify_orders').select('id, shopify_id, store_id, numero, indirizzo').eq('id', body.ordine_id).maybeSingle();
+  if (!o) throw new Error('Ordine non trovato');
+  const { data: v } = await db.from('ordini_verifiche').select('*').eq('ordine_id', o.id).maybeSingle();
+  const via = v?.esito === 'simile' ? v.suggerimento : null;
+  if (!via) throw new Error('Per questo ordine non c\'è una via suggerita');
+  const { store, token } = await negozio(db, o.store_id);
+  const { order } = await shopify(store, token, LEGGI, { id: o.shopify_id });
+  const a = order?.shippingAddress;
+  if (!order || !a) throw new Error('Ordine senza indirizzo su Shopify');
+  if (order.cancelledAt) throw new Error('Ordine annullato');
+  if (order.displayFulfillmentStatus !== 'UNFULFILLED') throw new Error('Ordine già evaso: l\'indirizzo non si cambia più');
+  const nuova = rigaConVia(a.address1, via);
+  // Si scrive solo quello che la persona ha visto e confermato (lei vede anche la riga 2, attaccata dopo una virgola)
+  if (!nuova || ![nuova, [nuova, a.address2].filter(Boolean).join(', ')].includes(body.nuova)) throw new Error(`Su Shopify l'indirizzo è cambiato ("${a.address1}"): ricarica la pagina`);
+  await aggiornaSpedizione(store, token, o, a, { address1: nuova });
+  await shopify(store, token, TAG, { id: o.shopify_id, tags: ['indirizzo-corretto'] }).catch(() => null);
+  // Riletto da Shopify: è quello che vede il corriere
+  const dopo = (await shopify(store, token, LEGGI, { id: o.shopify_id })).order?.shippingAddress;
+  if (dopo?.address1 !== nuova) throw new Error(`Shopify non ha preso il cambio: ora c'è "${dopo?.address1 || ''}"`);
+  const indirizzo = { ...o.indirizzo, via: [dopo.address1, dopo.address2].filter(Boolean).join(', ') };
+  await db.from('shopify_orders').update({ indirizzo }).eq('id', o.id);
+  await db.from('ordini_verifiche').update({ esito: 'corretta', prima: a.address1, dopo: nuova, corretta_at: new Date().toISOString(),
+    impronta: impronta(indirizzo), nota: `Via cambiata a mano: "${a.address1}" → "${nuova}"` }).eq('ordine_id', o.id);
+  await db.from('automazione_esecuzioni').insert({ nome: 'verifica-indirizzi', stato: 'ok', fine: new Date().toISOString(),
+    riepilogo: { cambiati_a_mano: 1 }, output: `${o.numero} (${o.store_id}) · via cambiata su Shopify col clic: "${a.address1}" → "${nuova}"` });
+  return { prima: a.address1, dopo: nuova, indirizzo };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return fail('Metodo non consentito', 405);
@@ -197,6 +230,12 @@ Deno.serve(async (req) => {
     if (!caller?.user) return fail('Accesso richiesto', 401);
     const { data: me } = await db.from('app_users').select('is_admin').eq('auth_id', caller.user.id).maybeSingle();
     if (!me?.is_admin) return fail('Solo gli admin', 403);
+  }
+
+  const body = await req.json().catch(() => ({}));
+  if (body?.azione === 'cambia-via') {
+    try { return reply({ success: true, ...(await cambiaVia(db, body)) }); }
+    catch (e) { return fail(e instanceof Error ? e.message : String(e)); }
   }
 
   const { data: imp } = await db.from('automazioni_impostazioni').select('nome, modo').in('nome', ['richiesta-dati', 'verifica-indirizzi']);

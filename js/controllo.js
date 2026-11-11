@@ -1776,7 +1776,8 @@ function ctrlShopOrderRow(o, conNegozio = true) {
   // Avvisi del riscontro (mappe, mail): arancioni, li valuta una persona; verde = corretto da solo
   const avvisi = !o.annullato_at && SHOP_DA_EVADERE.includes(o.stato_evasione) ? ordAvvisi(o) : [];
   const tagAvviso = (campo) => avvisi.filter(x => x.campo === campo).map(x =>
-    `<span class="td-tag" style="--c:${x.colore};" title="${escapeHtml(x.titolo)}">${escapeHtml(x.testo)}</span>`).join('');
+    x.clic ? `<button type="button" class="td-tag ctrl-prob" style="--c:${x.colore};" onclick="${x.clic}" title="${escapeHtml(x.titolo)}">${escapeHtml(x.testo)}</button>`
+      : `<span class="td-tag" style="--c:${x.colore};" title="${escapeHtml(x.titolo)}">${escapeHtml(x.testo)}</span>`).join('');
   const evasione = o.annullato_at ? ['Annullato', '#94a3b8']
     : o.stato_evasione === 'FULFILLED' ? ['Evaso', '#16a34a']
     : o.stato_evasione && o.stato_evasione !== 'UNFULFILLED' ? [SHOP_EVASIONE[o.stato_evasione] || o.stato_evasione, '#f59e0b'] : null;
@@ -1904,7 +1905,7 @@ function ordAvvisi(o) {
   if (v) {
     if (v.esito === 'corretta' && v.corretta_at) out.push({ campo: 'ind', colore: '#16a34a', testo: 'Via corretta', titolo: `Corretta in automatico su Shopify: "${v.prima}" → "${v.dopo}"`, avviso: false });
     else if (v.esito === 'corretta') out.push({ campo: 'ind', colore: '#d97706', testo: `Forse "${v.dopo}"`, titolo: `${v.nota}. Non corretta su Shopify`, avviso: true });
-    else if (v.esito === 'simile') out.push({ campo: 'ind', colore: '#d97706', testo: `Forse ${v.suggerimento}`, titolo: `${v.nota} (riscontro sulle mappe)`, avviso: true });
+    else if (v.esito === 'simile') out.push({ campo: 'ind', colore: '#d97706', testo: `Forse ${v.suggerimento}`, titolo: `${v.nota} (riscontro sulle mappe). Clic per cambiarla su Shopify`, avviso: true, clic: `ordineCambiaVia('${o.id}')` });
     else if (v.esito === 'ambigua') out.push({ campo: 'ind', colore: '#d97706', testo: 'Via o piazza?', titolo: v.nota, avviso: true });
     else if (v.esito === 'non_trovata') out.push({ campo: 'ind', colore: '#d97706', testo: 'Via non trovata', titolo: `${v.nota} (riscontro sulle mappe: controlla prima di spedire)`, avviso: true });
   }
@@ -1913,6 +1914,42 @@ function ordAvvisi(o) {
   const mc = ShopLinks.mailCorrette.get(o.id);
   if (mc) out.push({ campo: 'mail', colore: '#16a34a', testo: 'Mail corretta', titolo: `Corretta in automatico su Shopify: ${mc.prima} → ${mc.dopo}`, avviso: false });
   return out;
+}
+
+// La riga 1 con la via suggerita (stessa regola di rigaConVia in _shared/verifica-indirizzo.ts)
+function ordRigaConVia(riga1, via) {
+  const parti = String(riga1 || '').split(',').map(p => p.trim());
+  const i = parti.findIndex(p => /[a-z]{3}/i.test(p));
+  if (i < 0 || !String(via || '').trim()) return null;
+  const w = parti[i].split(/\s+/);
+  const coda = [];
+  while (w.length > 1 && /^(\d+\w?(\/\w*)?|n\.?|nr\.?|civ\.?|int\.?|interno|scala|sc\.?|piano|snc|s\.n\.c\.?)$/i.test(w[w.length - 1])) coda.unshift(w.pop());
+  parti[i] = [via.trim(), ...coda].join(' ');
+  const nuova = parti.filter(Boolean).join(', ');
+  return nuova === riga1.trim() ? null : nuova;
+}
+
+// Clic su "Forse Via …": la via suggerita dalle mappe va nell'ordine su Shopify
+async function ordineCambiaVia(id) {
+  const o = ctrlOrdiniVisti.get(id);
+  const v = ShopLinks.verifiche.get(id);
+  if (!o || v?.esito !== 'simile') return;
+  // La riga 1 su Shopify: la via, senza la riga 2 (che in o.indirizzo.via è attaccata dopo una virgola)
+  const riga1 = String(o.indirizzo?.via || '');
+  const nuova = ordRigaConVia(riga1, v.suggerimento);
+  if (!nuova) { uiAlert('Non riesco a costruire il nuovo indirizzo: cambialo a mano su Shopify.'); return; }
+  if (!(await uiConfirm(`Ordine ${o.numero}: cambiare l'indirizzo su Shopify?\n\nPrima: ${riga1}\n\nDopo: ${nuova}`, { title: 'Cambia la via', ok: 'Cambia su Shopify' }))) return;
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('ordini-dati', { body: { azione: 'cambia-via', ordine_id: id, nuova } });
+    if (error) {
+      const dett = await error.context?.json?.().catch(() => null);
+      throw new Error(dett?.error || error.message || 'Cambio non riuscito');
+    }
+    if (!data?.success) throw new Error(data?.error || 'Cambio non riuscito');
+    o.indirizzo = data.indirizzo;
+    showToast(`Indirizzo cambiato su Shopify: ${data.dopo}`);
+    await loadRichiesteDati(true);
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 // Ordini mostrati, per ritrovarli dai clic (mail, storico)

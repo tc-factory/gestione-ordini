@@ -126,6 +126,20 @@ function testoDaCercare(s: string) {
   return w.join(' ');
 }
 
+// La riga 1 con la via giusta al posto di quella scritta, tenendo civico e il resto:
+// "Via valter tobagi,1" + "Via Walter Tobagi" → "Via Walter Tobagi, 1". Stessa regola di ordRigaConVia in js/controllo.js
+export function rigaConVia(riga1: string, via: string): string | null {
+  const parti = String(riga1 || '').split(',').map(p => p.trim());
+  const i = parti.findIndex(p => /[a-z]{3}/i.test(p));
+  if (i < 0 || !String(via || '').trim()) return null;
+  const w = parti[i].split(/\s+/);
+  const coda: string[] = [];
+  while (w.length > 1 && /^(\d+\w?(\/\w*)?|n\.?|nr\.?|civ\.?|int\.?|interno|scala|sc\.?|piano|snc|s\.n\.c\.?)$/i.test(w[w.length - 1])) coda.unshift(w.pop()!);
+  parti[i] = [via.trim(), ...coda].join(' ');
+  const nuova = parti.filter(Boolean).join(', ');
+  return nuova === riga1.trim() ? null : nuova;
+}
+
 async function photon(params: Record<string, string | string[]>, fetchFn: typeof fetch): Promise<Row[]> {
   const u = new URL(PHOTON);
   for (const [k, v] of Object.entries(params)) for (const x of [v].flat()) u.searchParams.append(k, x);
