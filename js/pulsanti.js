@@ -270,7 +270,7 @@ const Pulsanti = {
       case 'non-pagato':         return !o.paymentDone;
       case 'fatturato':          return !!o.invoiceConfirmed;
       case 'importo':            return (parseFloat(o.importo) || 0) > 0;
-      case 'modulo':             return (o.orderModule?.rows?.length || 0) > 0;
+      case 'modulo':             return (o.orderModule?.rows || []).some(r => !r.preventivo);   // i preventivi non contano
       case 'allegati':           return (o.files?.length || 0) > 0;
       case 'cliente':            return !!o.clientId;
       case 'scadenza':           return !!o.deadline;
