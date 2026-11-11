@@ -1948,30 +1948,41 @@ async function ordineScriviMail(id, testo = null) {
   } else setTimeout(() => document.getElementById('mc-oggetto')?.focus(), 60);
 }
 
-// Mail pronta per chiedere i dati che mancano per spedire: telefono, indirizzo, o tutti e due
+// Mail pronta per chiedere i dati che mancano per spedire: telefono, indirizzo, e il dubbio sulla via dalle mappe.
+// Stesso testo di testoRichiesta in _shared/ordini-dati.ts: se ne cambi uno, cambia anche l'altro
 const ORD_MANCA = { 'Manca il numero civico': 'il numero civico', 'Manca il CAP': 'il CAP', 'CAP non valido': 'il CAP corretto',
   'Manca la città': 'la città', 'Manca la provincia': 'la provincia' };
+function ordDubbioVia(v) {
+  if (!v) return null;
+  if (v.esito === 'simile' && v.suggerimento) return `la via non la troviamo sulle mappe: intendevi ${v.suggerimento}?`;
+  if (v.esito === 'ambigua' && v.suggerimento) return `non è chiaro se è ${String(v.suggerimento).split(' / ').join(' o ')}`;
+  if (v.esito === 'non_trovata') return 'la via non la troviamo sulle mappe: puoi controllarla?';
+  return null;
+}
 function ordineRichiediDati(id) {
   const o = ctrlOrdiniVisti.get(id);
   if (!o) return;
   const probs = ordProblemi(o);
-  const tel = probs.some(p => p[0] === 'tel');
+  const tel = probs.find(p => p[0] === 'tel')?.[1];
   const ind = probs.filter(p => p[0] === 'ind').map(p => p[1]);
+  const senza = ind.includes('Manca l\'indirizzo');
+  const dubbio = senza ? null : ordDubbioVia(ShopLinks.verifiche.get(o.id));
   const nome = String(o.indirizzo?.nome || o.cliente || '').trim().split(/\s+/)[0];
   const elenco = (v) => v.length > 1 ? `${v.slice(0, -1).join(', ')} e ${v[v.length - 1]}` : v[0];
-  const righe = [`${nome ? `Ciao ${nome}` : 'Ciao'},`, '', `grazie per il tuo ordine ${o.numero}! Lo stiamo preparando, ma prima di spedirlo ci serve un aiuto.`, ''];
-  if (ind.includes('Manca l\'indirizzo')) righe.push('Nell\'ordine non è arrivato l\'indirizzo di spedizione: ci scrivi via, numero civico, CAP, città e provincia?');
-  else if (ind.length) {
-    righe.push(`Nell'indirizzo di spedizione che ci hai lasciato manca ${elenco(ind.map(t => ORD_MANCA[t] || t.toLowerCase()))}:`, '', ctrlIndirizzo(o.indirizzo), '',
-      'Ci rispondi con l\'indirizzo completo? Così il corriere riesce a consegnare senza intoppi.');
-  }
-  if (tel) {
-    if (ind.length) righe.push('');
-    righe.push(`${ind.length ? 'Ci serve anche' : 'Ci serve'} un numero di telefono: il corriere lo usa per avvisarti della consegna e per contattarti se non ti trova.`);
-  }
-  righe.push('', 'Appena ci rispondi spediamo. Grazie!');
-  const cosa = ind.length && tel ? 'ci servono l\'indirizzo completo e il telefono' : ind.length ? 'ci serve l\'indirizzo completo' : 'ci serve il tuo numero di telefono';
-  ordineScriviMail(id, { oggetto: `Ordine ${o.numero}: ${cosa} per spedire`, corpo: righe.join('\n') });
+  const punti = [];
+  if (senza) punti.push('nell\'ordine non è arrivato l\'indirizzo di spedizione');
+  else if (ind.length) punti.push(`nell'indirizzo manca ${elenco(ind.map(t => ORD_MANCA[t] || t.toLowerCase()))}`);
+  if (dubbio) punti.push(dubbio);
+  if (tel === 'Manca il telefono') punti.push('ci serve un numero di telefono per il corriere');
+  else if (tel) punti.push(`il numero di telefono (${o.telefono}) ${tel === 'Telefono incompleto' ? 'è incompleto' : 'non sembra valido'}`);
+  if (!punti.length) return;
+  const chiedi = [senza ? 'via, numero civico, CAP e città' : ind.length ? 'l\'indirizzo completo' : dubbio ? 'l\'indirizzo giusto' : '',
+    tel ? 'un numero di telefono' : ''].filter(Boolean);
+  const righe = [`${nome ? `Ciao ${nome}` : 'Ciao'},`, '',
+    punti.length > 1 ? `per spedire l'ordine ${o.numero} ci serve un aiuto:\n${punti.map(p => `- ${p}`).join('\n')}` : `per spedire l'ordine ${o.numero} ci serve un aiuto: ${punti[0]}.`];
+  if (!senza && (ind.length || dubbio)) righe.push('', `Indirizzo che ci hai lasciato: ${ctrlIndirizzo(o.indirizzo)}`);
+  righe.push('', `Ci scrivi ${elenco(chiedi)}? Appena ci rispondi spediamo. Grazie!`);
+  ordineScriviMail(id, { oggetto: `Ordine ${o.numero}: ci servono dei dati per spedirlo`, corpo: righe.join('\n') });
 }
 
 // Storico ordini del cliente: stessa email, oppure stesso telefono se l'email manca
