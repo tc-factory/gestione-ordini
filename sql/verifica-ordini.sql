@@ -34,3 +34,17 @@ grant select on ordini_verifiche to authenticated;
 
 -- Parte in Automatica: corregge solo quando manca "Via"/"Piazza" e la via è unica in quel comune
 insert into automazioni_impostazioni (nome, modo) values ('verifica-indirizzi', 'automatica') on conflict (nome) do nothing;
+
+-- ── Mail con il dominio scritto male (2026-11-11): corrette su Shopify, tag mail-corretta ──
+create table if not exists ordini_mail_corrette (
+  ordine_id   uuid primary key references shopify_orders(id) on delete cascade,
+  store_id    text not null,
+  prima       text not null,
+  dopo        text not null,
+  corretta_at timestamptz not null default now()
+);
+alter table ordini_mail_corrette enable row level security;
+drop policy if exists "Staff legge mail corrette" on ordini_mail_corrette;
+create policy "Staff legge mail corrette" on ordini_mail_corrette for select to authenticated using (app_is_staff());
+revoke all on ordini_mail_corrette from anon, authenticated;
+grant select on ordini_mail_corrette to authenticated;

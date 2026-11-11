@@ -25,6 +25,53 @@ export function telefonoNonValido(tel: string, paese?: string | null) {
   return !(/^3\d{8,9}$/.test(naz) || /^0\d{5,10}$/.test(naz));
 }
 
+// ── Mail con il dominio scritto male: "iclou.com", "hotmaili.it", "gmail.con" ──
+// Stesse regole di ordMailCorretta in js/controllo.js. Si corregge solo verso un dominio noto e solo se ce n'è uno:
+//   • finale storpiato di .com/.it (hotmail.con → hotmail.com), se quel dominio è nell'elenco
+//   • nome giusto e finale sbagliato (gmail.it → gmail.com), se quel nome ha un dominio solo nell'elenco
+//   • nome sbagliato di una lettera o due invertite (due per i nomi lunghi) e finale uguale (gmial.com → gmail.com)
+export const DOMINI_MAIL = ['gmail.com', 'googlemail.com', 'hotmail.com', 'hotmail.it', 'hotmail.fr', 'hotmail.es', 'hotmail.de', 'hotmail.co.uk',
+  'outlook.com', 'outlook.it', 'outlook.fr', 'outlook.es', 'live.com', 'live.it', 'live.fr', 'msn.com', 'icloud.com', 'me.com', 'mac.com',
+  'yahoo.com', 'yahoo.it', 'yahoo.fr', 'yahoo.es', 'yahoo.de', 'yahoo.co.uk', 'libero.it', 'alice.it', 'virgilio.it', 'tiscali.it', 'tin.it',
+  'email.it', 'fastwebnet.it', 'inwind.it', 'katamail.com', 'teletu.it', 'poste.it', 'iol.it', 'jumpy.it', 'pec.it', 'legalmail.it', 'postecert.it',
+  'aruba.it', 'gmx.de', 'gmx.com', 'gmx.it', 'web.de', 't-online.de', 'orange.fr', 'free.fr', 'wanadoo.fr', 'aol.com', 'protonmail.com',
+  'proton.me', 'bluewin.ch', 'hispeed.ch', 'sunrise.ch'];
+
+// Lettere diverse, mancanti, in più o scambiate di posto ("gmial" = "gmail" a distanza 1)
+function distanzaTesto(a: string, b: string) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => i ? (j ? 0 : i) : j));
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+  }
+  return d[a.length][b.length];
+}
+const FINE_COM = ['con', 'cmo', 'ocm', 'co', 'comm', 'vom', 'xom', 'cim', 'cpm', 'om', 'cm'];
+const FINE_IT = ['itt', 'ti', 'ir', 'iy', 'ot', 'i', 'tt'];
+
+export function mailCorretta(email: string | null | undefined): string | null {
+  const e = String(email || '').trim().toLowerCase();
+  const pezzi = e.split('@');
+  if (pezzi.length !== 2 || !pezzi[0] || !pezzi[1].includes('.')) return null;
+  const [utente, d] = pezzi;
+  if (DOMINI_MAIL.includes(d) || d.length < 7) return null;
+  const i = d.indexOf('.');
+  const nome = d.slice(0, i), fine = d.slice(i + 1);
+  if (FINE_COM.includes(fine) && DOMINI_MAIL.includes(`${nome}.com`)) return `${utente}@${nome}.com`;
+  if (FINE_IT.includes(fine) && DOMINI_MAIL.includes(`${nome}.it`)) return `${utente}@${nome}.it`;
+  const conNome = DOMINI_MAIL.filter(x => x.slice(0, x.indexOf('.')) === nome);
+  if (conNome.length === 1 && distanzaTesto(fine, conNome[0].slice(conNome[0].indexOf('.') + 1)) <= 3) return `${utente}@${conNome[0]}`;
+  // Il nome è già quello di un servizio noto: non lo si scambia con un altro (gmail.it non è email.it)
+  if (conNome.length) return null;
+  const vicini = DOMINI_MAIL.filter(x => {
+    const xn = x.slice(0, x.indexOf('.'));
+    if (x.slice(x.indexOf('.') + 1) !== fine || xn.length < 4) return false;
+    const k = distanzaTesto(nome, xn);
+    return k > 0 && k <= (xn.length >= 7 ? 2 : 1);
+  });
+  return vicini.length === 1 ? `${utente}@${vicini[0]}` : null;
+}
+
 // [campo, testo]: campo 'tel' o 'ind'
 export function problemiOrdine(o: Row, telefonoNoto = false): [string, string][] {
   const out: [string, string][] = [];
