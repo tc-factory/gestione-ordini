@@ -917,8 +917,39 @@ async function openTaskDetail(id, action = null) {
     const { data } = await supabaseClient.rpc('tc_task_mail', { p_task: id });
     _taskMail = { taskId: id, mail: data?.success ? data.mail : null };
   }
+  if (t?.analisi?.contatto && _taskCollegato?.taskId !== id) {
+    _taskCollegato = { taskId: id, task: await taskCollegatoContatto(t).catch(() => null) };
+  }
   try { renderTaskDetail(id, await Ctrl.storico(id)); }
   catch { renderTaskDetail(id, []); }
+}
+
+// Task di un pacco fermo: il task delle istruzioni a GLS (svincolo) o della mail del cliente
+let _taskCollegato = null;
+async function taskCollegatoContatto(t) {
+  const tracking = t.analisi?.spedizione?.tracking;
+  const email = (t.analisi?.cliente?.email || '').toLowerCase();
+  const dal = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const migliore = (rows) => (rows || []).filter(x => x.id !== t.id)
+    .sort((a, b) => (TASK_APERTI.includes(b.stato) - TASK_APERTI.includes(a.stato)) || String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
+  if (tracking) {
+    const { data } = await supabaseClient.from('tasks').select('*').eq('analisi->svincolo->>tracking', tracking).gte('created_at', dal);
+    const sv = migliore(data);
+    if (sv) return { ...sv, _tipo: 'svincolo' };
+  }
+  if (!email) return null;
+  const { data: mail } = await supabaseClient.from('mail_messaggi').select('id').eq('direzione', 'in').ilike('da_email', email).gte('ricevuto_at', dal);
+  if (!mail?.length) return null;
+  const { data } = await supabaseClient.from('tasks').select('*').in('mail_id', mail.map(m => m.id));
+  const m = migliore(data);
+  return m ? { ...m, _tipo: 'mail' } : null;
+}
+
+function apriTaskCollegato() {
+  const c = _taskCollegato?.task;
+  if (!c) return;
+  if (!Ctrl.get(c.id)) { const { _tipo, ...row } = c; Ctrl.tasks.push(row); }
+  openTaskDetail(c.id);
 }
 
 // Mail d'origine e risposta, divise per colonna del dettaglio
@@ -1030,7 +1061,8 @@ function renderTaskContatto(t) {
   const c = t.analisi?.contatto;
   if (!c) return '';
   const g = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : '';
-  const tel = c.telefono ? `<a class="ctrl-btn is-primary td-call" href="tel:${escapeHtml(c.telefono)}">${Icons.phone ? Icons.phone(14) : ''} Chiama ${escapeHtml(c.telefono)}</a>` : `<span class="td-small">Nell'ordine non c'è il telefono.</span>`;
+  const ct = _taskCollegato?.taskId === t.id ? _taskCollegato.task : null;
+  const tel = c.telefono ? `<a class="ctrl-btn ${ct ? '' : 'is-primary'} td-call" href="tel:${escapeHtml(c.telefono)}">${Icons.phone ? Icons.phone(14) : ''} Chiama ${escapeHtml(c.telefono)}</a>` : `<span class="td-small">Nell'ordine non c'è il telefono.</span>`;
   const testo = {
     chiamare: `<strong>Da chiamare.</strong> ${c.mail_n} ${c.mail_n === 1 ? 'mail inviata' : 'mail inviate'}, l'ultima il ${g(c.ultima_mail_at)}: nessuna risposta.`,
     in_attesa: `<strong>Mail inviata il ${g(c.ultima_mail_at)}</strong>, in attesa di risposta. Se non risponde entro un giorno lavorativo diventa da chiamare.`,
@@ -1038,10 +1070,11 @@ function renderTaskContatto(t) {
     da_contattare: `<strong>Non ancora contattato.</strong> Nessuna mail inviata al cliente per questa spedizione.`,
     senza_email: `<strong>Nell'ordine non c'è l'email:</strong> va chiamato.`,
   }[c.stato] || '';
+  const col = ct ? `<button type="button" class="ctrl-btn is-primary" onclick="apriTaskCollegato()">${ct._tipo === 'svincolo' ? `${Icons.truck(14)} Vai alle istruzioni GLS` : 'Vai alla mail del cliente'}</button>` : '';
   return `
     <section class="td-box td-contatto is-${escapeHtml(c.stato)}">
       <p class="td-todo">${testo}</p>
-      ${['chiamare', 'senza_email'].includes(c.stato) || c.telefono ? `<div class="td-contacts">${tel}</div>` : ''}
+      ${['chiamare', 'senza_email'].includes(c.stato) || c.telefono || col ? `<div class="td-contacts">${col}${['chiamare', 'senza_email'].includes(c.stato) || c.telefono ? tel : ''}</div>` : ''}
     </section>`;
 }
 
