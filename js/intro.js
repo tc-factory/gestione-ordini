@@ -82,7 +82,12 @@ const Intro = {
       <div class="cs-intro-brand" role="img" aria-label="Creative System">
         <span class="fill"></span><span class="sheen"></span>
       </div>
-      <div class="cs-intro-skip">${ss ? 'Tocca lo schermo o premi un tasto' : 'Tocca per saltare'}</div>`;
+      <div class="cs-intro-skip">${!ss ? 'Tocca per saltare'
+        : window.matchMedia?.('(pointer: coarse)').matches ? 'Tocca per accelerare · tieni premuto e trascina · ✕ per uscire'
+        : 'Clic per accelerare · tieni premuto e trascina · un tasto per uscire'}</div>
+      ${ss ? `<button type="button" class="cs-intro-x" aria-label="Chiudi il salvaschermo">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>` : ''}`;
     new Image().src = 'img/brand/cs-testo-bianco.png'; // la maschera della scritta deve essere pronta al botto
     const net = root.querySelector('.cs-intro-net'), fx = root.querySelector('.cs-intro-fx');
     const ctx = net.getContext('2d'), fxc = fx.getContext('2d');
@@ -160,8 +165,10 @@ const Intro = {
     const backOut = (t) => { t = Math.min(1, Math.max(0, t)); const c = 2.2; return 1 + (c + 1) * (t - 1) ** 3 + c * (t - 1) ** 2; };
 
     // ── Esplosione ──
-    let boomed = false;
-    const sparks = [];
+    let boomed = false, boomAt = ss ? 0 : T_BOOM, bornT = 0;
+    const sparks = [], ripples = [];
+    // salvaschermo: carica dai clic, trascinamento a mano, spinta al rilascio
+    let charge = 0, lastClick = -9, dragging = false, fling = 0, tiltOff = 0;
     const boom = (pn) => {
       boomed = true;
       const COL = ['#FFD35C', '#FFE38F', '#FFFFFF', '#5B86E5', '#A078F0', '#5AE1F0'];
@@ -187,15 +194,17 @@ const Intro = {
 
       // velocità angolare: lenta, poi cresce in modo esponenziale fino all'esplosione
       if (!tags.length && (ss || t >= 0.28 || self._nomi)) buildTags(ss ? 0.4 : t);
-      // salvaschermo: velocità costante, inclinazione che ondeggia piano, battito ogni tanto
-      const acc = ss ? 0 : Math.max(0, (t - 0.5) / (T_BOOM - 0.5));
-      const omega = ss ? 0.3 : 0.55 + 30 * acc ** 3.2;
+      // salvaschermo: velocità base costante + carica dei clic (che si scarica piano) + spinta del trascinamento
+      if (ss && !boomAt && t - lastClick > 1.2) charge = Math.max(0, charge - dt * 0.08);
+      if (ss && !dragging) { fling *= Math.exp(-dt * 1.4); tiltOff *= Math.exp(-dt * 0.4); }
+      const acc = ss ? (boomed ? 0 : charge) : Math.max(0, (t - 0.5) / (T_BOOM - 0.5));
+      const omega = ss ? (dragging ? 0 : 0.3 + 30 * charge ** 2.6 + fling) : 0.55 + 30 * acc ** 3.2;
       theta += omega * dt;
-      const tilt = ss ? 0.36 + Math.sin(t * 0.21) * 0.2 : 0.38 + Math.sin(t * 0.9) * 0.08;
+      const tilt = (ss ? 0.36 + Math.sin(t * 0.21) * 0.2 : 0.38 + Math.sin(t * 0.9) * 0.08) + tiltOff;
       const beat = ss ? Math.max(0, Math.sin(t * 0.8)) ** 12 : 0;
       // compressione prima del botto
-      const squeeze = !ss && t < T_BOOM ? 1 - 0.28 * ease((t - (T_BOOM - 0.38)) / 0.38) : 1;
-      const appear = backOut(t / 0.75);
+      const squeeze = boomAt && !boomed ? 1 - 0.28 * ease((t - (boomAt - 0.38)) / 0.38) : 1;
+      const appear = backOut((t - bornT) / 0.75);
       const rad = R * appear * squeeze * (1 + (ss ? 0.03 * Math.sin(t * 0.8) + 0.04 * beat : 0.04 * Math.sin(t * 6) * (1 - acc)));
 
       // scia: con l'accelerazione la tela si cancella solo in parte
@@ -286,22 +295,22 @@ const Intro = {
         } else {
           // via con lo scoppio
           g.px += g.vx * dt; g.py += g.vy * dt; g.vx *= 0.96; g.vy *= 0.96;
-          const k = Math.min(1, (t - T_BOOM) / 0.55);
+          const k = Math.min(1, (t - boomAt) / 0.55);
           x = g.px; y = g.py; s = 1 + k * 0.8; op = 1 - k; z = -1;
           g.el.style.zIndex = 7;
         }
-        const blur = boomed ? 0 : Math.max(0, (omega - 6) / 5);
+        const blur = boomed ? 0 : Math.max(0, (Math.abs(omega) - 6) / 5);
         g.el.style.opacity = op.toFixed(3);
-        g.el.style.transform = `translate3d(${(x - g.w / 2).toFixed(1)}px,${(y - g.h / 2).toFixed(1)}px,0) scale(${s.toFixed(3)}) rotate(${boomed ? g.rot * (t - T_BOOM) : 0}deg)`;
+        g.el.style.transform = `translate3d(${(x - g.w / 2).toFixed(1)}px,${(y - g.h / 2).toFixed(1)}px,0) scale(${s.toFixed(3)}) rotate(${boomed ? g.rot * (t - boomAt) : 0}deg)`;
         g.el.style.filter = blur > 0.3 ? `blur(${Math.min(4, blur).toFixed(1)}px)` : '';
       });
 
-      if (!ss && !boomed && t >= T_BOOM) boom(pn);
+      if (!boomed && boomAt && t >= boomAt) boom(pn);
 
       // effetti: lampo, onda d'urto, scintille
       fxc.clearRect(0, 0, W, H);
       if (boomed) {
-        const k = t - T_BOOM;
+        const k = t - boomAt;
         if (k < 0.6) {
           const a = 1 - k / 0.6;
           const g = fxc.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * (0.3 + k));
@@ -332,12 +341,27 @@ const Intro = {
         // scossa
         const sh = k < 0.3 ? (1 - k / 0.3) * 9 : 0;
         net.style.transform = sh ? `translate(${(Math.random() - 0.5) * sh}px,${(Math.random() - 0.5) * sh}px)` : '';
-        // scritta: entra dal bagliore
+        // scritta: entra dal bagliore (nel salvaschermo resta piccola in basso)
+        if (!ss) {
         const b = Math.min(1, Math.max(0, (k - 0.08) / 0.75));
         const via = closeT ? ease((t - closeT) / 0.4) : 0;   // all'uscita la scritta vola verso chi guarda
         brand.style.opacity = (Math.min(1, b * 1.6) * (1 - via)).toFixed(3);
         brand.style.filter = `blur(${(18 * (1 - ease(b))).toFixed(1)}px) drop-shadow(0 0 ${(28 - 14 * ease(b)).toFixed(1)}px rgba(255,211,92,${(0.55 * Math.min(1, b * 2)).toFixed(2)}))`;
         brand.style.transform = `translate(-50%,-50%) scale(${((0.55 + 0.45 * backOut(b) + k * 0.03) * (1 + via * 0.7)).toFixed(4)})`;
+        }
+        // salvaschermo: dopo lo scoppio la rete si ricompone
+        if (ss && k > 1.4) {
+          boomed = false; boomAt = 0; charge = 0; fling = 0; sparks.length = 0; bornT = t;
+          net.style.transform = '';
+          tags.forEach((g, i) => { g.born = t + 0.35 + i * (1.2 / tags.length); g.el.style.opacity = '0'; g.el.style.filter = ''; });
+        }
+      }
+      // onde dei clic
+      for (let i = ripples.length - 1; i >= 0; i--) {
+        const r = ripples[i], k = (t - r.t) / 0.6;
+        if (k >= 1) { ripples.splice(i, 1); continue; }
+        fxc.strokeStyle = `rgba(255,211,92,${(1 - k) * 0.8})`; fxc.lineWidth = 2.5 * (1 - k) + 0.5;
+        fxc.beginPath(); fxc.arc(r.x, r.y, 10 + ease(k) * 60, 0, 6.283); fxc.stroke();
       }
 
       if (!ss && t >= T_CLOSE) close(false);
@@ -359,23 +383,58 @@ const Intro = {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       window.removeEventListener('keydown', onKey, true);
-      window.removeEventListener('pointermove', onMove, true);
+      clearTimeout(holdTimer);
       root.remove();
       onEnd?.();
     };
-    // Intro: solo Esc/Invio/Spazio. Salvaschermo: qualsiasi tasto, tocco o movimento del mouse.
+    // Intro: clic o Esc/Invio/Spazio la saltano. Salvaschermo: qualsiasi tasto o la ✕ chiudono;
+    // clic = accelera fino allo scoppio, tieni premuto = si ferma e si gira a mano.
     const onKey = (e) => {
       if (ss || ['Escape', 'Enter', ' '].includes(e.key)) { e.preventDefault(); e.stopPropagation(); close(true); }
     };
-    let mossa0 = null;
-    const onMove = (e) => {
-      if (!ss || performance.now() - t0 < 600) return;
-      if (!mossa0) { mossa0 = [e.clientX, e.clientY]; return; }
-      if (Math.hypot(e.clientX - mossa0[0], e.clientY - mossa0[1]) > 12) close(true);
+    const adesso = () => (performance.now() - t0) / 1000;
+    let press = null, holdTimer = 0;
+    const startDrag = () => { dragging = true; fling = 0; root.classList.add('drag'); };
+    const clic = (x, y) => {
+      ripples.push({ x, y, t: adesso() });
+      if (boomAt) return;                       // sta già per scoppiare o è scoppiata
+      charge = Math.min(1, charge + 0.15); lastClick = adesso();
+      if (charge >= 1) boomAt = adesso() + 0.38;
     };
-    root.addEventListener('pointerdown', (e) => { e.preventDefault(); close(true); });
+    const onDown = (e) => {
+      if (e.target.closest('.cs-intro-x')) return;
+      e.preventDefault();
+      if (!ss) { close(true); return; }
+      press = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, lt: performance.now(), v: 0 };
+      root.setPointerCapture?.(e.pointerId);
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => { if (press && !dragging) startDrag(); }, 220);
+    };
+    const onMove = (e) => {
+      if (!press) return;
+      if (!dragging && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) startDrag();
+      if (!dragging) return;
+      const now = performance.now(), dx = e.clientX - press.lx, dy = e.clientY - press.ly, ms = Math.max(8, now - press.lt);
+      theta += dx * 0.009;
+      tiltOff = Math.max(-1.1, Math.min(1.1, tiltOff + dy * 0.006));
+      press.v = press.v * 0.5 + (dx * 0.009 / (ms / 1000)) * 0.5;   // velocità per la spinta al rilascio
+      press.lx = e.clientX; press.ly = e.clientY; press.lt = now;
+    };
+    const onUp = (e) => {
+      if (!press) return;
+      clearTimeout(holdTimer);
+      if (dragging) {
+        dragging = false; root.classList.remove('drag');
+        fling = performance.now() - press.lt < 90 ? Math.max(-22, Math.min(22, press.v)) : 0;
+      } else if (e.type === 'pointerup') clic(e.clientX, e.clientY);
+      press = null;
+    };
+    root.addEventListener('pointerdown', onDown);
+    root.addEventListener('pointermove', onMove);
+    root.addEventListener('pointerup', onUp);
+    root.addEventListener('pointercancel', onUp);
+    root.querySelector('.cs-intro-x')?.addEventListener('click', (e) => { e.stopPropagation(); close(true); });
     window.addEventListener('keydown', onKey, true);
-    window.addEventListener('pointermove', onMove, true);
 
     raf = requestAnimationFrame((n) => { t0 = last = n; frame(n); });
     return () => close(true);

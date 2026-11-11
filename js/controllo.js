@@ -1566,6 +1566,7 @@ const ShopLinks = {
   vista: 'tutti',    // box scelta sopra gli ordini: tutti, oggi, nonpagati, problemi
   richieste: new Map(),   // richieste dei dati mancanti aperte, per ordine
   verifiche: new Map(),   // riscontro degli indirizzi sulle mappe (ordini_verifiche), per ordine
+  mailCorrette: new Map(),// mail col dominio sbagliato corrette su Shopify, per ordine
   negozioGls: null,  // filtro delle spedizioni GLS (null = tutti)
   error: null,
   syncing: new Set(),
@@ -1581,14 +1582,16 @@ const SHOP_ORDINE_CAMPI = 'id, store_id, numero, creato_at, annullato_at, client
 
 // Richieste dei dati mancanti ancora aperte (ordini-dati, o mandate a mano): ordine → richiesta
 async function loadRichiesteDati(render = true) {
-  const [{ data, error }, ver] = await Promise.all([
+  const [{ data, error }, ver, mailc] = await Promise.all([
     supabaseClient.from('ordini_richieste_dati').select('ordine_id, inviata_at, inviata_da, esito, task_id').is('risolta_at', null),
     // Solo gli esiti da mostrare; gli ordini spediti non contano
     supabaseClient.from('ordini_verifiche').select('ordine_id, esito, nota, suggerimento, prima, dopo, corretta_at')
       .in('esito', ['corretta', 'simile', 'ambigua', 'non_trovata']).gte('verificata_at', new Date(Date.now() - 30 * 86400e3).toISOString()),
+    supabaseClient.from('ordini_mail_corrette').select('ordine_id, prima, dopo').gte('corretta_at', new Date(Date.now() - 30 * 86400e3).toISOString()),
   ]);
   ShopLinks.richieste = new Map(error ? [] : (data || []).map(r => [r.ordine_id, r]));
   ShopLinks.verifiche = new Map(ver.error ? [] : (ver.data || []).map(r => [r.ordine_id, r]));
+  ShopLinks.mailCorrette = new Map(mailc.error ? [] : (mailc.data || []).map(r => [r.ordine_id, r]));
   if (render) refreshControlPage();
 }
 
@@ -1850,26 +1853,48 @@ function ordTelefonoNonValido(tel, paese) {
   return !(/^3\d{8,9}$/.test(naz) || /^0\d{5,10}$/.test(naz));
 }
 
-// Mail con il dominio scritto male: "gmial.com", "hotmail.it" va bene, "libero.ir" no
-const ORD_DOMINI = ['gmail.com', 'hotmail.com', 'hotmail.it', 'libero.it', 'yahoo.it', 'yahoo.com', 'icloud.com', 'outlook.it', 'outlook.com',
-  'live.it', 'live.com', 'alice.it', 'virgilio.it', 'tiscali.it', 'tin.it', 'msn.com', 'me.com', 'email.it', 'fastwebnet.it', 'pec.it', 'aruba.it', 'inwind.it', 'katamail.com'];
-function ordMailSospetta(email) {
-  const d = String(email || '').toLowerCase().split('@')[1];
-  if (!d) return null;
-  if (ORD_DOMINI.includes(d)) return null;
-  if (/\.(con|cmo|ocm|co|comm|itt|ir|tt)$/.test(d) && !/\.co\.\w+$/.test(d)) {
-    const giusto = ORD_DOMINI.find(x => x.split('.')[0] === d.split('.')[0]);
-    if (giusto || /\.(con|cmo|ocm|comm|itt)$/.test(d)) return giusto || d.replace(/\.\w+$/, '.com');
+// Mail con il dominio scritto male (stesse regole di mailCorretta in _shared/ordini-dati.ts: se ne cambi una, cambia anche l'altra).
+// In Automatica le corregge ordini-dati su Shopify; qui si vedono le altre e quelle non ancora corrette
+const ORD_DOMINI_MAIL = ['gmail.com', 'googlemail.com', 'hotmail.com', 'hotmail.it', 'hotmail.fr', 'hotmail.es', 'hotmail.de', 'hotmail.co.uk',
+  'outlook.com', 'outlook.it', 'outlook.fr', 'outlook.es', 'live.com', 'live.it', 'live.fr', 'msn.com', 'icloud.com', 'me.com', 'mac.com',
+  'yahoo.com', 'yahoo.it', 'yahoo.fr', 'yahoo.es', 'yahoo.de', 'yahoo.co.uk', 'libero.it', 'alice.it', 'virgilio.it', 'tiscali.it', 'tin.it',
+  'email.it', 'fastwebnet.it', 'inwind.it', 'katamail.com', 'teletu.it', 'poste.it', 'iol.it', 'jumpy.it', 'pec.it', 'legalmail.it', 'postecert.it',
+  'aruba.it', 'gmx.de', 'gmx.com', 'gmx.it', 'web.de', 't-online.de', 'orange.fr', 'free.fr', 'wanadoo.fr', 'aol.com', 'protonmail.com',
+  'proton.me', 'bluewin.ch', 'hispeed.ch', 'sunrise.ch'];
+
+// Lettere diverse, mancanti, in più o scambiate di posto ("gmial" = "gmail" a distanza 1)
+function ordDistanza(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => i ? (j ? 0 : i) : j));
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
   }
-  // Una o due lettere di differenza da un dominio comune
-  const dist = (a, b) => {
-    const r = Array.from({ length: b.length + 1 }, (_, i) => i);
-    for (let i = 1; i <= a.length; i++) { let p = r[0]; r[0] = i; for (let j = 1; j <= b.length; j++) { const t = r[j]; r[j] = Math.min(r[j] + 1, r[j - 1] + 1, p + (a[i - 1] === b[j - 1] ? 0 : 1)); p = t; } }
-    return r[b.length];
-  };
-  // I domini corti si somigliano tutti (tim.it, tin.it): niente confronto
-  if (d.length < 7) return null;
-  return ORD_DOMINI.find(x => { const k = dist(d, x); return k > 0 && k <= (x.length > 8 ? 2 : 1); }) || null;
+  return d[a.length][b.length];
+}
+const ORD_FINE_COM = ['con', 'cmo', 'ocm', 'co', 'comm', 'vom', 'xom', 'cim', 'cpm', 'om', 'cm'];
+const ORD_FINE_IT = ['itt', 'ti', 'ir', 'iy', 'ot', 'i', 'tt'];
+
+function ordMailCorretta(email) {
+  const e = String(email || '').trim().toLowerCase();
+  const pezzi = e.split('@');
+  if (pezzi.length !== 2 || !pezzi[0] || !pezzi[1].includes('.')) return null;
+  const [utente, d] = pezzi;
+  if (ORD_DOMINI_MAIL.includes(d) || d.length < 7) return null;
+  const i = d.indexOf('.');
+  const nome = d.slice(0, i), fine = d.slice(i + 1);
+  if (ORD_FINE_COM.includes(fine) && ORD_DOMINI_MAIL.includes(`${nome}.com`)) return `${utente}@${nome}.com`;
+  if (ORD_FINE_IT.includes(fine) && ORD_DOMINI_MAIL.includes(`${nome}.it`)) return `${utente}@${nome}.it`;
+  const conNome = ORD_DOMINI_MAIL.filter(x => x.slice(0, x.indexOf('.')) === nome);
+  if (conNome.length === 1 && ordDistanza(fine, conNome[0].slice(conNome[0].indexOf('.') + 1)) <= 3) return `${utente}@${conNome[0]}`;
+  // Il nome è già quello di un servizio noto: non lo si scambia con un altro (gmail.it non è email.it)
+  if (conNome.length) return null;
+  const vicini = ORD_DOMINI_MAIL.filter(x => {
+    const xn = x.slice(0, x.indexOf('.'));
+    if (x.slice(x.indexOf('.') + 1) !== fine || xn.length < 4) return false;
+    const k = ordDistanza(nome, xn);
+    return k > 0 && k <= (xn.length >= 7 ? 2 : 1);
+  });
+  return vicini.length === 1 ? `${utente}@${vicini[0]}` : null;
 }
 
 // Avvisi da far valutare a una persona: indirizzo riscontrato sulle mappe, mail forse sbagliata
@@ -1883,8 +1908,10 @@ function ordAvvisi(o) {
     else if (v.esito === 'ambigua') out.push({ campo: 'ind', colore: '#d97706', testo: 'Via o piazza?', titolo: v.nota, avviso: true });
     else if (v.esito === 'non_trovata') out.push({ campo: 'ind', colore: '#d97706', testo: 'Via non trovata', titolo: `${v.nota} (riscontro sulle mappe: controlla prima di spedire)`, avviso: true });
   }
-  const m = ordMailSospetta(o.email);
-  if (m) out.push({ campo: 'mail', colore: '#d97706', testo: `Forse @${m}`, titolo: `La mail ${o.email} sembra scritta male: forse @${m}`, avviso: true });
+  const m = ordMailCorretta(o.email);
+  if (m) out.push({ campo: 'mail', colore: '#d97706', testo: `Forse ${m.split('@')[1]}`, titolo: `La mail ${o.email} sembra scritta male: forse ${m}`, avviso: true });
+  const mc = ShopLinks.mailCorrette.get(o.id);
+  if (mc) out.push({ campo: 'mail', colore: '#16a34a', testo: 'Mail corretta', titolo: `Corretta in automatico su Shopify: ${mc.prima} → ${mc.dopo}`, avviso: false });
   return out;
 }
 
@@ -2700,7 +2727,7 @@ const AUTOMAZIONI = {
   'richiesta-dati': { nome: 'Richiesta dei dati mancanti', quando: 'Ogni 5 minuti; mail dalle 8 alle 21', modo: true },
   'verifica-indirizzi': { nome: 'Riscontro degli indirizzi', quando: 'Ogni 5 minuti, sugli ordini nuovi', modo: true, modi: [
     ['prova', 'Prova', 'Segnala soltanto, nella scheda Shop: non cambia niente su Shopify'],
-    ['automatica', 'Automatica', 'Se manca solo "Via" o "Piazza" e la via è unica nel comune, la aggiunge su Shopify; il resto lo segnala'],
+    ['automatica', 'Automatica', 'Se manca solo "Via" o "Piazza" e la via è unica nel comune la aggiunge su Shopify, e corregge le mail col dominio scritto male; il resto lo segnala'],
     ['spenta', 'Spenta', 'Nessun riscontro']] },
 };
 const AUTOMAZIONE_MODI = [['prova', 'Prova', 'La mail la manda una persona, col clic sull\'etichetta rossa nella scheda Shop'],
@@ -2773,6 +2800,7 @@ function renderControlAutomations() {
       x.mail != null ? (x.mail === 1 ? '1 mail inviata' : `${x.mail} mail inviate`) : '',
       x.verificati != null ? `${x.verificati} ${x.verificati === 1 ? 'ordine verificato' : 'ordini verificati'}` : '',
       x.corretti ? `${x.corretti} ${x.corretti === 1 ? 'indirizzo corretto' : 'indirizzi corretti'}` : '',
+      x.mail_corrette ? `${x.mail_corrette} ${x.mail_corrette === 1 ? 'mail corretta' : 'mail corrette'}` : '',
       x.errori ? (x.errori === 1 ? '1 errore' : `${x.errori} errori`) : '',
       x.cancellate != null ? (x.cancellate === 1 ? '1 cartella cancellata' : `${x.cancellate} cartelle cancellate`) : '',
       x.motivo ? escapeHtml(x.motivo) : '',

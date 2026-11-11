@@ -8,7 +8,8 @@
 //   3. dati arrivati nell'ordine, o ordine spedito o annullato: la richiesta si chiude, e il suo task
 //   4. un giorno lavorativo dopo la mail senza risposta: task per chiamare il cliente
 //   5. riscontro degli ordini nuovi sulle mappe (sql/verifica-ordini.sql): la via esiste in quel comune?
-//      Se manca solo "Via"/"Piazza" la corregge su Shopify (in Automatica), gli altri dubbi li mostra la scheda Shop
+//      Se manca solo "Via"/"Piazza" la corregge su Shopify (in Automatica), gli altri dubbi li mostra la scheda Shop.
+//      Corregge anche le mail col dominio scritto male (iclou.com → icloud.com), anche su ordini già spediti
 //
 // Chi la può chiamare: il cron del database (x-sync-key) oppure un admin collegato.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
@@ -16,7 +17,7 @@
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { inviaNuova } from '../_shared/mail.ts';
 import { API_VERSION, getToken, type Store } from '../_shared/shopify.ts';
-import { MANCA_INDIRIZZO, SHOP_DA_EVADERE, problemiOrdine, testoRichiesta } from '../_shared/ordini-dati.ts';
+import { MANCA_INDIRIZZO, SHOP_DA_EVADERE, mailCorretta, problemiOrdine, testoRichiesta } from '../_shared/ordini-dati.ts';
 import { verificaIndirizzo } from '../_shared/verifica-indirizzo.ts';
 
 // deno-lint-ignore no-explicit-any
@@ -28,6 +29,7 @@ const MAX_INVII = 20;              // per giro: un errore nelle regole non scriv
 const VERIFICA_GIORNI = 14;        // ordini da riscontrare: quelli recenti
 const VERIFICA_MAX = 10;           // per giro: le mappe vogliono una domanda al secondo
 const VERIFICA_SECONDI = 60;
+const MAIL_GIORNI = 45;           // mail sbagliate: anche ordini spediti, servono per tracking e resi
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -94,6 +96,31 @@ async function scriviTelefono(db: SupabaseClient, o: Row, telefono: string) {
   await aggiornaSpedizione(store, token, o, a, { phone: telefono });
   await db.from('shopify_orders').update({ telefono }).eq('id', o.id);
   return true;
+}
+
+// ── Mail scritta male: corretta nell'ordine su Shopify ──
+async function correggiMail(db: SupabaseClient, registro: string[]) {
+  const da = new Date(Date.now() - MAIL_GIORNI * 86_400_000).toISOString();
+  const { data } = await db.from('shopify_orders').select('id, shopify_id, store_id, numero, email')
+    .is('annullato_at', null).gte('creato_at', da).not('email', 'is', null).limit(5000);
+  const daFare = (data || []).map((o: Row) => ({ o, dopo: mailCorretta(o.email) })).filter(x => x.dopo);
+  let corrette = 0, errori = 0;
+  for (const { o, dopo } of daFare.slice(0, 10)) {
+    try {
+      const { store, token } = await negozio(db, o.store_id);
+      const { orderUpdate } = await shopify(store, token, AGGIORNA, { input: { id: o.shopify_id, email: dopo } });
+      if (orderUpdate.userErrors?.length) throw new Error(orderUpdate.userErrors.map((e: Row) => e.message).join('; ').slice(0, 300));
+      await shopify(store, token, TAG, { id: o.shopify_id, tags: ['mail-corretta'] }).catch(() => null);
+      await db.from('shopify_orders').update({ email: dopo }).eq('id', o.id);
+      await db.from('ordini_mail_corrette').upsert({ ordine_id: o.id, store_id: o.store_id, prima: o.email, dopo }, { onConflict: 'ordine_id' });
+      corrette++;
+      registro.push(`${o.numero} (${o.store_id}) · mail corretta su Shopify: ${o.email} → ${dopo}`);
+    } catch (e) {
+      errori++;
+      registro.push(`${o.numero} (${o.store_id}) · mail non corretta su Shopify: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  return { corrette, errori };
 }
 
 // ── Riscontro dell'indirizzo sulle mappe ──
@@ -192,10 +219,11 @@ Deno.serve(async (req) => {
   if (modoVerifica !== 'spenta') {
     const regVerifica: string[] = [];
     const v = await verificaOrdini(db, (ordini || []) as Row[], modoVerifica === 'automatica', regVerifica);
+    const m = modoVerifica === 'automatica' ? await correggiMail(db, regVerifica) : { corrette: 0, errori: 0 };
     if (regVerifica.length) {
       await db.from('automazione_esecuzioni').insert({
-        nome: 'verifica-indirizzi', stato: v.errori ? 'errore' : modoVerifica === 'prova' ? 'prova' : 'ok', fine: new Date().toISOString(),
-        riepilogo: { verificati: v.verificati, corretti: v.corretti, errori: v.errori }, output: regVerifica.join('\n'),
+        nome: 'verifica-indirizzi', stato: v.errori + m.errori ? 'errore' : modoVerifica === 'prova' ? 'prova' : 'ok', fine: new Date().toISOString(),
+        riepilogo: { verificati: v.verificati, corretti: v.corretti, mail_corrette: m.corrette, errori: v.errori + m.errori }, output: regVerifica.join('\n'),
       });
     }
   }
