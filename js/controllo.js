@@ -260,6 +260,7 @@ const Ctrl = {
 
   stop() {
     if (this._channel) supabaseClient.removeChannel(this._channel);
+    fermaConsumiInDiretta();
     clearTimeout(this._reloadTimer);
     clearInterval(this._tick);
     Object.assign(this, { _channel: null, _tick: null, tasks: [], tipi: [], users: [], punteggi: {}, punteggi7: {},
@@ -2777,7 +2778,7 @@ const AUTOMAZIONI = {
   'richiesta-dati': { nome: 'Richiesta dei dati mancanti', quando: 'Ogni 5 minuti; mail dalle 8 alle 21', modo: true },
   'verifica-indirizzi': { nome: 'Riscontro degli indirizzi', quando: 'Ogni 5 minuti, sugli ordini nuovi', modo: true, modi: [
     ['prova', 'Prova', 'Segnala soltanto, nella scheda Shop: non cambia niente su Shopify'],
-    ['automatica', 'Automatica', 'Se manca solo "Via" o "Piazza" e la via è unica nel comune la aggiunge su Shopify, e corregge le mail col dominio scritto male; il resto lo segnala'],
+    ['automatica', 'Automatica', 'Se manca solo "Via" o "Piazza", o la via ha un errore di battitura sicuro (es. "valter tobagi" → "Walter Tobagi"), la corregge su Shopify; corregge le mail col dominio scritto male; il resto lo segnala'],
     ['spenta', 'Spenta', 'Nessun riscontro']] },
 };
 const AUTOMAZIONE_MODI = [['prova', 'Prova', 'La mail la manda una persona, col clic sull\'etichetta rossa nella scheda Shop'],
@@ -2786,19 +2787,104 @@ const AUTOMAZIONE_STATI = {
   in_corso: ['In corso', '#f59e0b'], ok: ['Riuscita', '#22c55e'], errore: ['Errore', '#ef4444'],
   saltato: ['Non lavorativo', '#94a3b8'], prova: ['Prova', '#6366f1'], interrotta: ['Interrotta', '#ef4444'],
 };
-const CtrlAuto = { righe: null, error: null, modi: {}, consumi: [] };
+const CtrlAuto = { righe: null, error: null, modi: {}, consumi: [], oggetti: {}, channel: null, nuove: new Set() };
 
 async function loadControlAutomations() {
   const [{ data, error }, imp, consumi] = await Promise.all([
     supabaseClient.from('automazione_esecuzioni').select('*').order('at', { ascending: false }).limit(100),
     supabaseClient.from('automazioni_impostazioni').select('nome, modo, aggiornato_at, aggiornato_da'),
-    supabaseClient.from('cervello_consumi').select('at, modello, costo_usd, prova').gte('at', new Date(Date.now() - 30 * 86400e3).toISOString()).limit(10000),
+    supabaseClient.from('cervello_consumi').select('id, at, modello, costo_usd, prova, input, output, mail_id').gte('at', new Date(Date.now() - 30 * 86400e3).toISOString()).order('at').limit(10000),
   ]);
   CtrlAuto.consumi = consumi.error ? [] : (consumi.data || []);
+  await consumiOggetti(CtrlAuto.consumi.slice(-CONSUMI_RIGHE));
+  consumiInDiretta();
   CtrlAuto.modi = Object.fromEntries((imp.data || []).map(r => [r.nome, r]));
   CtrlAuto.righe = data || [];
   CtrlAuto.error = error ? Ctrl._fail(error) : null;
   if (Ctrl.view === 'automazioni') refreshControlPage();
+}
+
+// ── Consumi del cervello in diretta: ogni chiamata a Claude arriva da sola (Realtime su cervello_consumi) ──
+const CONSUMI_RIGHE = 15;
+
+async function consumiOggetti(righe) {
+  const ids = [...new Set(righe.map(c => c.mail_id).filter(id => id && !(id in CtrlAuto.oggetti)))];
+  if (!ids.length) return;
+  const { data } = await supabaseClient.from('mail_messaggi').select('id, oggetto').in('id', ids);
+  (data || []).forEach(m => { CtrlAuto.oggetti[m.id] = m.oggetto || '(senza oggetto)'; });
+}
+
+function consumiInDiretta() {
+  if (CtrlAuto.channel || !TCAuth.isAdmin()) return;
+  CtrlAuto.channel = supabaseClient.channel('cervello-consumi')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'cervello_consumi' }, async (p) => {
+      if (!p.new || CtrlAuto.consumi.some(c => c.id === p.new.id)) return;
+      CtrlAuto.consumi.push(p.new);
+      CtrlAuto.nuove.add(p.new.id);
+      await consumiOggetti([p.new]);
+      aggiornaConsumiDiretta();
+    })
+    .subscribe((stato) => { CtrlAuto.collegata = stato === 'SUBSCRIBED'; aggiornaConsumiDiretta(); });
+}
+
+function fermaConsumiInDiretta() {
+  if (CtrlAuto.channel) supabaseClient.removeChannel(CtrlAuto.channel);
+  CtrlAuto.channel = null;
+  CtrlAuto.collegata = false;
+}
+
+// Si ridisegna solo il riquadro: le righe aperte delle esecuzioni restano aperte
+function aggiornaConsumiDiretta() {
+  const el = document.getElementById('ctrl-consumi-diretta');
+  if (!el || Nav.current !== 'controllo' || Ctrl.view !== 'automazioni') return;
+  el.outerHTML = renderConsumiDiretta();
+}
+
+function renderConsumiDiretta() {
+  const usd = (v, cifre = 2) => `${Number(v).toLocaleString('it-IT', { minimumFractionDigits: cifre, maximumFractionDigits: cifre })} $`;
+  const vere = CtrlAuto.consumi.filter(c => !c.prova);
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  const diOggi = vere.filter(c => new Date(c.at) >= oggi);
+  const ora = vere.filter(c => Date.now() - new Date(c.at) < 3600e3);
+  const somma = (r) => r.reduce((t, c) => t + Number(c.costo_usd || 0), 0);
+  const modello = (m) => /haiku/i.test(m) ? ['Haiku', 'filtro'] : /opus/i.test(m) ? ['Opus', 'analisi e bozza'] : /sonnet/i.test(m) ? ['Sonnet', ''] : [m, ''];
+  // Mail fermate da Haiku: c'è la chiamata di Haiku ma non quella di Opus
+  const perMail = new Map();
+  diOggi.forEach(c => { if (c.mail_id) perMail.set(c.mail_id, [...(perMail.get(c.mail_id) || []), c.modello]); });
+  const fermate = [...perMail.values()].filter(m => m.some(x => /haiku/i.test(x)) && !m.some(x => /opus/i.test(x))).length;
+  const opusOggi = diOggi.filter(c => /opus/i.test(c.modello));
+  const ultime = vere.slice(-CONSUMI_RIGHE).reverse();
+  const quando = (iso) => {
+    const d = new Date(iso);
+    return d >= oggi ? d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : ctrlFmtQuando(iso);
+  };
+  const numero = (valore, etichetta) => `<div class="ctrl-live-num"><strong>${valore}</strong><span>${etichetta}</span></div>`;
+  const html = `
+    <section class="glass-card page-card ctrl-group" id="ctrl-consumi-diretta">
+      <div class="page-card-head"><h2>Consumi in diretta</h2>
+        <span class="ctrl-onair ${CtrlAuto.collegata ? 'on' : ''}">${CtrlAuto.collegata ? 'In diretta' : 'Collegamento…'}</span>
+        <span class="ctrl-group-hint">Ogni chiamata a Claude compare qui appena succede</span></div>
+      <div class="ctrl-live-nums">
+        ${numero(usd(somma(diOggi)), `oggi · ${diOggi.length} ${diOggi.length === 1 ? 'chiamata' : 'chiamate'}`)}
+        ${numero(usd(somma(ora)), 'ultima ora')}
+        ${numero(opusOggi.length, `mail analizzate da Opus oggi${opusOggi.length ? ` · ${usd(somma(opusOggi) / opusOggi.length, 3)} l'una` : ''}`)}
+        ${numero(fermate, 'mail fermate da Haiku oggi (Opus risparmiato)')}
+      </div>
+      ${ultime.length ? `<div class="table-scroll"><table class="data-table ctrl-live-table">
+        <thead><tr><th>Ora</th><th>Modello</th><th>Mail</th><th>Token</th><th>Costo</th></tr></thead>
+        <tbody>${ultime.map(c => {
+          const [nome, ruolo] = modello(c.modello);
+          return `<tr class="${CtrlAuto.nuove.has(c.id) ? 'ctrl-live-new' : ''}">
+            <td>${quando(c.at)}</td>
+            <td><strong>${escapeHtml(nome)}</strong>${ruolo ? ` <span class="ctrl-cell-sub">${ruolo}</span>` : ''}</td>
+            <td class="ctrl-live-subject">${escapeHtml(CtrlAuto.oggetti[c.mail_id] || '—')}</td>
+            <td class="ctrl-cell-sub">${Number(c.input || 0).toLocaleString('it-IT')} → ${Number(c.output || 0).toLocaleString('it-IT')}</td>
+            <td>${usd(c.costo_usd || 0, 3)}</td></tr>`;
+        }).join('')}</tbody></table></div>`
+      : '<div class="empty-list">Nessuna chiamata a Claude negli ultimi 30 giorni.</div>'}
+    </section>`;
+  CtrlAuto.nuove.clear();
+  return html;
 }
 
 async function setAutomazioneModo(nome, modo) {
@@ -2890,6 +2976,7 @@ function renderControlAutomations() {
     </article>`;
   return `
     <div class="ctrl-team">${Object.entries(AUTOMAZIONI).map(scheda).join('')}${cervello}</div>
+    ${TCAuth.isAdmin() ? renderConsumiDiretta() : ''}
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Esecuzioni</h2><span class="table-count">${CtrlAuto.righe.length}</span>
         <span class="ctrl-group-hint">Le ultime 100. Clicca una riga per leggere l'output</span>

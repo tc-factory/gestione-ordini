@@ -154,13 +154,18 @@ async function verificaOrdini(db: SupabaseClient, ordini: Row[], correggi: boole
       const r = await verificaIndirizzo({ address1: a.address1, address2: a.address2, citta: a.city, cap: a.zip, paese: a.countryCodeV2 });
       const riga: Row = { ordine_id: o.id, store_id: o.store_id, impronta: impronta(o.indirizzo), esito: r.esito, nota: r.nota,
         suggerimento: r.suggerimento || null, prima: null, dopo: null, corretta_at: null, verificata_at: new Date().toISOString() };
-      if (r.esito === 'corretta' && r.nuova) {
+      // Manca solo "Via", oppure via simile con un errore di battitura sicuro: si scrive da sola
+      if ((r.esito === 'corretta' || r.esito === 'simile') && r.nuova) {
         riga.prima = a.address1;
         riga.dopo = r.nuova;
         if (correggi && !order.cancelledAt && order.displayFulfillmentStatus === 'UNFULFILLED') {
           try {
             await aggiornaSpedizione(store, token, o, a, { address1: r.nuova });
             await shopify(store, token, TAG, { id: o.shopify_id, tags: ['indirizzo-corretto'] }).catch(() => null);
+            if (r.esito === 'simile') {
+              riga.esito = 'corretta';
+              riga.nota = `Via scritta male, corretta da sola: "${a.address1}" → "${r.nuova}"`;
+            }
             const indirizzo = { ...o.indirizzo, via: [r.nuova, a.address2].filter(Boolean).join(', ') };
             await db.from('shopify_orders').update({ indirizzo }).eq('id', o.id);
             o.indirizzo = indirizzo;
@@ -172,7 +177,11 @@ async function verificaOrdini(db: SupabaseClient, ordini: Row[], correggi: boole
             errori++;
             registro.push(`${o.numero} (${o.store_id}) · correzione non scritta su Shopify: ${e instanceof Error ? e.message : e}`);
           }
-        } else registro.push(`${o.numero} (${o.store_id}) · da correggere: "${a.address1}" → "${r.nuova}"${correggi ? ' (ordine non più da evadere)' : ' (in prova: non scritto)'}`);
+        } else {
+          // Non scritta: la via simile resta da scegliere col clic
+          if (r.esito === 'simile') { riga.prima = null; riga.dopo = null; }
+          registro.push(`${o.numero} (${o.store_id}) · da correggere: "${a.address1}" → "${r.nuova}"${correggi ? ' (ordine non più da evadere)' : ' (in prova: non scritto)'}`);
+        }
       } else if (['simile', 'ambigua', 'non_trovata'].includes(r.esito)) {
         registro.push(`${o.numero} (${o.store_id}) · ${r.nota}`);
       }

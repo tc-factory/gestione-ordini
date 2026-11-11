@@ -116,6 +116,21 @@
 .ctrl-auto-run summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 11px 16px; cursor: pointer; font-size: 0.86rem; }
 .ctrl-auto-run summary:hover { background: var(--fill-hover); }
 .ctrl-auto-when { min-width: 92px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* Consumi in diretta */
+.ctrl-onair { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); }
+.ctrl-onair::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+.ctrl-onair.on { color: #16a34a; }
+.ctrl-onair.on::before { background: #22c55e; animation: ctrl-pulse 1.6s ease-in-out infinite; }
+.ctrl-live-nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px 20px; padding: 4px 16px 14px; }
+.ctrl-live-num { display: flex; flex-direction: column; gap: 2px; }
+.ctrl-live-num strong { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.ctrl-live-num span { font-size: 0.76rem; color: var(--text-secondary); }
+.ctrl-live-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ctrl-live-table td.ctrl-live-subject { white-space: normal; max-width: 420px; overflow-wrap: anywhere; }
+.ctrl-live-new td { animation: ctrl-live-flash 2.4s ease-out; }
+@keyframes ctrl-live-flash { from { background: var(--accent-soft, #E4ECFC); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .ctrl-onair.on::before, .ctrl-live-new td { animation: none; } }
+
 .ctrl-auto-run pre { margin: 0; padding: 12px 16px 16px; max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 0.78rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--fill-hover); }
 
 /* ── Anteprima dei task di ogni persona (scheda Tasks) ── */
