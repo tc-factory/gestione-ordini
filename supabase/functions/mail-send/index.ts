@@ -11,7 +11,8 @@
 // la scheda Mail. Se la mail ha un task aperto ancora senza risposta, il task si aggiorna come
 // se si fosse risposto da lì.
 //
-// Mail nuova (body.nuova = { casella, a, a_nome, oggetto }): scritta da zero o da un modello, stessa regola di accesso.
+// Mail nuova (body.nuova = { casella, a, a_nome, oggetto, bozza? }): scritta da zero, da un modello o da una bozza
+// preparata (mail_bozze, che diventa inviata), stessa regola di accesso.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -42,7 +43,7 @@ Deno.serve(async (req) => {
   const { data: me } = await db.from('app_users').select('nickname, is_admin').eq('auth_id', caller.user.id).maybeSingle();
   if (!me) return fail('Accesso riservato allo staff', 403);
 
-  let body: { task_id?: string; mail_id?: string; testo?: string; nuova?: { casella?: string; a?: string; a_nome?: string; oggetto?: string } };
+  let body: { task_id?: string; mail_id?: string; testo?: string; nuova?: { casella?: string; a?: string; a_nome?: string; oggetto?: string; bozza?: string } };
   try { body = await req.json(); } catch { return fail('Richiesta non valida'); }
   const testo = (body.testo || '').trim();
   if ((!body.task_id && !body.mail_id && !body.nuova) || !testo) return fail('Scrivi il testo della mail');
@@ -131,7 +132,7 @@ async function rispondiAMail(db: any, utente: any, nickname: string, mailId: str
 
 // Mail nuova dalla sezione Mail
 // deno-lint-ignore no-explicit-any
-async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string; richiesta_ordine?: string }, testo: string) {
+async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string; richiesta_ordine?: string; bozza?: string }, testo: string) {
   const { data: puo } = await utente.rpc('app_vede_scheda', { p_scheda: 'mail' });
   if (puo !== true) return fail('Non hai accesso alle mail', 403);
   const a = (n.a || '').trim().toLowerCase();
@@ -147,6 +148,9 @@ async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: 
     const { copia_in_inviata } = await inviaNuova(db, casella, a, (n.a_nome || '').trim() || null, oggetto, testo, { persona: nickname });
     // Richiesta dei dati mancanti mandata a mano: la segue ordini-dati (risposta, task, chiusura)
     if (n.richiesta_ordine) await registraRichiesta(db, n.richiesta_ordine, a, nickname).catch(e => console.error('Richiesta dati', e));
+    // Bozza preparata per questa persona (Mail → Bozze): esce dall'elenco
+    if (n.bozza) await db.from('mail_bozze').update({ inviata_at: new Date().toISOString(), inviata_da: nickname })
+      .eq('id', n.bozza).eq('per', nickname).is('inviata_at', null).then(({ error }: { error: unknown }) => error && console.error('Bozza inviata', error));
     return reply({ success: true, copia_in_inviata });
   } catch (e) {
     console.error('Mail nuova', e);

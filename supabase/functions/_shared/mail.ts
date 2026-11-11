@@ -116,10 +116,12 @@ async function componi(db: SupabaseClient, casella: Row, testoDato: string, firm
     larghezza = (f?.immagine ? f.larghezza : neg?.larghezza) || 160;
   }
 
-  // Firma senza telefoni e senza T&C Factory, anche se qualcuno li ha scritti
-  const firmaPulita = senzaTcFactory(senzaTelefoni(firmaTesto), casella.nome);
+  // Firma senza telefoni e senza T&C Factory, anche se qualcuno li ha scritti.
+  // La casella interna (info@tcfactory.it, mail ai fornitori) è T&C Factory: lì il nome resta.
+  const pulisci = (t: string) => casella.interna ? t : senzaTcFactory(t, casella.nome);
+  const firmaPulita = pulisci(senzaTelefoni(firmaTesto));
   if (firmaTesto && testo.endsWith(firmaTesto)) testo = testo.slice(0, testo.length - firmaTesto.length) + firmaPulita;
-  testo = senzaTcFactory(testo, casella.nome).replace(/\s+$/, '');
+  testo = pulisci(testo).replace(/\s+$/, '');
 
   // La grafica solo se in fondo c'è la firma (o se la firma è soltanto l'immagine)
   const trovata = firmaPulita ? testo.endsWith(firmaPulita) : !!immagine;
@@ -147,7 +149,7 @@ async function invia(db: SupabaseClient, casella: Row, m: Invio, firma: Firma) {
   if (!pass) throw new Error(`Manca la password della casella ${casella.indirizzo}`);
   const messageId = `<${crypto.randomUUID()}@${casella.indirizzo.split('@')[1]}>`;
   const c = await componi(db, casella, m.testo, firma);
-  m = { ...m, oggetto: senzaTcFactory(m.oggetto, casella.nome) };
+  m = { ...m, oggetto: casella.interna ? m.oggetto : senzaTcFactory(m.oggetto, casella.nome) };
 
   const raw: Uint8Array = await new MailComposer({
     from: { name: casella.nome, address: casella.indirizzo },

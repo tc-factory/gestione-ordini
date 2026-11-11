@@ -292,3 +292,11 @@
 .mfa-testo b { color: #111; font-size: 14px; }
 .mfa-testo.con-logo { padding-left: 16px; border-left: 2px solid #e6e6e6; }
 .mfa-link { color: #666; }
+
+/* Bozze preparate da inviare */
+.mail-bozze { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.mail-bozza-riga { display: flex; align-items: center; gap: 10px; }
+.mail-bozza-apri { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border-light, var(--border)); background: var(--bg-card, transparent); color: inherit; font: inherit; cursor: pointer; }
+.mail-bozza-apri:hover { background: var(--fill-hover); }
+.mail-bozza-apri span, .mail-bozza-apri small { font-size: 0.78rem; color: var(--text-secondary); overflow-wrap: anywhere; }
+.mail-bozze-n { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent, #c8302a); color: #fff; font-size: 0.7rem; }
