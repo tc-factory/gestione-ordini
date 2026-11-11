@@ -394,6 +394,7 @@ html .ctrl-skill-people .ctrl-btn.is-secondary { background: transparent; box-sh
 .ctrl-filter.is-on i { background: #fff; }
 .ctrl-filter.is-on b { background: rgba(255, 255, 255, 0.25); color: #fff; }
 html.dark .ctrl-filter:not([style*="#"]).is-on { color: #111; }
+html.dark .ctrl-filter:not([style*="#"]).is-on b { background: rgba(0, 0, 0, 0.12); color: #111; }
 
 /* ── Avviso collegamenti e card cliccabile ── */
 

@@ -12,6 +12,7 @@
 
 const NAV_ITEMS = [
   { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Task del giorno di ogni persona del team', icon: () => Icons.zap(19) },
+  { id: 'mail',         label: 'Mail',          subtitle: 'Le caselle dei negozi: leggi e rispondi', icon: () => Icons.mail(19) },
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
   { id: 'dtf',          label: 'Interne',       subtitle: 'Lavorazioni fatte in casa',     icon: () => Icons.printer(19) },
@@ -140,6 +141,7 @@ function renderCurrentView() {
     case 'cestino':      renderCestinoPage(); break;
     case 'supporto':     openSupportPage(); break;
     case 'controllo':    openControlPage(); break;
+    case 'mail':         openMailPage(); break;
   }
 }
 
@@ -153,6 +155,7 @@ function navBadges() {
     cestino: TCFactory.getTrashedOrders().length,
     supporto: TCAuth.isAdmin() ? Tickets.countOpen() : 0,   // ticket da fare
     controllo: Ctrl.badge,                                   // miei task ancora aperti fino a oggi
+    mail: MailBox.badge,                                     // conversazioni con mail da leggere
   };
 }
 
@@ -232,7 +235,7 @@ function renderBottomNav() {
   const primary = BOTTOM_PRIMARY.filter(id => Nav.isAllowed(id)).map(id => Nav._item(id));
   const moreIds = ALL_SECTIONS().filter(i => !BOTTOM_PRIMARY.includes(i.id) && Nav.isAllowed(i.id)).map(i => i.id);
   const moreActive = moreIds.includes(Nav.current);
-  const moreBadge  = moreIds.reduce((n, id) => n + (id === 'supporto' ? (badges[id] || 0) : 0), 0) + Messages.unreadCount();
+  const moreBadge  = moreIds.reduce((n, id) => n + (['supporto', 'mail'].includes(id) ? (badges[id] || 0) : 0), 0) + Messages.unreadCount();
 
   const tab = (id, label, icon, active, badge, onclick) => `
     <a href="${id ? '#/' + id : '#'}" class="bn-item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}
@@ -315,7 +318,7 @@ setInterval(tickToolbarClock, 1000);
 
 // Gesto dell'icona nel titolo, per pagina (css/creative-system.css → ico-*); le lavorazioni nuove usano "tag"
 const TITLE_ICON_ANIM = {
-  controllo: 'zap', ordini: 'package', planner: 'calendar', dtf: 'printer', esterne: 'truck', prodotti: 'shirt',
+  controllo: 'zap', mail: 'book', ordini: 'package', planner: 'calendar', dtf: 'printer', esterne: 'truck', prodotti: 'shirt',
   cataloghi: 'book', clienti: 'users', cassa: 'wallet', impostazioni: 'gear', cestino: 'trash', supporto: 'buoy',
   interno: 'printer', terzi: 'users', uv: 'sun', laser: 'zap', stampa: 'image', fornitori: 'truck', 'da-inserire': 'plus',
 };
