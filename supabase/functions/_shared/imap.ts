@@ -45,10 +45,22 @@ export class Imap {
   }
 
   private async byte(quanti: number): Promise<Uint8Array> {
-    while (this.buf.length < quanti) await this.riempi();
-    const r = this.buf.slice(0, quanti);
-    this.buf = this.buf.subarray(quanti);
-    return r;
+    if (this.buf.length >= quanti) {
+      const r = this.buf.slice(0, quanti);
+      this.buf = this.buf.subarray(quanti);
+      return r;
+    }
+    // Blocchi grandi (mail intere con allegati): si legge direttamente nello spazio finale, senza ricopiare
+    const out = new Uint8Array(quanti);
+    out.set(this.buf);
+    let letti = this.buf.length;
+    this.buf = new Uint8Array(0);
+    while (letti < quanti) {
+      const k = await this.conn.read(out.subarray(letti));
+      if (k === null) throw new Error('Connessione IMAP chiusa dal server');
+      letti += k;
+    }
+    return out;
   }
 
   // Una risposta intera: righe unite, con i blocchi {n} di byte a parte
@@ -108,4 +120,53 @@ export async function cartellaInviata(imap: Imap): Promise<string | null> {
   const nome = (r: string) => r.match(/"([^"]+)"$/)?.[1] || r.split(' ').pop() || '';
   const riga = righe.find(r => /\\Sent\b/i.test(r)) || righe.find(r => /^(inbox[./])?(sent|inviata|posta inviata)/i.test(nome(r)));
   return riga ? nome(riga) : null;
+}
+
+// ── Cartelle della casella: posta in arrivo, archivio, cestino ──
+
+export type Cartelle = { inbox: string; archivio: string; cestino: string };
+type Voce = { flag: string; sep: string; nome: string };
+
+function vociList(righe: string[]): Voce[] {
+  return righe.flatMap(r => {
+    const m = r.match(/^\* LIST \(([^)]*)\) (NIL|"(?:[^"\\]|\\.)*") (.+)$/i);
+    if (!m) return [];
+    const sep = m[2] === 'NIL' ? '' : m[2].slice(1, -1).replace(/\\(.)/g, '$1');
+    const nome = m[3].startsWith('"') ? m[3].slice(1, -1).replace(/\\(.)/g, '$1') : m[3];
+    return [{ flag: m[1], sep, nome }];
+  });
+}
+
+// Archivio e cestino: prima i nomi speciali (\Archive, \Trash), poi i nomi usuali; l'archivio si crea se manca
+export async function cartelleCasella(imap: Imap): Promise<Cartelle> {
+  const voci = vociList((await imap.comando('LIST "" "*"', 15_000, 'elenco cartelle')).map(r => r.testo));
+  const foglia = (v: Voce) => (v.sep ? v.nome.split(v.sep).pop() : v.nome) || v.nome;
+  const trova = (flag: RegExp, nomi: RegExp) =>
+    voci.find(v => flag.test(v.flag))?.nome || voci.find(v => nomi.test(foglia(v)))?.nome || null;
+
+  // Se le cartelle stanno sotto INBOX (es. INBOX.Sent), le nuove vanno create lì
+  const sep = voci.find(v => v.sep)?.sep || '.';
+  const sottoInbox = voci.some(v => v.nome.toUpperCase().startsWith(`INBOX${sep}`.toUpperCase()));
+  const crea = async (nome: string) => {
+    const pieno = sottoInbox ? `INBOX${sep}${nome}` : nome;
+    await imap.comando(`CREATE ${quota(pieno)}`, 15_000, `creazione cartella ${nome}`).catch((e: Error) => {
+      if (!/ALREADYEXISTS|already exists|esiste/i.test(e.message)) throw e;
+    });
+    await imap.comando(`SUBSCRIBE ${quota(pieno)}`, 10_000).catch(() => {});
+    return pieno;
+  };
+
+  const archivio = trova(/\\Archive\b/i, /^(archivio|archive|archivi|archiviate)$/i) || await crea('Archivio');
+  const cestino = trova(/\\Trash\b/i, /^(trash|cestino|posta eliminata|deleted items|deleted messages|eliminati)$/i) || await crea('Cestino');
+  return { inbox: 'INBOX', archivio, cestino };
+}
+
+export async function capacita(imap: Imap): Promise<string> {
+  return (await imap.comando('CAPABILITY', 10_000)).map(r => r.testo).join(' ').toUpperCase();
+}
+
+// UID della mail nella cartella già aperta, cercata per Message-ID
+export async function uidDaMessageId(imap: Imap, messageId: string): Promise<number[]> {
+  const r = await imap.comando(`UID SEARCH HEADER Message-ID ${quota(messageId)}`, 20_000, 'ricerca per Message-ID');
+  return (r.find(x => x.testo.startsWith('* SEARCH'))?.testo.match(/\d+/g) || []).map(Number);
 }

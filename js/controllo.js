@@ -911,7 +911,7 @@ let _taskBozza = null;    // bozza in modifica
 async function openTaskDetail(id, action = null) {
   _taskAction = action;
   const t = Ctrl.get(id);
-  if (_taskMail?.taskId !== id) { _taskMail = null; _taskBozza = t?.bozza_risposta || ''; }
+  if (_taskMail?.taskId !== id) { _taskMail = null; _taskBozza = window.MailFirme && t?.mail_id && !t.risposta_inviata_at ? MailFirme.applica(t.bozza_risposta || '', t.macroarea) : (t?.bozza_risposta || ''); }
   renderTaskDetail(id, null);
   if (t?.mail_id && !_taskMail) {
     const { data } = await supabaseClient.rpc('tc_task_mail', { p_task: id });
