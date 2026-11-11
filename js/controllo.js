@@ -1604,7 +1604,7 @@ async function loadShopifyLinks() {
     ShopLinks.negozi = data.negozi || [];
     ShopLinks.error = null;
   } catch (e) { ShopLinks.error = e; }
-  const [caselle, mail, scartate, regole, consegne, arrivo] = await Promise.all([
+  const [caselle, mail, scartate, regole, consegne, arrivo, servizi] = await Promise.all([
     supabaseClient.rpc('tc_mail_stato'),
     supabaseClient.from('mail_messaggi').select('id, casella_id, da_email, da_nome, oggetto, ricevuto_at, testo, allegati')
       .eq('direzione', 'in').eq('automatica', false).order('ricevuto_at', { ascending: false }).limit(50),
@@ -1615,7 +1615,9 @@ async function loadShopifyLinks() {
     supabaseClient.rpc('tc_spedizioni_problemi'),
     supabaseClient.from('shopify_orders').select(SHOP_ORDINE_CAMPI)
       .is('annullato_at', null).in('stato_evasione', SHOP_DA_EVADERE).order('creato_at', { ascending: false }).limit(1000),
+    supabaseClient.rpc('tc_collegamenti_servizi'),
   ]);
+  ShopLinks.servizi = servizi.data?.success ? servizi.data : null;
   ShopLinks.consegneErrore = consegne.error?.message || (consegne.data?.success ? null : consegne.data?.error || 'Errore');
   ShopLinks.consegne = ShopLinks.consegneErrore ? null : consegne.data.spedizioni;
   ShopLinks.arrivoErrore = arrivo.error?.message || null;
@@ -2605,6 +2607,81 @@ function renderControlLinks() {
       <div class="table-scroll"><table class="data-table ctrl-links">${testa}<tbody>
         ${(ShopLinks.caselle || []).map(c => riga(c.indirizzo, c.nome, c, `${c.da_persone} da persone · ${c.ricevute - c.da_persone} automatiche`, `syncMail('${c.id}')`, mailBusy(c.id))).join('')}
       </tbody></table></div>
+    </section>
+    ${renderControlServices()}`;
+}
+
+// Servizi esterni (GLS, Claude, mappe, invio mail, Mac mini) e operazioni pianificate del database
+const CRON_NOMI = {
+  'shopify-sync': 'Ordini dai negozi Shopify',
+  'mail-sync': 'Lettura delle caselle email',
+  'cervello': 'Cervello: mail lette da Claude',
+  'mail-riordina': 'Spam nel cestino, automatiche in archivio',
+  'mail-risposte': 'Risposte dei clienti ai task',
+  'ordini-dati': 'Richiesta dei dati mancanti per spedire',
+  'task-automatici': 'Task automatici',
+  'linea-produttiva': 'Linea produttiva',
+  'ordini-fermi': 'Ordini fermi',
+  'tracking-check': 'Tracking GLS delle spedizioni',
+  'task-piano': 'Piano del giorno del team',
+  'briefing': 'Briefing del mattino',
+  'mattino-controllo': 'Controllo dell\'automazione del mattino',
+};
+
+function cronQuando(s) {
+  const p = (s || '').split(' ');
+  if (p.length !== 5) return s || '';
+  const [min, ora, , , gg] = p;
+  const giorni = gg === '*' ? '' : gg === '1-5' ? ', lun-ven' : gg === '1-6' ? ', lun-sab' : `, giorni ${gg}`;
+  const m = min.match(/^(?:\d+-\d+|\*)\/(\d+)$/);
+  if (m && ora === '*') return `Ogni ${m[1]} minuti${giorni}`;
+  if (/^\d+$/.test(min) && ora === '*') return `Ogni ora${giorni}`;
+  if (/^\d+$/.test(min) && /^[\d,]+$/.test(ora)) {
+    // pg_cron gira in UTC: orario italiano
+    const d = new Date();
+    const it = ora.split(',').map(h => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), +h, +min)).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }));
+    return `Alle ${it.join(' e ')}${giorni}`;
+  }
+  return s;
+}
+
+function renderControlServices() {
+  const S = ShopLinks.servizi;
+  if (!S) return `<section class="glass-card page-card ctrl-group"><div class="page-card-head"><h2>Servizi esterni</h2></div>
+    <div class="empty-list">Stato non disponibile: esegui <strong>sql/collegamenti-servizi.sql</strong>.</div></section>`;
+  const testa = `<thead><tr><th>Collegamento</th><th>Stato</th><th>Ultimo uso</th><th>Dati</th></tr></thead>`;
+  const servizio = (x) => {
+    const [label, color] = x.errore ? ['Errore', '#ef4444'] : !x.ultimo ? ['Mai usato', '#94a3b8'] : ['Attivo', '#22c55e'];
+    return `
+      <tr>
+        <td><strong>${escapeHtml(x.nome)}</strong><div class="ctrl-cell-sub">${escapeHtml(x.sotto)}</div>
+          ${x.errore ? `<div class="ctrl-shop-error">${escapeHtml(x.errore)}</div>` : ''}</td>
+        <td><span class="ctrl-status" style="--st:${color};">${label}</span></td>
+        <td class="ctrl-cell-sub">${x.ultimo ? ctrlFmtQuando(x.ultimo) : '—'}<div>${escapeHtml(x.ogni)}</div></td>
+        <td>${escapeHtml(x.dati || '—')}</td>
+      </tr>`;
+  };
+  const pianificata = (j) => {
+    const [label, color] = !j.attiva ? ['Spenta', '#94a3b8'] : j.stato === 'failed' ? ['Errore', '#ef4444']
+      : j.stato === 'succeeded' ? ['Attiva', '#22c55e'] : j.stato ? ['In corso', '#f59e0b'] : ['Mai partita', '#94a3b8'];
+    return `
+      <tr>
+        <td><strong>${escapeHtml(CRON_NOMI[j.nome] || j.nome)}</strong><div class="ctrl-cell-sub">${escapeHtml(j.nome)}</div>
+          ${j.messaggio ? `<div class="ctrl-shop-error">${escapeHtml(j.messaggio)}</div>` : ''}</td>
+        <td><span class="ctrl-status" style="--st:${color};">${label}</span></td>
+        <td class="ctrl-cell-sub">${j.ultimo ? ctrlFmtQuando(j.ultimo) : '—'}</td>
+        <td>${escapeHtml(cronQuando(j.schedule))}</td>
+      </tr>`;
+  };
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Servizi esterni</h2><span class="ctrl-group-hint">Corrieri, intelligenza artificiale, mappe, invio mail e Mac mini</span></div>
+      <div class="table-scroll"><table class="data-table ctrl-links">${testa}<tbody>${S.servizi.map(servizio).join('')}</tbody></table></div>
+    </section>
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Operazioni pianificate</h2><span class="ctrl-group-hint">Partono da sole dal database, orari italiani</span></div>
+      <div class="table-scroll"><table class="data-table ctrl-links"><thead><tr><th>Operazione</th><th>Stato</th><th>Ultima partenza</th><th>Quando</th></tr></thead>
+        <tbody>${S.pianificate.map(pianificata).join('')}</tbody></table></div>
     </section>`;
 }
 
