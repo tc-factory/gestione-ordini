@@ -10,10 +10,12 @@
 // Dalla sezione Mail (body.mail_id al posto di task_id): risposta a una mail qualsiasi, per chi vede
 // la scheda Mail. Se la mail ha un task aperto ancora senza risposta, il task si aggiorna come
 // se si fosse risposto da lì.
+//
+// Mail nuova (body.nuova = { casella, a, a_nome, oggetto }): scritta da zero o da un modello, stessa regola di accesso.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { inviaRisposta } from '../_shared/mail.ts';
+import { inviaRisposta, inviaNuova } from '../_shared/mail.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -39,10 +41,10 @@ Deno.serve(async (req) => {
   const { data: me } = await db.from('app_users').select('nickname, is_admin').eq('auth_id', caller.user.id).maybeSingle();
   if (!me) return fail('Accesso riservato allo staff', 403);
 
-  let body: { task_id?: string; mail_id?: string; testo?: string };
+  let body: { task_id?: string; mail_id?: string; testo?: string; nuova?: { casella?: string; a?: string; a_nome?: string; oggetto?: string } };
   try { body = await req.json(); } catch { return fail('Richiesta non valida'); }
   const testo = (body.testo || '').trim();
-  if ((!body.task_id && !body.mail_id) || !testo) return fail('Scrivi il testo della risposta');
+  if ((!body.task_id && !body.mail_id && !body.nuova) || !testo) return fail('Scrivi il testo della mail');
   if (testo.length > 20_000) return fail('Risposta troppo lunga');
   if (/\[[^\]\n]{2,300}\]|\{\{[^}\n]*\}\}|<[A-Z_ ]{3,}>/.test(testo)) return fail('La risposta contiene ancora un segnaposto tra parentesi quadre');
 
@@ -52,6 +54,7 @@ Deno.serve(async (req) => {
     global: { headers: { Authorization: auth } },
   });
 
+  if (body.nuova) return mailNuova(db, utente, body.nuova, testo);
   if (!body.task_id) return rispondiAMail(db, utente, body.mail_id!, testo);
 
   const { data: task } = await db.from('tasks').select('id, assegnato_a, mail_id, risposta_inviata_at, task_tipi(chiude_con_risposta)').eq('id', body.task_id).maybeSingle();
@@ -121,6 +124,29 @@ async function rispondiAMail(db: any, utente: any, mailId: string, testo: string
     const ids = (prenotati || []).map((t: { id: string }) => t.id);
     if (ids.length) await db.from('tasks').update({ risposta_inviata_at: null }).in('id', ids);
     console.error('Invio dalla sezione Mail', e);
+    return fail(`Invio non riuscito: ${e instanceof Error ? e.message : e}`, 502);
+  }
+}
+
+// Mail nuova dalla sezione Mail
+// deno-lint-ignore no-explicit-any
+async function mailNuova(db: any, utente: any, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string }, testo: string) {
+  const { data: puo } = await utente.rpc('app_vede_scheda', { p_scheda: 'mail' });
+  if (puo !== true) return fail('Non hai accesso alle mail', 403);
+  const a = (n.a || '').trim().toLowerCase();
+  const oggetto = (n.oggetto || '').trim();
+  if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[a-z]{2,}$/i.test(a)) return fail('Indirizzo del destinatario non valido');
+  if (!oggetto) return fail('Scrivi l\'oggetto');
+  if (oggetto.length > 200) return fail('Oggetto troppo lungo');
+  if (/\[[^\]\n]{2,300}\]|\{[a-z_]+\}/.test(oggetto)) return fail('L\'oggetto contiene ancora un segnaposto');
+  if (/\{[a-z_]+\}/.test(testo)) return fail('Il testo contiene ancora un dato da riempire tra parentesi graffe');
+  const { data: casella } = await db.from('mail_caselle').select('*').eq('id', n.casella || '').eq('attivo', true).maybeSingle();
+  if (!casella) return fail('Scegli la casella da cui inviare');
+  try {
+    const { copia_in_inviata } = await inviaNuova(db, casella, a, (n.a_nome || '').trim() || null, oggetto, testo);
+    return reply({ success: true, copia_in_inviata });
+  } catch (e) {
+    console.error('Mail nuova', e);
     return fail(`Invio non riuscito: ${e instanceof Error ? e.message : e}`, 502);
   }
 }

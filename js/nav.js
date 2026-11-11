@@ -334,6 +334,10 @@ function renderHeader() {
     : Nav.current === 'controllo' && TCAuth.isAdmin() && ['giorno', 'squadra'].includes(Ctrl.view)
     ? `${Ctrl.view === 'giorno' ? `<button class="btn btn-secondary" ${Ctrl.operatori.some(o => o.attivo) ? '' : 'disabled title="Nessuna persona nel piano del giorno"'} onclick="distributeQueue()"><span class="new-order-btn-text">Distribuisci coda</span></button>` : ''}
        <button class="btn btn-primary" onclick="openTaskForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo task</span></button>`
+    : Nav.current === 'mail'
+    ? `<button class="btn btn-secondary" onclick="openMailFirme()">${Icons.edit(15)} <span class="new-order-btn-text">La mia firma</span></button>
+       ${TCAuth.isAdmin() ? `<button class="btn btn-secondary" onclick="openMailTemplates()">${Icons.copy(15)} <span class="new-order-btn-text">Modelli</span></button>` : ''}
+       <button class="btn btn-primary" onclick="openMailCompose()">${Icons.plus()} <span class="new-order-btn-text">Nuova mail</span></button>`
     : Nav.current === 'ordini'
     ? `<button class="btn btn-primary" onclick="openOrderForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo ordine</span></button>`
     : Nav.current === 'planner'

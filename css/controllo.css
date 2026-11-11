@@ -624,7 +624,17 @@ html.dark .is-task .td-tag { color: color-mix(in srgb, var(--c) 45%, #fff); }
 .ctrl-items-more summary { cursor: pointer; font-size: 0.76rem; font-weight: 600; color: var(--text-muted); }
 .ctrl-items-more[open] summary { margin-bottom: 2px; }
 
-.ctrl-ord { --cols: 120px 110px minmax(130px, 1fr) minmax(160px, 1.3fr) 130px 100px 100px 104px; }
+.ctrl-ord { --cols: 104px 96px minmax(110px, 1fr) minmax(130px, 1.2fr) 118px minmax(140px, 1.4fr) 92px 86px 84px; gap: 14px; }
+.ctrl-click {
+  min-width: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--text-secondary);
+  text-align: left; cursor: pointer; text-decoration: underline dotted transparent; text-underline-offset: 3px;
+  transition: text-decoration-color var(--transition), color var(--transition);
+}
+.ctrl-click:hover { color: var(--text-primary); text-decoration-color: currentColor; }
+.ctrl-click.is-strong { color: var(--text-primary); font-weight: 650; }
+.ctrl-ddt { height: 24px; padding: 0 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 750; letter-spacing: 0.03em; }
+.ctrl-storico .modal-body { max-height: 75vh; overflow: auto; }
+.ctrl-storico-sub { margin: 0 0 10px; font-size: 0.84rem; color: var(--text-muted); }
 /* Ordini come la lista di Shopify: una riga per ordine, compatta */
 .ctrl-trow.ctrl-ord { padding-block: 8px; align-items: center; }
 .ctrl-trow.ctrl-ord .ctrl-cell { flex-direction: row; align-items: center; gap: 6px; }
