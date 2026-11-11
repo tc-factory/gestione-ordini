@@ -252,12 +252,31 @@ function perClaude(o: Row, mittente: string, negozi: Map<string, string>, spediz
   };
 }
 
-async function analizza(client: Anthropic, contesto: string) {
+// Prezzi in dollari per milione di token (input, output, lettura cache, scrittura cache 5 minuti)
+const PREZZI: Record<string, [number, number, number, number]> = {
+  'claude-opus-5-5': [4, 20, 0.2, 5],
+  'claude-sonnet-5-5': [2, 10, 0.1, 2.5],
+  'claude-haiku-5-5': [0.1, 0.5, 0.01, 0.125],
+};
+export const MODELLO = 'claude-opus-5-5';
+
+// Consumo di una chiamata: registrato in cervello_consumi per vedere il costo vero
+// deno-lint-ignore no-explicit-any
+function consumo(modello: string, u: any) {
+  const p = PREZZI[modello] || PREZZI[MODELLO];
+  const input = u?.input_tokens || 0, output = u?.output_tokens || 0;
+  const letti = u?.cache_read_input_tokens || 0, scritti = u?.cache_creation_input_tokens || 0;
+  return { modello, input, output, cache_letti: letti, cache_scritti: scritti,
+    costo_usd: Number(((input * p[0] + output * p[1] + letti * p[2] + scritti * p[3]) / 1e6).toFixed(5)) };
+}
+
+async function analizza(client: Anthropic, contesto: string, modello = MODELLO) {
+  // Il fallback lato server non c'è su Haiku: lì un rifiuto resta un errore (e la mail diventa task)
+  const fallback = modello === 'claude-haiku-5-5' ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' };
   const res = await client.beta.messages.create({
-    model: 'claude-opus-5-5',
+    model: modello,
     max_tokens: 16000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
+    ...fallback,
     thinking: { type: 'adaptive' },
     output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA } },
     system: SYSTEM,
@@ -267,7 +286,21 @@ async function analizza(client: Anthropic, contesto: string) {
   if (res.stop_reason === 'refusal') throw new Error('Il modello ha rifiutato la mail');
   if (res.stop_reason === 'max_tokens') throw new Error('Risposta del modello troncata');
   const text = res.content.flatMap(b => b.type === 'text' ? [b.text] : []).join('');
-  return JSON.parse(text);
+  return { dati: JSON.parse(text), uso: consumo(res.model || modello, res.usage) };
+}
+
+// ── Filtro prima di Claude: mail sicuramente inutili, solo da sconosciuti ──
+// (nessun ordine con quella mail e nessuna nostra mail a quell'indirizzo). Il resto lo legge Claude.
+const AGGANCI = /^\s*(exclusive offer for|quick question about|is the owner|hey\b|hi\b|a new month|an idea for your|a new message from your customer)/i;
+async function inutile(db: SupabaseClient, mail: Row, mittente: string, ordini: Row[]): Promise<string | null> {
+  const oggetto = String(mail.oggetto || '');
+  const spam = oggetto.includes('*****SPAM*****');
+  const aggancio = AGGANCI.test(oggetto);
+  if (!spam && !aggancio) return null;
+  if (ordini.length || !mittente) return null;
+  const { data: scritte } = await db.from('mail_messaggi').select('id').eq('direzione', 'out').ilike('a', `%${mittente.replace(/[%_]/g, '\\$&')}%`).limit(1);
+  if (scritte?.length) return null;
+  return spam ? 'segnata come SPAM dal filtro di Aruba' : 'proposta commerciale tipica da mittente sconosciuto';
 }
 
 // ── Task ──
@@ -368,6 +401,49 @@ function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string,
   };
 }
 
+// Tutto quello che Claude legge su una mail: ordini, spedizioni, memoria del cliente, mail precedenti
+async function preparaContesto(db: SupabaseClient, mail: Row, casella: Row | null, negozi: Map<string, string>, regola: Row | null) {
+  const storeId = casella?.store_id || null;
+  const mittente = (mail.da_email || '').toLowerCase();
+  const { data: memoria } = mittente ? await db.from('clienti_memoria').select('*').eq('email', mittente).maybeSingle() : { data: null };
+  const ordini = await cercaOrdini(db, mail);
+  await aggiungiTempi(db, ordini);
+  const { data: precedenti } = await db.from('mail_messaggi').select('oggetto, testo, ricevuto_at, direzione')
+    .eq('casella_id', mail.casella_id).eq('da_email', mittente).neq('id', mail.id)
+    .lt('ricevuto_at', mail.ricevuto_at).order('ricevuto_at', { ascending: false }).limit(3);
+
+  // Stato vero della spedizione dallo storico GLS: lo stato di Shopify spesso non si aggiorna
+  const { data: tracciate } = ordini.length
+    ? await db.from('spedizioni_tracking').select('ordine_id, numero, cliente_gls, stato, problema, ultimo_evento, ultimo_at, consegnata_at, eventi').in('ordine_id', ordini.map(o => o.id))
+    : { data: [] };
+  const fermate = (tracciate || []).filter((t: Row) => t.problema && GIACENZE.has(t.problema));
+  const spedizioni = new Map((tracciate || []).map((t: Row) => [t.ordine_id, {
+    stato: t.stato, problema: t.problema, ultimo_stato_gls: t.ultimo_evento, quando: t.ultimo_at, consegnata_il: t.consegnata_at,
+  }]));
+
+  const [{ data: conoscenza }, { data: correzioni }] = await Promise.all([
+    db.from('negozi_conoscenza').select('testo').eq('store_id', storeId).maybeSingle(),
+    db.from('mail_regole').select('azione, esempio').not('esempio', 'is', null).order('created_at', { ascending: false }).limit(15),
+  ]);
+
+  const contesto = [
+    `Oggi è ${oggiRoma()}. Negozio che ha ricevuto la mail: ${casella?.nome || mail.casella_id}.`,
+    `Conoscenza del negozio:\n${conoscenza?.testo || 'nessuna'}`,
+    correzioni?.length ? `Correzioni del team:\n${correzioni.map(c => `- ${c.azione === 'scarta' ? 'SPAM' : 'VERA'}: ${c.esempio}`).join('\n')}` : '',
+    regola?.azione === 'task' ? 'Il team ha indicato che questo mittente è reale: non scartare la mail.' : '',
+    memoria ? `Cosa sappiamo già del cliente (da mail precedenti):\n${JSON.stringify({
+      telefono: memoria.telefono, campanello: memoria.campanello, indirizzo_indicato: memoria.indirizzo,
+      note: (memoria.note || []).map((n: Row) => `${String(n.at).slice(0, 10)}: ${n.testo}`),
+    }, null, 1)}` : '',
+    `Ordini trovati:\n${ordini.length ? JSON.stringify(ordini.map(o => perClaude(o, mittente, negozi, spedizioni)), null, 1) : 'nessuno'}`,
+    precedenti?.length ? `Mail precedenti dello stesso mittente:\n${precedenti.map(p => `[${String(p.ricevuto_at).slice(0, 10)}] ${p.oggetto || ''}: ${(p.testo || '').slice(0, 500)}`).join('\n')}` : '',
+    mail.testo_citato ? `Mail precedenti citate sotto questa risposta (solo per contesto, non è testo nuovo):\n${String(mail.testo_citato).slice(0, 3000)}` : '',
+    `<mail>\nDa: ${mail.da_nome || ''} <${mail.da_email || ''}>\nOggetto: ${mail.oggetto || '(senza oggetto)'}\nAllegati: ${(mail.allegati || []).map((a: Row) => a.nome).join(', ') || 'nessuno'}\n\n${(mail.testo || '(mail senza testo)').slice(0, MAX_TESTO)}\n</mail>`,
+  ].filter(Boolean).join('\n\n');
+
+  return { contesto, memoria, ordini, precedenti, tracciate, fermate };
+}
+
 const chiudi = (db: SupabaseClient, id: string, esito: string, taskId: string | null = null) =>
   db.from('eventi').update({ elaborato_at: new Date().toISOString(), in_elaborazione_at: null, esito: esito.slice(0, 500), task_id: taskId }).eq('id', id);
 
@@ -386,43 +462,15 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       return { evento: evento.id, esito: 'scartata', categoria: 'regola' };
     }
 
-    const { data: memoria } = mittente ? await db.from('clienti_memoria').select('*').eq('email', mittente).maybeSingle() : { data: null };
-    const ordini = await cercaOrdini(db, mail);
-    await aggiungiTempi(db, ordini);
-    const { data: precedenti } = await db.from('mail_messaggi').select('oggetto, testo, ricevuto_at, direzione')
-      .eq('casella_id', mail.casella_id).eq('da_email', mittente).neq('id', mail.id)
-      .lt('ricevuto_at', mail.ricevuto_at).order('ricevuto_at', { ascending: false }).limit(3);
+    const { contesto, memoria, ordini, precedenti, tracciate, fermate } = await preparaContesto(db, mail, casella, negozi, regola);
+    const filtro = regola?.azione === 'task' ? null : await inutile(db, mail, mittente, ordini);
+    if (filtro) {
+      await chiudi(db, evento.id, `Scartata (filtro): ${filtro}`);
+      return { evento: evento.id, esito: 'scartata', categoria: 'filtro' };
+    }
 
-    // Stato vero della spedizione dallo storico GLS: lo stato di Shopify spesso non si aggiorna
-    const { data: tracciate } = ordini.length
-      ? await db.from('spedizioni_tracking').select('ordine_id, numero, cliente_gls, stato, problema, ultimo_evento, ultimo_at, consegnata_at, eventi').in('ordine_id', ordini.map(o => o.id))
-      : { data: [] };
-    const fermate = (tracciate || []).filter((t: Row) => t.problema && GIACENZE.has(t.problema));
-    const spedizioni = new Map((tracciate || []).map((t: Row) => [t.ordine_id, {
-      stato: t.stato, problema: t.problema, ultimo_stato_gls: t.ultimo_evento, quando: t.ultimo_at, consegnata_il: t.consegnata_at,
-    }]));
-
-    const [{ data: conoscenza }, { data: correzioni }] = await Promise.all([
-      db.from('negozi_conoscenza').select('testo').eq('store_id', storeId).maybeSingle(),
-      db.from('mail_regole').select('azione, esempio').not('esempio', 'is', null).order('created_at', { ascending: false }).limit(15),
-    ]);
-
-    const contesto = [
-      `Oggi è ${oggiRoma()}. Negozio che ha ricevuto la mail: ${casella?.nome || mail.casella_id}.`,
-      `Conoscenza del negozio:\n${conoscenza?.testo || 'nessuna'}`,
-      correzioni?.length ? `Correzioni del team:\n${correzioni.map(c => `- ${c.azione === 'scarta' ? 'SPAM' : 'VERA'}: ${c.esempio}`).join('\n')}` : '',
-      regola?.azione === 'task' ? 'Il team ha indicato che questo mittente è reale: non scartare la mail.' : '',
-      memoria ? `Cosa sappiamo già del cliente (da mail precedenti):\n${JSON.stringify({
-        telefono: memoria.telefono, campanello: memoria.campanello, indirizzo_indicato: memoria.indirizzo,
-        note: (memoria.note || []).map((n: Row) => `${String(n.at).slice(0, 10)}: ${n.testo}`),
-      }, null, 1)}` : '',
-      `Ordini trovati:\n${ordini.length ? JSON.stringify(ordini.map(o => perClaude(o, mittente, negozi, spedizioni)), null, 1) : 'nessuno'}`,
-      precedenti?.length ? `Mail precedenti dello stesso mittente:\n${precedenti.map(p => `[${String(p.ricevuto_at).slice(0, 10)}] ${p.oggetto || ''}: ${(p.testo || '').slice(0, 500)}`).join('\n')}` : '',
-      mail.testo_citato ? `Mail precedenti citate sotto questa risposta (solo per contesto, non è testo nuovo):\n${String(mail.testo_citato).slice(0, 3000)}` : '',
-      `<mail>\nDa: ${mail.da_nome || ''} <${mail.da_email || ''}>\nOggetto: ${mail.oggetto || '(senza oggetto)'}\nAllegati: ${(mail.allegati || []).map((a: Row) => a.nome).join(', ') || 'nessuno'}\n\n${(mail.testo || '(mail senza testo)').slice(0, MAX_TESTO)}\n</mail>`,
-    ].filter(Boolean).join('\n\n');
-
-    const a = await analizza(client, contesto);
+    const { dati: a, uso } = await analizza(client, contesto);
+    await db.from('cervello_consumi').insert({ ...uso, evento_id: evento.id, mail_id: mail.id });
 
     // Una bozza con parti da completare non è inviabile: meglio nessuna bozza
     if (SEGNAPOSTO.test(a.bozza || '')) {
@@ -492,6 +540,36 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
   }
 }
 
+// ── Prova di altri modelli (solo admin): rianalizza mail già gestite, salva in cervello_prove ──
+// Non crea task, non scrive ai clienti, non tocca memoria né ordini. Pochi per chiamata: si richiama finché "restano" è 0.
+const PROVA_PER_CHIAMATA = 8;
+async function prova(db: SupabaseClient, client: Anthropic, negozi: Map<string, string>, modelli: string[], n: number) {
+  const { data: eventi } = await db.from('eventi').select('id, payload, esito, elaborato_at').eq('fonte', 'mail').not('elaborato_at', 'is', null)
+    .or('esito.like.Task creato%,esito.like.Scartata (%,esito.like.Risposta automatica%').not('esito', 'like', 'Scartata (filtro)%')
+    .order('elaborato_at', { ascending: false }).limit(n);
+  const ids = (eventi || []).map((e: Row) => e.payload?.mail_id).filter(Boolean);
+  const { data: fatte } = await db.from('cervello_prove').select('mail_id, modello').in('mail_id', ids);
+  const giaFatte = new Set((fatte || []).map((f: Row) => `${f.mail_id}|${f.modello}`));
+  const daFare = (eventi || []).flatMap((e: Row) => modelli.filter(m => !giaFatte.has(`${e.payload?.mail_id}|${m}`)).map(m => ({ e, m })));
+  const giro = daFare.slice(0, PROVA_PER_CHIAMATA);
+  await Promise.all(giro.map(async ({ e, m }) => {
+    const inizio = Date.now();
+    try {
+      const { data: mail } = await db.from('mail_messaggi').select('*').eq('id', e.payload.mail_id).maybeSingle();
+      if (!mail) return;
+      const { data: casella } = await db.from('mail_caselle').select('*').eq('id', mail.casella_id).maybeSingle();
+      const { data: regola } = await db.from('mail_regole').select('azione').eq('mittente', (mail.da_email || '').toLowerCase()).maybeSingle();
+      const { contesto } = await preparaContesto(db, mail, casella, negozi, regola);
+      const { dati, uso } = await analizza(client, contesto, m);
+      await db.from('cervello_prove').insert({ mail_id: mail.id, evento_id: e.id, modello: m, risultato: dati, ms: Date.now() - inizio, ...uso });
+      await db.from('cervello_consumi').insert({ ...uso, evento_id: e.id, mail_id: mail.id, prova: true });
+    } catch (err) {
+      await db.from('cervello_prove').insert({ mail_id: e.payload.mail_id, evento_id: e.id, modello: m, errore: String(err instanceof Error ? err.message : err).slice(0, 300), ms: Date.now() - inizio });
+    }
+  }));
+  return { fatte: giro.length, restano: daFare.length - giro.length };
+}
+
 // ── Ingresso ──
 
 Deno.serve(async (req) => {
@@ -512,6 +590,15 @@ Deno.serve(async (req) => {
     if (!me?.is_admin) return fail('Solo gli admin possono avviare il cervello', 403);
   }
   if (!Deno.env.get('ANTHROPIC_API_KEY')) return fail('Manca la chiave ANTHROPIC_API_KEY su Supabase', 500);
+
+  const body = await req.json().catch(() => ({}));
+  if (body?.prova) {
+    const modelli = (body.prova.modelli || []).filter((m: string) => PREZZI[m]);
+    if (!modelli.length) return fail('Modelli non validi');
+    const { data: stores } = await db.from('shopify_stores').select('id, nome');
+    const negozi = new Map((stores || []).map(s => [s.id, s.nome]));
+    return reply({ success: true, ...(await prova(db, new Anthropic(), negozi, modelli, Math.min(Number(body.prova.n) || 50, 100))) });
+  }
 
   await applicaIndirizzi(db);
 

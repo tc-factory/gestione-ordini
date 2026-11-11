@@ -2784,13 +2784,15 @@ const AUTOMAZIONE_STATI = {
   in_corso: ['In corso', '#f59e0b'], ok: ['Riuscita', '#22c55e'], errore: ['Errore', '#ef4444'],
   saltato: ['Non lavorativo', '#94a3b8'], prova: ['Prova', '#6366f1'], interrotta: ['Interrotta', '#ef4444'],
 };
-const CtrlAuto = { righe: null, error: null, modi: {} };
+const CtrlAuto = { righe: null, error: null, modi: {}, consumi: [] };
 
 async function loadControlAutomations() {
-  const [{ data, error }, imp] = await Promise.all([
+  const [{ data, error }, imp, consumi] = await Promise.all([
     supabaseClient.from('automazione_esecuzioni').select('*').order('at', { ascending: false }).limit(100),
     supabaseClient.from('automazioni_impostazioni').select('nome, modo, aggiornato_at, aggiornato_da'),
+    supabaseClient.from('cervello_consumi').select('at, modello, costo_usd, prova').gte('at', new Date(Date.now() - 30 * 86400e3).toISOString()).limit(10000),
   ]);
+  CtrlAuto.consumi = consumi.error ? [] : (consumi.data || []);
   CtrlAuto.modi = Object.fromEntries((imp.data || []).map(r => [r.nome, r]));
   CtrlAuto.righe = data || [];
   CtrlAuto.error = error ? Ctrl._fail(error) : null;
@@ -2864,8 +2866,28 @@ function renderControlAutomations() {
       </summary>
       <pre>${escapeHtml(r.output || 'Nessun output.')}</pre>
     </details>`;
+  // Costo del cervello (Claude): chiamate vere, la prova dei modelli a parte
+  const costo = (giorni, prova = false) => {
+    const da = Date.now() - giorni * 86400e3;
+    const r = CtrlAuto.consumi.filter(c => !!c.prova === prova && new Date(c.at) >= da);
+    return { n: r.length, usd: r.reduce((t, c) => t + Number(c.costo_usd || 0), 0) };
+  };
+  const usd = (v) => `${v.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+  const c7 = costo(7), c30 = costo(30), cp = costo(30, true);
+  const giorniDati = CtrlAuto.consumi.length ? Math.max(1, (Date.now() - Math.min(...CtrlAuto.consumi.map(c => new Date(c.at)))) / 86400e3) : 0;
+  const cervello = `
+    <article class="glass-card ctrl-person">
+      <header><h3 style="text-transform:none;">Costo del cervello</h3></header>
+      <div class="ctrl-person-meta"><span>Claude, a consumo: una chiamata per mail analizzata</span></div>
+      ${CtrlAuto.consumi.length ? `
+        <div class="ctrl-person-now"><strong>${usd(c7.usd)}</strong> <span class="ctrl-cell-sub">ultimi 7 giorni · ${c7.n} mail</span></div>
+        <div class="ctrl-person-now"><strong>${usd(c30.usd)}</strong> <span class="ctrl-cell-sub">ultimi 30 giorni · ${c30.n} mail${c30.n ? ` · ${usd(c30.usd / c30.n)} a mail` : ''}</span></div>
+        ${giorniDati < 28 && c30.n ? `<small class="ctrl-cell-sub">Al mese, a questo ritmo: circa ${usd(c30.usd / giorniDati * 30)}</small>` : ''}
+        ${cp.n ? `<small class="ctrl-cell-sub">Prova dei modelli: ${usd(cp.usd)} (${cp.n} chiamate)</small>` : ''}`
+      : '<div class="ctrl-person-now"><span class="ctrl-idle">Nessun consumo registrato ancora</span></div>'}
+    </article>`;
   return `
-    <div class="ctrl-team">${Object.entries(AUTOMAZIONI).map(scheda).join('')}</div>
+    <div class="ctrl-team">${Object.entries(AUTOMAZIONI).map(scheda).join('')}${cervello}</div>
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Esecuzioni</h2><span class="table-count">${CtrlAuto.righe.length}</span>
         <span class="ctrl-group-hint">Le ultime 100. Clicca una riga per leggere l'output</span>
