@@ -136,7 +136,7 @@ returns table (ferma_dal timestamptz, prima_giacenza_at timestamptz, tentativi i
 language sql immutable as $$
   with ev as (select e, (e->>'at')::timestamptz at, e->>'codice' cod from jsonb_array_elements(coalesce(p_eventi, '[]')) e),
        altro as (select max(at) m from ev where cod is not null and cod not in ('66', '68', '69', '3', '6'))
-  select min(at) filter (where cod in ('66', '68', '69', '3', '6') and at > coalesce((select m from altro), '-infinity')),
+  select min(at) filter (where cod in ('66', '68', '69', '3', '6') and at >= coalesce((select m from altro), '-infinity')),
          min(at) filter (where cod in ('66', '68', '69', '3', '6')),
          (count(*) filter (where cod in ('1', '7')))::int,
          (count(distinct left(e->>'at', 10)) filter (where cod = '66'))::int
