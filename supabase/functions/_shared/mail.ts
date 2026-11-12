@@ -148,6 +148,10 @@ async function invia(db: SupabaseClient, casella: Row, m: Invio, firma: Firma) {
   const pass = Deno.env.get(`MAIL_PASSWORD_${casella.id.toUpperCase()}`);
   if (!pass) throw new Error(`Manca la password della casella ${casella.indirizzo}`);
   const messageId = `<${crypto.randomUUID()}@${casella.indirizzo.split('@')[1]}>`;
+  // Tempi di ogni passo, salvati nella riga della mail (mail_messaggi.invio) per capire cosa rallenta
+  let t = Date.now();
+  const ms: Record<string, number> = {};
+  const passo = (nome: string) => { ms[nome] = Date.now() - t; t = Date.now(); };
   const c = await componi(db, casella, m.testo, firma);
   m = { ...m, oggetto: casella.interna ? m.oggetto : senzaTcFactory(m.oggetto, casella.nome) };
 
@@ -169,16 +173,27 @@ async function invia(db: SupabaseClient, casella: Row, m: Invio, firma: Firma) {
     host: casella.smtp_host, port: 465, secure: true,
     auth: { user: casella.utente || casella.indirizzo, pass },   // utente: login diverso dall'indirizzo (info@tcfactory.it → riccardo@tcfactory.it)
   });
+  passo('preparazione');
   await smtp.sendMail({ envelope: { from: casella.indirizzo, to: m.a }, raw });
+  passo('smtp');
 
-  const inviata = await copiaInInviata(casella.imap_host, casella.utente || casella.indirizzo, pass, raw);
-
-  await db.from('mail_messaggi').insert({
+  const { data: riga } = await db.from('mail_messaggi').insert({
     casella_id: casella.id, direzione: 'out', message_id: messageId, in_reply_to: m.inReplyTo || null,
     riferimenti: m.riferimenti || null, da_email: casella.indirizzo, da_nome: casella.nome, a: m.a,
-    oggetto: m.oggetto, ricevuto_at: new Date().toISOString(), testo: c.testo,
+    oggetto: m.oggetto, ricevuto_at: new Date().toISOString(), testo: c.testo, invio: { ms },
+  }).select('id').maybeSingle();
+  passo('salvataggio');
+
+  // La mail è partita: la copia in Inviata (IMAP) si fa dopo aver risposto, così chi invia non aspetta
+  const copia = copiaInInviata(casella.imap_host, casella.utente || casella.indirizzo, pass, raw).then(async ok => {
+    passo('copia_inviata');
+    if (riga?.id) await db.from('mail_messaggi').update({ invio: { ms, copia_in_inviata: ok } }).eq('id', riga.id);
+    if (!ok) console.error('Copia in Inviata non riuscita', casella.indirizzo, messageId);
   });
-  return { copia_in_inviata: inviata, testo: c.testo };
+  // deno-lint-ignore no-explicit-any
+  const runtime = (globalThis as any).EdgeRuntime;
+  if (runtime?.waitUntil) runtime.waitUntil(copia); else await copia;
+  return { copia_in_inviata: null as boolean | null, testo: c.testo };
 }
 
 // Risposta nella stessa conversazione del cliente

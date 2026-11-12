@@ -1044,7 +1044,7 @@ async function sendTaskReply(id) {
     }
     if (!data?.success) throw new Error(data?.error || 'Invio non riuscito');
     closeModal(CTRL_MODAL);
-    showToast(data.copia_in_inviata ? 'Risposta inviata' : 'Risposta inviata (copia in Inviata non riuscita)');
+    showToast(data.copia_in_inviata !== false ? 'Risposta inviata' : 'Risposta inviata (copia in Inviata non riuscita)');
     await Ctrl.load();
     refreshControlPage();
     Ctrl.loadBadge();

@@ -912,7 +912,7 @@ async function sendMailReply() {
       throw new Error(dett?.error || error.message || 'Invio non riuscito');
     }
     if (!data?.success) throw new Error(data?.error || 'Invio non riuscito');
-    showToast(data.copia_in_inviata ? 'Risposta inviata' : 'Risposta inviata (copia in Inviata non riuscita)');
+    showToast(data.copia_in_inviata !== false ? 'Risposta inviata' : 'Risposta inviata (copia in Inviata non riuscita)');
     MailBox.bozza = '';
     MailBox.invio = false;
     if (data.task_completati && window.Ctrl?.loadBadge) Ctrl.loadBadge();
@@ -1135,7 +1135,7 @@ async function sendMailCompose() {
     }
     if (!data?.success) throw new Error(data?.error || 'Invio non riuscito');
     closeModal('mail-modal');
-    showToast(data.copia_in_inviata ? 'Mail inviata' : 'Mail inviata (copia in Inviata non riuscita)');
+    showToast(data.copia_in_inviata !== false ? 'Mail inviata' : 'Mail inviata (copia in Inviata non riuscita)');
     if (Nav.current === 'mail') { await MailBox.loadLista().catch(() => {}); renderMailList(); }
     if (MailNuova.richiesta && typeof loadRichiesteDati === 'function') loadRichiesteDati();
     if (MailNuova.bozza) await MailBozze.load();
