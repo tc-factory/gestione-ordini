@@ -18,7 +18,7 @@ import { inviaNuova } from '../_shared/mail.ts';
 const PER_GIRO = 120;
 const PAUSA_MS = 300;              // una richiesta alla volta, per non pesare sul sito GLS
 const GIORNI_RITARDO = 3;          // giorni lavorativi dalla spedizione oltre i quali è un ritardo (sabato, domenica e festivi esclusi: li conta il database)
-const TIME_BUDGET_MS = 110_000;
+const TIME_BUDGET_MS = 90_000;     // poi altri 30 secondi per le spedizioni senza ordine Shopify
 // Codici cliente GLS del webservice XML (2067 T&C Factory, 5456 Bien Jugado). Le spedizioni fatte da altri conti GLS non le trova.
 const CLIENTI_GLS = ['2067', '5456'];
 
@@ -36,6 +36,7 @@ const fail = (error: string, status = 400) => reply({ success: false, error }, s
 const PROBLEMI: { re: RegExp; label: string; priorita: string; fare: string }[] = [
   { re: /incorrect address|indirizzo errato/i, label: 'Indirizzo errato', priorita: 'urgente', fare: 'Chiedi al cliente l\'indirizzo corretto e comunicalo a GLS per la riconsegna.' },
   { re: /returned the shipment to the sender|restituito la spedizione al mittente/i, label: 'Rientro al mittente', priorita: 'urgente', fare: 'Il pacco sta tornando da noi. Avvisa il cliente e concorda una nuova spedizione o il rimborso.' },
+  { re: /closed for holiday|chiuso per ferie/i, label: 'Destinatario chiuso per ferie', priorita: 'alta', fare: 'GLS riconsegna da sola alla riapertura (la data è nel tracking). Se il cliente vuole il pacco prima, dai istruzioni a GLS.' },
   { re: /in storage at GLS Depot|awaiting instructions|in giacenza|attesa di istruzioni/i, label: 'Giacenza in deposito GLS', priorita: 'urgente', fare: 'Contatta il cliente, poi comunica a GLS come procedere con la riconsegna.' },
   { re: /unable to deliver.*second attempt|secondo tentativo di consegna/i, label: 'Seconda consegna non riuscita', priorita: 'urgente', fare: 'Contatta il cliente e concorda con GLS una nuova consegna.' },
   { re: /unable to deliver.*first attempt|primo tentativo di consegna/i, label: 'Prima consegna non riuscita', priorita: 'alta', fare: 'GLS riprova il giorno lavorativo dopo. Avvisa il cliente di farsi trovare.' },
@@ -58,6 +59,7 @@ const TRADUZIONI: [RegExp, string][] = [
   [/^delivered|^consegnata/i, 'Consegnata'],
   [/incorrect address|indirizzo errato/i, 'Indirizzo errato: GLS aspetta istruzioni'],
   [/returned the shipment to the sender|restituito la spedizione al mittente/i, 'Pacco rimandato al mittente'],
+  [/closed for holiday|chiuso per ferie/i, 'Destinatario chiuso per ferie: riconsegna alla riapertura'],
   [/in storage at GLS Depot|awaiting instructions|in giacenza|attesa di istruzioni/i, 'In giacenza nel deposito GLS, in attesa di istruzioni'],
   [/unable to deliver.*second attempt|secondo tentativo di consegna/i, 'Seconda consegna non riuscita'],
   [/unable to deliver.*first attempt|primo tentativo di consegna/i, 'Prima consegna non riuscita, nuovo tentativo il giorno lavorativo dopo'],
@@ -285,6 +287,12 @@ async function statoContatto(db: SupabaseClient, s: Row) {
 
 const fmtGiorno = (iso: string) => new Date(iso).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit' });
 
+// Dopo uno svincolo GLS ripete l'evento "giacenza" ogni giorno finché il deposito non lavora le
+// istruzioni: il pacco è di nuovo fermo solo se dopo lo svincolo c'è stato altro (in consegna, tentativo…)
+function ripartitaDopo(eventi: Evento[] | null, svAt: Date) {
+  return (eventi || []).some(e => new Date(e.at) > svAt && (e.codice ? String(e.codice) !== '66' : !/giacenza|storage|istruzioni|instructions/i.test(e.stato)));
+}
+
 async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Evento[] | null, tipoId: string | null, avviso: Row | null, dest: Row | null) {
   const chiave = `consegna:${s.ordine_id}`;
   const { data: aperto } = await db.from('tasks').select('id, priorita').eq('fonte_rif->>evento_id', chiave).not('stato', 'in', '(completato,non_completato)').maybeSingle();
@@ -299,12 +307,12 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
   // Finché non c'è un evento nuovo dopo lo svincolo non c'è niente da fare; se c'è ed è ancora
   // fermo, il task (chiuso dallo svincolo) si riapre.
   const svAt = avviso?.svincolata_at ? new Date(avviso.svincolata_at) : null;
-  const ultimoAt = eventi?.[0]?.at ? new Date(eventi[0].at) : null;
-  if (svAt && esito.stato === 'problema' && (!ultimoAt || ultimoAt <= svAt)) {
+  const ripartita = !!svAt && ripartitaDopo(eventi, svAt);
+  if (svAt && esito.stato === 'problema' && !ripartita) {
     if (aperto) await db.from('tasks').update({ stato: 'completato', motivo: `Chiuso da solo: svincolata il ${fmtGiorno(avviso.svincolata_at)}, si aspetta che GLS riparta` }).eq('id', aperto.id);
     return;
   }
-  const diNuovo = !!svAt && !!ultimoAt && ultimoAt > svAt;
+  const diNuovo = ripartita;
 
   const fermo = DA_AVVISARE.has(esito.problema);
   const contatto = fermo ? await statoContatto(db, s) : null;
@@ -380,6 +388,70 @@ async function chiudiTaskMail(db: SupabaseClient, s: Row, esito: Row, eventi: Ev
   return chiusi;
 }
 
+// ── Tutte le spedizioni del conto GLS (labelservice ListSpedPeriod), anche senza ordine Shopify ──
+const CONTI_GLS: Record<string, string> = { '2067': 'GLS_TCFACTORY', '5456': 'GLS_BIENJUGADO' };
+const ESTERNE_GIORNI = 30;
+const dataGls = (d: Date) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }).replaceAll('-', '');
+
+async function elencoGls(db: SupabaseClient) {
+  const dal = dataGls(new Date(Date.now() - ESTERNE_GIORNI * 86_400_000)), al = dataGls(new Date(Date.now() + 86_400_000));
+  const trovate: Row[] = [];
+  for (const [cli, p] of Object.entries(CONTI_GLS)) {
+    const pass = Deno.env.get(`${p}_PASSWORD`);
+    if (!pass) continue;
+    const sede = Deno.env.get(`${p}_SEDE`) || 'LU';
+    const res = await fetch('https://labelservice.gls-italy.com/ilswebservice.asmx/ListSpedPeriod', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ SedeGls: sede, CodiceClienteGls: Deno.env.get(`${p}_CLIENTE`) || cli, PasswordClienteGls: pass, DataInizio: dal, DataFine: al }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const xml = await res.text();
+    for (const [, blocco] of xml.matchAll(/<Parcel>([\s\S]*?)<\/Parcel>/g)) {
+      const c = (t: string) => (blocco.match(new RegExp(`<${t}>([^<]*)</${t}>`))?.[1] || '').replace(/&amp;/g, '&').trim();
+      if (/attesa di chiusura/i.test(c('StatoSpedizione'))) continue;   // non ancora partita
+      const d = c('Data').match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/);
+      trovate.push({
+        numero: `${sede}${c('NumSpedizione')}`, cliente_gls: cli, riferimento: c('RiferimentiCliente') || null, ddt: c('Ddt') || null,
+        spedita_at: d ? `${d[3]}-${d[2]}-${d[1]}T${d[4]}:${d[5]}:00+01:00` : null,
+        destinatario: c('DenominazioneDestinatario') || null, indirizzo: c('IndirizzoDestinatario') || null,
+        citta: c('CittaDestinatario') || null, provincia: c('ProvinciaDestinatario') || null,
+      });
+    }
+  }
+  if (!trovate.length) return 0;
+  const { data: noti } = await db.rpc('_tc_numeri_noti', { p_numeri: trovate.map(t => t.numero) });
+  const conOrdine = new Set((noti || []).map((n: Row) => typeof n === 'string' ? n : Object.values(n)[0]));
+  const nuove = trovate.filter(t => !conOrdine.has(t.numero) && t.spedita_at);
+  for (let i = 0; i < nuove.length; i += 200) {
+    const { error } = await db.from('spedizioni_esterne').upsert(nuove.slice(i, i + 200).map(t => ({ ...t, visto_at: new Date().toISOString() })), { onConflict: 'numero' });
+    if (error) throw new Error(`Spedizioni esterne: ${error.message}`);
+  }
+  // Se nel frattempo l'ordine Shopify ha preso il tracking, la spedizione la segue l'ordine
+  if (conOrdine.size) await db.from('spedizioni_esterne').delete().in('numero', [...conOrdine]);
+  return nuove.length;
+}
+
+async function controllaEsterne(db: SupabaseClient, fine: number) {
+  const { data: lista } = await db.rpc('_tc_esterne_da_controllare', { p_n: 200 });
+  let n = 0;
+  for (const s of (lista || []) as Row[]) {
+    if (Date.now() > fine) break;
+    let eventi: Evento[] | null = null, dest: Row | null = null;
+    try { ({ eventi, dest } = await leggiStorico(s.numero)); }
+    catch (e) { console.error('Tracking esterna', s.numero, e); continue; }
+    const esito = classifica(eventi, s.giorni_lav || 0, s.giorni_testo || '');
+    const ultimo = eventi?.[0];
+    await db.from('spedizioni_esterne').update({
+      stato: esito.stato, problema: esito.problema, ultimo_evento: ultimo ? inItaliano(ultimo.stato) : null, ultimo_at: ultimo?.at || null,
+      eventi: eventi || [], consegnata_at: esito.stato === 'consegnata' ? ultimo?.at : null, controllata_at: new Date().toISOString(),
+      ...(dest?.sede ? { deposito: deposito(dest, eventi) } : {}),
+    }).eq('numero', s.numero);
+    n++;
+    await new Promise(r => setTimeout(r, PAUSA_MS));
+  }
+  return n;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return fail('Metodo non consentito', 405);
@@ -427,6 +499,11 @@ Deno.serve(async (req) => {
     await new Promise(r => setTimeout(r, PAUSA_MS));
   }
 
+  // Spedizioni del conto GLS senza ordine Shopify: elenco aggiornato, poi tracking col tempo che resta
+  let esterne = 0, esterneControllate = 0;
+  try { esterne = await elencoGls(db); } catch (e) { console.error('Elenco GLS', e); }
+  try { esterneControllate = await controllaEsterne(db, fine + 30_000); } catch (e) { console.error('Esterne', e); }
+
   // Registro delle automazioni: una riga solo per i giri che hanno scritto a qualcuno
   if (avvisi.length) {
     const errori = avvisi.filter(a => a.esito === 'errore');
@@ -436,5 +513,5 @@ Deno.serve(async (req) => {
       output: avvisi.map(a => `${a.ordine} (${a.negozio}) · ${a.problema} · ${a.a} · ${a.esito}${a.errore ? `: ${a.errore}` : ''}`).join('\n'),
     });
   }
-  return reply({ success: true, conteggio, avvisi: avvisi.length });
+  return reply({ success: true, conteggio, avvisi: avvisi.length, esterne, esterne_controllate: esterneControllate });
 });
