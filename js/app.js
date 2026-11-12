@@ -1451,6 +1451,7 @@ function modPanelHtml(g) {
           ${prev ? `<span class="prev-badge">Da approvare · non ordinare</span>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
+          <button type="button" class="btn btn-secondary btn-sm" title="Riordina le righe per fornitore, codice, colore e taglia" onclick="event.stopPropagation();sortModRows(${g})">⇅ Riordina</button>
           ${prev
             ? `<button type="button" class="btn btn-sm mod-prev-approve" title="Il cliente ha approvato: le righe diventano da ordinare" onclick="event.stopPropagation();toggleFormPreventivo(${g})">✓ Approva</button>`
             : `<button type="button" class="btn btn-secondary btn-sm" title="Trasforma in preventivo: le righe non si ordinano fino all'approvazione" onclick="event.stopPropagation();toggleFormPreventivo(${g})">📝 Preventivo</button>`}
@@ -2054,6 +2055,36 @@ function updateModuleTotals() {
   }
   ofUpdateSaldo();
 }
+// Riordina le righe di un modulo: fornitore, poi codice, colore e taglia (XS, S, M… non in ordine alfabetico).
+// Le righe vuote vanno in fondo; le righe degli altri moduli restano dove sono.
+function modTgRank(tg) {
+  let t = String(tg || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!t) return [2, 0, ''];
+  t = t.replace(/^XXXXXL$/, '5XL').replace(/^XXXXL$/, '4XL').replace(/^XXXL$/, '3XL').replace(/^2XL$/, 'XXL').replace(/^2XS$/, 'XXS');
+  const i = MOD_TAGLIE.indexOf(t);
+  if (i >= 0) return [1, i, ''];
+  const n = parseFloat(t);                       // taglie bambino o numeriche (3/4, 116, 42…) prima delle lettere
+  if (!isNaN(n)) return [0, n, t];
+  return [3, 0, t];
+}
+function sortModRows(g) {
+  const cmpTxt = (a, b) => String(a || '').trim().localeCompare(String(b || '').trim(), 'it', { numeric: true, sensitivity: 'base' });
+  const vuota = (r) => !(r.catalogo || r.codice || r.descrizione || r.colore || r.tg || r.qnt);
+  const cmp = (a, b) => {
+    if (vuota(a) !== vuota(b)) return vuota(a) ? 1 : -1;
+    const c = cmpTxt(a.catalogo, b.catalogo) || cmpTxt(a.codice, b.codice) || cmpTxt(a.colore, b.colore);
+    if (c) return c;
+    const ta = modTgRank(a.tg), tb = modTgRank(b.tg);
+    return ta[0] - tb[0] || ta[1] - tb[1] || cmpTxt(ta[2], tb[2]);
+  };
+  const rows = AppState.formModuleRows;
+  const pos = rows.map((r, i) => i).filter(i => modGroup(rows[i]) === g);
+  if (pos.length < 2) return;
+  const sorted = pos.map(i => rows[i]).sort(cmp);
+  pos.forEach((i, k) => { rows[i] = sorted[k]; });
+  renderModuleRows();
+}
+
 function addModRow(g = 0) {
   const row = { catalogo:'', codice:'', colore:'', qnt:'', tg:'', prezzo:'', ordinato:false, interna:'', esterna:'', lavEsterna:false, neutro:false };
   if (g) row.integrazione = g;
