@@ -330,6 +330,10 @@ html .ctrl-skill-people .ctrl-btn.is-secondary { background: transparent; box-sh
 .td-sv-f.is-wide { grid-column: 1 / -1; }
 .td-svincolo:not([data-scelta="altro_indirizzo"]) .is-addr { display: none; }
 .td-svincolo .td-reply-actions { margin-top: 10px; }
+.td-sv-dep { margin-top: 10px; font-size: 0.84rem; }
+.td-sv-dep > span { display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); margin-bottom: 2px; }
+.td-sv-dep .td-todo { margin: 6px 0 0; }
+.td-svincolo:not([data-scelta="ritiro_sede"]) .td-sv-dep { display: none; }
 
 .td-box { padding: 12px 14px; border-radius: 16px; background: var(--fill-hover); }
 .td-box h3 { margin: 0; font-size: 0.86rem; font-weight: 700; }
