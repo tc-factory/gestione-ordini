@@ -1122,7 +1122,7 @@ function renderSvDeposito(d) {
   return `<div class="td-sv-dep">
     <span>Deposito GLS</span>
     <strong>GLS ${escapeHtml(d.sede)}</strong> · ${ind}${tel}
-    ${d.coincide === false && d.luogo_eventi ? `<p class="td-todo is-advice">Il pacco risulta a <strong>${escapeHtml(d.luogo_eventi)}</strong>, non a ${escapeHtml(d.sede)}: probabilmente è in un punto GLS di ${escapeHtml(d.luogo_eventi)}. Chiama la sede per avere l'indirizzo esatto prima di darlo al cliente.</p>` : ''}
+    ${d.coincide === false && d.luogo_eventi ? `<p class="td-small">Gli ultimi eventi sono a ${escapeHtml(d.luogo_eventi)}: GLS li registra col paese del corriere, il deposito di solito è questo. Se hai dubbi sul punto di ritiro, chiama la sede.</p>` : ''}
   </div>`;
 }
 
@@ -2268,6 +2268,81 @@ function renderGlsRow(c, { ritardo = false, conFare = true } = {}) {
     </article>`;
 }
 
+// Giacenze: in evidenza in cima, una scheda per pacco con tutto quello che serve per gestirlo
+const GIACENZE = ['Giacenza in deposito GLS', 'Indirizzo errato'];
+const glsGiorno = (iso) => iso ? new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Rome' }) : '';
+const telLink = (t) => t ? `<a class="ctrl-link" href="tel:${escapeHtml(String(t).replace(/[^\d+]/g, ''))}">${escapeHtml(t)}</a>` : '';
+
+function giacenzaStato(c) {
+  if (c.svincolata) return { id: 'svincolata', label: `Svincolata il ${glsGiorno(c.svincolata_at)}${c.svincolo_tipo ? ` · ${c.svincolo_tipo}` : ''}`, nota: 'Istruzioni già mandate a GLS: si aspetta che il deposito rimetta in consegna il pacco. Se si ferma di nuovo torna da gestire.' };
+  if (c.di_nuovo_ferma) return { id: 'nuova', label: `Di nuovo ferma dopo lo svincolo del ${glsGiorno(c.svincolata_at)}` };
+  if (c.task_svincolo_id) return { id: 'istruzioni', label: 'Il cliente ha risposto: istruzioni GLS da mandare' };
+  return { id: 'gestire', label: 'Da gestire' };
+}
+
+function giacenzaContatto(c) {
+  const k = c.contatto;
+  if (k?.stato === 'risposto') return `<strong>Ha risposto il ${glsGiorno(k.risposta_at)}</strong>`;
+  if (k?.stato === 'chiamare') return `<strong class="gz-red">Da chiamare</strong><small>${k.mail_n} ${k.mail_n === 1 ? 'mail' : 'mail'} senza risposta, l'ultima il ${glsGiorno(k.ultima_mail_at)}</small>`;
+  if (k?.stato === 'in_attesa') return `<strong>Mail inviata il ${glsGiorno(k.ultima_mail_at)}</strong><small>In attesa di risposta</small>`;
+  if (k?.stato === 'senza_email') return `<strong class="gz-red">Senza email: va chiamato</strong>`;
+  if (c.avviso_cliente_esito === 'inviata') return `<strong>Avviso inviato il ${glsGiorno(c.avviso_cliente_at)}</strong>`;
+  if (c.avviso_cliente_esito?.startsWith('errore')) return `<strong class="gz-red">Avviso non partito</strong><small>${escapeHtml(c.avviso_cliente_esito)}</small>`;
+  return `<strong class="gz-red">Non ancora contattato</strong>`;
+}
+
+function renderGiacenza(c) {
+  const st = giacenzaStato(c);
+  const ind = c.indirizzo || {};
+  const d = c.deposito;
+  const indDep = d ? [d.indirizzo, [d.cap, d.sede].filter(Boolean).join(' ') + (d.provincia ? ` (${d.provincia})` : '')].filter(Boolean).join(', ') : '';
+  const ripetuta = (c.giacenze_n || 0) > 1 ? `${c.giacenze_n}ª giacenza, la prima il ${glsGiorno(c.prima_giacenza_at)}` : '';
+  const tentativi = c.tentativi ? `${c.tentativi} ${c.tentativi === 1 ? 'tentativo fallito' : 'tentativi falliti'}` : '';
+  const ultimo = (c.eventi || [])[0];
+  return `
+    <article class="gz-card is-${st.id}">
+      <header class="gz-head">
+        <div class="gz-who">
+          <strong><span class="ctrl-num">${escapeHtml(c.ordine || '')}</span> · ${escapeHtml(c.cliente || 'Cliente senza nome')}</strong>
+          <small class="ctrl-macro-tag" style="--m:${taskMacro(c.store_id)?.color || '#94a3b8'};">${ctrlDot(c.store_id)} ${escapeHtml(shopNome(c.store_id))}</small>
+        </div>
+        <span class="gz-tipo">${escapeHtml(c.problema)}</span>
+        <span class="gz-stato">${escapeHtml(st.label)}</span>
+      </header>
+      <div class="gz-grid">
+        <div class="gz-f"><span>Ferma</span>
+          <strong>${c.ferma_dal ? `dal ${glsGiorno(c.ferma_dal)} · ${escapeHtml(c.ferma_testo || '')}` : '—'}</strong>
+          ${ripetuta || tentativi ? `<small>${[ripetuta, tentativi].filter(Boolean).join(' · ')}</small>` : ''}
+          ${c.giorni_testo ? `<small>Spedita da ${escapeHtml(c.giorni_testo)}</small>` : ''}
+        </div>
+        <div class="gz-f"><span>Ultimo evento GLS</span>
+          <strong>${escapeHtml(c.ultimo_evento || ultimo?.stato || '—')}</strong>
+          ${c.ultimo_at ? `<small>${ctrlQuandoBreve(c.ultimo_at)}${ultimo?.luogo ? ` · ${escapeHtml(ultimo.luogo)}` : ''}</small>` : ''}
+        </div>
+        <div class="gz-f"><span>Cliente</span>
+          ${c.telefono ? `<strong>${telLink(c.telefono)}</strong>` : c.contatto?.telefono ? `<strong>${telLink(c.contatto.telefono)}</strong>` : '<strong class="gz-red">Senza telefono</strong>'}
+          ${c.email ? `<a class="ctrl-link" href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>` : ''}
+          ${ind.via ? `<small>${escapeHtml(ind.via)}, ${escapeHtml([ind.cap, ind.citta].filter(Boolean).join(' '))}${ind.provincia ? ` (${escapeHtml(ind.provincia)})` : ''}</small>` : ''}
+        </div>
+        <div class="gz-f"><span>Contatto col cliente</span>${giacenzaContatto(c)}</div>
+        <div class="gz-f"><span>Deposito GLS</span>
+          ${d?.sede ? `<strong>GLS ${escapeHtml(d.sede)}${d.telefono ? ` · ${telLink(d.telefono)}` : ''}</strong>
+            <small>${escapeHtml(indDep)}</small>
+            ${d.coincide === false && d.luogo_eventi ? `<small>Ultimi eventi a ${escapeHtml(d.luogo_eventi)}: per il ritiro conferma il punto con la sede</small>` : ''}` : '<small>Non ancora letto da GLS</small>'}
+        </div>
+      </div>
+      ${st.nota ? `<p class="gz-nota">${escapeHtml(st.nota)}</p>` : !st.nota && c.fare && st.id !== 'istruzioni' ? `<p class="gz-nota"><strong>Da fare:</strong> ${escapeHtml(c.fare)}</p>` : ''}
+      <footer class="gz-foot">
+        ${(c.eventi || []).length ? `<details class="gz-ev"><summary>Ultimi eventi GLS</summary><ol>${c.eventi.map(e => `<li><strong>${escapeHtml(e.stato)}</strong><small>${ctrlQuandoBreve(e.at)}${e.luogo ? ` · ${escapeHtml(e.luogo)}` : ''}</small></li>`).join('')}</ol></details>` : '<span></span>'}
+        <div class="gz-act">
+          ${c.task_svincolo_id && Ctrl.get(c.task_svincolo_id) ? `<button class="ctrl-btn is-primary" type="button" onclick="openTaskDetail('${c.task_svincolo_id}')">${Icons.truck(14)} Istruzioni GLS</button>` : ''}
+          ${c.task_id && Ctrl.get(c.task_id) ? `<button class="ctrl-btn ${c.task_svincolo_id ? '' : 'is-primary'}" type="button" onclick="openTaskDetail('${c.task_id}')">Apri task</button>` : ''}
+          <a class="ctrl-btn" href="${escapeHtml(glsUrl(c.numero))}" target="_blank" rel="noopener" title="Tracking GLS">${Icons.truck(14)} ${escapeHtml(c.numero)}</a>
+        </div>
+      </footer>
+    </article>`;
+}
+
 function renderControlGls() {
   const head = (n) => `<div class="page-card-head"><h2>Spedizioni da seguire</h2>${n != null ? `<span class="table-count">${n}</span>` : ''}
     <span class="ctrl-group-hint">Tracking GLS controllato ogni ora, dalle 7 alle 17</span></div>`;
@@ -2276,12 +2351,16 @@ function renderControlGls() {
 
   const tutte = ShopLinks.consegne;
   const list = ShopLinks.negozioGls ? tutte.filter(c => c.store_id === ShopLinks.negozioGls) : tutte;
-  // Svincolate: istruzioni già mandate a GLS, che mostra ancora la giacenza finché il pacco non riparte
-  const svincolate = list.filter(c => c.stato === 'problema' && c.svincolata);
-  const problemi = list.filter(c => c.stato === 'problema' && !c.svincolata);
-  const ritardi = list.filter(c => c.stato === 'ritardo');
+  const ordine = { nuova: 0, gestire: 1, istruzioni: 2, svincolata: 3 };
+  const giacenze = list.filter(c => GIACENZE.includes(c.problema))
+    .sort((a, b) => ordine[giacenzaStato(a).id] - ordine[giacenzaStato(b).id] || String(a.ferma_dal).localeCompare(String(b.ferma_dal)));
+  const altre = list.filter(c => !GIACENZE.includes(c.problema));
+  const daGestire = giacenze.filter(c => giacenzaStato(c).id !== 'svincolata').length;
 
-  // I problemi uguali stanno insieme: titolo e "da fare" si scrivono una volta sola
+  // Il resto: problemi uguali insieme, poi ritardi e svincolate
+  const svincolate = altre.filter(c => c.stato === 'problema' && c.svincolata);
+  const problemi = altre.filter(c => c.stato === 'problema' && !c.svincolata);
+  const ritardi = altre.filter(c => c.stato === 'ritardo');
   const tipi = new Map();
   problemi.forEach(c => { const k = c.problema || 'Altro problema'; tipi.set(k, [...(tipi.get(k) || []), c]); });
   const gruppiProblemi = [...tipi.entries()].sort((a, b) => b[1].length - a[1].length);
@@ -2296,24 +2375,28 @@ function renderControlGls() {
       </div>
       <div class="ctrl-table">${colonne}${righe.map(c => renderGlsRow(c, { ritardo, conFare: !fareUnico })).join('')}</div>`;
   };
-  const conTask = list.filter(c => c.task_id && !c.svincolata).length;
   return `
-    <section class="glass-card page-card ctrl-group">
-      ${head(tutte.length)}
+    <section class="glass-card page-card ctrl-group gz-section">
+      <div class="page-card-head"><h2>Giacenze</h2><span class="table-count">${giacenze.length}</span>
+        <span class="ctrl-group-hint">${daGestire ? `${daGestire} da gestire` : 'Niente da gestire'}${giacenze.length - daGestire ? ` · ${giacenze.length - daGestire} svincolate, in attesa che GLS riparta` : ''}</span></div>
       ${ctrlStoreBar(ShopLinks.negozioGls, (id) => tutte.filter(c => c.store_id === id).length, tutte.length, 'Tutti', 'setGlsStore')}
-      ${list.length ? `
+      ${giacenze.length ? `<div class="gz-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${giacenze.map(renderGiacenza).join('')}</div>`
+        : `<div class="empty-list">Nessun pacco in giacenza.</div>`}
+    </section>
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Altre spedizioni da seguire</h2><span class="table-count">${altre.length}</span>
+        <span class="ctrl-group-hint">Consegne non riuscite, rientri, ritardi e tracking non attivi</span></div>
+      ${altre.length ? `
         <div class="ctrl-kpis">
           ${ctrlKpi('Problemi', problemi.length, problemi.length ? 'is-alert' : '')}
           ${ctrlKpi('Ritardi', ritardi.length, ritardi.length ? 'is-warn' : '')}
           ${svincolate.length ? ctrlKpi('Svincolate', svincolate.length) : ''}
-          ${ctrlKpi('Con un task aperto', conTask)}
-          ${ctrlKpi('Senza task', list.length - svincolate.length - conTask)}
         </div>
         <div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">
           ${gruppiProblemi.map(([titolo, righe]) => gruppo(titolo, righe, '#ef4444')).join('')}
           ${ritardi.length ? gruppo('Ritardi', ritardi, '#f59e0b', true) : ''}
-          ${svincolate.length ? gruppo('Svincolate, in attesa che GLS riparta', svincolate.map(c => ({ ...c, task_id: null, ultimo_evento: `Svincolata il ${ctrlQuandoBreve(c.svincolata_at)}${c.svincolo_tipo ? ` · ${c.svincolo_tipo}` : ''}`, fare: 'Niente: GLS mostra la giacenza finché il deposito non rimette in consegna il pacco. Se si ferma di nuovo, il task si riapre da solo.' })), '#64748b') : ''}
-        </div>` : `<div class="empty-list">Nessuna spedizione con ritardi o problemi.</div>`}
+          ${svincolate.length ? gruppo('Svincolate, in attesa che GLS riparta', svincolate.map(c => ({ ...c, task_id: null, ultimo_evento: `Svincolata il ${ctrlQuandoBreve(c.svincolata_at)}${c.svincolo_tipo ? ` · ${c.svincolo_tipo}` : ''}`, fare: 'Niente: GLS mostra il problema finché il deposito non rimette in consegna il pacco. Se si ferma di nuovo, il task si riapre da solo.' })), '#64748b') : ''}
+        </div>` : `<div class="empty-list">Nessun ritardo o altro problema.</div>`}
     </section>`;
 }
 

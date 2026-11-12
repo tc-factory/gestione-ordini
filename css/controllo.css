@@ -734,3 +734,42 @@ html.dark .is-task .td-tag { color: color-mix(in srgb, var(--c) 45%, #fff); }
 /* Memoria del cliente nel task */
 .td-memoria { margin-top: 10px; padding: 10px 14px; border-radius: 14px; background: var(--fill-hover); font-size: 0.86rem; }
 .td-memoria ul { margin: 6px 0 0; padding-left: 18px; }
+
+/* Giacenze GLS: una scheda per pacco, in cima alla scheda Spedizioni */
+.gz-section { margin-bottom: 16px; }
+.gz-list { display: flex; flex-direction: column; gap: 10px; padding: 4px 16px 16px; }
+.gz-card {
+  --gz: #ef4444;
+  padding: 14px 16px; border-radius: 16px; background: var(--fill-hover);
+  box-shadow: inset 4px 0 0 var(--gz); display: flex; flex-direction: column; gap: 12px;
+}
+.gz-card.is-nuova { --gz: #b91c1c; background: color-mix(in srgb, #ef4444 9%, var(--fill-hover)); }
+.gz-card.is-istruzioni { --gz: #f59e0b; }
+.gz-card.is-svincolata { --gz: #94a3b8; }
+.gz-card.is-svincolata .gz-grid { opacity: 0.8; }
+.gz-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.gz-who { display: flex; flex-direction: column; min-width: 0; margin-right: auto; }
+.gz-who strong { font-size: 0.95rem; }
+.gz-tipo, .gz-stato { padding: 3px 10px; border-radius: 999px; font-size: 0.74rem; font-weight: 700; white-space: nowrap; }
+.gz-tipo { background: color-mix(in srgb, #ef4444 14%, transparent); color: #b91c1c; }
+.gz-stato { background: color-mix(in srgb, var(--gz) 16%, transparent); color: var(--text-primary); }
+.gz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px 18px; }
+.gz-f { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 0.84rem; }
+.gz-f > span { font-size: 0.7rem; font-weight: 650; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-muted); }
+.gz-f strong { font-weight: 650; overflow-wrap: anywhere; }
+.gz-f small { font-size: 0.76rem; color: var(--text-muted); overflow-wrap: anywhere; }
+.gz-f a { overflow-wrap: anywhere; }
+.gz-red { color: #b91c1c !important; }
+.gz-nota { margin: 0; padding: 8px 12px; border-radius: 10px; font-size: 0.82rem; background: color-mix(in srgb, #f59e0b 12%, transparent); }
+.gz-card.is-svincolata .gz-nota { background: var(--fill-hover); color: var(--text-secondary); }
+.gz-foot { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.gz-act { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.gz-ev summary { cursor: pointer; font-size: 0.78rem; font-weight: 650; color: var(--text-muted); padding-top: 6px; }
+.gz-ev ol { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.gz-ev li { display: flex; flex-direction: column; font-size: 0.8rem; }
+.gz-ev li small { color: var(--text-muted); font-size: 0.74rem; }
+@media (max-width: 640px) {
+  .gz-list { padding-inline: 10px; }
+  .gz-act { margin-left: 0; }
+}
+html.dark .gz-tipo, html.dark .gz-red { color: #fca5a5 !important; }
