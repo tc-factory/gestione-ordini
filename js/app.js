@@ -2317,8 +2317,13 @@ async function submitOrderForm() {
     saved = true;
     ofPendingFromPhoto(payload.orderModule.rows, orderId);
   } catch(e) {
-    showToast('Errore durante il salvataggio — riprova', 'error');
     console.error('[submit]', e);
+    showToast('Ordine non salvato: ' + ofSaveErrorText(e), 'error');
+    // Resta nel registro attività con il dettaglio, per capire il motivo anche dopo
+    TCFactory._log('Errore salvataggio ordine', AppState.formEditOrder?.id || null, nome, {
+      code: e?.code || null, message: e?.message || String(e), details: e?.details || null, hint: e?.hint || null,
+      modifica: !!AppState.formEditOrder, righe: payload.orderModule.rows.length,
+    });
   } finally {
     // Il pulsante torna sempre cliccabile
     if (btn) {
@@ -2331,6 +2336,17 @@ async function submitOrderForm() {
     closeModal('order-form-modal');
     showToast(AppState.formEditOrder ? 'Ordine aggiornato ✓' : 'Ordine creato ✓');
   }
+}
+
+// Motivo leggibile di un salvataggio fallito (al posto del solito "riprova")
+function ofSaveErrorText(e) {
+  const msg = String(e?.message || e || '');
+  if (/failed to fetch|network|load failed/i.test(msg)) return 'connessione assente, riprova';
+  if (e?.code === '42501' || /row-level security|JWT|token/i.test(msg)) return 'sessione scaduta, ricarica la pagina';
+  if (e?.code === '23505') return 'codice ordine già usato, riprova';
+  if (e?.code === '23503') return 'cliente o priorità non più esistente';
+  if (e?.code === 'PGRST116') return 'ordine non trovato, ricarica la pagina';
+  return msg || 'errore sconosciuto';
 }
 
 // Righe lette dalla foto con un codice che non è in anagrafica (né scelto a mano dopo):
