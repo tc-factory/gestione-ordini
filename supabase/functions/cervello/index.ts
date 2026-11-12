@@ -156,7 +156,8 @@ Regole della bozza:
 - Per un ordine pagato, non spedito ed entro i tempi, dì al cliente che è in preparazione e quando parte secondo i tempi del negozio, contati in giorni lavorativi dalla data dell'ordine; poi i tempi di consegna.
 - Gli ordini segnati "non verificato" hanno un'email diversa dal mittente: puoi dire lo stato generale dell'ordine, ma non citare indirizzi, articoli o tracking; se serve altro, chiedi di scrivere dall'email usata per l'ordine.
 - Non promettere rimborsi, sconti o cambi: quelli li decide l'operatore. Scrivi che la richiesta è stata presa in carico.
-- Se compili "svincolo", la bozza è la conferma che parte DOPO che l'operatore ha dato le istruzioni a GLS: scrivi che abbiamo comunicato a GLS come consegnare il pacco (riassumi la scelta) e che il corriere lo riporterà nei prossimi giorni lavorativi, senza date precise. In quel caso le istruzioni a GLS non sono un dubbio.`;
+- Se compili "svincolo", la bozza è la conferma che parte DOPO che l'operatore ha dato le istruzioni a GLS: scrivi che abbiamo comunicato a GLS come consegnare il pacco (riassumi la scelta) e che il corriere lo riporterà nei prossimi giorni lavorativi, senza date precise. In quel caso le istruzioni a GLS non sono un dubbio.
+- Ritiro in sede GLS: se la spedizione ha "deposito_gls", usalo nella bozza. Con "coincide": true scrivi indirizzo (sede, indirizzo, CAP, provincia) e telefono del deposito dove ritirare il pacco, consigliando di chiamare prima di andare. Con "coincide": false il pacco risulta a "luogo_eventi" ma la sede di riferimento è un'altra città: non mandare il cliente all'indirizzo della sede; scrivi che il pacco è in giacenza a "luogo_eventi", dai il telefono della sede GLS per farsi dire il punto di ritiro esatto e gli orari, e che se preferisce glielo confermiamo noi. Senza "deposito_gls" non inventare indirizzi.`;
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
@@ -418,6 +419,7 @@ function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string,
       scelta: s.scelta, telefono: tel, nome: s.nome || '', via: s.via || '', cap: s.cap || '',
       citta: s.citta || '', provincia: (s.provincia || '').toUpperCase().slice(0, 2), note: (s.note_corriere || '').slice(0, 65),
       ripetuta, preavviso: ripetuta || s.scelta === 'riconsegna_preavviso',
+      ...(ferma.deposito?.sede ? { deposito: ferma.deposito } : {}),
     },
   };
 }
@@ -435,11 +437,12 @@ async function preparaContesto(db: SupabaseClient, mail: Row, casella: Row | nul
 
   // Stato vero della spedizione dallo storico GLS: lo stato di Shopify spesso non si aggiorna
   const { data: tracciate } = ordini.length
-    ? await db.from('spedizioni_tracking').select('ordine_id, numero, cliente_gls, stato, problema, ultimo_evento, ultimo_at, consegnata_at, eventi').in('ordine_id', ordini.map(o => o.id))
+    ? await db.from('spedizioni_tracking').select('ordine_id, numero, cliente_gls, stato, problema, ultimo_evento, ultimo_at, consegnata_at, eventi, deposito').in('ordine_id', ordini.map(o => o.id))
     : { data: [] };
   const fermate = (tracciate || []).filter((t: Row) => t.problema && GIACENZE.has(t.problema));
   const spedizioni = new Map((tracciate || []).map((t: Row) => [t.ordine_id, {
     stato: t.stato, problema: t.problema, ultimo_stato_gls: t.ultimo_evento, quando: t.ultimo_at, consegnata_il: t.consegnata_at,
+    ...(t.problema && GIACENZE.has(t.problema) && t.deposito?.sede ? { deposito_gls: t.deposito } : {}),
   }]));
 
   const [{ data: conoscenza }, { data: correzioni }] = await Promise.all([

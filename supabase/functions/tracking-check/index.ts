@@ -93,6 +93,18 @@ type Row = Record<string, any>;
 const entita = (s: string) => s.replace(/&amp;/g, '&').replace(/&ndash;/g, '–').replace(/&#0?39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ');
 const DATA = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/;
 
+// Deposito GLS per il ritiro in sede: la sede di destinazione dell'XML e il luogo dell'ultimo evento.
+// Se non coincidono (es. sede Catania, eventi a Siracusa) il pacco può stare in un punto GLS più
+// vicino che dipende da quella sede: l'indirizzo preciso va confermato con una telefonata.
+function deposito(dest: Row, eventi: Evento[] | null): Row {
+  const luogo = eventi?.[0]?.luogo || '';
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z]/g, '');
+  return {
+    sede: dest.sede, indirizzo: dest.sede_indirizzo, cap: dest.sede_cap, provincia: dest.sede_provincia, telefono: dest.sede_telefono,
+    luogo_eventi: luogo, coincide: !luogo || norm(luogo) === norm(dest.sede),
+  };
+}
+
 // Webservice XML: null se la spedizione non è di nessuno dei nostri codici cliente.
 // Il codice cliente che la trova serve allo svincolo (gls-svincolo usa le credenziali di quel conto).
 async function leggiXml(numero: string): Promise<{ eventi: Evento[]; cli: string; dest: Row } | null> {
@@ -108,6 +120,7 @@ async function leggiXml(numero: string): Promise<{ eventi: Evento[]; cli: string
     const dest = {
       nome: campo('Destinatario'), via: campo('IndirizzoDestinazione'), cap: campo('CapDestinatario'), citta: campo('CittaDestinazione'),
       sede: campo('LocalitaSedeDestinazione'), sede_indirizzo: campo('IndirizzoSedeDestinazione'), sede_telefono: campo('TelefonoSedeDestinazione'),
+      sede_cap: campo('CapSedeDestinazione'), sede_provincia: campo('ProvinciaSedeDestinazione'),
     };
     // Dentro TRACKING i campi di ogni evento si ripetono in fila: Data, Ora, Luogo, Stato, Note, Codice
     const eventi: Row[] = [];
@@ -403,6 +416,7 @@ Deno.serve(async (req) => {
       stato: esito.stato, problema: esito.problema, ultimo_evento: ultimo ? inItaliano(ultimo.stato) : null, ultimo_at: ultimo?.at || null,
       eventi: eventi || [], consegnata_at: esito.stato === 'consegnata' ? ultimo?.at : null,
       controllata_at: new Date().toISOString(), ...(cli ? { cliente_gls: cli } : {}),
+      ...(dest?.sede ? { deposito: deposito(dest, eventi) } : {}),
     });
     const avvisata = await avvisaCliente(db, s, esito, dest);
     if (avvisata) avvisi.push(avvisata);

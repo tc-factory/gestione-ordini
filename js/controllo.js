@@ -1113,6 +1113,19 @@ const SVINCOLO_SCELTE = [
   ['reso_mittente', 'Reso al mittente'],
 ];
 
+// Deposito GLS per il ritiro in sede (tracking-check, dall'XML). Se gli eventi sono in un'altra
+// città il pacco può stare in un punto GLS più vicino: l'indirizzo va confermato con una telefonata.
+function renderSvDeposito(d) {
+  if (!d?.sede) return '';
+  const tel = d.telefono ? ` · <a href="tel:${escapeHtml(d.telefono.replace(/\s+/g, ''))}">${escapeHtml(d.telefono)}</a>` : '';
+  const ind = [d.indirizzo, [d.cap, d.sede].filter(Boolean).join(' ') + (d.provincia ? ` (${d.provincia})` : '')].filter(Boolean).map(escapeHtml).join(', ');
+  return `<div class="td-sv-dep">
+    <span>Deposito GLS</span>
+    <strong>GLS ${escapeHtml(d.sede)}</strong> · ${ind}${tel}
+    ${d.coincide === false && d.luogo_eventi ? `<p class="td-todo is-advice">Il pacco risulta a <strong>${escapeHtml(d.luogo_eventi)}</strong>, non a ${escapeHtml(d.sede)}: probabilmente è in un punto GLS di ${escapeHtml(d.luogo_eventi)}. Chiama la sede per avere l'indirizzo esatto prima di darlo al cliente.</p>` : ''}
+  </div>`;
+}
+
 function renderTaskSvincolo(t, can) {
   const sv = t.analisi?.svincolo;
   if (!sv?.tracking) return '';
@@ -1142,6 +1155,7 @@ function renderTaskSvincolo(t, can) {
         ${campo('citta', 'Città', 'citta', 30, 'is-addr')}
         ${campo('provincia', 'Provincia', 'provincia', 2, 'is-addr')}
       </div>
+      ${renderSvDeposito(sv.deposito)}
       ${!sv.telefono ? `<p class="td-todo is-advice"><strong>Telefono mancante:</strong> non lo troviamo nell'ordine né nelle mail. Se lo hai, scrivilo qui sopra.</p>` : ''}
       ${sv.errore ? `<p class="td-todo is-advice"><strong>Ultimo tentativo:</strong> ${escapeHtml(sv.errore)}</p>` : ''}
       ${can ? `<div class="td-reply-actions"><button type="button" class="btn btn-primary btn-sm" id="sv-send" onclick="sendTaskSvincolo('${t.id}')">Manda a GLS e rispondi</button></div>` : ''}
