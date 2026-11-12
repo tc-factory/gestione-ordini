@@ -773,3 +773,4 @@ html.dark .is-task .td-tag { color: color-mix(in srgb, var(--c) 45%, #fff); }
   .gz-act { margin-left: 0; }
 }
 html.dark .gz-tipo, html.dark .gz-red { color: #fca5a5 !important; }
+.gz-card.is-ferie { --gz: #f59e0b; }
