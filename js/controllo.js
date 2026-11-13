@@ -2165,6 +2165,8 @@ function ddtHtml(o, shop) {
   .ind { display: grid; grid-template-columns: 65mm 1fr; margin-top: 9mm; padding-bottom: 3mm; border-bottom: 1.6px solid #000; }
   h2 { margin: 0 0 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
   .ind p { margin: 0; }
+  .nota { margin-top: 4mm; padding: 3mm 3.5mm; border: 1.6px solid #000; }
+  .nota p { margin: 0; font-weight: 700; white-space: pre-wrap; }
   table { width: calc(100% - 4.9mm); margin: 7mm 0 0 2.5mm; border-collapse: collapse; }
   th { font-size: 10px; font-weight: 700; text-align: left; padding-bottom: 6px; }
   th:last-child, td.q { text-align: right; white-space: nowrap; }
@@ -2188,6 +2190,7 @@ function ddtHtml(o, shop) {
     <div><h2>SPEDISCI A</h2>${indirizzo(o.shippingAddress).map(x => `<p>${e(x)}</p>`).join('')}</div>
     <div><h2>DESTINATARIO FATTURA</h2>${indirizzo(o.billingAddress).map(x => `<p>${e(x)}</p>`).join('')}</div>
   </section>
+  ${(o.note || '').trim() ? `<section class="nota"><h2>NOTE DEL CLIENTE</h2><p>${e(o.note.trim())}</p></section>` : ''}
   <table>
     <thead><tr><th colspan="2">ARTICOLI</th><th>QUANTITÀ</th></tr></thead>
     <tbody>${righe.map(riga).join('')}</tbody>

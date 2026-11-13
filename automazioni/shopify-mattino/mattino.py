@@ -62,7 +62,7 @@ INIZIO_CAMPI_NASCOSTI = ('stampa nome (', 'stampa nome alto (', 'stampa nome bas
 
 ORDINI_DA_STAMPARE = 'query($after:String){orders(first:100,after:$after,sortKey:CREATED_AT,query:"fulfillment_status:unfulfilled -status:cancelled -tag:stampato -tag:auto-stampato"){pageInfo{hasNextPage endCursor}nodes{id}}}'
 ORDINE = '''query($id:ID!){order(id:$id){
-  id name createdAt cancelledAt tags displayFulfillmentStatus displayFinancialStatus
+  id name createdAt cancelledAt tags displayFulfillmentStatus displayFinancialStatus note
   shippingAddress{name company address1 address2 zip city provinceCode country countryCodeV2}
   billingAddress{name company address1 address2 zip city provinceCode country countryCodeV2}
   lineItems(first:100){nodes{title variantTitle quantity unfulfilledQuantity requiresShipping
@@ -257,6 +257,31 @@ def stato_pagamento(o):
     return STATI_PAGAMENTO.get(s, s.lower().replace('_', ' '))
 
 
+def nota(o):
+    return (o.get('note') or '').strip()
+
+
+def disegna_nota(c, o, SX, DX, y):
+    """Nota del cliente in un riquadro sotto gli indirizzi, ben visibile. Ritorna la nuova y."""
+    testo = nota(o)
+    if not testo:
+        return y
+    righe = [x for r in testo.splitlines() for x in (simpleSplit(r, 'NotoB', CORPO, DX - SX - 20) or [''])]
+    if len(righe) > 14:
+        righe = righe[:13] + ["... la nota continua sull'ordine"]
+    alto = 26 + len(righe) * 14
+    y -= 12
+    c.setLineWidth(1.6)
+    c.rect(SX, y - alto, DX - SX, alto, stroke=1, fill=0)
+    c.setFont('NotoB', 7.5)
+    c.drawString(SX + 10, y - 14, 'NOTE DEL CLIENTE')
+    c.setFont('NotoB', CORPO)
+    for i, r in enumerate(righe):
+        c.drawString(SX + 10, y - 30 - i * 14, r)
+    c.setFont('Noto', CORPO)
+    return y - alto
+
+
 def disegna_ddt(c, o, shop, richieste, cache, non_pagato=False):
     """Stessa impaginazione del documento di trasporto di Shopify."""
     W, H = A4
@@ -311,6 +336,7 @@ def disegna_ddt(c, o, shop, richieste, cache, non_pagato=False):
     y -= 6
     c.setLineWidth(1.2)
     c.line(SX, y, DX, y)
+    y = disegna_nota(c, o, SX, DX, y)
     y -= 22
     intestazione_articoli(y)
     y -= 12
@@ -738,6 +764,10 @@ def giro(args, applica, reg):
         fare += [(f'Stampare a mano il file di {x} dopo la modifica (escluso dal PDF di stampa)', True) for x in esclusi[i]]
         fare += [(f'Controllare la richiesta su {x} (già stampato, evaso o rimandato)', True) for x in altrove[i]]
         fare += [(f"Controllare la richiesta senza numero d'ordine: {x}", True) for x in senza_ordine[i]]
+        # Le note del cliente: le stesse sono sul DDT e nei task del Centro di controllo
+        for o in sorted((ordini or []) + non_pagati[i], key=lambda o: o['createdAt']):
+            if nota(o):
+                fare.append((f"Leggere la nota di {o['name']}: {' '.join(nota(o).split())}", True))
         if ordini:
             fare.append((f"Stampare i DDT: {len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}", False))
         for o in non_pagati[i]:

@@ -21,7 +21,7 @@ const fail = (error: string, status = 400) => reply({ success: false, error }, s
 
 // Stessa query di automazioni/shopify-mattino/mattino.py
 const ORDINE = `query($id:ID!){order(id:$id){
-  id name createdAt cancelledAt tags displayFulfillmentStatus displayFinancialStatus
+  id name createdAt cancelledAt tags displayFulfillmentStatus displayFinancialStatus note
   shippingAddress{name company address1 address2 zip city provinceCode country countryCodeV2}
   billingAddress{name company address1 address2 zip city provinceCode country countryCodeV2}
   lineItems(first:100){nodes{title variantTitle quantity unfulfilledQuantity requiresShipping
