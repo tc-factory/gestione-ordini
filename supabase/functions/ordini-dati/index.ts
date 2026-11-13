@@ -255,7 +255,7 @@ Deno.serve(async (req) => {
   if (modo === 'spenta' && modoVerifica === 'spenta') return reply({ success: true, modo });
 
   const [{ data: ordini, error }, { data: richieste }] = await Promise.all([
-    db.from('shopify_orders').select('id, shopify_id, store_id, numero, creato_at, cliente, email, telefono, indirizzo, spedizione, stato_pagamento')
+    db.from('shopify_orders').select('id, shopify_id, store_id, numero, creato_at, cliente, email, telefono, indirizzo, spedizione, ritiro, stato_pagamento')
       .is('annullato_at', null).in('stato_evasione', SHOP_DA_EVADERE).limit(2000),
     db.from('ordini_richieste_dati').select('*').is('risolta_at', null),
   ]);
