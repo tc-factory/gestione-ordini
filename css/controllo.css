@@ -874,3 +874,9 @@ body.com-dragging, body.com-dragging * { cursor: grabbing !important; user-selec
   .com-negozio-btn { flex-basis: calc(50% - 5px); height: 60px; padding: 10px 14px; }
   .com-negozio-btn img { max-height: 36px; }
 }
+.com-negozio-btn { position: relative; }
+.com-badge {
+  position: absolute; top: -7px; right: -7px; min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box;
+  border-radius: 11px; background: #ef4444; color: #fff; font-size: 12px; font-weight: 700; line-height: 22px; text-align: center;
+  box-shadow: 0 0 0 2px var(--bg-primary, #fff); pointer-events: none;
+}

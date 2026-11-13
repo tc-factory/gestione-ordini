@@ -126,12 +126,18 @@ function renderComunicazionePage() {
 function renderComNegozi() {
   const bar = document.getElementById('com-negozi');
   if (!bar) return;
-  bar.innerHTML = comOrdine().map(n => `
+  bar.innerHTML = comOrdine().map(n => {
+    // Notifiche del negozio: mail e conversazioni da leggere di tutti i canali
+    const tot = Comun.caricato ? COM_CANALI.reduce((s, c) => s + (comStato(n, c).n || 0), 0) : 0;
+    const nome = `${n.label}${tot ? `, ${tot} da leggere` : ''}`;
+    return `
     <button type="button" class="glass-card com-negozio-btn ${n.id === Comun.negozio ? 'is-on' : ''}" role="tab" data-id="${n.id}"
-      aria-selected="${n.id === Comun.negozio}" aria-label="${escapeHtml(n.label)}" title="${escapeHtml(n.label)} · trascina per spostarlo"
+      aria-selected="${n.id === Comun.negozio}" aria-label="${escapeHtml(nome)}" title="${escapeHtml(nome)} · trascina per spostarlo"
       onpointerdown="comTrascinaInizio(event)" onclick="comScegli('${n.id}', '${Comun.canale}')" onkeydown="comTastiNegozio(event)">
       <img src="${n.logo}" alt="" draggable="false">
-    </button>`).join('');
+      ${tot ? `<span class="com-badge" aria-hidden="true">${tot > 99 ? '99+' : tot}</span>` : ''}
+    </button>`;
+  }).join('');
 }
 
 function renderComCanali() {
