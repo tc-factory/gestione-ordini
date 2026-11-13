@@ -1,9 +1,10 @@
 /**
  * T&C Factory — Comunicazione: i canali di ogni negozio in un posto solo
  *
- *  #/comunicazione                    → i negozi (aree di lavoro) con logo e messaggi da leggere
- *  #/comunicazione/<negozio>          → i canali del negozio: Mail, Instagram, Facebook, WhatsApp
- *  #/comunicazione/<negozio>/<canale> → il canale aperto
+ *  In alto i bottoni dei negozi, solo logo, trascinabili per scegliere l'ordine (salvato nel browser);
+ *  sotto i canali del negozio scelto: Mail, Instagram, Facebook, WhatsApp.
+ *  #/comunicazione                    → il primo negozio dell'ordine, sulla Mail
+ *  #/comunicazione/<negozio>/<canale> → quel negozio e quel canale
  *
  * Mail riusa la sezione Mail (stesso #mail-root, spostato qui e filtrato sulla casella del negozio).
  * Instagram e Facebook riusano le conversazioni del Centro di controllo (renderCommsSocial).
@@ -82,10 +83,22 @@ function comStato(negozio, canale) {
   return { testo: n ? `${n} da leggere` : conti.map(a => (canale.id === 'instagram' ? '@' : '') + a.username).join(', '), n, attivo: true, errore };
 }
 
+// ── Ordine dei negozi: scelto trascinando i bottoni, resta nel browser ──
+const COM_ORDINE_KEY = 'tcf_com_ordine';
+function comOrdine() {
+  let salvato = [];
+  try { salvato = JSON.parse(localStorage.getItem(COM_ORDINE_KEY) || '[]'); } catch { /* ordine di default */ }
+  const ids = COM_NEGOZI.map(n => n.id);
+  return [...salvato.filter(id => ids.includes(id)), ...ids.filter(id => !salvato.includes(id))].map(comNegozio);
+}
+function comSalvaOrdine(ids) {
+  try { localStorage.setItem(COM_ORDINE_KEY, JSON.stringify(ids)); } catch { /* resta l'ordine di questa visita */ }
+}
+
 async function openComunicazionePage() {
   const [neg, can] = (Nav.param || '').split('/');
-  Comun.negozio = comNegozio(neg) ? neg : null;
-  Comun.canale = Comun.negozio && COM_CANALI.some(c => c.id === can) ? can : null;
+  Comun.negozio = comNegozio(neg) ? neg : comOrdine()[0].id;
+  Comun.canale = COM_CANALI.some(c => c.id === can) ? can : 'mail';
   if (Comun.canale !== 'mail') comRestituisciMail();
   renderComunicazionePage();
   await comCaricaConteggi();
@@ -93,81 +106,163 @@ async function openComunicazionePage() {
   renderHeader();
 }
 
+function comScegli(negozio, canale) {
+  if (Comun.trascina?.mosso) return;
+  Nav.go('comunicazione', `${negozio}/${canale}`);
+}
+
 function renderComunicazionePage() {
   const root = document.getElementById('comunicazione-root');
   if (!root || Nav.current !== 'comunicazione') return;
+  if (!root.querySelector('.com-page')) {
+    root.innerHTML = `<div class="com-page"><div class="com-negozi-bar" id="com-negozi" role="tablist" aria-label="Negozio"></div>
+      <div class="com-canali" id="com-canali" role="tablist" aria-label="Canale"></div><div class="com-body" id="com-body"></div></div>`;
+  }
+  if (!Comun.trascina) renderComNegozi();
+  renderComCanali();
+  renderComBody();
+}
+
+function renderComNegozi() {
+  const bar = document.getElementById('com-negozi');
+  if (!bar) return;
+  bar.innerHTML = comOrdine().map(n => `
+    <button type="button" class="glass-card com-negozio-btn ${n.id === Comun.negozio ? 'is-on' : ''}" role="tab" data-id="${n.id}"
+      aria-selected="${n.id === Comun.negozio}" aria-label="${escapeHtml(n.label)}" title="${escapeHtml(n.label)} · trascina per spostarlo"
+      onpointerdown="comTrascinaInizio(event)" onclick="comScegli('${n.id}', '${Comun.canale}')" onkeydown="comTastiNegozio(event)">
+      <img src="${n.logo}" alt="" draggable="false">
+    </button>`).join('');
+}
+
+function renderComCanali() {
+  const bar = document.getElementById('com-canali');
+  if (!bar) return;
   const negozio = comNegozio(Comun.negozio);
+  bar.innerHTML = COM_CANALI.map(c => {
+    const x = Comun.caricato ? comStato(negozio, c) : { attivo: true };
+    const on = c.id === Comun.canale;
+    return `
+      <button type="button" class="com-canale ${on ? 'is-on' : ''} ${x.attivo ? '' : 'is-off'}" role="tab" aria-selected="${on}"
+        onclick="comScegli('${negozio.id}', '${c.id}')" ${x.attivo ? '' : `title="${escapeHtml(x.testo)}"`}>
+        ${COM_LOGHI[c.id]()}<span>${c.label}</span>${x.n ? `<b>${x.n}</b>` : ''}
+      </button>`;
+  }).join('');
+}
 
-  // Elenco dei negozi: 4 box grandi con il logo
-  if (!negozio) {
-    root.innerHTML = `
-      <div class="com-negozi">
-        ${COM_NEGOZI.map(n => {
-          const stati = COM_CANALI.map(c => [c, comStato(n, c)]);
-          return `
-            <a class="glass-card com-negozio" href="#/comunicazione/${n.id}" aria-label="${escapeHtml(n.label)}"
-               onclick="event.preventDefault();Nav.go('comunicazione','${n.id}')">
-              <span class="com-negozio-logo"><img src="${n.logo}" alt="${escapeHtml(n.label)}"></span>
-              <span class="com-negozio-canali">${stati.map(([c, x]) => `<span class="com-mini-ch ${x.attivo ? '' : 'is-off'}" title="${escapeHtml(c.label)}: ${escapeHtml(x.testo)}">${COM_LOGHI[c.id]()}${x.n ? `<b>${x.n}</b>` : ''}</span>`).join('')}</span>
-            </a>`;
-        }).join('')}
-      </div>`;
-    return;
-  }
-
-  const testa = `
-    <div class="com-head">
-      <button class="btn btn-ghost btn-sm" onclick="Nav.go('comunicazione'${Comun.canale ? `,'${negozio.id}'` : ''})">${Icons.chevronLeft(14)} ${Comun.canale ? escapeHtml(negozio.label) : 'Tutti i negozi'}</button>
-      <img class="com-logo is-small" src="${negozio.logo}" alt="">
-      <strong>${escapeHtml(negozio.label)}</strong>
-      ${Comun.canale ? `<span class="com-head-ch">${COM_LOGHI[Comun.canale]()} ${escapeHtml(COM_CANALI.find(c => c.id === Comun.canale).label)}</span>` : ''}
-    </div>`;
-
-  // Canali del negozio
-  if (!Comun.canale) {
-    root.innerHTML = `${testa}
-      <div class="com-grid">
-        ${COM_CANALI.map(c => {
-          const x = comStato(negozio, c);
-          return `
-            <a class="glass-card com-card ${x.attivo ? '' : 'is-off'}" href="#/comunicazione/${negozio.id}/${c.id}"
-               onclick="event.preventDefault();Nav.go('comunicazione','${negozio.id}/${c.id}')">
-              <span class="com-ch-logo">${COM_LOGHI[c.id]()}</span>
-              <span class="com-card-body">
-                <strong>${c.label}</strong>
-                <small class="${x.n ? 'com-n' : ''}">${!Comun.caricato ? 'Caricamento…' : escapeHtml(x.testo)}</small>
-                ${x.errore ? `<small class="com-err">${escapeHtml(x.errore)}</small>` : ''}
-              </span>
-            </a>`;
-        }).join('')}
-      </div>`;
-    return;
-  }
-
+function renderComBody() {
+  const body = document.getElementById('com-body');
+  if (!body) return;
+  const negozio = comNegozio(Comun.negozio);
   const canale = COM_CANALI.find(c => c.id === Comun.canale);
-  const x = comStato(negozio, canale);
   const vuoto = (titolo, testo) => `
     <div class="glass-card empty-state">
       <div class="empty-state-icon" aria-hidden="true">${COM_LOGHI[canale.id]()}</div>
       <h2>${titolo}</h2><p>${testo}</p>
     </div>`;
+  const metti = (html) => { comRestituisciMail(); body.innerHTML = html; };
 
-  if (!Comun.caricato) { root.innerHTML = testa + `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`; return; }
-  if (canale.id === 'whatsapp') { root.innerHTML = testa + vuoto('WhatsApp da configurare', 'Il collegamento di WhatsApp non è ancora attivo.'); return; }
+  if (!Comun.caricato) { if (canale.id !== 'mail' || !body.querySelector('#mail-root')) metti(`<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`); return; }
+  const x = comStato(negozio, canale);
+
+  if (canale.id === 'whatsapp') return metti(vuoto('WhatsApp da configurare', 'Il collegamento di WhatsApp non è ancora attivo.'));
 
   if (canale.id === 'mail') {
-    if (!x.attivo) { comRestituisciMail(); root.innerHTML = testa + vuoto('Mail da configurare', `${escapeHtml(negozio.label)} non ha ancora una casella collegata.`); return; }
-    if (!root.querySelector('#com-mail')) {
-      root.innerHTML = `${testa}<div id="com-mail"></div>`;
-      const mail = document.getElementById('mail-root');
-      if (mail) { mail.classList.add('com-embed'); document.getElementById('com-mail').appendChild(mail); }
-      if (MailBox.casella !== negozio.casella) { MailBox.casella = negozio.casella; MailBox.aperto = null; }
+    if (!x.attivo) return metti(vuoto('Mail da configurare', `${escapeHtml(negozio.label)} non ha ancora una casella collegata.`));
+    const mail = document.getElementById('mail-root');
+    if (!mail) return;
+    if (mail.parentElement !== body) {
+      body.innerHTML = '';
+      mail.classList.add('com-embed');
+      body.appendChild(mail);
+      MailBox.casella = negozio.casella;
+      MailBox.aperto = null;
       openMailPage();
+    } else if (MailBox.casella !== negozio.casella) {
+      setMailCasella(negozio.casella);
     }
     return;
   }
 
-  // Instagram / Facebook
-  if (!x.attivo) { root.innerHTML = testa + vuoto(`${canale.label} non collegato`, `Collegalo da Centro di controllo → Collegamenti.`); return; }
-  root.innerHTML = testa + renderCommsSocial({ negozio: negozio.id, piattaforma: canale.piattaforma });
+  if (!x.attivo) return metti(vuoto(`${canale.label} non collegato`, 'Si collega da Centro di controllo → Collegamenti.'));
+  metti(renderCommsSocial({ negozio: negozio.id, piattaforma: canale.piattaforma }));
+}
+
+// ── Trascinamento dei bottoni (mouse e dito): il bottone segue il puntatore, gli altri si spostano ──
+function comTrascinaInizio(ev) {
+  if (ev.button !== 0) return;
+  const btn = ev.currentTarget;
+  const r = btn.getBoundingClientRect();
+  // Punto in cui si è preso il bottone: resta sotto il puntatore per tutto il trascinamento
+  Comun.trascina = { btn, x0: ev.clientX, y0: ev.clientY, presaX: ev.clientX - r.left, presaY: ev.clientY - r.top, mosso: false };
+  try { btn.setPointerCapture(ev.pointerId); } catch { /* evento senza puntatore reale */ }
+  btn.addEventListener('pointermove', comTrascinaMuovi);
+  btn.addEventListener('pointerup', comTrascinaFine);
+  btn.addEventListener('pointercancel', comTrascinaFine);
+}
+
+function comTrascinaMuovi(ev) {
+  const t = Comun.trascina;
+  if (!t) return;
+  if (!t.mosso && Math.hypot(ev.clientX - t.x0, ev.clientY - t.y0) < 6) return;
+  if (!t.mosso) { t.mosso = true; t.btn.classList.add('is-drag'); document.body.classList.add('com-dragging'); }
+  const bar = t.btn.parentElement;
+  const altri = [...bar.children].filter(b => b !== t.btn);
+  // Va prima del primo bottone che sta dopo il puntatore: su una riga più in basso, o sulla stessa riga più a destra
+  const prima = altri.find(b => {
+    const r = b.getBoundingClientRect();
+    return ev.clientY < r.top || (ev.clientY <= r.bottom && ev.clientX < r.left + r.width / 2);
+  }) || null;
+  if (t.btn.nextElementSibling !== prima) {
+    // FLIP: gli altri bottoni scivolano nella nuova posizione
+    const pos = new Map(altri.map(b => [b, b.getBoundingClientRect()]));
+    bar.insertBefore(t.btn, prima);
+    for (const b of altri) {
+      const r0 = pos.get(b), r1 = b.getBoundingClientRect();
+      if (r0.left !== r1.left || r0.top !== r1.top) {
+        b.animate([{ transform: `translate(${r0.left - r1.left}px, ${r0.top - r1.top}px)` }, { transform: 'none' }], { duration: 180, easing: 'ease-out' });
+      }
+    }
+  }
+  // Il bottone segue il puntatore, partendo dal posto che occupa ora nella fila
+  t.btn.style.transform = '';
+  const base = t.btn.getBoundingClientRect();
+  t.btn.style.transform = `translate(${ev.clientX - t.presaX - base.left}px, ${ev.clientY - t.presaY - base.top}px)`;
+}
+
+function comTrascinaFine() {
+  const t = Comun.trascina;
+  if (!t) return;
+  t.btn.removeEventListener('pointermove', comTrascinaMuovi);
+  t.btn.removeEventListener('pointerup', comTrascinaFine);
+  t.btn.removeEventListener('pointercancel', comTrascinaFine);
+  document.body.classList.remove('com-dragging');
+  if (t.mosso) {
+    const da = t.btn.getBoundingClientRect();
+    t.btn.style.transform = '';
+    const a = t.btn.getBoundingClientRect();
+    t.btn.animate([{ transform: `translate(${da.left - a.left}px, ${da.top - a.top}px)` }, { transform: 'none' }], { duration: 160, easing: 'ease-out' });
+    t.btn.classList.remove('is-drag');
+    comSalvaOrdine([...t.btn.parentElement.children].map(b => b.dataset.id));
+  }
+  // Il clic che segue il rilascio non deve aprire il negozio se lo si è trascinato
+  if (t.mosso) setTimeout(() => { Comun.trascina = null; }, 0);
+  else Comun.trascina = null;
+}
+
+// Da tastiera: frecce per scegliere, Alt + frecce per spostare il negozio
+function comTastiNegozio(ev) {
+  const ordine = comOrdine().map(n => n.id);
+  const i = ordine.indexOf(ev.currentTarget.dataset.id);
+  const passo = ev.key === 'ArrowRight' || ev.key === 'ArrowDown' ? 1 : ev.key === 'ArrowLeft' || ev.key === 'ArrowUp' ? -1 : 0;
+  if (!passo) return;
+  ev.preventDefault();
+  const j = Math.max(0, Math.min(ordine.length - 1, i + passo));
+  if (ev.altKey) {
+    [ordine[i], ordine[j]] = [ordine[j], ordine[i]];
+    comSalvaOrdine(ordine);
+    renderComNegozi();
+    document.querySelector(`.com-negozio-btn[data-id="${ordine[j]}"]`)?.focus();
+  } else {
+    document.querySelector(`.com-negozio-btn[data-id="${ordine[j]}"]`)?.focus();
+  }
 }
