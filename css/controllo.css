@@ -794,3 +794,12 @@ html.dark .is-task .td-tag { color: color-mix(in srgb, var(--c) 45%, #fff); }
 }
 html.dark .gz-tipo, html.dark .gz-red { color: #fca5a5 !important; }
 .gz-card.is-ferie { --gz: #f59e0b; }
+
+/* Testi pronti per chi non risponde: messaggio e traccia della telefonata */
+.td-testi { display: flex; flex-direction: column; gap: 10px; }
+.td-testi .td-box-head { margin-bottom: 0; justify-content: space-between; }
+.td-testo { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--bg-elevated, var(--surface, #fff)); color: var(--text-primary); font-size: 0.86rem; line-height: 1.5; white-space: pre-wrap; }
+.td-traccia { font-family: inherit; font-size: 0.8rem; max-height: 340px; overflow: auto; }
+.td-testi-chiamata { margin-top: 4px; }
+.td-sollecito-mail summary { cursor: pointer; font-size: 0.78rem; color: var(--text-muted); }
+.td-sollecito-mail .td-mail-text { margin-top: 8px; font-size: 0.8rem; }
