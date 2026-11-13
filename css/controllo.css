@@ -837,3 +837,29 @@ html.dark .gz-tipo, html.dark .gz-red { color: #fca5a5 !important; }
   .soc-list { border-right: none; border-bottom: 1px solid var(--border-light, var(--border)); max-height: 40vh; }
   .soc-thread-body { max-height: 50vh; }
 }
+
+/* ── Comunicazione: negozi e canali ── */
+.com-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.com-card { display: flex; align-items: center; gap: 14px; padding: 18px; text-decoration: none; color: inherit; transition: transform .15s ease, box-shadow .15s ease; }
+.com-card:hover { transform: translateY(-2px); }
+.com-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.com-card.is-off { opacity: .6; }
+.com-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.com-card-body small { color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.com-card-body .com-n { color: var(--accent-ink); font-weight: 600; }
+.com-card-body .com-err { color: #b91c1c; white-space: normal; }
+.com-logo { width: 64px; height: 64px; border-radius: 16px; object-fit: cover; flex: none; background: #fff; box-shadow: 0 0 0 1px var(--border-light, var(--border)); }
+.com-logo.is-small { width: 32px; height: 32px; border-radius: 9px; }
+.com-ch-logo { flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--fill-hover); }
+.com-mini { display: flex; gap: 6px; margin-top: 4px; }
+.com-mini-ch { position: relative; display: inline-flex; }
+.com-mini-ch svg { width: 20px; height: 20px; }
+.com-mini-ch.is-off { filter: grayscale(1); opacity: .35; }
+.com-mini-ch b { position: absolute; top: -6px; right: -8px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #ef4444; color: #fff; font-size: 10px; line-height: 16px; text-align: center; }
+.com-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.com-head > strong { font-size: 18px; }
+.com-head-ch { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+.com-head-ch svg { width: 20px; height: 20px; }
+.empty-state-icon svg { width: 40px; height: 40px; }
+.soc-list-title { flex: 1; align-self: center; font-size: 13px; color: var(--text-secondary); }
+#mail-root.com-embed .mail-boxes .ctrl-macro-bar { display: none; }

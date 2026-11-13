@@ -113,7 +113,7 @@ const MailBox = {
   async poll() {
     if (document.hidden) return;
     await this.loadBadge();
-    if (Nav.current !== 'mail' || this.caricamento || this.invio) return;
+    if (!mailVisibile() || this.caricamento || this.invio) return;
     try {
       const prima = JSON.stringify(this.fili);
       await this.loadCaselle();
@@ -1012,7 +1012,7 @@ const MailBozze = {
     if (!Nav.isAllowed('mail')) return;
     const { data, error } = await supabaseClient.rpc('tc_mail_bozze');
     this.lista = !error && data?.success ? data.bozze || [] : [];
-    if (Nav.current === 'mail' && typeof renderHeader === 'function') renderHeader();
+    if (mailVisibile() && typeof renderHeader === 'function') renderHeader();
   },
 };
 window.MailBozze = MailBozze;
@@ -1207,7 +1207,7 @@ async function sendMailCompose() {
     if (!data?.success) throw new Error(data?.error || 'Invio non riuscito');
     closeModal('mail-modal');
     showToast(data.copia_in_inviata !== false ? 'Mail inviata' : 'Mail inviata (copia in Inviata non riuscita)');
-    if (Nav.current === 'mail') { await MailBox.loadLista().catch(() => {}); renderMailList(); }
+    if (mailVisibile()) { await MailBox.loadLista().catch(() => {}); renderMailList(); }
     if (MailNuova.richiesta && typeof loadRichiesteDati === 'function') loadRichiesteDati();
     if (MailNuova.bozza) await MailBozze.load();
   } catch (e) {
