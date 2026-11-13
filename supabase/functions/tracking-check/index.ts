@@ -14,7 +14,8 @@
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { inviaNuova } from '../_shared/mail.ts';
-import { ripartitaDopo, storicoGiacenza } from '../_shared/svincolo.ts';
+import { ripartitaDopo, storicoGiacenza, svincoliFatti } from '../_shared/svincolo.ts';
+import { testoTelefonata } from '../_shared/telefonata.ts';
 
 const PER_GIRO = 120;
 const PAUSA_MS = 300;              // una richiesta alla volta, per non pesare sul sito GLS
@@ -288,6 +289,21 @@ async function statoContatto(db: SupabaseClient, s: Row) {
 
 const fmtGiorno = (iso: string) => new Date(iso).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit' });
 
+// Cosa dire al cliente quando va chiamato (testo costruito dai dati veri, vedi _shared/telefonata.ts)
+async function telefonata(db: SupabaseClient, s: Row, eventi: Evento[] | null, dest: Row | null, contatto: Row, svincoli?: { at: string; tipo: string }[]) {
+  const [{ data: casella }, { data: ordine }] = await Promise.all([
+    db.from('mail_caselle').select('nome').eq('id', s.store_id).maybeSingle(),
+    db.from('shopify_orders').select('cliente, telefono, indirizzo').eq('id', s.ordine_id).maybeSingle(),
+  ]);
+  return testoTelefonata({
+    negozio: casella?.nome || 'il negozio', ordine: s.numero_ordine, cliente: s.cliente || ordine?.cliente,
+    telefono: contatto.telefono || ordine?.telefono || s.telefono, indirizzo: ordine?.indirizzo, eventi,
+    svincoli: svincoli || await svincoliFatti(db, s.tracking), deposito: dest?.sede ? deposito(dest, eventi) : null,
+    motivo: contatto.stato === 'dopo_svincolo' ? 'dopo_svincolo' : contatto.stato === 'chiamare' ? 'senza_risposta' : 'senza_email',
+    ultima_mail_at: contatto.ultima_mail_at,
+  });
+}
+
 async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Evento[] | null, tipoId: string | null, avviso: Row | null, dest: Row | null) {
   const chiave = `consegna:${s.ordine_id}`;
   const { data: aperto } = await db.from('tasks').select('id, priorita').eq('fonte_rif->>evento_id', chiave).not('stato', 'in', '(completato,non_completato)').maybeSingle();
@@ -333,6 +349,7 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
     },
     ...(contatto ? { contatto } : {}),
     ...(storico ? { storico_giacenza: storico.righe } : {}),
+    ...(contatto && ['chiamare', 'senza_email', 'dopo_svincolo'].includes(contatto.stato) ? { telefonata: await telefonata(db, s, eventi, dest, contatto, storico?.svincoli) } : {}),
     cliente: { nome: s.cliente, email: s.email, telefono: s.telefono, citta: s.citta },
     ...(avviso?.avviso_cliente_esito === 'inviata' ? { avviso_cliente: { inviata_at: avviso.avviso_cliente_at, a: s.email } } : {}),
   };
