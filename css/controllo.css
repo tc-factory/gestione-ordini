@@ -354,6 +354,18 @@ html .ctrl-skill-people .ctrl-btn.is-secondary { background: transparent; box-sh
 .td-time li.is-now strong { font-weight: 700; color: var(--text-primary); }
 .td-time span { font-size: 0.74rem; color: var(--text-muted); }
 
+/* Storico di un pacco fermo più volte: giorno e ora, cosa è successo */
+.td-storico-g { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.td-storico-g li { display: grid; grid-template-columns: 118px 1fr; gap: 10px; font-size: 0.8rem; padding-left: 8px; border-left: 3px solid var(--border); }
+.td-storico-g li span { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.td-storico-g li strong { font-weight: 500; color: var(--text-secondary); }
+.td-storico-g li.is-bad { border-left-color: #ef4444; }
+.td-storico-g li.is-bad strong { color: var(--text-primary); font-weight: 600; }
+.td-storico-g li.is-sv { border-left-color: #f59e0b; }
+.td-storico-g li.is-sv strong { color: var(--text-primary); font-weight: 600; }
+.td-storico-g li.is-mail { border-left-color: #3b82f6; }
+@media (max-width: 600px) { .td-storico-g li { grid-template-columns: 1fr; gap: 0; } }
+
 .td-customer { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .td-customer > div:first-child { display: flex; flex-direction: column; }
 .td-customer span { font-size: 0.8rem; color: var(--text-muted); }

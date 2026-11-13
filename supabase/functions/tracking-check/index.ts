@@ -14,7 +14,7 @@
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { inviaNuova } from '../_shared/mail.ts';
-import { ripartitaDopo } from '../_shared/svincolo.ts';
+import { ripartitaDopo, storicoGiacenza } from '../_shared/svincolo.ts';
 
 const PER_GIRO = 120;
 const PAUSA_MS = 300;              // una richiesta alla volta, per non pesare sul sito GLS
@@ -310,13 +310,17 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
   const diNuovo = ripartita;
 
   const fermo = DA_AVVISARE.has(esito.problema);
-  const contatto = fermo ? await statoContatto(db, s) : null;
+  let contatto: Row | null = fermo ? await statoContatto(db, s) : null;
+  // Di nuovo ferma dopo uno svincolo: niente altro svincolo alla cieca, si chiama il cliente con lo storico in mano
+  const storico = diNuovo ? await storicoGiacenza(db, { numero: s.tracking, eventi, email: s.email }) : null;
+  if (diNuovo) contatto = { ...(contatto || { telefono: s.telefono || null }), stato: 'dopo_svincolo', svincoli: storico!.svincoli.length };
   let anomalie: string[] = [];
   if (fermo && dest) {
     const { data: ordine } = await db.from('shopify_orders').select('indirizzo').eq('id', s.ordine_id).maybeSingle();
     anomalie = anomalieIndirizzo(dest, ordine?.indirizzo);
   }
-  const prefisso = diNuovo ? 'DI NUOVO FERMA · ' : contatto?.stato === 'chiamare' ? 'CHIAMARE · ' : contatto?.stato === 'risposto' ? 'RISPOSTA ARRIVATA · ' : '';
+  const nSv = storico?.svincoli.length || 1;
+  const prefisso = diNuovo ? `CHIAMARE · ferma di nuovo dopo ${nSv === 1 ? 'lo svincolo' : `${nSv} svincoli`} · ` : contatto?.stato === 'chiamare' ? 'CHIAMARE · ' : contatto?.stato === 'risposto' ? 'RISPOSTA ARRIVATA · ' : '';
   const titolo = `${prefisso}${esito.problema} · ordine ${s.numero_ordine}${s.cliente ? ` · ${s.cliente}` : ''}`.slice(0, 200);
   const sede = s.tracking.slice(0, 2), sped = s.tracking.slice(2);
   const analisi = {
@@ -328,11 +332,12 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
       ...(anomalie.length ? { anomalie } : {}),
     },
     ...(contatto ? { contatto } : {}),
+    ...(storico ? { storico_giacenza: storico.righe } : {}),
     cliente: { nome: s.cliente, email: s.email, telefono: s.telefono, citta: s.citta },
     ...(avviso?.avviso_cliente_esito === 'inviata' ? { avviso_cliente: { inviata_at: avviso.avviso_cliente_at, a: s.email } } : {}),
   };
   const tel = contatto?.telefono ? ` al ${contatto.telefono}` : ' (nell\'ordine non c\'è il telefono: cercalo o scrivi di nuovo)';
-  const descrizione = diNuovo ? `Svincolata il ${fmtGiorno(avviso.svincolata_at)}${avviso.svincolo_tipo ? ` (${String(avviso.svincolo_tipo).toLowerCase()})` : ''}, ma il ${fmtGiorno(eventi![0].at)} GLS l'ha di nuovo fermata: chiama il cliente${contatto?.telefono ? ` al ${contatto.telefono}` : ''} e dai nuove istruzioni a GLS.`
+  const descrizione = diNuovo ? `Svincolata ${nSv === 1 ? 'una volta' : `${nSv} volte`} (${storico!.svincoli.map(v => `${fmtGiorno(v.at)} ${v.tipo.toLowerCase()}`).join('; ') || fmtGiorno(avviso.svincolata_at)}), ma il ${fmtGiorno(eventi![0].at)} GLS l'ha di nuovo fermata${eventi![0].nota ? ` (${eventi![0].nota})` : ''}. Non mandare un altro svincolo alla cieca: chiama il cliente${tel} con lo storico sotto, capisci cosa non va (nome sul campanello, indirizzo, orari, presenza) e solo dopo dai le istruzioni a GLS.`
     : !contatto ? (avviso?.avviso_cliente_esito === 'inviata' ? `${esito.fare} Mail al cliente già inviata in automatico: aspetta la sua risposta.` : esito.fare)
     : contatto.stato === 'chiamare' ? `Chiama il cliente${tel}: gli abbiamo scritto il ${fmtGiorno(contatto.ultima_mail_at!)} (${contatto.mail_n} mail) e non ha risposto. Chiedi come vuole ricevere il pacco${anomalie.length ? ' e conferma l\'indirizzo' : ''}, poi dai le istruzioni a GLS.`
     : contatto.stato === 'risposto' ? `Il cliente ha risposto il ${fmtGiorno(contatto.risposta_at!)}: trovi la sua mail nel task della mail, con le istruzioni per GLS.`

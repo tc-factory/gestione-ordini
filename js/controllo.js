@@ -951,7 +951,8 @@ async function taskCollegatoContatto(t) {
   const dal = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const migliore = (rows) => (rows || []).filter(x => x.id !== t.id)
     .sort((a, b) => (TASK_APERTI.includes(b.stato) - TASK_APERTI.includes(a.stato)) || String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
-  if (tracking) {
+  // Fermo di nuovo dopo lo svincolo: le vecchie istruzioni a GLS non servono, conta la mail del cliente
+  if (tracking && t.analisi?.contatto?.stato !== 'dopo_svincolo') {
     const { data } = await supabaseClient.from('tasks').select('*').eq('analisi->svincolo->>tracking', tracking).gte('created_at', dal);
     const sv = migliore(data);
     if (sv) return { ...sv, _tipo: 'svincolo' };
@@ -1088,12 +1089,26 @@ function renderTaskContatto(t) {
     risposto: `<strong>Il cliente ha risposto il ${g(c.risposta_at)}.</strong> La sua mail è nel task della mail, con le istruzioni per GLS.`,
     da_contattare: `<strong>Non ancora contattato.</strong> Nessuna mail inviata al cliente per questa spedizione.`,
     senza_email: `<strong>Nell'ordine non c'è l'email:</strong> va chiamato.`,
+    dopo_svincolo: `<strong>Da chiamare.</strong> Già svincolato ${c.svincoli > 1 ? `${c.svincoli} volte` : 'una volta'} e fermo di nuovo: niente altro svincolo prima di aver parlato col cliente.`,
   }[c.stato] || '';
   const col = ct ? `<button type="button" class="ctrl-btn is-primary" onclick="apriTaskCollegato()">${ct._tipo === 'svincolo' ? `${Icons.truck(14)} Vai alle istruzioni GLS` : 'Vai alla mail del cliente'}</button>` : '';
   return `
     <section class="td-box td-contatto is-${escapeHtml(c.stato)}">
       <p class="td-todo">${testo}</p>
-      ${['chiamare', 'senza_email'].includes(c.stato) || c.telefono || col ? `<div class="td-contacts">${col}${['chiamare', 'senza_email'].includes(c.stato) || c.telefono ? tel : ''}</div>` : ''}
+      ${['chiamare', 'senza_email', 'dopo_svincolo'].includes(c.stato) || c.telefono || col ? `<div class="td-contacts">${col}${['chiamare', 'senza_email', 'dopo_svincolo'].includes(c.stato) || c.telefono ? tel : ''}</div>` : ''}
+    </section>`;
+}
+
+// Storico preciso di un pacco fermo più volte (tracking-check o cervello): eventi GLS, svincoli, mail
+const GIACENZA_RIGA = { problema: 'is-bad', svincolo: 'is-sv', mail_out: 'is-mail', mail_in: 'is-mail', gls: '' };
+function renderTaskStoricoGiacenza(t) {
+  const righe = t.analisi?.storico_giacenza || t.analisi?.chiamare_cliente?.[0]?.storico;
+  if (!righe?.length) return '';
+  return `
+    <section class="td-sec td-box">
+      <div class="td-box-head"><h3>Cosa è successo</h3><span class="td-small">da dire al cliente al telefono</span></div>
+      <ol class="td-storico-g">${righe.map(r => `
+        <li class="${GIACENZA_RIGA[r.tipo] || ''}"><span>${escapeHtml(r.quando)}</span><strong>${escapeHtml(r.testo)}</strong></li>`).join('')}</ol>
     </section>`;
 }
 
@@ -1300,6 +1315,7 @@ function renderTaskDetail(id, storico) {
         ${taskMotivoVisibile(t.stato, t.motivo) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
         ${t.analisi?.dubbi ? `<p class="td-todo is-advice"><strong>Da controllare:</strong> ${escapeHtml(t.analisi.dubbi)}</p>` : ''}
         ${renderTaskContatto(t)}
+        ${renderTaskStoricoGiacenza(t)}
         ${t.analisi?.rimborso ? `<p class="td-todo is-advice"><strong>Rimborso richiesto:</strong> va gestito a mano.</p>` : ''}
         ${t.analisi?.note ? `<p class="td-todo is-note"><strong>Note:</strong> ${escapeHtml(t.analisi.note)}</p>` : ''}
         ${renderTaskSvincolo(t, can)}
@@ -2292,7 +2308,7 @@ const glsGiorno = (iso) => iso ? new Date(iso).toLocaleDateString('it-IT', { day
 const telLink = (t) => t ? `<a class="ctrl-link" href="tel:${escapeHtml(String(t).replace(/[^\d+]/g, ''))}">${escapeHtml(t)}</a>` : '';
 
 function giacenzaStato(c) {
-  if (c.di_nuovo_ferma) return { id: 'nuova', label: `Di nuovo ferma dopo lo svincolo del ${glsGiorno(c.svincolata_at)}` };
+  if (c.di_nuovo_ferma) return { id: 'nuova', label: `Di nuovo ferma dopo lo svincolo del ${glsGiorno(c.svincolata_at)}: chiamare il cliente` };
   if (c.task_svincolo_id) return { id: 'istruzioni', label: 'Il cliente ha risposto: istruzioni GLS da mandare' };
   if (c.problema === 'Destinatario chiuso per ferie') return { id: 'ferie', label: 'Riconsegna alla riapertura' };
   return { id: 'gestire', label: 'Da gestire' };
@@ -2305,6 +2321,7 @@ function giacenzaContatto(c) {
   if (k?.stato === 'chiamare') return `<strong class="gz-red">Da chiamare</strong><small>${k.mail_n} ${k.mail_n === 1 ? 'mail' : 'mail'} senza risposta, l'ultima il ${glsGiorno(k.ultima_mail_at)}</small>`;
   if (k?.stato === 'in_attesa') return `<strong>Mail inviata il ${glsGiorno(k.ultima_mail_at)}</strong><small>In attesa di risposta</small>`;
   if (k?.stato === 'senza_email') return `<strong class="gz-red">Senza email: va chiamato</strong>`;
+  if (k?.stato === 'dopo_svincolo') return `<strong class="gz-red">Da chiamare</strong><small>Già svincolata${k.svincoli > 1 ? ` ${k.svincoli} volte` : ''}: niente altro svincolo prima della telefonata</small>`;
   if (c.avviso_cliente_esito === 'inviata') return `<strong>Avviso inviato il ${glsGiorno(c.avviso_cliente_at)}</strong>`;
   if (c.avviso_cliente_esito?.startsWith('errore')) return `<strong class="gz-red">Avviso non partito</strong><small>${escapeHtml(c.avviso_cliente_esito)}</small>`;
   return `<strong class="gz-red">Non ancora contattato</strong>`;
