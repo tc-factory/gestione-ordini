@@ -2471,7 +2471,9 @@ function renderControlGls() {
   const tutte = ShopLinks.consegne;
   // Svincolate: istruzioni date a GLS (dal gestionale o dal portale), spariscono finché il pacco non si ferma di nuovo
   const visibili = tutte.filter(c => !c.svincolata);
-  const list = ShopLinks.negozioGls ? visibili.filter(c => c.store_id === ShopLinks.negozioGls) : visibili;
+  // 'tcfactory' (pagina Negozi): le spedizioni fuori dai negozi collegati
+  const list = ShopLinks.negozioGls === 'tcfactory' ? visibili.filter(c => c.esterna)
+    : ShopLinks.negozioGls ? visibili.filter(c => c.store_id === ShopLinks.negozioGls) : visibili;
   const ordine = { nuova: 0, gestire: 1, istruzioni: 2, ferie: 3 };
   const giacenze = list.filter(c => GIACENZE.includes(c.problema))
     .sort((a, b) => ordine[giacenzaStato(a).id] - ordine[giacenzaStato(b).id] || String(a.ferma_dal).localeCompare(String(b.ferma_dal)));
