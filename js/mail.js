@@ -88,16 +88,14 @@ const MailBox = {
     this.caricamento = false;
   },
 
+  // Il numero nella navbar ora è quello di Comunicazione: mail e messaggi social dei negozi
   async loadBadge() {
-    if (!Nav.isAllowed('mail')) return;
-    const { data, error } = await supabaseClient.rpc('tc_mail_badge');
-    const n = error ? 0 : (data || 0);
-    if (n !== this.badge) { this.badge = n; renderSidebar(); }
+    await comLoadBadge();
   },
 
   start() {
     MailFirme.load();   // le firme servono anche alle risposte del Centro di controllo
-    if (!Nav.isAllowed('mail')) return;
+    if (!Nav.isAllowed('comunicazione')) return;
     this.loadBadge();
     clearInterval(this._timer);
     this._timer = setInterval(() => this.poll(), MAIL_POLL_MS);
@@ -774,8 +772,9 @@ async function openMailThread(i) {
       f.non_lette = 0;
       const box = MailBox.caselle.find(c => c.id === f.casella_id);
       if (box) box.non_lette = Math.max(0, (box.non_lette || 0) - 1);
-      MailBox.badge = Math.max(0, MailBox.badge - 1);
+      Comun.badge = Math.max(0, Comun.badge - 1);
       renderSidebar();
+      if (Nav.current === 'comunicazione') renderComNegozi();
       renderMailBoxes();
       renderMailList();
     }
@@ -1009,7 +1008,7 @@ const MailNuova = { casella: null, ordini: [], ordine: null, cerca: '', modello:
 const MailBozze = {
   lista: [],
   async load() {
-    if (!Nav.isAllowed('mail')) return;
+    if (!Nav.isAllowed('comunicazione')) return;
     const { data, error } = await supabaseClient.rpc('tc_mail_bozze');
     this.lista = !error && data?.success ? data.bozze || [] : [];
     if (mailVisibile() && typeof renderHeader === 'function') renderHeader();
