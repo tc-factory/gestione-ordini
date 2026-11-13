@@ -19,9 +19,9 @@ const COM_NEGOZI = [
   { id: 'bienjugado',        label: 'Bienjugado',           logo: 'img/loghi-negozi/bienjugado.png',        casella: 'bienjugado' },
   { id: 'boxfactorylab',     label: 'Box Factory Lab',      logo: 'img/loghi-negozi/boxfactorylab.png',     casella: 'boxfactorylab' },
   { id: 'asteroidi',         label: 'Asteroidi Store',      logo: 'img/loghi-negozi/asteroidi.png',         casella: 'asteroidi' },
-  { id: 'liveprinting',      label: 'Live Printing',        logo: 'img/loghi-negozi/liveprinting.jpg',      casella: null },
+  { id: 'liveprinting',      label: 'Live Printing',        logo: 'img/loghi-negozi/liveprinting.png',      casella: null },
   // Spedizioni fuori dai negozi Shopify (senza ordine Shopify)
-  { id: 'tcfactory',         label: 'T&C Factory',          logo: 'img/loghi-negozi/tcfactory.svg',         casella: null, esterne: true },
+  { id: 'tcfactory',         label: 'T&C Factory',          logo: 'img/loghi-negozi/tcfactory.png',         casella: null, esterne: true },
 ];
 
 const COM_LOGHI = {
