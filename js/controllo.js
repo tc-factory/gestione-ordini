@@ -339,6 +339,7 @@ async function openControlPage() {
   const [dove, taskId] = (Nav.param || '').split('/');
   if (dove === 'gls' && TCAuth.isAdmin()) Ctrl.view = 'gls';
   if (dove === 'task') Ctrl.view = 'giorno';
+  if (dove === 'collegamenti' && TCAuth.isAdmin()) Ctrl.view = 'collegamenti';
   if (dove) { history.replaceState(null, '', '#/controllo'); Nav.param = null; }
   if (!TCAuth.isAdmin() && Ctrl.view !== 'giorno') Ctrl.view = 'giorno';
   refreshControlPage();
@@ -346,6 +347,7 @@ async function openControlPage() {
   refreshControlPage();
   loadControlExtras();
   if (dove === 'task' && taskId) apriTaskDaLink(taskId);
+  if (dove === 'collegamenti' && taskId?.startsWith('instagram:')) esitoLoginMeta(taskId);
 }
 
 // Il task del link può non essere tra quelli del giorno caricati: si legge e si aggiunge
@@ -1655,6 +1657,7 @@ async function submitTaskTypeForm(id) {
 
 const ShopLinks = {
   negozi: null,      // stato dei negozi (tc_shopify_stato)
+  social: null,      // profili Instagram (e poi Messenger/WhatsApp) collegati (social_account)
   caselle: null,     // stato delle caselle email (tc_mail_stato)
   mail: null,        // ultime mail scritte da persone
   mailEsiti: null,   // mail_id → evento del cervello e suo task
@@ -1707,7 +1710,7 @@ async function loadShopifyLinks() {
     ShopLinks.negozi = data.negozi || [];
     ShopLinks.error = null;
   } catch (e) { ShopLinks.error = e; }
-  const [caselle, mail, scartate, regole, consegne, arrivo, servizi] = await Promise.all([
+  const [caselle, mail, scartate, regole, consegne, arrivo, servizi, social] = await Promise.all([
     supabaseClient.rpc('tc_mail_stato'),
     supabaseClient.from('mail_messaggi').select('id, casella_id, da_email, da_nome, oggetto, ricevuto_at, testo, allegati')
       .eq('direzione', 'in').eq('automatica', false).order('ricevuto_at', { ascending: false }).limit(50),
@@ -1719,7 +1722,10 @@ async function loadShopifyLinks() {
     supabaseClient.from('shopify_orders').select(SHOP_ORDINE_CAMPI)
       .is('annullato_at', null).in('stato_evasione', SHOP_DA_EVADERE).order('creato_at', { ascending: false }).limit(1000),
     supabaseClient.rpc('tc_collegamenti_servizi'),
+    supabaseClient.from('social_account').select('id, piattaforma, account_id, username, nome, foto, negozio, attivo, collegato_at, ultimo_errore')
+      .order('piattaforma').order('username'),
   ]);
+  ShopLinks.social = social.error ? null : (social.data || []);
   ShopLinks.servizi = servizi.data?.success ? servizi.data : null;
   ShopLinks.consegneErrore = consegne.error?.message || (consegne.data?.success ? null : consegne.data?.error || 'Errore');
   ShopLinks.consegne = ShopLinks.consegneErrore ? null : consegne.data.spedizioni;
@@ -2814,7 +2820,79 @@ function renderControlLinks() {
         ${(ShopLinks.caselle || []).map(c => riga(c.indirizzo, c.nome, c, `${c.da_persone} da persone · ${c.ricevute - c.da_persone} automatiche`, `syncMail('${c.id}')`, mailBusy(c.id))).join('')}
       </tbody></table></div>
     </section>
+    ${renderControlSocial()}
     ${renderControlServices()}`;
+}
+
+// ── Instagram (app Meta "CS Direct Connect", login unificato) ──
+const META_IG = { appId: '29503917439294554', configId: '1823367478810968' };
+const SOCIAL_NEGOZI = [
+  ...TASK_MACROAREE.filter(m => m.id !== 'asteroidi').map(m => ({ id: m.id, label: m.label })),
+  { id: 'liveprinting', label: 'Live Printing' },
+];
+
+function renderControlSocial() {
+  const lista = ShopLinks.social;
+  if (lista === null) return `<section class="glass-card page-card ctrl-group"><div class="page-card-head"><h2>Instagram</h2></div>
+    <div class="empty-list">Collegamento da attivare: esegui <strong>sql/meta-instagram.sql</strong>.</div></section>`;
+  const ig = lista.filter(a => a.piattaforma === 'instagram');
+  const riga = (a) => `
+    <tr>
+      <td><strong>@${escapeHtml(a.username || a.account_id)}</strong><div class="ctrl-cell-sub">${escapeHtml(a.nome || '')}</div>
+        ${a.ultimo_errore ? `<div class="ctrl-shop-error">${escapeHtml(a.ultimo_errore)}</div>` : ''}</td>
+      <td><span class="ctrl-status" style="--st:${a.ultimo_errore ? '#ef4444' : '#22c55e'};">${a.ultimo_errore ? 'Errore' : 'Collegato'}</span></td>
+      <td class="ctrl-cell-sub">${ctrlFmtQuando(a.collegato_at)}</td>
+      <td><select class="ctrl-assign" aria-label="Negozio del profilo" onchange="socialNegozio('${a.id}', this.value)">
+        <option value="">Negozio…</option>
+        ${SOCIAL_NEGOZI.map(n => `<option value="${n.id}" ${a.negozio === n.id ? 'selected' : ''}>${escapeHtml(n.label)}</option>`).join('')}
+      </select></td>
+      <td class="ctrl-cell-actions"><button class="ctrl-btn" onclick="scollegaSocial('${a.id}')">Scollega</button></td>
+    </tr>`;
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Instagram</h2><span class="ctrl-group-hint">Messaggi diretti e commenti dei profili dei negozi</span>
+        <button class="ctrl-btn" onclick="collegaInstagram()">+ Collega Instagram</button></div>
+      ${ig.length ? `<div class="table-scroll"><table class="data-table ctrl-links">
+        <thead><tr><th>Profilo</th><th>Stato</th><th>Collegato</th><th>Negozio</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+        <tbody>${ig.map(riga).join('')}</tbody></table></div>`
+      : `<div class="empty-list">Nessun profilo collegato. Premi <strong>Collega Instagram</strong> ed entra con il profilo Facebook che gestisce i negozi: nel login scegli i profili Instagram da collegare.</div>`}
+    </section>`;
+}
+
+async function collegaInstagram() {
+  try {
+    const { data, error } = await supabaseClient.rpc('tc_meta_login_inizia', { p_piattaforma: 'instagram' });
+    if (error) throw Ctrl._fail(error);
+    if (!data?.success) throw new Error(data?.error || 'Errore');
+    const q = new URLSearchParams({
+      client_id: META_IG.appId, config_id: META_IG.configId, display: 'page', override_default_response_type: 'true',
+      redirect_uri: `${SUPABASE_URL}/functions/v1/meta-login`, response_type: 'code', state: data.state,
+    });
+    location.href = 'https://www.facebook.com/dialog/oauth?' + q;
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function socialNegozio(id, negozio) {
+  const { data, error } = await supabaseClient.rpc('tc_social_account_negozio', { p_id: id, p_negozio: negozio });
+  if (error || !data?.success) { showToast(error?.message || data?.error || 'Errore', 'error'); return; }
+  const a = (ShopLinks.social || []).find(x => x.id === id);
+  if (a) a.negozio = negozio || null;
+  showToast('Negozio salvato', 'success');
+}
+
+async function scollegaSocial(id) {
+  const a = (ShopLinks.social || []).find(x => x.id === id);
+  if (!(await uiConfirm(`Scollegare @${a?.username || ''} dal gestionale? Per ricollegarlo basta rifare il login.`, { ok: 'Scollega' }))) return;
+  const { data, error } = await supabaseClient.rpc('tc_social_account_scollega', { p_id: id });
+  if (error || !data?.success) { showToast(error?.message || data?.error || 'Errore', 'error'); return; }
+  await loadShopifyLinks();
+}
+
+// Ritorno dal login Meta: #/controllo/collegamenti/instagram:ok:2 oppure instagram:errore:<motivo>
+function esitoLoginMeta(esito) {
+  const [, tipo, ...resto] = decodeURIComponent(esito || '').split(':');
+  if (tipo === 'ok') showToast(`Instagram collegato: ${resto[0]} ${resto[0] === '1' ? 'profilo' : 'profili'}`, 'success');
+  else if (tipo === 'errore') uiAlert('Collegamento Instagram non riuscito: ' + resto.join(':'));
 }
 
 // Servizi esterni (GLS, Claude, mappe, invio mail, Mac mini) e operazioni pianificate del database
