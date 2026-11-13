@@ -37,7 +37,7 @@ create table if not exists public.meta_login_stati (
 );
 alter table public.meta_login_stati enable row level security;
 
--- Inizio del collegamento: solo admin, lo state vale 15 minuti
+-- Inizio del collegamento: solo admin, lo state vale 24 ore
 create or replace function public.tc_meta_login_inizia(p_piattaforma text default 'instagram')
  returns jsonb
  language plpgsql
@@ -47,7 +47,7 @@ as $function$
 declare s text := encode(extensions.gen_random_bytes(24), 'hex');
 begin
   if not app_is_admin() then return jsonb_build_object('success', false, 'error', 'Solo admin'); end if;
-  delete from meta_login_stati where creato_at < now() - interval '1 day';
+  delete from meta_login_stati where creato_at < now() - interval '2 days';
   insert into meta_login_stati (state, utente, piattaforma) values (s, auth.uid(), p_piattaforma);
   return jsonb_build_object('success', true, 'state', s);
 end;

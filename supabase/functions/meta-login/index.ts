@@ -56,9 +56,9 @@ Deno.serve(async (req) => {
   if (!code || !state) return registra('errore:Risposta di Meta incompleta', rie);
   if (!APP_SECRET) return registra('errore:Manca il secret META_IG_APP_SECRET in Supabase', rie);
 
-  // State usa e getta, valido 15 minuti
+  // State usa e getta, valido 24 ore (la finestra di Meta può restare aperta a lungo)
   const { data: st } = await db.from('meta_login_stati').delete().eq('state', state).select().maybeSingle();
-  if (!st || Date.now() - new Date(st.creato_at).getTime() > 15 * 60_000) return registra('errore:Collegamento scaduto, riprova da Collegamenti', rie);
+  if (!st || Date.now() - new Date(st.creato_at).getTime() > 24 * 3600_000) return registra('errore:Collegamento scaduto, riprova da Collegamenti', rie);
 
   try {
     const { access_token: token } = await graph('oauth/access_token', { client_id: APP_ID, client_secret: APP_SECRET, redirect_uri: REDIRECT, code });
