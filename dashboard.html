@@ -37,6 +37,10 @@
     <main class="app-main" id="main-content">
       <header class="app-toolbar glass" id="header-root"></header>
 
+      <section class="view" id="view-tasks" data-view="tasks" hidden>
+        <div id="tasks-root"></div>
+      </section>
+
       <section class="view" id="view-controllo" data-view="controllo" hidden>
         <div id="controllo-root"></div>
       </section>
@@ -145,10 +149,10 @@
   <script src="js/dtf-misure.js"></script>
   <script src="js/dtf.js"></script>
   <script src="js/esterne.js"></script>
-  <script src="js/controllo.js?v=52"></script>
-  <script src="js/mail.js?v=15"></script>
+  <script src="js/controllo.js?v=53"></script>
+  <script src="js/mail.js?v=16"></script>
   <script src="js/comunicazione.js?v=9"></script>
-  <script src="js/nav.js?v=13"></script>
+  <script src="js/nav.js?v=14"></script>
   <script>
     Theme.init();
     TCFactory.onUpdate(() => { if (TCAuth.isLoggedIn()) renderApp(); });

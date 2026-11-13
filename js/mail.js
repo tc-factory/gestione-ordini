@@ -660,7 +660,7 @@ function renderMailReader() {
         <span class="mail-task">
           <span class="td-tag" style="--c:${['completato', 'non_completato'].includes(t.stato) ? '#16a34a' : '#f59e0b'};">${MAIL_STATI_TASK[t.stato] || t.stato}</span>
           <span>${escapeHtml(t.titolo || 'Task')}${t.assegnato_a ? ` · ${escapeHtml(t.assegnato_a)}` : ' · coda comune'}</span>
-          ${Nav.isAllowed('controllo') ? `<a class="ctrl-btn" href="${mailLinkTask(t.id)}">Apri task</a>` : ''}
+          ${Nav.isAllowed('tasks') ? `<a class="ctrl-btn" href="${mailLinkTask(t.id)}">Apri task</a>` : ''}
         </span>`).join('')}
     </div>` : '';
 
@@ -696,14 +696,14 @@ function renderMailReader() {
 }
 
 // Link diretto al task nel Centro di controllo, già aperto (vedi openControlPage)
-const mailLinkTask = (id) => `#/controllo/task/${encodeURIComponent(id)}`;
+const mailLinkTask = (id) => `#/tasks/task/${encodeURIComponent(id)}`;
 
 // Mail su una spedizione: in testa il link al task del pacco nel Centro di controllo.
 // Prima il cliente da chiamare (fermo dopo uno svincolo), poi le istruzioni a GLS da mandare,
 // poi un task aperto col tracking, poi l'ultimo.
 // Con il solo tag Giacenza e nessun task, il link porta alla scheda Spedizioni.
 function renderMailSpedizione(c, f) {
-  if (!Nav.isAllowed('controllo')) return '';
+  if (!Nav.isAllowed('tasks')) return '';
   const aperto = (t) => !['completato', 'non_completato'].includes(t.stato);
   const sped = c.tasks.filter(t => t.tracking || t.svincolo || t.chiamare);
   const t = sped.find(t => aperto(t) && t.chiamare) || sped.find(t => aperto(t) && t.svincolo) || sped.find(aperto) || sped[sped.length - 1];
@@ -714,7 +714,7 @@ function renderMailSpedizione(c, f) {
   const cosa = !aperto(t) ? `Task ${(MAIL_STATI_TASK[t.stato] || t.stato).toLowerCase()}`
     : t.chiamare ? 'Chiamare il cliente: fermo di nuovo dopo lo svincolo, storico nel task'
     : t.svincolo ? 'Istruzioni GLS da mandare' : 'Spedizione da seguire';
-  return `<a class="mail-sped${aperto(t) ? ' is-open' : ''}" href="${mailLinkTask(t.id)}">${Icons.truck(14)} ${cosa}${t.tracking ? ` · <span class="td-mono">${escapeHtml(t.tracking)}</span>` : ''}: apri il task nel Centro di controllo</a>`;
+  return `<a class="mail-sped${aperto(t) ? ' is-open' : ''}" href="${mailLinkTask(t.id)}">${Icons.truck(14)} ${cosa}${t.tracking ? ` · <span class="td-mono">${escapeHtml(t.tracking)}</span>` : ''}: apri il task</a>`;
 }
 
 function renderMailMessage(m, ultimo) {

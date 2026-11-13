@@ -163,7 +163,8 @@ const CtrlIcons = {
 // ─────────────────────────────────────────────
 
 const Ctrl = {
-  view: 'giorno',        // giorno | ordini | gls | cervello | collegamenti | competenze | squadra | report
+  view: 'giorno',        // giorno (sezione Tasks) | cervello | collegamenti | automazioni | competenze | squadra | report (Centro di controllo)
+  viewCtrl: 'cervello',  // ultima scheda aperta nel Centro di controllo
   giorno: ctrlOggi(),    // giorno mostrato
   macroarea: null,       // filtro della coda comune (null = tutte)
   tasks: [],             // task del giorno + arretrati aperti dei giorni prima
@@ -253,7 +254,7 @@ const Ctrl = {
 
   // Aggiornamento in tempo reale: qualsiasi modifica ai task ricarica la pagina aperta
   start() {
-    if (!Nav.isAllowed('controllo')) return;
+    if (!Nav.isAllowed('tasks') && !Nav.isAllowed('controllo')) return;
     this.loadBadge();
     this._channel = supabaseClient.channel('tasks')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => this._scheduleReload())
@@ -266,14 +267,14 @@ const Ctrl = {
     clearTimeout(this._reloadTimer);
     clearInterval(this._tick);
     Object.assign(this, { _channel: null, _tick: null, tasks: [], tipi: [], users: [], punteggi: {}, punteggi7: {},
-      tempi: {}, loaded: false, error: null, badge: 0, view: 'giorno', giorno: ctrlOggi() });
+      tempi: {}, loaded: false, error: null, badge: 0, view: 'giorno', viewCtrl: 'cervello', giorno: ctrlOggi() });
   },
 
   _scheduleReload() {
     clearTimeout(this._reloadTimer);
     this._reloadTimer = setTimeout(async () => {
       this.loadBadge();
-      if (Nav.current !== 'controllo') return;
+      if (!ctrlAperto()) return;
       await this.load();
       refreshControlPage();
     }, 400);
@@ -334,19 +335,31 @@ function sortTasks(list) {
 // PAGINA
 // ─────────────────────────────────────────────
 
+// Pagine che usano i dati dei task: Tasks (vista giorno) e Centro di controllo (le altre schede)
+const ctrlAperto = () => Nav.current === 'controllo' || Nav.current === 'tasks';
+
+// Sezione Tasks: #/tasks/task/<id> apre quel task
+async function openTasksPage() {
+  const [dove, taskId] = (Nav.param || '').split('/');
+  if (dove) { history.replaceState(null, '', '#/tasks'); Nav.param = null; }
+  Ctrl.view = 'giorno';
+  refreshControlPage();
+  await Ctrl.load();
+  refreshControlPage();
+  if (dove === 'task' && taskId) apriTaskDaLink(taskId);
+}
+
 async function openControlPage() {
-  // Link diretti: #/controllo/task/<id> apre quel task; #/controllo/gls (vecchio) porta alle Spedizioni in Negozi
+  // Vecchi link: #/controllo/task/<id> → Tasks, #/controllo/gls → Spedizioni in Brand
   const [dove, taskId] = (Nav.param || '').split('/');
   if (dove === 'gls') { Nav.go('comunicazione', `${comOrdine()[0].id}/spedizioni`); return; }
-  if (dove === 'task') Ctrl.view = 'giorno';
-  if (dove === 'collegamenti' && TCAuth.isAdmin()) Ctrl.view = 'collegamenti';
+  if (dove === 'task') { Nav.go('tasks', taskId ? `task/${taskId}` : null); return; }
+  Ctrl.view = dove === 'collegamenti' ? 'collegamenti' : Ctrl.viewCtrl;
   if (dove) { history.replaceState(null, '', '#/controllo'); Nav.param = null; }
-  if (!TCAuth.isAdmin() && Ctrl.view !== 'giorno') Ctrl.view = 'giorno';
   refreshControlPage();
   await Ctrl.load();
   refreshControlPage();
   loadControlExtras();
-  if (dove === 'task' && taskId) apriTaskDaLink(taskId);
   if (dove === 'collegamenti' && /^(instagram|messenger):/.test(taskId || '')) esitoLoginMeta(taskId);
 }
 
@@ -357,13 +370,13 @@ async function apriTaskDaLink(id) {
     if (!data) { uiAlert('Il task non esiste più o non hai accesso.'); return; }
     if (!Ctrl.get(id)) Ctrl.tasks.push(data);
   }
-  if (Nav.current === 'controllo') openTaskDetail(id);
+  if (ctrlAperto()) openTaskDetail(id);
 }
 
 function refreshControlPage() {
   // Shop e Spedizioni ora stanno nella pagina Negozi
   if (Nav.current === 'comunicazione' && comCanaleShop(Comun.canale)) { renderComunicazionePage(); return; }
-  if (Nav.current !== 'controllo') return;
+  if (!ctrlAperto()) return;
   // Un aggiornamento in tempo reale non deve cancellare le regole in modifica
   if (Ctrl.view === 'cervello' && CtrlBrain.sez === 'regole' && CtrlBrain.modificato) return;
   renderControlPage();
@@ -372,7 +385,7 @@ function refreshControlPage() {
 
 // Scelta del giorno nella testata della pagina (la inserisce renderHeader)
 function controlDayNav() {
-  if (Nav.current !== 'controllo' || !['giorno', 'squadra'].includes(Ctrl.view)) return '';
+  if (!ctrlAperto() || !['giorno', 'squadra'].includes(Ctrl.view)) return '';
   return `
     <div class="ctrl-daynav" role="group" aria-label="Giorno">
       <button class="btn-icon" onclick="setControlDay('${ctrlAddDays(Ctrl.giorno, -1)}')" aria-label="Giorno prima">${Icons.chevronLeft(16)}</button>
@@ -387,7 +400,7 @@ function controlDayNav() {
 
 async function setControlView(view) {
   if (!(await leaveRulesOk())) return;
-  Ctrl.view = view;
+  Ctrl.view = Ctrl.viewCtrl = view;
   refreshControlPage();
   loadControlExtras();
 }
@@ -409,7 +422,8 @@ async function setControlDay(iso) {
 }
 
 function renderControlPage() {
-  const root = document.getElementById('controllo-root');
+  const inTasks = Nav.current === 'tasks';
+  const root = document.getElementById(inTasks ? 'tasks-root' : 'controllo-root');
   if (!root) return;
 
   if (Ctrl.error?.notInstalled) {
@@ -422,7 +436,7 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']] : [])];
+  const tabs = inTasks ? [] : [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
@@ -434,17 +448,17 @@ function renderControlPage() {
     : renderControlMyDay();
 
   root.innerHTML = `
-    <div class="ctrl-bar">
+    ${tabs.length ? `<div class="ctrl-bar">
       ${tabs.length > 1 ? `<div class="segmented" role="tablist" aria-label="Vista">
         ${tabs.map(([id, label]) => `<button role="tab" aria-selected="${Ctrl.view === id}" class="${Ctrl.view === id ? 'active' : ''}"
           onclick="setControlView('${id}')">${label}</button>`).join('')}
       </div>` : ''}
-    </div>
+    </div>` : ''}
     ${TCAuth.isAdmin() && Ctrl.problemi.length ? `
       <div class="ctrl-alert" role="alert">
         <div><strong>${Ctrl.problemi.length === 1 ? 'Un collegamento ha un problema' : `${Ctrl.problemi.length} collegamenti hanno un problema`}</strong>
           ${Ctrl.problemi.map(p => `<span>${escapeHtml(p)}</span>`).join('')}</div>
-        ${Ctrl.view !== 'collegamenti' ? `<button class="ctrl-btn" onclick="setControlView('collegamenti')">Vai a Collegamenti</button>` : ''}
+        ${Ctrl.view !== 'collegamenti' ? `<button class="ctrl-btn" onclick="${inTasks ? `Nav.go('controllo', 'collegamenti')` : `setControlView('collegamenti')`}">Vai a Collegamenti</button>` : ''}
       </div>` : ''}
     ${body}`;
 
@@ -458,7 +472,7 @@ function startControlTicker() {
   clearInterval(Ctrl._tick);
   if (!document.querySelector('[data-task-timer]')) { Ctrl._tick = null; return; }
   Ctrl._tick = setInterval(() => {
-    if (Nav.current !== 'controllo') { clearInterval(Ctrl._tick); Ctrl._tick = null; return; }
+    if (!ctrlAperto()) { clearInterval(Ctrl._tick); Ctrl._tick = null; return; }
     document.querySelectorAll('[data-task-timer]').forEach(el => {
       const t = Ctrl.get(el.dataset.taskTimer);
       if (t) el.textContent = ctrlFmtDur(taskLavoratoSec(t));
