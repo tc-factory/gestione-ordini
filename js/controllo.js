@@ -111,6 +111,8 @@ const competenzaLabel = (id) => TASK_COMPETENZE.find(c => c.id === id)?.label ||
 const TASK_APERTI = ['da_fare', 'in_lavorazione', 'in_pausa', 'rimandato'];
 // Stati che chiedono il motivo
 const TASK_CON_MOTIVO = ['rimandato', 'bloccato', 'non_completato'];
+// Chiusure fatte dal cervello (supabase/functions/cervello/verifica.ts): il motivo si mostra anche da completato
+const taskMotivoVisibile = (stato, motivo) => !!motivo && (TASK_CON_MOTIVO.includes(stato) || (stato === 'completato' && motivo.startsWith('Chiuso in automatico')));
 // Campioni minimi prima di proporre il tempo reale come nuovo standard
 const TASK_CAMPIONI_MIN = 5;
 
@@ -732,7 +734,7 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
       <button type="button" class="task-main" onclick="openTaskDetail('${t.id}')" aria-label="${escapeHtml(t.titolo)}: dettagli">
         <span class="task-title">${escapeHtml(titolo)}</span>
         ${meta ? `<span class="task-meta">${meta}</span>` : ''}
-        ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<span class="task-motivo">${escapeHtml(t.motivo)}</span>` : ''}
+        ${taskMotivoVisibile(t.stato, t.motivo) ? `<span class="task-motivo">${escapeHtml(t.motivo)}</span>` : ''}
       </button>
       <div class="task-badges">${badges}</div>
       <span class="task-time">${t.minuti_stimati ? `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}` : ''}</span>
@@ -1279,7 +1281,7 @@ function renderTaskDetail(id, storico) {
     <div class="td-grid">
       <div class="td-col">
         ${t.descrizione ? `<section class="td-sec"><h3>Cosa fare</h3><p class="td-todo">${escapeHtml(t.descrizione)}</p></section>` : ''}
-        ${t.motivo && TASK_CON_MOTIVO.includes(t.stato) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
+        ${taskMotivoVisibile(t.stato, t.motivo) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
         ${t.analisi?.dubbi ? `<p class="td-todo is-advice"><strong>Da controllare:</strong> ${escapeHtml(t.analisi.dubbi)}</p>` : ''}
         ${renderTaskContatto(t)}
         ${t.analisi?.rimborso ? `<p class="td-todo is-advice"><strong>Rimborso richiesto:</strong> va gestito a mano.</p>` : ''}
@@ -1296,7 +1298,7 @@ function renderTaskDetail(id, storico) {
               storico.length ? `<ol>${storico.map(h => `
                 <li><span class="task-history-dot" style="background:${taskStato(h.a_stato).color};"></span>
                   <span><strong>${h.da_stato === h.a_stato ? 'Delegato' : taskStato(h.a_stato).label}</strong>${h.utente ? ` · ${escapeHtml(h.utente)}` : ''} · ${ctrlFmtQuando(h.at)}
-                  ${h.motivo && (h.da_stato === h.a_stato || TASK_CON_MOTIVO.includes(h.a_stato)) ? `<em>${escapeHtml(h.motivo)}</em>` : ''}</span></li>`).join('')}</ol>`
+                  ${h.motivo && (h.da_stato === h.a_stato || taskMotivoVisibile(h.a_stato, h.motivo)) ? `<em>${escapeHtml(h.motivo)}</em>` : ''}</span></li>`).join('')}</ol>`
               : `<p class="td-empty">Nessun passaggio registrato.</p>`}
           </details>
         </div>
