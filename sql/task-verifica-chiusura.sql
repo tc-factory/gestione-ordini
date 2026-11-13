@@ -71,6 +71,11 @@ returns setof uuid security definer set search_path = public language sql stable
 $$;
 revoke execute on function _tc_task_da_verificare(int, boolean, text) from public, anon, authenticated;
 
+-- Accesa il 2026-11-13 dopo la prova (Haiku, solo se certo) sui tipi creati dal cervello
+update task_tipi set chiusura_automatica = true
+ where nome in ('Stato ordine', 'Reso o cambio', 'Problema con un ordine', 'Modifica ordine', 'Informazioni prodotto',
+                'Preventivo', 'Pagamenti e fatture', 'Riscontro pagamento con bonifico', 'Mail da gestire');
+
 -- ════════════════════════════════════════════════════════
 -- FINE SCRIPT
 -- ════════════════════════════════════════════════════════
