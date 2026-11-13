@@ -863,3 +863,16 @@ html.dark .gz-tipo, html.dark .gz-red { color: #fca5a5 !important; }
 .empty-state-icon svg { width: 40px; height: 40px; }
 .soc-list-title { flex: 1; align-self: center; font-size: 13px; color: var(--text-secondary); }
 #mail-root.com-embed .mail-boxes .ctrl-macro-bar { display: none; }
+
+/* Comunicazione: i 4 negozi a tutta larghezza */
+.com-negozi { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+.com-negozio { display: flex; flex-direction: column; align-items: stretch; gap: 20px; padding: 28px 24px 22px; text-decoration: none; color: inherit; transition: transform .15s ease, box-shadow .15s ease; }
+.com-negozio:hover { transform: translateY(-3px); }
+.com-negozio:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.com-negozio-logo { display: flex; align-items: center; justify-content: center; height: 200px; }
+.com-negozio-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.com-negozio-canali { display: flex; justify-content: center; gap: 18px; padding-top: 18px; border-top: 1px solid var(--border-light, var(--border)); }
+.com-negozio-canali .com-mini-ch svg { width: 30px; height: 30px; }
+.com-negozio-canali .com-mini-ch b { top: -7px; right: -10px; min-width: 18px; height: 18px; line-height: 18px; font-size: 11px; border-radius: 9px; }
+@media (max-width: 1100px) { .com-negozi { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .com-negozi { grid-template-columns: 1fr; } .com-negozio-logo { height: 140px; } }
