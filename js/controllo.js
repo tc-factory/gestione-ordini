@@ -163,7 +163,7 @@ const CtrlIcons = {
 // ─────────────────────────────────────────────
 
 const Ctrl = {
-  view: 'giorno',        // giorno | ordini | gls | comunicazioni | cervello | collegamenti | competenze | squadra | report
+  view: 'giorno',        // giorno | ordini | gls | cervello | collegamenti | competenze | squadra | report
   giorno: ctrlOggi(),    // giorno mostrato
   macroarea: null,       // filtro della coda comune (null = tutte)
   tasks: [],             // task del giorno + arretrati aperti dei giorni prima
@@ -392,7 +392,7 @@ async function setControlView(view) {
 
 // Dati delle schede che li caricano quando si aprono
 function loadControlExtras() {
-  if (['ordini', 'gls', 'comunicazioni', 'cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
+  if (['ordini', 'gls', 'cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
   if (Ctrl.view === 'cervello') loadBrainRules();
   if (Ctrl.view === 'report') loadControlReport();
   if (Ctrl.view === 'automazioni') loadControlAutomations();
@@ -420,13 +420,12 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['ordini', 'Shop'], ['gls', 'Spedizioni'], ['comunicazioni', 'Comunicazioni'], ['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']] : [])];
+  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['ordini', 'Shop'], ['gls', 'Spedizioni'], ['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
     : Ctrl.view === 'ordini' ? renderControlOrders()
     : Ctrl.view === 'gls' ? renderControlGls()
-    : Ctrl.view === 'comunicazioni' ? renderControlComms()
     : Ctrl.view === 'cervello' ? renderControlBrain()
     : Ctrl.view === 'collegamenti' ? renderControlLinks()
     : Ctrl.view === 'automazioni' ? renderControlAutomations()
@@ -2515,33 +2514,13 @@ function renderControlGls() {
     </section>`;
 }
 
-// ── Comunicazioni: mail, WhatsApp, social ──
-
-const CtrlComms = { canale: 'mail', macroarea: null, esito: null };
-
-function setCommsChannel(id) { CtrlComms.canale = id; refreshControlPage(); if (id === 'social') loadSocial(); }
-function setCommsMacro(id) { CtrlComms.macroarea = id; refreshControlPage(); }
-function setCommsEsito(id) { CtrlComms.esito = id; refreshControlPage(); }
-
-function renderControlComms() {
-  const canali = [['mail', 'Mail'], ['social', 'Instagram e Facebook']];
-  return `
-    <div class="ctrl-bar">
-      <div class="segmented" role="tablist" aria-label="Canale">
-        ${canali.map(([id, label]) => `<button role="tab" aria-selected="${CtrlComms.canale === id}" class="${CtrlComms.canale === id ? 'active' : ''}" onclick="setCommsChannel('${id}')">${label}</button>`).join('')}
-      </div>
-    </div>
-    ${CtrlComms.canale === 'social' ? renderCommsSocial() : renderCommsMail()}`;
-}
-
 // ── Instagram e Facebook: conversazioni dei negozi (social_conversazioni / social_messaggi) ──
 const CtrlSocial = { conv: null, errore: null, sel: null, msgs: null, filtro: null, invio: false, sync: false };
 const SOCIAL_ICONA = { instagram: 'Instagram', messenger: 'Facebook' };
 
-// La chat social sta sia nel Centro di controllo sia in Comunicazione: si ridisegna dove è aperta
+// La chat social sta nella sezione Comunicazione
 function socialRidisegna() {
   if (Nav.current === 'comunicazione') renderComunicazionePage();
-  else if (Nav.current === 'controllo' && Ctrl.view === 'comunicazioni' && CtrlComms.canale === 'social') refreshControlPage();
 }
 
 async function loadSocial() {
@@ -2562,7 +2541,7 @@ async function apriSocial(id) {
   if (CtrlSocial.sel !== id) return;
   CtrlSocial.msgs = data || [];
   const c = CtrlSocial.conv?.find(x => x.id === id);
-  if (c?.da_leggere) { c.da_leggere = false; supabaseClient.rpc('tc_social_letta', { p_id: id }); }
+  if (c?.da_leggere) { c.da_leggere = false; supabaseClient.rpc('tc_social_letta', { p_id: id }).then(() => comLoadBadge()); }
   socialRidisegna();
   document.querySelector('.soc-thread-body')?.scrollTo({ top: 1e9 });
 }
@@ -2667,72 +2646,6 @@ function renderCommsSocial(fisso = null) {
         <div class="soc-list-body">${lista.length ? lista.map(riga).join('') : '<div class="soc-empty">Nessuna conversazione</div>'}</div>
       </div>
       <div class="soc-thread">${thread}</div>
-    </section>`;
-}
-
-// Cosa ne ha fatto il cervello: task aperto, gestita, scartata, ancora da leggere
-const MAIL_ESITI = {
-  aperta:   { label: 'Task aperto',  color: '#f59e0b' },
-  gestita:  { label: 'Gestita',      color: '#16a34a' },
-  scartata: { label: 'Scartata',     color: '#94a3b8' },
-  attesa:   { label: 'Da analizzare', color: '#6366f1' },
-};
-function mailEsito(m) {
-  const e = ShopLinks.mailEsiti?.[m.id];
-  if (!e) return null;
-  if (!e.elaborato_at) return { id: 'attesa' };
-  if (e.task) return { id: ['completato', 'non_completato'].includes(e.task.stato) ? 'gestita' : 'aperta', task: e.task };
-  if (e.task_id) return { id: 'gestita' };   // task eliminato
-  return { id: 'scartata', motivo: (e.esito || '').replace(/^Scartata[^:]*:\s*/, ''), evento: e.id };
-}
-
-function renderMailRow(m) {
-  const es = mailEsito(m), def = es && MAIL_ESITI[es.id];
-  const anteprima = (m.testo || '').replace(/\s+/g, ' ').trim();
-  return `
-    <article class="ctrl-trow ctrl-mailrow">
-      <div class="ctrl-cell"><strong class="ctrl-num">${ctrlFmtOra(m.ricevuto_at)}</strong></div>
-      <div class="ctrl-cell">
-        <strong>${escapeHtml(m.da_nome || m.da_email || 'Mittente sconosciuto')}</strong>
-        ${m.da_nome && m.da_email ? `<small>${escapeHtml(m.da_email)}</small>` : ''}
-        <small class="ctrl-macro-tag" style="--m:${taskMacro(m.casella_id)?.color || '#6366f1'};">${ctrlDot(m.casella_id)} ${escapeHtml(shopNome(m.casella_id))}</small>
-      </div>
-      <div class="ctrl-cell">
-        <strong>${escapeHtml(m.oggetto || '(senza oggetto)')}${(m.allegati || []).length ? ` <span class="ctrl-clip" title="${m.allegati.length} allegati">${Icons.paperclip(12)} ${m.allegati.length}</span>` : ''}</strong>
-        ${anteprima ? `<span class="ctrl-preview-text">${escapeHtml(anteprima.slice(0, 300))}</span>` : ''}
-      </div>
-      <div class="ctrl-cell ctrl-cell-act">
-        ${def ? `<span class="td-tag" style="--c:${def.color};" ${es.motivo ? `title="${escapeHtml(es.motivo)}"` : ''}>${def.label}</span>` : ''}
-        ${es?.task ? `<small>${es.task.assegnato_a ? `a ${escapeHtml(es.task.assegnato_a)}` : 'in coda comune'}</small>` : ''}
-        ${es?.motivo ? `<small class="ctrl-why">${escapeHtml(es.motivo)}</small>` : ''}
-        ${es?.task && Ctrl.get(es.task.id) ? `<button class="ctrl-btn" type="button" onclick="openTaskDetail('${es.task.id}')">Apri task</button>` : ''}
-        ${es?.evento ? `<button class="ctrl-btn" type="button" onclick="recoverDiscarded('${es.evento}')">Recupera</button>` : ''}
-      </div>
-    </article>`;
-}
-
-function renderCommsMail() {
-  const tutte = ShopLinks.mail || [];
-  const delNegozio = CtrlComms.macroarea ? tutte.filter(m => m.casella_id === CtrlComms.macroarea) : tutte;
-  const conEsito = (id) => delNegozio.filter(m => mailEsito(m)?.id === id);
-  const list = CtrlComms.esito ? conEsito(CtrlComms.esito) : delNegozio;
-  const esitoChip = (id, label, n, color = null) => ctrlFilter(CtrlComms.esito === id, label, n, color, `setCommsEsito(${id ? `'${id}'` : 'null'})`);
-  // Divise per giorno, dalla più recente
-  const giorni = new Map();
-  list.forEach(m => { const g = ctrlGiornoDi(m.ricevuto_at); giorni.set(g, [...(giorni.get(g) || []), m]); });
-  return `
-    <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>Mail dai clienti</h2><span class="table-count">${tutte.length}</span>
-        <span class="ctrl-group-hint">Le ultime 50, senza le mail automatiche</span></div>
-      ${ctrlStoreBar(CtrlComms.macroarea, (id) => tutte.filter(x => x.casella_id === id).length, tutte.length, 'Tutte', 'setCommsMacro')}
-      <div class="ctrl-macro-bar ctrl-esiti" role="group" aria-label="Filtra per esito">
-        ${esitoChip(null, 'Tutti gli esiti', delNegozio.length)}
-        ${Object.entries(MAIL_ESITI).map(([id, e]) => esitoChip(id, e.label, conEsito(id).length, e.color)).join('')}
-      </div>
-      ${list.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${[...giorni.entries()].map(([g, righe]) => `
-        <div class="ctrl-sub">${ctrlFmtGiorno(g)} · ${righe.length}</div>
-        <div class="ctrl-table">${righe.map(renderMailRow).join('')}</div>`).join('')}</div>`
-        : `<div class="empty-list">Nessuna mail.</div>`}
     </section>`;
 }
 

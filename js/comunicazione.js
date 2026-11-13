@@ -37,10 +37,27 @@ const Comun = {
   canale: null,
   account: null,      // social_account (senza token) con le conversazioni da leggere
   daLeggere: {},      // social_account.id → conversazioni da leggere
+  badge: 0,           // numero nella navbar
   caricato: false,
 };
 
 const comNegozio = (id) => COM_NEGOZI.find(n => n.id === id);
+
+// Numero nella navbar: mail da leggere delle caselle dei negozi + conversazioni Instagram/Facebook da leggere.
+// Si aggiorna con il giro di un minuto della Mail (MailBox.poll → loadBadge) e quando si legge qualcosa.
+async function comLoadBadge() {
+  if (!Nav.isAllowed('comunicazione')) return;
+  const [c, s] = await Promise.all([
+    supabaseClient.rpc('tc_mail_caselle'),
+    supabaseClient.from('social_conversazioni').select('account, social_account!inner(negozio)').eq('da_leggere', true),
+  ]);
+  const caselle = COM_NEGOZI.map(n => n.casella).filter(Boolean);
+  const negozi = COM_NEGOZI.map(n => n.id);
+  const mail = (c.data?.caselle || []).filter(x => caselle.includes(x.id)).reduce((t, x) => t + (x.non_lette || 0), 0);
+  const social = (s.data || []).filter(r => negozi.includes(r.social_account?.negozio)).length;
+  const n = (c.error ? 0 : mail) + (s.error ? 0 : social);
+  if (n !== Comun.badge) { Comun.badge = n; renderSidebar(); }
+}
 
 // La Mail è aperta qui dentro: serve alla sezione Mail per aggiornarsi da sola
 function mailVisibile() {
@@ -63,8 +80,9 @@ async function comCaricaConteggi() {
   Comun.account = acc.error ? [] : (acc.data || []);
   Comun.daLeggere = {};
   for (const c of conv.data || []) Comun.daLeggere[c.account] = (Comun.daLeggere[c.account] || 0) + 1;
-  if (Nav.isAllowed('mail') && !MailBox.caselle.length) await MailBox.loadCaselle().catch(() => {});
+  if (Nav.isAllowed('comunicazione') && !MailBox.caselle.length) await MailBox.loadCaselle().catch(() => {});
   Comun.caricato = true;
+  comLoadBadge();
 }
 
 // Stato di un canale per un negozio: { testo, n, colore, attivo }
@@ -73,7 +91,7 @@ function comStato(negozio, canale) {
   if (canale.id === 'mail') {
     if (!negozio.casella) return { testo: 'Da configurare', attivo: false };
     const c = MailBox.caselle.find(x => x.id === negozio.casella);
-    if (!c) return { testo: Nav.isAllowed('mail') ? 'Casella non trovata' : 'Serve l\'accesso alla Mail', attivo: false };
+    if (!c) return { testo: Nav.isAllowed('comunicazione') ? 'Casella non trovata' : 'Serve l\'accesso alla Mail', attivo: false };
     return { testo: c.non_lette ? `${c.non_lette} da leggere` : c.indirizzo, n: c.non_lette || 0, attivo: true, errore: c.ultimo_errore };
   }
   const conti = (Comun.account || []).filter(a => a.piattaforma === canale.piattaforma && a.negozio === negozio.id);
