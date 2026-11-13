@@ -5,9 +5,12 @@
 // (META_IG_APP_SECRET per CS Direct Connect, META_FB_APP_SECRET per CS Chat Connect);
 // ogni messaggio diventa una riga di `eventi` (fonte instagram | messenger, tipo messaggio_ricevuto).
 // Il cervello per ora legge solo le mail: questi eventi restano in attesa finché non li gestisce.
+// I messaggi vanno anche nelle conversazioni (social_conversazioni / social_messaggi), echo comprese:
+// le risposte date da Meta Business Suite o dall'app compaiono come nostre.
 // Va pubblicata con --no-verify-jwt.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { salvaMessaggio } from '../_shared/social.ts';
 
 const VERIFY = Deno.env.get('META_WEBHOOK_VERIFY_TOKEN') || '';
 const SEGRETI = ['META_IG_APP_SECRET', 'META_FB_APP_SECRET'].map(k => Deno.env.get(k)).filter(Boolean) as string[];
@@ -46,9 +49,21 @@ Deno.serve(async (req) => {
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const righe: Row[] = [];
+  const { data: conti } = await db.from('social_account').select('id, account_id').eq('piattaforma', fonte);
+  const contoDi = new Map((conti || []).map(c => [String(c.account_id), c.id]));
   for (const entry of body.entry || []) {
     for (const m of entry.messaging || []) {
-      if (!m.message || m.message.is_echo) continue;   // le nostre risposte tornano come echo: non sono messaggi dei clienti
+      if (!m.message) continue;
+      const nostro = !!m.message.is_echo;
+      const conto = contoDi.get(String(entry.id));
+      const cliente = String(nostro ? m.recipient?.id : m.sender?.id);
+      if (conto && cliente) {
+        await salvaMessaggio(db, conto, cliente, {
+          mid: m.message.mid || null, direzione: nostro ? 'out' : 'in', testo: m.message.text || '',
+          allegati: m.message.attachments || [], at: new Date(m.timestamp || Date.now()).toISOString(),
+        }).catch(e => console.error('meta-webhook conversazione', e.message));
+      }
+      if (nostro) continue;   // le nostre risposte tornano come echo: negli eventi solo i messaggi dei clienti
       righe.push({
         fonte, account: String(entry.id), tipo: 'messaggio_ricevuto', id_esterno: m.message.mid || null,
         payload: { da: m.sender?.id, a: m.recipient?.id, testo: m.message.text || '', allegati: m.message.attachments || [], at: m.timestamp },
