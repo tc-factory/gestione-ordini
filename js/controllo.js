@@ -347,7 +347,7 @@ async function openControlPage() {
   refreshControlPage();
   loadControlExtras();
   if (dove === 'task' && taskId) apriTaskDaLink(taskId);
-  if (dove === 'collegamenti' && taskId?.startsWith('instagram:')) esitoLoginMeta(taskId);
+  if (dove === 'collegamenti' && /^(instagram|messenger):/.test(taskId || '')) esitoLoginMeta(taskId);
 }
 
 // Il task del link può non essere tra quelli del giorno caricati: si legge e si aggiunge
@@ -2824,48 +2824,59 @@ function renderControlLinks() {
     ${renderControlServices()}`;
 }
 
-// ── Instagram (app Meta "CS Direct Connect", login unificato) ──
-const META_IG = { appId: '29503917439294554', configId: '1823367478810968' };
+// ── Instagram e Pagine Facebook (app Meta "CS Direct Connect" e "CS Chat Connect", login per portfolio) ──
+const META_APP = {
+  instagram: { appId: '29503917439294554', configId: '1823367478810968', titolo: 'Instagram', cosa: 'Messaggi diretti e commenti dei profili dei negozi' },
+  messenger: { appId: '1778695599875719', configId: '', titolo: 'Facebook · Messenger', cosa: 'Messaggi delle Pagine Facebook dei negozi' },
+};
 const SOCIAL_NEGOZI = [
   ...TASK_MACROAREE.filter(m => m.id !== 'asteroidi').map(m => ({ id: m.id, label: m.label })),
   { id: 'liveprinting', label: 'Live Printing' },
 ];
 
 function renderControlSocial() {
+  return renderSocialGruppo('instagram') + renderSocialGruppo('messenger');
+}
+
+function renderSocialGruppo(piattaforma) {
+  const app = META_APP[piattaforma];
   const lista = ShopLinks.social;
-  if (lista === null) return `<section class="glass-card page-card ctrl-group"><div class="page-card-head"><h2>Instagram</h2></div>
+  if (lista === null) return `<section class="glass-card page-card ctrl-group"><div class="page-card-head"><h2>${app.titolo}</h2></div>
     <div class="empty-list">Collegamento da attivare: esegui <strong>sql/meta-instagram.sql</strong>.</div></section>`;
-  const ig = lista.filter(a => a.piattaforma === 'instagram');
+  const conti = lista.filter(a => a.piattaforma === piattaforma);
   const riga = (a) => `
     <tr>
-      <td><strong>@${escapeHtml(a.username || a.account_id)}</strong><div class="ctrl-cell-sub">${escapeHtml(a.nome || '')}</div>
+      <td><strong>${piattaforma === 'instagram' ? '@' : ''}${escapeHtml(a.username || a.account_id)}</strong><div class="ctrl-cell-sub">${escapeHtml(a.nome && a.nome !== a.username ? a.nome : '')}</div>
         ${a.ultimo_errore ? `<div class="ctrl-shop-error">${escapeHtml(a.ultimo_errore)}</div>` : ''}</td>
       <td><span class="ctrl-status" style="--st:${a.ultimo_errore ? '#ef4444' : '#22c55e'};">${a.ultimo_errore ? 'Errore' : 'Collegato'}</span></td>
       <td class="ctrl-cell-sub">${ctrlFmtQuando(a.collegato_at)}</td>
-      <td><select class="ctrl-assign" aria-label="Negozio del profilo" onchange="socialNegozio('${a.id}', this.value)">
+      <td><select class="ctrl-assign" aria-label="Negozio" onchange="socialNegozio('${a.id}', this.value)">
         <option value="">Negozio…</option>
         ${SOCIAL_NEGOZI.map(n => `<option value="${n.id}" ${a.negozio === n.id ? 'selected' : ''}>${escapeHtml(n.label)}</option>`).join('')}
       </select></td>
       <td class="ctrl-cell-actions"><button class="ctrl-btn" onclick="scollegaSocial('${a.id}')">Scollega</button></td>
     </tr>`;
+  const cosa = piattaforma === 'instagram' ? 'i profili Instagram' : 'le Pagine Facebook';
   return `
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>Instagram</h2><span class="ctrl-group-hint">Messaggi diretti e commenti dei profili dei negozi</span>
-        <button class="ctrl-btn" onclick="collegaInstagram()">+ Collega Instagram</button></div>
-      ${ig.length ? `<div class="table-scroll"><table class="data-table ctrl-links">
-        <thead><tr><th>Profilo</th><th>Stato</th><th>Collegato</th><th>Negozio</th><th><span class="sr-only">Azioni</span></th></tr></thead>
-        <tbody>${ig.map(riga).join('')}</tbody></table></div>`
-      : `<div class="empty-list">Nessun profilo collegato. Premi <strong>Collega Instagram</strong> ed entra con il profilo Facebook che gestisce i negozi: nel login scegli i profili Instagram da collegare.</div>`}
+      <div class="page-card-head"><h2>${app.titolo}</h2><span class="ctrl-group-hint">${app.cosa}</span>
+        <button class="ctrl-btn" onclick="collegaMeta('${piattaforma}')">+ Collega</button></div>
+      ${conti.length ? `<div class="table-scroll"><table class="data-table ctrl-links">
+        <thead><tr><th>${piattaforma === 'instagram' ? 'Profilo' : 'Pagina'}</th><th>Stato</th><th>Collegato</th><th>Negozio</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+        <tbody>${conti.map(riga).join('')}</tbody></table></div>`
+      : `<div class="empty-list">Nessun collegamento. Premi <strong>+ Collega</strong>: Meta collega un portfolio alla volta, nel login scegli ${cosa} da collegare.</div>`}
     </section>`;
 }
 
-async function collegaInstagram() {
+async function collegaMeta(piattaforma) {
+  const app = META_APP[piattaforma];
+  if (!app.configId) { uiAlert(`Il collegamento ${app.titolo} non è ancora configurato su Meta.`); return; }
   try {
-    const { data, error } = await supabaseClient.rpc('tc_meta_login_inizia', { p_piattaforma: 'instagram' });
+    const { data, error } = await supabaseClient.rpc('tc_meta_login_inizia', { p_piattaforma: piattaforma });
     if (error) throw Ctrl._fail(error);
     if (!data?.success) throw new Error(data?.error || 'Errore');
     const q = new URLSearchParams({
-      client_id: META_IG.appId, config_id: META_IG.configId, display: 'page', override_default_response_type: 'true',
+      client_id: app.appId, config_id: app.configId, display: 'page', override_default_response_type: 'true',
       redirect_uri: `${SUPABASE_URL}/functions/v1/meta-login`, response_type: 'code', state: data.state,
     });
     location.href = 'https://www.facebook.com/dialog/oauth?' + q;
@@ -2888,11 +2899,12 @@ async function scollegaSocial(id) {
   await loadShopifyLinks();
 }
 
-// Ritorno dal login Meta: #/controllo/collegamenti/instagram:ok:2 oppure instagram:errore:<motivo>
+// Ritorno dal login Meta: #/controllo/collegamenti/<instagram|messenger>:ok:2 oppure :errore:<motivo>
 function esitoLoginMeta(esito) {
-  const [, tipo, ...resto] = decodeURIComponent(esito || '').split(':');
-  if (tipo === 'ok') showToast(`Instagram collegato: ${resto[0]} ${resto[0] === '1' ? 'profilo' : 'profili'}`, 'success');
-  else if (tipo === 'errore') uiAlert('Collegamento Instagram non riuscito: ' + resto.join(':'));
+  const [piattaforma, tipo, ...resto] = decodeURIComponent(esito || '').split(':');
+  const nome = META_APP[piattaforma]?.titolo || 'Meta';
+  if (tipo === 'ok') showToast(`${nome} collegato: ${resto[0]} account`, 'success');
+  else if (tipo === 'errore') uiAlert(`Collegamento ${nome} non riuscito: ` + resto.join(':'));
 }
 
 // Servizi esterni (GLS, Claude, mappe, invio mail, Mac mini) e operazioni pianificate del database
