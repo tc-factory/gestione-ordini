@@ -18,6 +18,7 @@ import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { inviaRisposta } from '../_shared/mail.ts';
 import { applicaIndirizzi, indirizzoDaMail } from './indirizzi.ts';
+import { verificaTask } from './verifica.ts';
 import { numeriNostri, primoCellulare } from '../_shared/telefoni.ts';
 
 const PER_GIRO = 6;              // mail per giro, elaborate in parallelo
@@ -27,6 +28,8 @@ const SEGNAPOSTO = /\[[^\]\n]{2,300}\]|\{\{[^}\n]*\}\}|<[A-Z_ ]{3,}>/;
 // Problemi di consegna in cui il pacco è fermo da GLS e aspetta istruzioni (vedi tracking-check)
 const GIACENZE = new Set(['Giacenza in deposito GLS', 'Indirizzo errato']);
 const MAX_AUTOMATICHE_GIORNO = 40;   // freno di sicurezza sulle risposte automatiche
+const VERIFICHE_PER_GIRO = 3;        // task da ricontrollare per giro (verifica.ts)
+const PROVA_VERIFICHE = 6;           // task per chiamata nella prova della verifica
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -631,11 +634,18 @@ Deno.serve(async (req) => {
     return reply({ success: true, ...(await prova(db, new Anthropic(), negozi, modelli, Math.min(Number(body.prova.n) || 50, 100))) });
   }
 
+  // Prova della verifica dei task: decide su tutti i task aperti nati da mail, senza chiuderne nessuno
+  if (body?.verifica_prova) {
+    const { data: stores } = await db.from('shopify_stores').select('id, nome');
+    const negozi = new Map((stores || []).map(s => [s.id, s.nome]));
+    const { risultati, altri } = await verificaTask(db, new Anthropic(), consumo, negozi, PROVA_VERIFICHE, true);
+    return reply({ success: true, risultati, restano: altri });
+  }
+
   await applicaIndirizzi(db);
 
   const { data: eventi, error } = await db.rpc('_tc_eventi_prendi', { p_n: PER_GIRO });
   if (error) return fail(`Eventi non leggibili: ${error.message}`, 500);
-  if (!eventi?.length) return reply({ success: true, risultati: [] });
 
   const [{ data: stores }, { data: tipiRows }] = await Promise.all([
     db.from('shopify_stores').select('id, nome'),
@@ -645,6 +655,11 @@ Deno.serve(async (req) => {
   const tipi = new Map((tipiRows || []).map(t => [t.nome, t]));
 
   const client = new Anthropic();
-  const risultati = await Promise.all(eventi.map((e: Row) => elabora(db, client, e, negozi, tipi)));
-  return reply({ success: true, risultati });
+  // Mail nuove e verifica dei task aperti in parallelo; un errore della verifica non ferma le mail
+  const [risultati, verifiche] = await Promise.all([
+    Promise.all((eventi || []).map((e: Row) => elabora(db, client, e, negozi, tipi))),
+    verificaTask(db, client, consumo, negozi, VERIFICHE_PER_GIRO).then(v => v.risultati)
+      .catch(e => [{ errore: e instanceof Error ? e.message : String(e) }]),
+  ]);
+  return reply({ success: true, risultati, verifiche });
 });
