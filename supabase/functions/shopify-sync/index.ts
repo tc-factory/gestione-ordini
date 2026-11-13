@@ -46,6 +46,7 @@ query Orders($first: Int!, $after: String, $query: String!) {
       shippingAddress { name address1 address2 city zip province countryCodeV2 phone }
       billingAddress { phone }
       shippingLine { title }
+      fulfillmentOrders(first: 3) { nodes { deliveryMethod { methodType } } }
       lineItems(first: 15) { nodes { title variantTitle sku quantity } }
       fulfillments(first: 5) {
         status createdAt displayStatus
@@ -104,6 +105,10 @@ function toRow(storeId: string, o: any) {
     indirizzo: addr ? { nome: addr.name, via: [addr.address1, addr.address2].filter(Boolean).join(', '), citta: addr.city,
                         cap: addr.zip, provincia: addr.province, paese: addr.countryCodeV2 } : null,
     spedizione: o.shippingLine?.title || null,
+    // Ritiro di persona (in sede o allo stand in gara): su Shopify il metodo di consegna è PICK_UP
+    // deno-lint-ignore no-explicit-any
+    ritiro: (o.fulfillmentOrders?.nodes || []).some((f: any) => f.deliveryMethod?.methodType === 'PICK_UP')
+      || /ritiro\s+in\s+(sede|gara)/i.test(o.shippingLine?.title || ''),
     note: o.note || null,
     tags: o.tags || [],
   };

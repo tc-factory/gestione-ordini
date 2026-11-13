@@ -1644,7 +1644,7 @@ const SHOP_EVASIONE = { UNFULFILLED: 'Da evadere', FULFILLED: 'Evaso', PARTIALLY
   IN_PROGRESS: 'In lavorazione', SCHEDULED: 'Programmato', RESTOCKED: 'Rifornito', PENDING_FULFILLMENT: 'In attesa di evasione', OPEN: 'Aperto' };
 
 const SHOP_DA_EVADERE = ['UNFULFILLED', 'PARTIALLY_FULFILLED', 'ON_HOLD', 'IN_PROGRESS', 'SCHEDULED'];   // come tc_shopify_stato
-const SHOP_ORDINE_CAMPI = 'id, store_id, numero, creato_at, annullato_at, cliente, email, telefono, totale, valuta, stato_pagamento, stato_evasione, tracking, righe, indirizzo, spedizione';
+const SHOP_ORDINE_CAMPI = 'id, store_id, numero, creato_at, annullato_at, cliente, email, telefono, totale, valuta, stato_pagamento, stato_evasione, tracking, righe, indirizzo, spedizione, ritiro';
 
 // Richieste dei dati mancanti ancora aperte (ordini-dati, o mandate a mano): ordine → richiesta
 async function loadRichiesteDati(render = true) {
@@ -1886,7 +1886,7 @@ function ctrlShopOrderRow(o, conNegozio = true) {
 // Stesse regole in supabase/functions/_shared/ordini-dati.ts: se ne cambi una, cambia anche l'altra.
 const ordPagato = (o) => ['PAID', 'PARTIALLY_REFUNDED'].includes(o.stato_pagamento);
 // Ritiro in sede o in gara: indirizzo e telefono non servono (stessa regola di conRitiro)
-const ordConRitiro = (o) => /ritiro\s+in\s+(sede|gara)/i.test(String(o?.spedizione || ''));
+const ordConRitiro = (o) => !!o?.ritiro || /ritiro\s+in\s+(sede|gara)/i.test(String(o?.spedizione || ''));
 function ordProblemi(o) {
   const out = [];                                   // [campo, testo]
   if (ordConRitiro(o)) return out;
