@@ -123,7 +123,7 @@ export function testoTelefonata(d: DatiTelefonata) {
     r.push(`«Il corriere GLS non è riuscito a consegnarlo (${c.gls.toLowerCase()}). Ora il pacco è fermo nel loro deposito.»`);
   }
   if (d.motivo === 'dopo_svincolo' && ultimoSv) {
-    r.push(`«${svincoli.length > 1 ? `Abbiamo già dato a GLS nuove istruzioni ${svincoli.length} volte` : `${maiuscola(giorno(ultimoSv.at))} avevamo dato a GLS nuove istruzioni (${ultimoSminuscola(v.tipo)})`}, ma il pacco si è fermato di nuovo${dopoSv.length ? ` ${giorno(dopoSv[dopoSv.length - 1].at)}` : ''}. Prima di riprovare vorrei capire con te cosa non va, così la prossima volta arriva.»`);
+    r.push(`«${svincoli.length > 1 ? `Abbiamo già dato a GLS nuove istruzioni ${svincoli.length} volte` : `${maiuscola(giorno(ultimoSv.at))} avevamo dato a GLS nuove istruzioni (${minuscola(ultimoSv.tipo)})`}, ma il pacco si è fermato di nuovo${dopoSv.length ? ` ${giorno(dopoSv[dopoSv.length - 1].at)}` : ''}. Prima di riprovare vorrei capire con te cosa non va, così la prossima volta arriva.»`);
   } else if (d.motivo === 'senza_risposta' && d.ultima_mail_at) {
     r.push(`«Ti abbiamo scritto una mail il ${giorno(d.ultima_mail_at)} ma non ci è arrivata risposta, per questo ti chiamo: GLS tiene il pacco solo pochi giorni.»`);
   }
