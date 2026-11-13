@@ -14,7 +14,8 @@ import { mittenteVerificato } from './indirizzi.ts';
 type Row = Record<string, any>;
 type Consumo = (modello: string, u: unknown) => Row;
 
-const MODELLO = 'claude-opus-5-5';
+// Haiku (scelta utente 2026-11-13): nella prova su 26 task stesse chiusure certe di Opus, 30 volte meno
+const MODELLO = 'claude-haiku-5-5';
 export const MODELLI_VERIFICA = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 const PREFISSO = 'Chiuso in automatico: ';
 
