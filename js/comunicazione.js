@@ -156,7 +156,7 @@ function renderComunicazionePage() {
   const root = document.getElementById('comunicazione-root');
   if (!root || Nav.current !== 'comunicazione') return;
   if (!root.querySelector('.com-page')) {
-    root.innerHTML = `<div class="com-page"><div class="com-negozi-bar" id="com-negozi" role="tablist" aria-label="Negozio"></div>
+    root.innerHTML = `<div class="com-page"><div class="com-negozi-bar" id="com-negozi" role="tablist" aria-label="Brand"></div>
       <div class="com-canali" id="com-canali" role="tablist" aria-label="Canale"></div><div class="com-body" id="com-body"></div></div>`;
   }
   if (!Comun.trascina) renderComNegozi();

@@ -12,7 +12,7 @@
 
 const NAV_ITEMS = [
   { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Task del giorno di ogni persona del team', icon: () => Icons.zap(19) },
-  { id: 'comunicazione', label: 'Negozi', subtitle: 'Mail, social, WhatsApp, Shopify e spedizioni di ogni negozio', icon: () => Icons.messageCircle(19) },
+  { id: 'comunicazione', label: 'Brand', subtitle: 'Mail, social, WhatsApp, Shopify e spedizioni di ogni brand', icon: () => Icons.messageCircle(19) },
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
   { id: 'dtf',          label: 'Interne',       subtitle: 'Lavorazioni fatte in casa',     icon: () => Icons.printer(19) },
@@ -36,7 +36,7 @@ const DEFAULT_VIEW = 'ordini';
 const ALL_SECTIONS = () => [...NAV_ITEMS, ...NAV_FOOTER_ITEMS];
 
 // Vecchi indirizzi → nuova posizione (Staff ora è dentro Impostazioni)
-const NAV_ALIASES = { staff: ['impostazioni', null], mail: ['comunicazione', null], negozi: ['comunicazione', null] };
+const NAV_ALIASES = { staff: ['impostazioni', null], mail: ['comunicazione', null], negozi: ['comunicazione', null], brand: ['comunicazione', null] };
 
 // Navbar ridotta a sole icone (solo computer); la scelta resta salvata nel browser
 const SidebarCollapse = {
