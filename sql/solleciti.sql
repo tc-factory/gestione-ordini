@@ -20,7 +20,7 @@ create table if not exists mail_solleciti (
   mail_id     uuid primary key references mail_messaggi(id) on delete cascade,
   casella_id  text not null,
   email       text not null,
-  esito       text not null,            -- 'task', 'non_serve', 'altrove', 'errore'
+  esito       text not null,            -- 'task', 'non_serve', 'altrove', 'riprova' (primo errore), 'errore'
   motivo      text,
   task_id     uuid,
   created_at  timestamptz not null default now()
@@ -57,7 +57,7 @@ security definer set search_path = public language sql stable as $$
   )
   select u.id, u.casella_id, u.email, u.ricevuto_at
     from ultime u
-   where not exists (select 1 from mail_solleciti s where s.mail_id = u.id)
+   where not exists (select 1 from mail_solleciti s where s.mail_id = u.id and s.esito <> 'riprova')
      and not exists (select 1 from mail_messaggi r
                       where r.direzione = 'in' and lower(r.da_email) = u.email and r.ricevuto_at > u.ricevuto_at)
      and tc_giorni_lavorativi((u.ricevuto_at at time zone 'Europe/Rome')::date, (now() at time zone 'Europe/Rome')::date) >= p_giorni
