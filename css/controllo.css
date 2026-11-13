@@ -838,48 +838,39 @@ html.dark .gz-tipo, html.dark .gz-red { color: #fca5a5 !important; }
   .soc-thread-body { max-height: 50vh; }
 }
 
-/* ── Comunicazione: negozi e canali ── */
-.com-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
-.com-card { display: flex; align-items: center; gap: 14px; padding: 18px; text-decoration: none; color: inherit; transition: transform .15s ease, box-shadow .15s ease; }
-.com-card:hover { transform: translateY(-2px); }
-.com-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.com-card.is-off { opacity: .6; }
-.com-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.com-card-body small { color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
-.com-card-body .com-n { color: var(--accent-ink); font-weight: 600; }
-.com-card-body .com-err { color: #b91c1c; white-space: normal; }
-.com-logo { width: 64px; height: 64px; border-radius: 16px; object-fit: cover; flex: none; background: #fff; box-shadow: 0 0 0 1px var(--border-light, var(--border)); }
-.com-logo.is-small { width: 32px; height: 32px; border-radius: 9px; }
-.com-ch-logo { flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--fill-hover); }
-.com-mini { display: flex; gap: 6px; margin-top: 4px; }
-.com-mini-ch { position: relative; display: inline-flex; }
-.com-mini-ch svg { width: 20px; height: 20px; }
-.com-mini-ch.is-off { filter: grayscale(1); opacity: .35; }
-.com-mini-ch b { position: absolute; top: -6px; right: -8px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #ef4444; color: #fff; font-size: 10px; line-height: 16px; text-align: center; }
-.com-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
-.com-head > strong { font-size: 18px; }
-.com-head-ch { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); }
-.com-head-ch svg { width: 20px; height: 20px; }
+/* ── Comunicazione: bottoni dei negozi (solo logo, trascinabili) e canali ── */
+.com-negozi-bar { display: flex; flex-wrap: wrap; gap: 14px; }
+.com-negozio-btn {
+  flex: 1 1 200px; min-width: 0; box-sizing: border-box; display: flex; align-items: center; justify-content: center; height: 76px; padding: 14px 24px;
+  border: none; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+  transition: box-shadow .15s ease, opacity .15s ease;
+}
+.com-negozio-btn img { max-width: 100%; max-height: 46px; object-fit: contain; pointer-events: none; }
+.com-negozio-btn:not(.is-on) img { opacity: .72; transition: opacity .15s ease; }
+.com-negozio-btn:not(.is-on):hover img { opacity: 1; }
+.com-negozio-btn.is-on { box-shadow: 0 0 0 2px var(--accent), 0 6px 18px rgba(34, 44, 80, .12); }
+.com-negozio-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.com-negozio-btn.is-drag { position: relative; z-index: 5; cursor: grabbing; box-shadow: 0 0 0 2px var(--accent), 0 16px 36px rgba(34, 44, 80, .22); }
+.com-negozio-btn.is-drag img { opacity: 1; filter: none; }
+body.com-dragging, body.com-dragging * { cursor: grabbing !important; user-select: none; }
+
+.com-canali { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 16px; }
+.com-canale {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px 8px 10px; border-radius: 999px;
+  border: 1px solid var(--border-light, var(--border)); background: transparent; color: var(--text-primary); font: inherit; font-weight: 600; cursor: pointer;
+}
+.com-canale svg { width: 22px; height: 22px; }
+.com-canale:hover { background: var(--fill-hover); }
+.com-canale.is-on { background: var(--bg-card, #fff); border-color: transparent; box-shadow: 0 0 0 2px var(--accent); }
+.com-canale.is-off { color: var(--text-secondary); }
+.com-canale.is-off svg { filter: grayscale(1); opacity: .45; }
+.com-canale b { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: #ef4444; color: #fff; font-size: 11px; line-height: 20px; text-align: center; }
+.com-canale:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .empty-state-icon svg { width: 40px; height: 40px; }
 .soc-list-title { flex: 1; align-self: center; font-size: 13px; color: var(--text-secondary); }
 #mail-root.com-embed .mail-boxes .ctrl-macro-bar { display: none; }
-
-/* Comunicazione: i 4 negozi a tutta larghezza */
-.com-negozi { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
-.com-negozio { display: flex; flex-direction: column; align-items: stretch; gap: 20px; padding: 28px 24px 22px; text-decoration: none; color: inherit; transition: transform .15s ease, box-shadow .15s ease; }
-.com-negozio:hover { transform: translateY(-3px); }
-.com-negozio:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.com-negozio-logo { display: flex; align-items: center; justify-content: center; height: 200px; }
-.com-negozio-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.com-negozio-canali { display: flex; justify-content: center; gap: 18px; padding-top: 18px; border-top: 1px solid var(--border-light, var(--border)); }
-.com-negozio-canali .com-mini-ch svg { width: 30px; height: 30px; }
-.com-negozio-canali .com-mini-ch b { top: -7px; right: -10px; min-width: 18px; height: 18px; line-height: 18px; font-size: 11px; border-radius: 9px; }
-@media (max-width: 1100px) { .com-negozi { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 600px) { .com-negozi { grid-template-columns: 1fr; } .com-negozio-logo { height: 140px; } }
-
-/* Comunicazione: box larghi e bassi */
-.com-negozio { gap: 12px; padding: 16px 20px 14px; }
-.com-negozio-logo { height: 84px; }
-.com-negozio-canali { gap: 16px; padding-top: 12px; }
-.com-negozio-canali .com-mini-ch svg { width: 24px; height: 24px; }
-@media (max-width: 600px) { .com-negozio-logo { height: 72px; } }
+@media (max-width: 600px) {
+  .com-negozi-bar { gap: 10px; }
+  .com-negozio-btn { flex-basis: calc(50% - 5px); height: 60px; padding: 10px 14px; }
+  .com-negozio-btn img { max-height: 36px; }
+}
