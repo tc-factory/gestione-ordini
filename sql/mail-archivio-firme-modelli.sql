@@ -363,7 +363,7 @@ begin
     select jsonb_agg(jsonb_build_object(
              'id', o.id, 'numero', o.numero, 'creato_at', o.creato_at, 'cliente', o.cliente, 'email', o.email,
              'telefono', o.telefono, 'totale', o.totale, 'valuta', o.valuta, 'stato_pagamento', o.stato_pagamento,
-             'stato_evasione', o.stato_evasione, 'righe', o.righe, 'indirizzo', o.indirizzo) order by o.creato_at desc)
+             'stato_evasione', o.stato_evasione, 'righe', o.righe, 'indirizzo', o.indirizzo, 'tracking', o.tracking) order by o.creato_at desc)
       from (select * from shopify_orders o
              where o.store_id = v_store and o.annullato_at is null
                and (lower(o.email) = v_q

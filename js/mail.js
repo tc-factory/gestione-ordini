@@ -829,9 +829,21 @@ async function loadThreadOrders(k, f) {
   } catch { /* senza ordine niente tasto DDT */ }
 }
 
+// Per ogni ordine: DDT e, se è partito, i tracking cliccabili (pagina del corriere)
 function renderMailDdt() {
-  return MailBox.ordiniCitati.map(o => `
-    <button type="button" class="btn btn-primary btn-sm mail-ddt" onclick="apriDdt('${o.id}')" title="Apri il DDT dell'ordine ${escapeHtml(o.numero)}">DDT${MailBox.ordiniCitati.length > 1 ? ' ' + escapeHtml(o.numero) : ''}</button>`).join('');
+  const piu = MailBox.ordiniCitati.length > 1;
+  return MailBox.ordiniCitati.map(o => {
+    const tracking = (o.tracking || []).filter(t => t.numero || t.url).map(t => {
+      const url = t.url || (/gls/i.test(t.corriere || '') && t.numero ? glsUrl(t.numero) : '');
+      const testo = `${Icons.truck(13)} <span class="td-mono">${escapeHtml(t.numero || 'Tracking')}</span>`;
+      return url
+        ? `<a class="mail-track" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="Tracking ${escapeHtml(t.corriere || '')}">${testo}</a>`
+        : `<span class="mail-track" title="${escapeHtml(t.corriere || '')}">${testo}</span>`;
+    }).join('');
+    return `<span class="mail-ddt-gruppo">
+      <button type="button" class="btn btn-primary btn-sm mail-ddt" onclick="apriDdt('${o.id}')" title="Apri il DDT dell'ordine ${escapeHtml(o.numero)}">DDT${piu ? ' ' + escapeHtml(o.numero) : ''}</button>${tracking}
+    </span>`;
+  }).join('');
 }
 
 // Ridisegna la conversazione senza perdere il punto in cui si sta scrivendo
