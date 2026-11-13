@@ -2538,32 +2538,38 @@ function renderControlComms() {
 const CtrlSocial = { conv: null, errore: null, sel: null, msgs: null, filtro: null, invio: false, sync: false };
 const SOCIAL_ICONA = { instagram: 'Instagram', messenger: 'Facebook' };
 
+// La chat social sta sia nel Centro di controllo sia in Comunicazione: si ridisegna dove è aperta
+function socialRidisegna() {
+  if (Nav.current === 'comunicazione') renderComunicazionePage();
+  else if (Nav.current === 'controllo' && Ctrl.view === 'comunicazioni' && CtrlComms.canale === 'social') refreshControlPage();
+}
+
 async function loadSocial() {
   const { data, error } = await supabaseClient.from('social_conversazioni')
     .select('id, utente_id, utente_nome, ultimo_at, ultimo_testo, ultimo_da, da_leggere, social_account(id, piattaforma, username, negozio, ultimo_errore)')
     .not('ultimo_at', 'is', null).order('ultimo_at', { ascending: false }).limit(300);
   CtrlSocial.errore = error ? (/does not exist|schema cache/.test(error.message) ? 'Esegui sql/social-messaggi.sql su Supabase.' : error.message) : null;
   CtrlSocial.conv = error ? [] : (data || []);
-  if (CtrlComms.canale === 'social' && Ctrl.view === 'comunicazioni') refreshControlPage();
+  socialRidisegna();
 }
 
 async function apriSocial(id) {
   CtrlSocial.sel = id;
   CtrlSocial.msgs = null;
-  refreshControlPage();
+  socialRidisegna();
   const { data } = await supabaseClient.from('social_messaggi').select('id, direzione, testo, allegati, at, errore')
     .eq('conversazione', id).order('at').limit(500);
   if (CtrlSocial.sel !== id) return;
   CtrlSocial.msgs = data || [];
   const c = CtrlSocial.conv?.find(x => x.id === id);
   if (c?.da_leggere) { c.da_leggere = false; supabaseClient.rpc('tc_social_letta', { p_id: id }); }
-  refreshControlPage();
+  socialRidisegna();
   document.querySelector('.soc-thread-body')?.scrollTo({ top: 1e9 });
 }
 
 async function aggiornaSocial() {
   CtrlSocial.sync = true;
-  refreshControlPage();
+  socialRidisegna();
   try {
     const { data, error } = await supabaseClient.functions.invoke('social-sync', { body: {} });
     if (error || !data?.success) throw new Error(data?.error || error?.message || 'Lettura non riuscita');
@@ -2599,17 +2605,19 @@ async function inviaSocial(ev) {
   }
 }
 
-function setSocialFiltro(f) { CtrlSocial.filtro = f; refreshControlPage(); }
+function setSocialFiltro(f) { CtrlSocial.filtro = f; socialRidisegna(); }
 
-function renderCommsSocial() {
+// fisso = { negozio, piattaforma }: solo quel negozio e quel canale (pagina Comunicazione), senza filtro
+function renderCommsSocial(fisso = null) {
   if (CtrlSocial.conv === null) { loadSocial(); return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`; }
   if (CtrlSocial.errore) return `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(CtrlSocial.errore)}</div></div>`;
-  const tutte = CtrlSocial.conv;
+  const tutte = fisso ? CtrlSocial.conv.filter(c => c.social_account?.negozio === fisso.negozio && c.social_account?.piattaforma === fisso.piattaforma) : CtrlSocial.conv;
+  if (fisso && CtrlSocial.sel && !tutte.some(c => c.id === CtrlSocial.sel)) { CtrlSocial.sel = null; CtrlSocial.msgs = null; }
   const filtri = [[null, 'Tutte'], ['da_leggere', 'Da leggere'], ['instagram', 'Instagram'], ['messenger', 'Facebook'],
     ...SOCIAL_NEGOZI.map(n => [n.id, n.label])];
   const passa = (c, f) => !f ? true : f === 'da_leggere' ? c.da_leggere
     : (f === 'instagram' || f === 'messenger') ? c.social_account?.piattaforma === f : c.social_account?.negozio === f;
-  const lista = tutte.filter(c => passa(c, CtrlSocial.filtro));
+  const lista = fisso ? tutte : tutte.filter(c => passa(c, CtrlSocial.filtro));
   const negozio = (c) => SOCIAL_NEGOZI.find(n => n.id === c.social_account?.negozio)?.label || c.social_account?.username || '';
   const sel = tutte.find(c => c.id === CtrlSocial.sel);
   const errori = [...new Map(tutte.concat([]).map(c => c.social_account).filter(a => a?.ultimo_errore).map(a => [a.id, a])).values()];
@@ -2651,9 +2659,9 @@ function renderCommsSocial() {
     <section class="glass-card page-card soc-box">
       <div class="soc-list">
         <div class="soc-list-head">
-          <select class="ctrl-assign" aria-label="Filtro" onchange="setSocialFiltro(this.value || null)">
+          ${fisso ? `<span class="soc-list-title">${lista.length} conversazioni · ${lista.filter(c => c.da_leggere).length} da leggere</span>` : `<select class="ctrl-assign" aria-label="Filtro" onchange="setSocialFiltro(this.value || null)">
             ${filtri.map(([id, label]) => `<option value="${id || ''}" ${CtrlSocial.filtro === id ? 'selected' : ''}>${escapeHtml(label)}${id === 'da_leggere' ? ` (${tutte.filter(c => c.da_leggere).length})` : ''}</option>`).join('')}
-          </select>
+          </select>`}
           <button class="ctrl-btn" ${CtrlSocial.sync ? 'disabled' : ''} onclick="aggiornaSocial()">${CtrlSocial.sync ? '…' : '↻ Aggiorna'}</button>
         </div>
         <div class="soc-list-body">${lista.length ? lista.map(riga).join('') : '<div class="soc-empty">Nessuna conversazione</div>'}</div>
