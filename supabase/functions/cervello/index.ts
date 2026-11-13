@@ -18,8 +18,9 @@ import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { inviaRisposta } from '../_shared/mail.ts';
 import { applicaIndirizzi, indirizzoDaMail } from './indirizzi.ts';
-import { verificaTask } from './verifica.ts';
+import { MODELLI_VERIFICA, verificaTask } from './verifica.ts';
 import { numeriNostri, primoCellulare } from '../_shared/telefoni.ts';
+import { inAttesaDopoSvincolo } from '../_shared/svincolo.ts';
 
 const PER_GIRO = 6;              // mail per giro, elaborate in parallelo
 const MAX_TENTATIVI = 3;         // poi la mail diventa comunque un task, senza bozza
@@ -159,6 +160,7 @@ Regole della bozza:
 - Per un ordine pagato, non spedito ed entro i tempi, dì al cliente che è in preparazione e quando parte secondo i tempi del negozio, contati in giorni lavorativi dalla data dell'ordine; poi i tempi di consegna.
 - Gli ordini segnati "non verificato" hanno un'email diversa dal mittente: puoi dire lo stato generale dell'ordine, ma non citare indirizzi, articoli o tracking; se serve altro, chiedi di scrivere dall'email usata per l'ordine.
 - Non promettere rimborsi, sconti o cambi: quelli li decide l'operatore. Scrivi che la richiesta è stata presa in carico.
+- Se la spedizione ha stato "svincolata", le istruzioni a GLS le abbiamo già date (il giorno in "svincolata_il"): NON scrivere che il pacco è in giacenza o in attesa di istruzioni, NON scrivere che le mandiamo ora o di nuovo, non compilare "svincolo" e non proporre il ritiro in sede. Scrivi che abbiamo già dato a GLS le istruzioni per la consegna e che il deposito rimetterà in consegna il pacco nei prossimi giorni lavorativi, senza date precise; se il cliente indica un telefono o un indirizzo nuovo, mettilo in "dubbi" per l'operatore.
 - Se compili "svincolo", la bozza è la conferma che parte DOPO che l'operatore ha dato le istruzioni a GLS: scrivi che abbiamo comunicato a GLS come consegnare il pacco (riassumi la scelta) e che il corriere lo riporterà nei prossimi giorni lavorativi, senza date precise. In quel caso le istruzioni a GLS non sono un dubbio.
 - Ritiro in sede GLS: se la spedizione ha "deposito_gls", usalo nella bozza: scrivi indirizzo (GLS + sede, indirizzo, CAP, provincia) e telefono del deposito dove ritirare il pacco, consigliando di chiamare prima di andare per orari e conferma. "luogo_eventi" è il paese dove il corriere ha registrato gli eventi, non il deposito: non citarlo come luogo di ritiro. Senza "deposito_gls" non inventare indirizzi.`;
 
@@ -440,10 +442,17 @@ async function preparaContesto(db: SupabaseClient, mail: Row, casella: Row | nul
 
   // Stato vero della spedizione dallo storico GLS: lo stato di Shopify spesso non si aggiorna
   const { data: tracciate } = ordini.length
-    ? await db.from('spedizioni_tracking').select('ordine_id, numero, cliente_gls, stato, problema, ultimo_evento, ultimo_at, consegnata_at, eventi, deposito').in('ordine_id', ordini.map(o => o.id))
+    ? await db.from('spedizioni_tracking').select('ordine_id, numero, cliente_gls, stato, problema, ultimo_evento, ultimo_at, consegnata_at, eventi, deposito, svincolata_at, svincolo_tipo').in('ordine_id', ordini.map(o => o.id))
     : { data: [] };
-  const fermate = (tracciate || []).filter((t: Row) => t.problema && GIACENZE.has(t.problema));
-  const spedizioni = new Map((tracciate || []).map((t: Row) => [t.ordine_id, {
+  // Già svincolata: GLS ripete "in giacenza, attesa istruzioni" finché il deposito non rimette in
+  // consegna il pacco, ma le istruzioni sono date. Non è più ferma e non va proposto un altro svincolo.
+  const svincolata = (t: Row) => t.problema && GIACENZE.has(t.problema) && inAttesaDopoSvincolo(t);
+  const fermate = (tracciate || []).filter((t: Row) => t.problema && GIACENZE.has(t.problema) && !svincolata(t));
+  const spedizioni = new Map((tracciate || []).map((t: Row) => [t.ordine_id, svincolata(t) ? {
+    stato: 'svincolata', problema: null, quando: t.ultimo_at,
+    svincolata_il: new Date(t.svincolata_at).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+    nota: 'Istruzioni già date a GLS: il deposito deve ancora rimettere in consegna il pacco. Il tracking pubblico GLS mostra ancora "in giacenza" finché non riparte.',
+  } : {
     stato: t.stato, problema: t.problema, ultimo_stato_gls: t.ultimo_evento, quando: t.ultimo_at, consegnata_il: t.consegnata_at,
     ...(t.problema && GIACENZE.has(t.problema) && t.deposito?.sede ? { deposito_gls: t.deposito } : {}),
   }]));
@@ -638,7 +647,9 @@ Deno.serve(async (req) => {
   if (body?.verifica_prova) {
     const { data: stores } = await db.from('shopify_stores').select('id, nome');
     const negozi = new Map((stores || []).map(s => [s.id, s.nome]));
-    const { risultati, altri } = await verificaTask(db, new Anthropic(), consumo, negozi, PROVA_VERIFICHE, true);
+    const modello = body.modello || 'claude-opus-5-5';
+    if (!MODELLI_VERIFICA.includes(modello)) return fail('Modello non valido');
+    const { risultati, altri } = await verificaTask(db, new Anthropic(), consumo, negozi, PROVA_VERIFICHE, true, modello);
     return reply({ success: true, risultati, restano: altri });
   }
 

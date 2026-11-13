@@ -38,10 +38,11 @@ create policy "Verifiche task visibili" on task_verifiche for select to authenti
 revoke all on task_verifiche from anon, authenticated;
 grant select on task_verifiche to authenticated;
 
--- Task da ricontrollare. Prova: tutti i task aperti nati da mail non ancora provati, senza
+-- Task da ricontrollare. Prova (per modello, per confrontarli sugli stessi task): tutti i task aperti nati da mail non ancora provati, senza
 -- guardare l'interruttore. Normale: tipi accesi e qualcosa cambiato dall'ultimo controllo
 -- (o dalla creazione: appena creato il task non si ricontrolla).
-create or replace function _tc_task_da_verificare(p_n int, p_prova boolean default false)
+drop function if exists _tc_task_da_verificare(int, boolean);
+create or replace function _tc_task_da_verificare(p_n int, p_prova boolean default false, p_modello text default 'claude-opus-5-5')
 returns setof uuid security definer set search_path = public language sql stable as $$
   select k.id
     from tasks k
@@ -50,7 +51,7 @@ returns setof uuid security definer set search_path = public language sql stable
    where k.stato not in ('completato', 'non_completato')
      and not exists (select 1 from task_verifiche v where v.task_id = k.id and v.chiuso)
      and case when p_prova
-         then not exists (select 1 from task_verifiche v where v.task_id = k.id and v.prova)
+         then not exists (select 1 from task_verifiche v where v.task_id = k.id and v.prova and coalesce(v.modello, p_modello) = p_modello)
          else p.chiusura_automatica and (
            -- ordini del task aggiornati su Shopify
            exists (select 1
@@ -68,7 +69,7 @@ returns setof uuid security definer set search_path = public language sql stable
    order by k.created_at
    limit p_n;
 $$;
-revoke execute on function _tc_task_da_verificare(int, boolean) from public, anon, authenticated;
+revoke execute on function _tc_task_da_verificare(int, boolean, text) from public, anon, authenticated;
 
 -- ════════════════════════════════════════════════════════
 -- FINE SCRIPT

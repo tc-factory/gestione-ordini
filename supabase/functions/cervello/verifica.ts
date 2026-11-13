@@ -15,6 +15,7 @@ type Row = Record<string, any>;
 type Consumo = (modello: string, u: unknown) => Row;
 
 const MODELLO = 'claude-opus-5-5';
+export const MODELLI_VERIFICA = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 const PREFISSO = 'Chiuso in automatico: ';
 
 const SCHEMA = {
@@ -110,12 +111,13 @@ async function contesto(db: SupabaseClient, t: Row, negozi: Map<string, string>)
   return { testo, altri };
 }
 
-async function decidi(client: Anthropic, testo: string) {
+async function decidi(client: Anthropic, testo: string, modello: string) {
+  // Il fallback lato server non c'è su Haiku
+  const fallback = modello === 'claude-haiku-5-5' ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' };
   const res = await client.beta.messages.create({
-    model: MODELLO,
+    model: modello,
     max_tokens: 8000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
+    ...fallback,
     thinking: { type: 'adaptive' },
     output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA } },
     system: SYSTEM,
@@ -127,15 +129,15 @@ async function decidi(client: Anthropic, testo: string) {
   return { d: JSON.parse(json), res };
 }
 
-async function verificaUno(db: SupabaseClient, client: Anthropic, consumo: Consumo, negozi: Map<string, string>, id: string, prova: boolean) {
+async function verificaUno(db: SupabaseClient, client: Anthropic, consumo: Consumo, negozi: Map<string, string>, id: string, prova: boolean, modello: string) {
   const { data: t } = await db.from('tasks').select('*, task_tipi(nome, chiusura_automatica)').eq('id', id).maybeSingle();
   if (!t || ['completato', 'non_completato'].includes(t.stato)) return { task: id, esito: 'già chiuso' };
   t.tipo_nome = t.task_tipi?.nome || '';
   const inizio = new Date().toISOString();
   try {
     const { testo, altri } = await contesto(db, t, negozi);
-    const { d, res } = await decidi(client, testo);
-    const uso = consumo(res.model || MODELLO, res.usage);
+    const { d, res } = await decidi(client, testo, modello);
+    const uso = consumo(res.model || modello, res.usage);
     await db.from('cervello_consumi').insert({ ...uso, mail_id: t.mail_id, prova });
 
     // Un doppione vale solo verso un task aperto e più vecchio sugli stessi ordini
@@ -162,15 +164,15 @@ async function verificaUno(db: SupabaseClient, client: Anthropic, consumo: Consu
     console.error('Verifica task', id, msg);
     // Anche l'errore conta come controllo: si riprova al prossimo cambiamento, non a ogni giro
     if (!prova) await db.from('tasks').update({ verificato_at: inizio }).eq('id', id);
-    await db.from('task_verifiche').insert({ task_id: id, prova, esito: 'errore', motivo: msg.slice(0, 300) });
+    await db.from('task_verifiche').insert({ task_id: id, prova, esito: 'errore', motivo: msg.slice(0, 300), modello });
     return { task: id, errore: msg };
   }
 }
 
-export async function verificaTask(db: SupabaseClient, client: Anthropic, consumo: Consumo, negozi: Map<string, string>, n: number, prova = false) {
-  const { data: ids, error } = await db.rpc('_tc_task_da_verificare', { p_n: n + 1, p_prova: prova });
+export async function verificaTask(db: SupabaseClient, client: Anthropic, consumo: Consumo, negozi: Map<string, string>, n: number, prova = false, modello = MODELLO) {
+  const { data: ids, error } = await db.rpc('_tc_task_da_verificare', { p_n: n + 1, p_prova: prova, p_modello: modello });
   if (error) throw new Error(`Task da verificare non leggibili: ${error.message}`);
   const lista = ((ids || []) as unknown[]).map(x => typeof x === 'string' ? x : (x as Row)._tc_task_da_verificare).filter(Boolean);
-  const risultati = await Promise.all(lista.slice(0, n).map((id: string) => verificaUno(db, client, consumo, negozi, id, prova)));
+  const risultati = await Promise.all(lista.slice(0, n).map((id: string) => verificaUno(db, client, consumo, negozi, id, prova, modello)));
   return { risultati, altri: lista.length > n };
 }

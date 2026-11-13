@@ -14,6 +14,7 @@
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { inviaNuova } from '../_shared/mail.ts';
+import { ripartitaDopo } from '../_shared/svincolo.ts';
 
 const PER_GIRO = 120;
 const PAUSA_MS = 300;              // una richiesta alla volta, per non pesare sul sito GLS
@@ -286,12 +287,6 @@ async function statoContatto(db: SupabaseClient, s: Row) {
 }
 
 const fmtGiorno = (iso: string) => new Date(iso).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit' });
-
-// Dopo uno svincolo GLS ripete l'evento "giacenza" ogni giorno finché il deposito non lavora le
-// istruzioni: il pacco è di nuovo fermo solo se dopo lo svincolo c'è stato altro (in consegna, tentativo…)
-function ripartitaDopo(eventi: Evento[] | null, svAt: Date) {
-  return (eventi || []).some(e => new Date(e.at) > svAt && (e.codice ? String(e.codice) !== '66' : !/giacenza|storage|istruzioni|instructions/i.test(e.stato)));
-}
 
 async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Evento[] | null, tipoId: string | null, avviso: Row | null, dest: Row | null) {
   const chiave = `consegna:${s.ordine_id}`;
