@@ -2945,7 +2945,7 @@ let _rolesList = [];
 
 const roleById = (id) => _rolesList.find(r => r.id === id);
 const sectionsSummary = (schede) => !Array.isArray(schede) ? 'Tutte le schede'
-  : `${schede.length} di ${ALL_SECTIONS().length} schede`;
+  : `${schede.filter(id => !Nav._item(id)?.soloAdmin).length} di ${ALL_SECTIONS().filter(i => !i.soloAdmin).length} schede`;
 
 async function renderUsersSection(container) {
   [_usersList, _rolesList] = await Promise.all([
@@ -3101,7 +3101,7 @@ function renderAccessDialog() {
               <button type="button" class="btn btn-ghost btn-sm" onclick="setAllAccessSections(false)">Nessuna</button>
             </span>`}
           </div>
-          ${ALL_SECTIONS().map(i => `
+          ${ALL_SECTIONS().filter(i => !i.soloAdmin).map(i => `
             <label class="switch-row">
               <span><strong>${i.label}</strong><small>${i.subtitle}${i.note ? ` · ${i.note}` : ''}</small></span>
               <input type="checkbox" class="switch" ${schede.has(i.id) ? 'checked' : ''} ${locked}

@@ -11,8 +11,9 @@
 // ─────────────────────────────────────────────
 
 const NAV_ITEMS = [
+  // Solo admin: non compare agli altri e non è tra le schede da dare negli account
+  { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Cervello, collegamenti, automazioni e team', icon: () => Icons.zap(19), allowed: () => TCAuth.isAdmin(), soloAdmin: true },
   { id: 'tasks',        label: 'Tasks',         subtitle: 'Task del giorno', icon: () => Icons.checkCircle('currentColor', 19) },
-  { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Cervello, collegamenti, automazioni e team', icon: () => Icons.zap(19), allowed: () => TCAuth.isAdmin(), note: 'Solo admin' },
   { id: 'comunicazione', label: 'Brand', subtitle: 'Mail, social, WhatsApp, Shopify e spedizioni di ogni brand', icon: () => Icons.messageCircle(19) },
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
