@@ -160,7 +160,7 @@ async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: 
 
 // deno-lint-ignore no-explicit-any
 async function registraRichiesta(db: any, ordineId: string, a: string, nickname: string) {
-  const { data: o } = await db.from('shopify_orders').select('id, store_id, email, telefono, indirizzo').eq('id', ordineId).maybeSingle();
+  const { data: o } = await db.from('shopify_orders').select('id, store_id, email, telefono, indirizzo, spedizione').eq('id', ordineId).maybeSingle();
   if (!o || String(o.email || '').toLowerCase() !== a) return;
   const probs = problemiOrdine(o);
   if (!probs.length) return;

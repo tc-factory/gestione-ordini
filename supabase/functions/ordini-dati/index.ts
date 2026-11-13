@@ -2,7 +2,8 @@
 //
 // Ogni 5 minuti, sugli ordini da evadere:
 //   1. modalità automatica: una mail sola per ordine, dalla casella del negozio, dalle 8 alle 21,
-//      solo ordini pagati degli ultimi 7 giorni. Senza indirizzo (forse ritiro in sede) non scrive.
+//      solo ordini pagati degli ultimi 7 giorni. Senza indirizzo non scrive; col ritiro in sede o in gara
+//      (metodo di spedizione) non c'è niente da chiedere.
 //      In prova la manda una persona, col clic sull'etichetta rossa (mail-send la registra).
 //   2. telefono dato dal cliente in una mail (clienti_memoria): lo scrive nell'ordine su Shopify
 //   3. dati arrivati nell'ordine, o ordine spedito o annullato: la richiesta si chiude, e il suo task
@@ -20,7 +21,7 @@
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { inviaNuova } from '../_shared/mail.ts';
 import { API_VERSION, getToken, type Store } from '../_shared/shopify.ts';
-import { MANCA_INDIRIZZO, SHOP_DA_EVADERE, mailCorretta, problemiOrdine, testoRichiesta } from '../_shared/ordini-dati.ts';
+import { MANCA_INDIRIZZO, SHOP_DA_EVADERE, conRitiro, mailCorretta, problemiOrdine, testoRichiesta } from '../_shared/ordini-dati.ts';
 import { rigaConVia, verificaIndirizzo } from '../_shared/verifica-indirizzo.ts';
 
 // deno-lint-ignore no-explicit-any
@@ -132,7 +133,7 @@ const TAG = `mutation($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tag
 
 async function verificaOrdini(db: SupabaseClient, ordini: Row[], correggi: boolean, registro: string[]) {
   const limite = Date.now() - VERIFICA_GIORNI * 86_400_000;
-  const recenti = ordini.filter(o => o.indirizzo?.via && (!o.indirizzo.paese || o.indirizzo.paese === 'IT') && new Date(o.creato_at).getTime() >= limite);
+  const recenti = ordini.filter(o => o.indirizzo?.via && !conRitiro(o) && (!o.indirizzo.paese || o.indirizzo.paese === 'IT') && new Date(o.creato_at).getTime() >= limite);
   if (!recenti.length) return { verificati: 0, corretti: 0, errori: 0 };
   const fatte = new Map<string, string>();
   for (let i = 0; i < recenti.length; i += 200) {
@@ -254,7 +255,7 @@ Deno.serve(async (req) => {
   if (modo === 'spenta' && modoVerifica === 'spenta') return reply({ success: true, modo });
 
   const [{ data: ordini, error }, { data: richieste }] = await Promise.all([
-    db.from('shopify_orders').select('id, shopify_id, store_id, numero, creato_at, cliente, email, telefono, indirizzo, stato_pagamento')
+    db.from('shopify_orders').select('id, shopify_id, store_id, numero, creato_at, cliente, email, telefono, indirizzo, spedizione, stato_pagamento')
       .is('annullato_at', null).in('stato_evasione', SHOP_DA_EVADERE).limit(2000),
     db.from('ordini_richieste_dati').select('*').is('risolta_at', null),
   ]);

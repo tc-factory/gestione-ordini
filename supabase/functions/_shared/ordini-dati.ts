@@ -72,9 +72,13 @@ export function mailCorretta(email: string | null | undefined): string | null {
   return vicini.length === 1 ? `${utente}@${vicini[0]}` : null;
 }
 
+// Ritiro in sede o in gara: il cliente il pacco lo prende di persona, indirizzo e telefono non servono
+export const conRitiro = (o: Row) => /ritiro\s+in\s+(sede|gara)/i.test(String(o?.spedizione || ''));
+
 // [campo, testo]: campo 'tel' o 'ind'
 export function problemiOrdine(o: Row, telefonoNoto = false): [string, string][] {
   const out: [string, string][] = [];
+  if (conRitiro(o)) return out;
   const a = o.indirizzo;
   const cifre = String(o.telefono || '').replace(/\D/g, '');
   if (!telefonoNoto) {
