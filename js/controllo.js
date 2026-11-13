@@ -2669,7 +2669,7 @@ function renderCommsSocial(fisso = null) {
     </section>`;
 }
 
-// ── Cervello: regole dei negozi, tipi di task, mail scartate, correzioni ──
+// ── Cervello: regole dei brand, tipi di task, mail scartate, correzioni ──
 
 const REGOLE_SEZIONI = [
   { id: 'spedizioni', label: 'Spedizioni', voci: [['corriere', 'Corriere'], ['preparazione', 'Tempi di preparazione'], ['consegna', 'Tempi di consegna'], ['costi', 'Costi di spedizione'], ['gratuita', 'Spedizione gratuita'], ['destinazioni', 'Dove spediamo'], ['tracking', 'Tracking']] },
@@ -2679,6 +2679,15 @@ const REGOLE_SEZIONI = [
   { id: 'ordini', label: 'Ordini', voci: [['modifiche', 'Modifiche e annullamenti'], ['danni', 'Prodotto danneggiato o sbagliato'], ['minimo', 'Quantità minima'], ['personalizzati', 'Prodotti personalizzati']] },
   { id: 'assistenza', label: 'Assistenza', voci: [['orari', 'Orari'], ['firma', 'Firma delle mail'], ['tono', 'Tono delle risposte']] },
 ];
+
+// Brand con le regole: i negozi Shopify più T&C Factory e Live Printing (sezioni: solo quelle elencate)
+const REGOLE_BRAND = [
+  ...TASK_MACROAREE,
+  { id: 'liveprinting', label: 'Live Printing', color: '#ef4123' },
+  { id: 'tcfactory',    label: 'T&C Factory',   color: '#d49c6b', sezioni: ['spedizioni'] },
+];
+const regoleBrand = (id) => REGOLE_BRAND.find(b => b.id === id);
+const regoleSezioni = (id) => REGOLE_SEZIONI.filter(s => !regoleBrand(id)?.sezioni || regoleBrand(id).sezioni.includes(s.id));
 
 const CtrlBrain = { sez: 'regole', negozio: TASK_MACROAREE[0].id, regole: null, modificato: false };
 
@@ -2707,7 +2716,7 @@ async function leaveRulesOk() {
 }
 
 function renderControlBrain() {
-  const sezioni = [['regole', 'Regole dei negozi'], ['tipi', 'Tipi di task'], ['scartate', `Mail scartate · ${ShopLinks.scartate.length}`], ['correzioni', `Correzioni · ${ShopLinks.regole.length}`]];
+  const sezioni = [['regole', 'Regole dei brand'], ['tipi', 'Tipi di task'], ['scartate', `Mail scartate · ${ShopLinks.scartate.length}`], ['correzioni', `Correzioni · ${ShopLinks.regole.length}`]];
   const body = CtrlBrain.sez === 'tipi' ? renderControlTypes()
     : CtrlBrain.sez === 'scartate' ? renderBrainDiscarded()
     : CtrlBrain.sez === 'correzioni' ? renderBrainCorrections()
@@ -2735,12 +2744,12 @@ function renderBrainRules() {
       </label>`;
   };
   return `
-    <div class="ctrl-macro-bar ctrl-rule-stores" role="group" aria-label="Negozio">
-      ${TASK_MACROAREE.map(m => ctrlFilter(CtrlBrain.negozio === m.id, m.label, null, m.color, `setBrainStore('${m.id}')`)).join('')}
+    <div class="ctrl-macro-bar ctrl-rule-stores" role="group" aria-label="Brand">
+      ${REGOLE_BRAND.map(m => ctrlFilter(CtrlBrain.negozio === m.id, m.label, null, m.color, `setBrainStore('${m.id}')`)).join('')}
     </div>
     <form onsubmit="event.preventDefault();saveBrainRules()">
       <div class="ctrl-rules">
-        ${REGOLE_SEZIONI.map(sez => `
+        ${regoleSezioni(CtrlBrain.negozio).map(sez => `
           <section class="glass-card page-card">
             <div class="page-card-head"><h2>${sez.label}</h2></div>
             <div class="ctrl-rule-list">${sez.voci.map(v => riga(sez, v)).join('')}</div>
@@ -2755,7 +2764,7 @@ function renderBrainRules() {
       </div>
       <div class="ctrl-rule-save">
         <span class="settings-section-hint" style="margin:0;">Il cervello usa solo questi dati. Se un campo è vuoto, la bozza non cita quel dato.${r.aggiornato_da ? ` Ultima modifica: ${escapeHtml(r.aggiornato_da)}, ${ctrlFmtQuando(r.aggiornato_at)}.` : ''}</span>
-        <button class="ctrl-btn is-primary" id="rules-save" type="submit">Salva le regole di ${shopNome(CtrlBrain.negozio)}</button>
+        <button class="ctrl-btn is-primary" id="rules-save" type="submit">Salva le regole di ${regoleBrand(CtrlBrain.negozio)?.label || CtrlBrain.negozio}</button>
       </div>
     </form>`;
 }
