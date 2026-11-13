@@ -2827,7 +2827,7 @@ function renderControlLinks() {
 // ── Instagram e Pagine Facebook (app Meta "CS Direct Connect" e "CS Chat Connect", login per portfolio) ──
 const META_APP = {
   instagram: { appId: '29503917439294554', configId: '1823367478810968', titolo: 'Instagram', cosa: 'Messaggi diretti e commenti dei profili dei negozi' },
-  messenger: { appId: '1778695599875719', configId: '', titolo: 'Facebook · Messenger', cosa: 'Messaggi delle Pagine Facebook dei negozi' },
+  messenger: { appId: '1778695599875719', configId: '1676244014165843', titolo: 'Facebook · Messenger', cosa: 'Messaggi delle Pagine Facebook dei negozi' },
 };
 const SOCIAL_NEGOZI = [
   ...TASK_MACROAREE.filter(m => m.id !== 'asteroidi').map(m => ({ id: m.id, label: m.label })),
