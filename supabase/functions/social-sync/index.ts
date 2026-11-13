@@ -19,19 +19,29 @@ const cors = {
 const reply = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
-const CAMPI = 'id,updated_time,participants,messages.limit(25){id,message,from,created_time,attachments{mime_type,name,image_data,file_url}}';
+// In due passi, perché chiedere conversazioni e messaggi insieme fa piantare Meta ("reduce the amount
+// of data", visto su Instagram di Ciucciami): prima l'elenco leggero delle conversazioni, poi i messaggi
+// solo di quelle cambiate dopo l'ultima lettura, una alla volta.
+const CONV = 25;
+const MSG = 20;
+const CAMPI_MSG = `messages.limit(${MSG}){id,message,from,created_time,attachments{mime_type,name,file_url}}`;
 
 async function leggiAccount(db: ReturnType<typeof createClient>, a: Row) {
   const token = await tokenAccount(db, a.id);
   if (!token) throw new Error('Token mancante: ricollega l\'account');
-  const r = await graph(`${a.account_id}/conversations`, { platform: a.piattaforma, fields: CAMPI, limit: '25', access_token: token });
+  const r = await graph(`${a.account_id}/conversations`, { platform: a.piattaforma, fields: 'id,updated_time,participants', limit: String(CONV), access_token: token });
+  const { data: note } = await db.from('social_conversazioni').select('thread_id, ultimo_at').eq('account', a.id);
+  const ultimo = new Map((note || []).map(c => [c.thread_id, c.ultimo_at ? new Date(c.ultimo_at).getTime() : 0]));
+
   let nuovi = 0;
   for (const c of r.data || []) {
+    if (ultimo.has(c.id) && new Date(c.updated_time).getTime() <= (ultimo.get(c.id) || 0)) continue;   // niente di nuovo
     const parti: Row[] = c.participants?.data || [];
     const cliente = parti.find(p => String(p.id) !== String(a.account_id) && p.username !== a.username) || parti[0];
     if (!cliente?.id) continue;
+    const conv = await graph(c.id, { fields: CAMPI_MSG, access_token: token });
     // Dal più vecchio al più nuovo, così l'anteprima resta sull'ultimo
-    for (const m of [...(c.messages?.data || [])].reverse()) {
+    for (const m of [...(conv.messages?.data || [])].reverse()) {
       const nostro = String(m.from?.id) === String(a.account_id) || (a.username && m.from?.username === a.username);
       const ok = await salvaMessaggio(db, a.id, String(cliente.id), {
         mid: m.id, direzione: nostro ? 'out' : 'in', testo: m.message || '',
