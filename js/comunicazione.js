@@ -20,6 +20,8 @@ const COM_NEGOZI = [
   { id: 'boxfactorylab',     label: 'Box Factory Lab',      logo: 'img/loghi-negozi/boxfactorylab.png',     casella: 'boxfactorylab' },
   { id: 'asteroidi',         label: 'Asteroidi Store',      logo: 'img/loghi-negozi/asteroidi.png',         casella: 'asteroidi' },
   { id: 'liveprinting',      label: 'Live Printing',        logo: 'img/loghi-negozi/liveprinting.jpg',      casella: null },
+  // Spedizioni fuori dai negozi Shopify (senza ordine Shopify)
+  { id: 'tcfactory',         label: 'T&C Factory',          logo: 'img/loghi-negozi/tcfactory.svg',         casella: null, esterne: true },
 ];
 
 const COM_LOGHI = {
@@ -98,6 +100,7 @@ async function comCaricaConteggi() {
 
 // Stato di un canale per un negozio: { testo, n, colore, attivo }
 function comStato(negozio, canale) {
+  if (canale.id === 'spedizioni' && negozio.esterne) return { testo: canale.label, attivo: true };
   if (comCanaleShop(canale.id)) return taskMacro(negozio.id) ? { testo: canale.label, attivo: true } : { testo: 'Non è un negozio Shopify', attivo: false };
   if (canale.id === 'whatsapp') return { testo: 'Da configurare', attivo: false };
   if (canale.id === 'mail') {
