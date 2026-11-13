@@ -98,21 +98,17 @@ function renderComunicazionePage() {
   if (!root || Nav.current !== 'comunicazione') return;
   const negozio = comNegozio(Comun.negozio);
 
-  // Elenco dei negozi
+  // Elenco dei negozi: 4 box grandi con il logo
   if (!negozio) {
     root.innerHTML = `
-      <div class="com-grid">
+      <div class="com-negozi">
         ${COM_NEGOZI.map(n => {
           const stati = COM_CANALI.map(c => [c, comStato(n, c)]);
-          const tot = stati.reduce((s, [, x]) => s + (x.n || 0), 0);
           return `
-            <a class="glass-card com-card" href="#/comunicazione/${n.id}" onclick="event.preventDefault();Nav.go('comunicazione','${n.id}')">
-              <img class="com-logo" src="${n.logo}" alt="" loading="lazy">
-              <span class="com-card-body">
-                <strong>${escapeHtml(n.label)}</strong>
-                <small>${!Comun.caricato ? 'Caricamento…' : tot ? `${tot} da leggere` : 'Tutto letto'}</small>
-                <span class="com-mini">${stati.map(([c, x]) => `<span class="com-mini-ch ${x.attivo ? '' : 'is-off'}" title="${escapeHtml(c.label)}: ${escapeHtml(x.testo)}">${COM_LOGHI[c.id]()}${x.n ? `<b>${x.n}</b>` : ''}</span>`).join('')}</span>
-              </span>
+            <a class="glass-card com-negozio" href="#/comunicazione/${n.id}" aria-label="${escapeHtml(n.label)}"
+               onclick="event.preventDefault();Nav.go('comunicazione','${n.id}')">
+              <span class="com-negozio-logo"><img src="${n.logo}" alt="${escapeHtml(n.label)}"></span>
+              <span class="com-negozio-canali">${stati.map(([c, x]) => `<span class="com-mini-ch ${x.attivo ? '' : 'is-off'}" title="${escapeHtml(c.label)}: ${escapeHtml(x.testo)}">${COM_LOGHI[c.id]()}${x.n ? `<b>${x.n}</b>` : ''}</span>`).join('')}</span>
             </a>`;
         }).join('')}
       </div>`;
