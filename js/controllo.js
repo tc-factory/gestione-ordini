@@ -335,11 +335,27 @@ function sortTasks(list) {
 // ─────────────────────────────────────────────
 
 async function openControlPage() {
+  // Link diretti: #/controllo/task/<id> apre quel task, #/controllo/gls la scheda Spedizioni
+  const [dove, taskId] = (Nav.param || '').split('/');
+  if (dove === 'gls' && TCAuth.isAdmin()) Ctrl.view = 'gls';
+  if (dove === 'task') Ctrl.view = 'giorno';
+  if (dove) { history.replaceState(null, '', '#/controllo'); Nav.param = null; }
   if (!TCAuth.isAdmin() && Ctrl.view !== 'giorno') Ctrl.view = 'giorno';
   refreshControlPage();
   await Ctrl.load();
   refreshControlPage();
   loadControlExtras();
+  if (dove === 'task' && taskId) apriTaskDaLink(taskId);
+}
+
+// Il task del link può non essere tra quelli del giorno caricati: si legge e si aggiunge
+async function apriTaskDaLink(id) {
+  if (!Ctrl.get(id)) {
+    const { data } = await supabaseClient.from('tasks').select('*').eq('id', id).maybeSingle();
+    if (!data) { uiAlert('Il task non esiste più o non hai accesso.'); return; }
+    if (!Ctrl.get(id)) Ctrl.tasks.push(data);
+  }
+  if (Nav.current === 'controllo') openTaskDetail(id);
 }
 
 function refreshControlPage() {

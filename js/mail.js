@@ -642,6 +642,7 @@ function renderMailReader() {
         <h2>${escapeHtml(f.oggetto || '(senza oggetto)')}</h2>
         <span><i class="ctrl-dot" style="--m:${mailColore(f.casella_id)};" aria-hidden="true"></i>${escapeHtml(casella?.indirizzo || mailNomeCasella(f.casella_id))}${cartella && cartella !== 'inbox' ? ` · ${MAIL_CARTELLE[cartella]}` : ''}</span>
         ${c ? renderMailReadTags(f) : ''}
+        ${c ? renderMailSpedizione(c, f) : ''}
       </div>
       <div class="mail-read-actions">${azioni}</div>
     </div>`;
@@ -660,7 +661,7 @@ function renderMailReader() {
         <span class="mail-task">
           <span class="td-tag" style="--c:${['completato', 'non_completato'].includes(t.stato) ? '#16a34a' : '#f59e0b'};">${MAIL_STATI_TASK[t.stato] || t.stato}</span>
           <span>${escapeHtml(t.titolo || 'Task')}${t.assegnato_a ? ` · ${escapeHtml(t.assegnato_a)}` : ' · coda comune'}</span>
-          ${Nav.isAllowed('controllo') && Ctrl.get?.(t.id) ? `<button type="button" class="ctrl-btn" onclick="Nav.go('controllo');setTimeout(()=>openTaskDetail('${t.id}'),300)">Apri task</button>` : ''}
+          ${Nav.isAllowed('controllo') ? `<a class="ctrl-btn" href="${mailLinkTask(t.id)}">Apri task</a>` : ''}
         </span>`).join('')}
     </div>` : '';
 
@@ -693,6 +694,26 @@ function renderMailReader() {
       ${c.messaggi.map((m, i) => renderMailMessage(m, i === c.messaggi.length - 1)).join('')}
       ${risposta}
     </div>`;
+}
+
+// Link diretto al task nel Centro di controllo, già aperto (vedi openControlPage)
+const mailLinkTask = (id) => `#/controllo/task/${encodeURIComponent(id)}`;
+
+// Mail su una spedizione: in testa il link al task del pacco nel Centro di controllo.
+// Prima le istruzioni a GLS da mandare (svincolo), poi un task aperto col tracking, poi l'ultimo.
+// Con il solo tag Giacenza e nessun task, il link porta alla scheda Spedizioni.
+function renderMailSpedizione(c, f) {
+  if (!Nav.isAllowed('controllo')) return '';
+  const aperto = (t) => !['completato', 'non_completato'].includes(t.stato);
+  const sped = c.tasks.filter(t => t.tracking || t.svincolo);
+  const t = sped.find(t => aperto(t) && t.svincolo) || sped.find(aperto) || sped[sped.length - 1];
+  if (!t) {
+    if (!(f.tag || []).includes('giacenza') || !TCAuth.isAdmin()) return '';
+    return `<a class="mail-sped" href="#/controllo/gls">${Icons.truck(14)} Pacco in giacenza: apri Spedizioni nel Centro di controllo</a>`;
+  }
+  const cosa = !aperto(t) ? `Task ${(MAIL_STATI_TASK[t.stato] || t.stato).toLowerCase()}`
+    : t.svincolo ? 'Istruzioni GLS da mandare' : 'Spedizione da seguire';
+  return `<a class="mail-sped${aperto(t) ? ' is-open' : ''}" href="${mailLinkTask(t.id)}">${Icons.truck(14)} ${cosa}${t.tracking ? ` · <span class="td-mono">${escapeHtml(t.tracking)}</span>` : ''}: apri il task nel Centro di controllo</a>`;
 }
 
 function renderMailMessage(m, ultimo) {
