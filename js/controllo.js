@@ -335,9 +335,9 @@ function sortTasks(list) {
 // ─────────────────────────────────────────────
 
 async function openControlPage() {
-  // Link diretti: #/controllo/task/<id> apre quel task, #/controllo/gls la scheda Spedizioni
+  // Link diretti: #/controllo/task/<id> apre quel task; #/controllo/gls (vecchio) porta alle Spedizioni in Negozi
   const [dove, taskId] = (Nav.param || '').split('/');
-  if (dove === 'gls' && TCAuth.isAdmin()) Ctrl.view = 'gls';
+  if (dove === 'gls') { Nav.go('comunicazione', `${comOrdine()[0].id}/spedizioni`); return; }
   if (dove === 'task') Ctrl.view = 'giorno';
   if (dove === 'collegamenti' && TCAuth.isAdmin()) Ctrl.view = 'collegamenti';
   if (dove) { history.replaceState(null, '', '#/controllo'); Nav.param = null; }
@@ -361,6 +361,8 @@ async function apriTaskDaLink(id) {
 }
 
 function refreshControlPage() {
+  // Shop e Spedizioni ora stanno nella pagina Negozi
+  if (Nav.current === 'comunicazione' && comCanaleShop(Comun.canale)) { renderComunicazionePage(); return; }
   if (Nav.current !== 'controllo') return;
   // Un aggiornamento in tempo reale non deve cancellare le regole in modifica
   if (Ctrl.view === 'cervello' && CtrlBrain.sez === 'regole' && CtrlBrain.modificato) return;
@@ -392,7 +394,7 @@ async function setControlView(view) {
 
 // Dati delle schede che li caricano quando si aprono
 function loadControlExtras() {
-  if (['ordini', 'gls', 'cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
+  if (['cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
   if (Ctrl.view === 'cervello') loadBrainRules();
   if (Ctrl.view === 'report') loadControlReport();
   if (Ctrl.view === 'automazioni') loadControlAutomations();
@@ -420,12 +422,10 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['ordini', 'Shop'], ['gls', 'Spedizioni'], ['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']] : [])];
+  const tabs = [['giorno', 'Tasks'], ...(TCAuth.isAdmin() ? [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']] : [])];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
-    : Ctrl.view === 'ordini' ? renderControlOrders()
-    : Ctrl.view === 'gls' ? renderControlGls()
     : Ctrl.view === 'cervello' ? renderControlBrain()
     : Ctrl.view === 'collegamenti' ? renderControlLinks()
     : Ctrl.view === 'automazioni' ? renderControlAutomations()
@@ -1854,7 +1854,8 @@ function ctrlSoldi(v, valuta) {
 }
 const ctrlDot = (id) => `<i class="ctrl-dot" style="--m:${taskMacro(id)?.color || '#94a3b8'};" aria-hidden="true"></i>`;
 const ctrlKpi = (label, valore, cls = '') => `<div class="ctrl-kpi ${cls}"><b>${valore}</b><span>${label}</span></div>`;
-const ctrlStoreBar = (attivo, conta, totale, label, set) => `
+// Nella pagina Negozi il negozio è già scelto in alto: niente filtro
+const ctrlStoreBar = (attivo, conta, totale, label, set) => Nav.current === 'comunicazione' ? '' : `
   <div class="ctrl-macro-bar" role="group" aria-label="Filtra per negozio">
     ${ctrlFilter(attivo === null, label, totale, null, `${set}(null)`)}
     ${TASK_MACROAREE.map(m => ctrlFilter(attivo === m.id, m.label, conta(m.id), m.color, `${set}('${m.id}')`)).join('')}
@@ -2272,20 +2273,23 @@ async function apriDdt(id) {
 }
 
 function renderControlOrders() {
+  // Nella pagina Negozi la ricerca resta nel negozio scelto
+  const inNegozio = Nav.current === 'comunicazione' && ShopLinks.negozio;
+  const trovati = inNegozio && ShopLinks.ordini ? ShopLinks.ordini.filter(o => o.store_id === ShopLinks.negozio) : ShopLinks.ordini;
   return `
     <form class="ctrl-search glass-card" onsubmit="event.preventDefault();searchShopifyOrders(this.q.value)" role="search">
       <label class="sr-only" for="shop-q">Cerca ordine</label>
       <input id="shop-q" name="q" class="form-input" value="${escapeHtml(ShopLinks.query)}"
-        placeholder="Cerca per email, telefono, nome o numero d'ordine, in tutti i negozi Shopify">
+        placeholder="Cerca per email, telefono, nome o numero d'ordine${inNegozio ? '' : ', in tutti i negozi Shopify'}">
       <button class="ctrl-btn is-primary" type="submit">${Icons.search(14)} Cerca</button>
       ${ShopLinks.query ? `<button class="ctrl-btn" type="button" onclick="searchShopifyOrders('')">Azzera</button>` : ''}
     </form>
     ${ShopLinks.query ? `
     <section class="glass-card page-card ctrl-group ctrl-ord-card">
-      <div class="page-card-head"><h2>Ordini trovati</h2><span class="table-count">${ShopLinks.ordini?.length ?? 0}</span>
-        <span class="ctrl-group-hint">Per «${escapeHtml(ShopLinks.query)}», in tutti i negozi, anche evasi</span></div>
-      ${!ShopLinks.ordini ? `<div class="empty-list">Caricamento…</div>`
-        : ShopLinks.ordini.length ? `<div class="ctrl-table">${ORD_COLONNE}${ShopLinks.ordini.map(o => ctrlShopOrderRow(o)).join('')}</div>`
+      <div class="page-card-head"><h2>Ordini trovati</h2><span class="table-count">${trovati?.length ?? 0}</span>
+        <span class="ctrl-group-hint">Per «${escapeHtml(ShopLinks.query)}»${inNegozio ? '' : ', in tutti i negozi'}, anche evasi</span></div>
+      ${!trovati ? `<div class="empty-list">Caricamento…</div>`
+        : trovati.length ? `<div class="ctrl-table">${ORD_COLONNE}${trovati.map(o => ctrlShopOrderRow(o, !inNegozio)).join('')}</div>`
         : `<div class="empty-list">Nessun ordine trovato.</div>`}
     </section>` : renderOrdersIncoming()}`;
 }
@@ -2318,7 +2322,7 @@ function renderOrdersIncoming() {
   const gruppiVis = gruppi.filter(m => elenco(m.id).length);
   return `
     <section class="glass-card page-card ctrl-group ctrl-ord-card">
-      ${head(tutti.length)}
+      ${head(vis.length)}
       ${ctrlStoreBar(ShopLinks.negozio, conta, tutti.length, 'Tutti', 'setOrdersStore')}
       ${vis.length ? `
         <div class="ctrl-kpis" role="group" aria-label="Filtra gli ordini">
@@ -2326,7 +2330,7 @@ function renderOrdersIncoming() {
         </div>
         ${vista === 'problemi' && gruppiVis.length ? `<p class="ctrl-kpi-hint">Indirizzi senza civico, CAP, città o provincia e telefoni mancanti, da sistemare prima di spedire. In rosso da chiedere, in arancione già chiesti al cliente. Dopo la spedizione i problemi passano in Spedizioni.</p>` : ''}` : ''}
       ${gruppiVis.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${gruppiVis.map(m => `
-        <div class="ctrl-store-head" style="--m:${m.color};"><i aria-hidden="true"></i>${m.label}<b>${elenco(m.id).length}</b></div>
+        ${Nav.current === 'comunicazione' ? '' : `<div class="ctrl-store-head" style="--m:${m.color};"><i aria-hidden="true"></i>${m.label}<b>${elenco(m.id).length}</b></div>`}
         <div class="ctrl-table">${ORD_COLONNE}${elenco(m.id).map(o => ctrlShopOrderRow(o, false)).join('')}</div>`).join('')}</div>`
         : `<div class="empty-list">${vis.length ? filtri[vista].vuoto : 'Nessun ordine da evadere.'}</div>`}
     </section>`;
