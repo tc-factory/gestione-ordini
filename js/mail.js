@@ -38,6 +38,7 @@ const MailBox = {
   bozzaDi: null,          // chiave della conversazione a cui appartiene la bozza
   ordini: [],             // ordini del cliente della conversazione aperta (per i modelli)
   ordine: null,           // ordine scelto per riempire i modelli
+  ordiniCitati: [],       // ordini il cui numero compare nell'oggetto o nel testo della conversazione (tasto DDT)
   invio: false,
   caricamento: false,
   errore: null,
@@ -104,7 +105,7 @@ const MailBox = {
 
   stop() {
     clearInterval(this._timer);
-    Object.assign(this, { caselle: [], fili: [], aperto: null, conversazione: null, bozza: '', bozzaDi: null, ordini: [], ordine: null, badge: 0, errore: null });
+    Object.assign(this, { caselle: [], fili: [], aperto: null, conversazione: null, bozza: '', bozzaDi: null, ordini: [], ordine: null, ordiniCitati: [], badge: 0, errore: null });
     Object.assign(MailFirme, { firme: {}, caricate: false });
   },
 
@@ -639,7 +640,7 @@ function renderMailReader() {
     <div class="mail-read-head">
       <button type="button" class="btn-icon mail-back" onclick="closeMailThread()" aria-label="Torna all'elenco">${Icons.chevronLeft(18)}</button>
       <div class="mail-read-title">
-        <h2>${escapeHtml(f.oggetto || '(senza oggetto)')}</h2>
+        <div class="mail-read-h2"><h2>${escapeHtml(f.oggetto || '(senza oggetto)')}</h2>${renderMailDdt()}</div>
         <span><i class="ctrl-dot" style="--m:${mailColore(f.casella_id)};" aria-hidden="true"></i>${escapeHtml(casella?.indirizzo || mailNomeCasella(f.casella_id))}${cartella && cartella !== 'inbox' ? ` · ${MAIL_CARTELLE[cartella]}` : ''}</span>
         ${c ? renderMailReadTags(f) : ''}
         ${c ? renderMailSpedizione(c, f) : ''}
@@ -754,6 +755,7 @@ async function openMailThread(i) {
   const k = MailBox.chiave(f);
   MailBox.aperto = { casella_id: f.casella_id, filo: f.filo, oggetto: f.oggetto, tag: f.tag };
   MailBox.conversazione = null;
+  MailBox.ordiniCitati = [];
   if (MailBox.bozzaDi !== k) { MailBox.bozza = ''; MailBox.bozzaDi = k; MailBox.ordini = []; MailBox.ordine = null; }
   renderMailList();
   renderMailReader();
@@ -778,6 +780,7 @@ async function openMailThread(i) {
     renderMailReader();
     document.getElementById('mail-last')?.scrollIntoView({ block: 'nearest' });
     loadReplyOrders(k);
+    loadThreadOrders(k, f);
   } catch (e) {
     showToast(e.message, 'error');
     closeMailThread();
@@ -796,6 +799,39 @@ async function loadReplyOrders(k) {
     MailBox.ordine = MailBox.ordini[0] || null;
     if (MailBox.ordini.length) renderMailReaderKeepText();
   } catch { /* i modelli funzionano anche senza ordine */ }
+}
+
+// Numeri d'ordine citati nella conversazione: prima l'oggetto, poi i testi (dal più recente)
+function mailNumeriCitati(f, c) {
+  const testi = [f.oggetto || '', ...[...(c?.messaggi || [])].reverse().map(m => m.testo || '')];
+  const re = /(?:\bordin[ei]|\border|\bord\.)\s*(?:n\.?|nr\.?|numero|n°)?\s*#?\s*(\d{3,7})\b|#(\d{3,7})\b/gi;
+  const numeri = [];
+  for (const t of testi) {
+    for (const x of t.matchAll(re)) {
+      const n = x[1] || x[2];
+      if (!numeri.includes(n)) numeri.push(n);
+      if (numeri.length >= 3) return numeri;
+    }
+  }
+  return numeri;
+}
+
+// Ordini del negozio della casella che corrispondono ai numeri citati: accanto al titolo compare il tasto DDT
+async function loadThreadOrders(k, f) {
+  const numeri = mailNumeriCitati(f, MailBox.conversazione);
+  if (!numeri.length) return;
+  try {
+    const risultati = await Promise.all(numeri.map(n =>
+      MailBox._rpc('tc_mail_ordini', { p_casella: f.casella_id, p_cerca: n }).catch(() => ({ ordini: [] }))));
+    if (MailBox.chiave(MailBox.aperto) !== k) return;
+    MailBox.ordiniCitati = numeri.map((n, i) => (risultati[i].ordini || []).find(o => String(o.numero || '').replace(/^#/, '') === n)).filter(Boolean);
+    if (MailBox.ordiniCitati.length) renderMailReaderKeepText();
+  } catch { /* senza ordine niente tasto DDT */ }
+}
+
+function renderMailDdt() {
+  return MailBox.ordiniCitati.map(o => `
+    <button type="button" class="btn btn-primary btn-sm mail-ddt" onclick="apriDdt('${o.id}')" title="Apri il DDT dell'ordine ${escapeHtml(o.numero)}">DDT${MailBox.ordiniCitati.length > 1 ? ' ' + escapeHtml(o.numero) : ''}</button>`).join('');
 }
 
 // Ridisegna la conversazione senza perdere il punto in cui si sta scrivendo

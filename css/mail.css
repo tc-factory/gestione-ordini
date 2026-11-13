@@ -81,6 +81,8 @@
 .mail-list-note { margin: 4px 8px 8px; font-size: 0.76rem; color: var(--text-muted); line-height: 1.4; }
 .mail-back { display: none; }
 .mail-read-title { flex: 1 1 auto; min-width: 0; }
+.mail-read-h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+html .btn.btn-primary.btn-sm.mail-ddt { height: 26px; min-height: 26px; padding: 0 12px; font-size: 12px; letter-spacing: 0.03em; }
 .mail-read-title h2 { font-size: 1rem; font-weight: 750; line-height: 1.3; overflow-wrap: anywhere; }
 .mail-read-title span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.76rem; color: var(--text-muted); }
 
