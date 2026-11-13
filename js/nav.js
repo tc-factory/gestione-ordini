@@ -11,7 +11,8 @@
 // ─────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Task del giorno di ogni persona del team', icon: () => Icons.zap(19) },
+  { id: 'tasks',        label: 'Tasks',         subtitle: 'Task del giorno', icon: () => Icons.checkCircle('currentColor', 19) },
+  { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Cervello, collegamenti, automazioni e team', icon: () => Icons.zap(19), allowed: () => TCAuth.isAdmin(), note: 'Solo admin' },
   { id: 'comunicazione', label: 'Brand', subtitle: 'Mail, social, WhatsApp, Shopify e spedizioni di ogni brand', icon: () => Icons.messageCircle(19) },
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
@@ -141,6 +142,7 @@ function renderCurrentView() {
     case 'cestino':      renderCestinoPage(); break;
     case 'supporto':     openSupportPage(); break;
     case 'controllo':    openControlPage(); break;
+    case 'tasks':        openTasksPage(); break;
     case 'mail':         comRestituisciMail(); openMailPage(); break;
     case 'comunicazione': openComunicazionePage(); break;
   }
@@ -155,7 +157,7 @@ function navBadges() {
     ordini:  TCFactory.getActiveOrders().length,
     cestino: TCFactory.getTrashedOrders().length,
     supporto: TCAuth.isAdmin() ? Tickets.countOpen() : 0,   // ticket da fare
-    controllo: Ctrl.badge,                                   // miei task ancora aperti fino a oggi
+    tasks: Ctrl.badge,                                       // miei task ancora aperti fino a oggi
     comunicazione: Comun.badge,                              // mail e messaggi social da leggere dei negozi
   };
 }
@@ -330,9 +332,9 @@ function renderHeader() {
   if (!root) return;
   const item = Nav._item(Nav.current) || Nav._item(Nav.home());
 
-  const actions = Nav.current === 'controllo' && TCAuth.isAdmin() && Ctrl.view === 'cervello'
+  const actions = ctrlAperto() && TCAuth.isAdmin() && Ctrl.view === 'cervello'
     ? (CtrlBrain.sez === 'tipi' ? `<button class="btn btn-primary" onclick="openTaskTypeForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo tipo</span></button>` : '')
-    : Nav.current === 'controllo' && TCAuth.isAdmin() && ['giorno', 'squadra'].includes(Ctrl.view)
+    : ctrlAperto() && TCAuth.isAdmin() && ['giorno', 'squadra'].includes(Ctrl.view)
     ? `${Ctrl.view === 'giorno' ? `<button class="btn btn-secondary" ${Ctrl.operatori.some(o => o.attivo) ? '' : 'disabled title="Nessuna persona nel piano del giorno"'} onclick="distributeQueue()"><span class="new-order-btn-text">Distribuisci coda</span></button>` : ''}
        <button class="btn btn-primary" onclick="openTaskForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo task</span></button>`
     : mailVisibile()
