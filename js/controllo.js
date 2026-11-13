@@ -1099,6 +1099,22 @@ function renderTaskContatto(t) {
     </section>`;
 }
 
+// Cosa dire al cliente al telefono (tracking-check o cervello, _shared/telefonata.ts): sezioni in maiuscolo
+function renderTaskTelefonata(t) {
+  const testo = t.analisi?.telefonata;
+  if (!testo || ['completato', 'non_completato'].includes(t.stato)) return '';
+  const blocchi = testo.split(/\n{2,}/).map(b => {
+    const [titolo, ...righe] = b.split('\n');
+    return `<div class="td-call-blk"><h4>${escapeHtml(titolo)}</h4>${righe.map(r => `<p>${escapeHtml(r)}</p>`).join('')}</div>`;
+  }).join('');
+  return `
+    <details class="td-sec td-box td-call-script" open>
+      <summary><h3>Cosa dire al telefono</h3>
+        <button type="button" class="ctrl-btn td-push" onclick="event.preventDefault();ctrlCopia(Ctrl.get('${t.id}').analisi.telefonata, 'Testo copiato')">Copia</button></summary>
+      ${blocchi}
+    </details>`;
+}
+
 // Storico preciso di un pacco fermo più volte (tracking-check o cervello): eventi GLS, svincoli, mail
 const GIACENZA_RIGA = { problema: 'is-bad', svincolo: 'is-sv', mail_out: 'is-mail', mail_in: 'is-mail', gls: '' };
 function renderTaskStoricoGiacenza(t) {
@@ -1315,6 +1331,7 @@ function renderTaskDetail(id, storico) {
         ${taskMotivoVisibile(t.stato, t.motivo) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
         ${t.analisi?.dubbi ? `<p class="td-todo is-advice"><strong>Da controllare:</strong> ${escapeHtml(t.analisi.dubbi)}</p>` : ''}
         ${renderTaskContatto(t)}
+        ${renderTaskTelefonata(t)}
         ${renderTaskStoricoGiacenza(t)}
         ${t.analisi?.rimborso ? `<p class="td-todo is-advice"><strong>Rimborso richiesto:</strong> va gestito a mano.</p>` : ''}
         ${t.analisi?.note ? `<p class="td-todo is-note"><strong>Note:</strong> ${escapeHtml(t.analisi.note)}</p>` : ''}
@@ -1627,7 +1644,7 @@ const SHOP_EVASIONE = { UNFULFILLED: 'Da evadere', FULFILLED: 'Evaso', PARTIALLY
   IN_PROGRESS: 'In lavorazione', SCHEDULED: 'Programmato', RESTOCKED: 'Rifornito', PENDING_FULFILLMENT: 'In attesa di evasione', OPEN: 'Aperto' };
 
 const SHOP_DA_EVADERE = ['UNFULFILLED', 'PARTIALLY_FULFILLED', 'ON_HOLD', 'IN_PROGRESS', 'SCHEDULED'];   // come tc_shopify_stato
-const SHOP_ORDINE_CAMPI = 'id, store_id, numero, creato_at, annullato_at, cliente, email, telefono, totale, valuta, stato_pagamento, stato_evasione, tracking, righe, indirizzo';
+const SHOP_ORDINE_CAMPI = 'id, store_id, numero, creato_at, annullato_at, cliente, email, telefono, totale, valuta, stato_pagamento, stato_evasione, tracking, righe, indirizzo, spedizione';
 
 // Richieste dei dati mancanti ancora aperte (ordini-dati, o mandate a mano): ordine → richiesta
 async function loadRichiesteDati(render = true) {
@@ -1868,8 +1885,11 @@ function ctrlShopOrderRow(o, conNegozio = true) {
 // (dopo la spedizione i problemi li segue la scheda Spedizioni, dal tracking).
 // Stesse regole in supabase/functions/_shared/ordini-dati.ts: se ne cambi una, cambia anche l'altra.
 const ordPagato = (o) => ['PAID', 'PARTIALLY_REFUNDED'].includes(o.stato_pagamento);
+// Ritiro in sede o in gara: indirizzo e telefono non servono (stessa regola di conRitiro)
+const ordConRitiro = (o) => /ritiro\s+in\s+(sede|gara)/i.test(String(o?.spedizione || ''));
 function ordProblemi(o) {
   const out = [];                                   // [campo, testo]
+  if (ordConRitiro(o)) return out;
   const a = o.indirizzo;
   const cifre = String(o.telefono || '').replace(/\D/g, '');
   if (!cifre) out.push(['tel', 'Manca il telefono']);

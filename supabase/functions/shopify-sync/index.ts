@@ -45,6 +45,7 @@ query Orders($first: Int!, $after: String, $query: String!) {
       customer { displayName }
       shippingAddress { name address1 address2 city zip province countryCodeV2 phone }
       billingAddress { phone }
+      shippingLine { title }
       lineItems(first: 15) { nodes { title variantTitle sku quantity } }
       fulfillments(first: 5) {
         status createdAt displayStatus
@@ -102,6 +103,7 @@ function toRow(storeId: string, o: any) {
     righe: (o.lineItems?.nodes || []).map((l: any) => ({ titolo: l.title, variante: l.variantTitle, sku: l.sku, qnt: l.quantity })),
     indirizzo: addr ? { nome: addr.name, via: [addr.address1, addr.address2].filter(Boolean).join(', '), citta: addr.city,
                         cap: addr.zip, provincia: addr.province, paese: addr.countryCodeV2 } : null,
+    spedizione: o.shippingLine?.title || null,
     note: o.note || null,
     tags: o.tags || [],
   };
