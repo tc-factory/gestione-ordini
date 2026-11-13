@@ -21,6 +21,7 @@ import { applicaIndirizzi, indirizzoDaMail } from './indirizzi.ts';
 import { MODELLI_VERIFICA, verificaTask } from './verifica.ts';
 import { numeriNostri, primoCellulare } from '../_shared/telefoni.ts';
 import { fermaDopoSvincolo, inAttesaDopoSvincolo, storicoGiacenza } from '../_shared/svincolo.ts';
+import { testoTelefonata } from '../_shared/telefonata.ts';
 
 const PER_GIRO = 6;              // mail per giro, elaborate in parallelo
 const MAX_TENTATIVI = 3;         // poi la mail diventa comunque un task, senza bozza
@@ -459,7 +460,12 @@ async function preparaContesto(db: SupabaseClient, mail: Row, casella: Row | nul
   const fermate = ferme.filter((t: Row) => !storici.has(t.ordine_id));
   const daChiamare = ferme.filter((t: Row) => storici.has(t.ordine_id)).map((t: Row) => {
     const st = storici.get(t.ordine_id)!;
-    return { ordine_id: t.ordine_id, tracking: t.numero, svincoli: st.svincoli.length, storico: st.righe };
+    const o = ordini.find(x => x.id === t.ordine_id);
+    const telefonata = testoTelefonata({
+      negozio: casella?.nome || 'il negozio', ordine: o?.numero || '', cliente: o?.cliente, telefono: memoria?.telefono || o?.telefono,
+      indirizzo: o?.indirizzo, eventi: t.eventi, svincoli: st.svincoli, deposito: t.deposito?.sede ? t.deposito : null, motivo: 'dopo_svincolo',
+    });
+    return { ordine_id: t.ordine_id, tracking: t.numero, svincoli: st.svincoli.length, storico: st.righe, telefonata };
   });
   const spedizioni = new Map((tracciate || []).map((t: Row) => [t.ordine_id, storici.has(t.ordine_id) ? {
     stato: 'ferma_dopo_svincolo', problema: t.problema, ultimo_stato_gls: t.ultimo_evento, quando: t.ultimo_at,
@@ -568,6 +574,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
         ...svincoloDaMail(a, ordini, fermate, mittente, primoCellulare([mail.testo, mail.testo_citato, ...(precedenti || []).map(p => p.testo)], nostri), ricordo),
         ...(daChiamare.length ? {
           chiamare_cliente: daChiamare.map(d => ({ ...d, ordine: ordini.find(o => o.id === d.ordine_id)?.numero || null })),
+          telefonata: daChiamare[0].telefonata,
           contatto: { stato: 'dopo_svincolo', svincoli: daChiamare[0].svincoli, telefono: ricordo?.telefono || ordini.find(o => o.id === daChiamare[0].ordine_id)?.telefono || null },
         } : {}),
         ...(ricordo ? { memoria: { telefono: ricordo.telefono, campanello: ricordo.campanello, indirizzo: ricordo.indirizzo, note: (ricordo.note || []).slice(-5) } } : {}),
