@@ -709,7 +709,7 @@ function renderMailSpedizione(c, f) {
   const t = sped.find(t => aperto(t) && t.chiamare) || sped.find(t => aperto(t) && t.svincolo) || sped.find(aperto) || sped[sped.length - 1];
   if (!t) {
     if (!(f.tag || []).includes('giacenza') || !TCAuth.isAdmin()) return '';
-    return `<a class="mail-sped" href="#/controllo/gls">${Icons.truck(14)} Pacco in giacenza: apri Spedizioni nel Centro di controllo</a>`;
+    return `<a class="mail-sped" href="#/comunicazione/${MailBox.casella || ''}/spedizioni">${Icons.truck(14)} Pacco in giacenza: apri le Spedizioni del negozio</a>`;
   }
   const cosa = !aperto(t) ? `Task ${(MAIL_STATI_TASK[t.stato] || t.stato).toLowerCase()}`
     : t.chiamare ? 'Chiamare il cliente: fermo di nuovo dopo lo svincolo, storico nel task'

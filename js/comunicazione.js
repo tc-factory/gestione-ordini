@@ -1,13 +1,16 @@
 /**
- * T&C Factory — Comunicazione: i canali di ogni negozio in un posto solo
+ * T&C Factory — Negozi: i canali di ogni negozio in un posto solo
  *
  *  In alto i bottoni dei negozi, solo logo, trascinabili per scegliere l'ordine (salvato nel browser);
- *  sotto i canali del negozio scelto: Mail, Instagram, Facebook, WhatsApp.
+ *  sotto i canali del negozio scelto: Mail, Instagram, Facebook, WhatsApp, Shopify, Spedizioni.
+ *  (L'id della sezione resta 'comunicazione', così i permessi già dati restano validi.)
  *  #/comunicazione                    → il primo negozio dell'ordine, sulla Mail
  *  #/comunicazione/<negozio>/<canale> → quel negozio e quel canale
  *
  * Mail riusa la sezione Mail (stesso #mail-root, spostato qui e filtrato sulla casella del negozio).
  * Instagram e Facebook riusano le conversazioni del Centro di controllo (renderCommsSocial).
+ * Shopify e Spedizioni (solo admin) riusano le schede Shop e Spedizioni che erano nel Centro di controllo,
+ * filtrate sul negozio (renderControlOrders / renderControlGls).
  * WhatsApp: da configurare.
  */
 
@@ -15,6 +18,7 @@ const COM_NEGOZI = [
   { id: 'ciucciamilcalzino', label: 'Ciucciami il Calzino', logo: 'img/loghi-negozi/ciucciamilcalzino.png', casella: 'ciucciamilcalzino' },
   { id: 'bienjugado',        label: 'Bienjugado',           logo: 'img/loghi-negozi/bienjugado.png',        casella: 'bienjugado' },
   { id: 'boxfactorylab',     label: 'Box Factory Lab',      logo: 'img/loghi-negozi/boxfactorylab.png',     casella: 'boxfactorylab' },
+  { id: 'asteroidi',         label: 'Asteroidi Store',      logo: 'img/loghi-negozi/asteroidi.png',         casella: 'asteroidi' },
   { id: 'liveprinting',      label: 'Live Printing',        logo: 'img/loghi-negozi/liveprinting.jpg',      casella: null },
 ];
 
@@ -23,6 +27,8 @@ const COM_LOGHI = {
   instagram: () => `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><defs><linearGradient id="com-ig" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#FEDA75"/><stop offset=".35" stop-color="#FA7E1E"/><stop offset=".6" stop-color="#D62976"/><stop offset="1" stop-color="#4F5BD5"/></linearGradient></defs><rect x="2" y="2" width="20" height="20" rx="6" fill="url(#com-ig)"/><circle cx="12" cy="12" r="4.3" fill="none" stroke="#fff" stroke-width="1.8"/><circle cx="17.3" cy="6.7" r="1.2" fill="#fff"/></svg>`,
   facebook: () => `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#1877F2"/><path d="M13.3 21.9v-7.1h2.4l.4-2.8h-2.8v-1.8c0-.8.3-1.4 1.4-1.4h1.5V6.3c-.3 0-1.2-.1-2.2-.1-2.2 0-3.6 1.3-3.6 3.7V12H8v2.8h2.4v7.1" fill="#fff"/></svg>`,
   whatsapp: () => `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z" fill="#25D366"/><path d="M8.6 7.2c.2-.4.4-.4.7-.4h.5c.2 0 .4 0 .6.5l.8 1.9c.1.2.1.4 0 .6l-.4.6c-.1.2-.2.3 0 .6.5.8 1.1 1.5 1.9 2 .8.5 1.1.6 1.4.4l.7-.8c.2-.2.4-.2.6-.1l1.8.9c.3.1.4.2.4.4 0 .5-.2 1.2-.7 1.5-.5.4-1.5.7-2.9.2-1.6-.6-3.3-1.9-4.4-3.5-.9-1.3-1.2-2.4-.9-3.3.2-.7.6-1.2.8-1.5z" fill="#fff"/></svg>`,
+  shopify: () => `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M15.6 4.3 14.9 2.4c-.2-.4-.6-.5-.9-.4L12.6 2.5C12 1.6 11.2 1.2 10.4 1.3 8.5 1.4 7.4 3.8 7 5.3L4.6 6c-.6.2-.7.3-.7.9L2 20.6 15.9 23l5.9-1.3L19.3 5.6l-3.7-1.3z" fill="#95BF47"/><path d="M15.6 4.3 15.9 23l5.9-1.3L19.3 5.6c-.1-.6-.6-.7-1-.7l-2.7-.6z" fill="#5E8E3E"/><path d="M12.4 8.6 11.8 10.5s-.7-.4-1.5-.3c-1.2.1-1.2.8-1.2 1 .1 1 2.8 1.3 3 3.7.1 1.9-1 3.1-2.6 3.2-2 .1-3-1.1-3-1.1l.4-1.8s1.1.8 2 .8c.6 0 .8-.5.8-.8-.1-1.3-2.3-1.3-2.4-3.5-.1-1.8 1.1-3.7 3.7-3.8 1-.1 1.4.2 1.4.2z" fill="#fff"/></svg>`,
+  spedizioni: () => `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><rect x="1" y="3" width="22" height="18" rx="5" fill="#F59E0B"/><path d="M5 8.5h8v7H5zM13 10.5h3l2.5 2.5v2.5H13z" fill="#fff"/><circle cx="8" cy="16.2" r="1.6" fill="#F59E0B" stroke="#fff" stroke-width="1.2"/><circle cx="16" cy="16.2" r="1.6" fill="#F59E0B" stroke="#fff" stroke-width="1.2"/></svg>`,
 };
 
 const COM_CANALI = [
@@ -30,7 +36,12 @@ const COM_CANALI = [
   { id: 'instagram', label: 'Instagram', piattaforma: 'instagram' },
   { id: 'facebook',  label: 'Facebook',  piattaforma: 'messenger' },
   { id: 'whatsapp',  label: 'WhatsApp' },
+  { id: 'shopify',    label: 'Shopify',    admin: true },
+  { id: 'spedizioni', label: 'Spedizioni', admin: true },
 ];
+// Canali che vede chi è collegato (Shopify e Spedizioni solo gli admin, come prima nel Centro di controllo)
+const comCanali = () => COM_CANALI.filter(c => !c.admin || TCAuth.isAdmin());
+const comCanaleShop = (id) => id === 'shopify' || id === 'spedizioni';
 
 const Comun = {
   negozio: null,
@@ -87,6 +98,7 @@ async function comCaricaConteggi() {
 
 // Stato di un canale per un negozio: { testo, n, colore, attivo }
 function comStato(negozio, canale) {
+  if (comCanaleShop(canale.id)) return taskMacro(negozio.id) ? { testo: canale.label, attivo: true } : { testo: 'Non è un negozio Shopify', attivo: false };
   if (canale.id === 'whatsapp') return { testo: 'Da configurare', attivo: false };
   if (canale.id === 'mail') {
     if (!negozio.casella) return { testo: 'Da configurare', attivo: false };
@@ -116,12 +128,20 @@ function comSalvaOrdine(ids) {
 async function openComunicazionePage() {
   const [neg, can] = (Nav.param || '').split('/');
   Comun.negozio = comNegozio(neg) ? neg : comOrdine()[0].id;
-  Comun.canale = COM_CANALI.some(c => c.id === can) ? can : 'mail';
+  Comun.canale = comCanali().some(c => c.id === can) ? can : 'mail';
   if (Comun.canale !== 'mail') comRestituisciMail();
   renderComunicazionePage();
+  if (comCanaleShop(Comun.canale)) comCaricaShop();
   await comCaricaConteggi();
   renderComunicazionePage();
   renderHeader();
+}
+
+// Ordini Shopify e spedizioni GLS: stessi dati del Centro di controllo; i task servono ai bottoni delle giacenze
+async function comCaricaShop() {
+  if (!Ctrl.loaded) Ctrl.load().then(() => renderComunicazionePage());
+  await loadShopifyLinks();
+  renderComunicazionePage();
 }
 
 function comScegli(negozio, canale) {
@@ -146,7 +166,7 @@ function renderComNegozi() {
   if (!bar) return;
   bar.innerHTML = comOrdine().map(n => {
     // Notifiche del negozio: mail e conversazioni da leggere di tutti i canali
-    const tot = Comun.caricato ? COM_CANALI.reduce((s, c) => s + (comStato(n, c).n || 0), 0) : 0;
+    const tot = Comun.caricato ? comCanali().reduce((s, c) => s + (comStato(n, c).n || 0), 0) : 0;
     const nome = `${n.label}${tot ? `, ${tot} da leggere` : ''}`;
     return `
     <button type="button" class="glass-card com-negozio-btn ${n.id === Comun.negozio ? 'is-on' : ''}" role="tab" data-id="${n.id}"
@@ -162,7 +182,7 @@ function renderComCanali() {
   const bar = document.getElementById('com-canali');
   if (!bar) return;
   const negozio = comNegozio(Comun.negozio);
-  bar.innerHTML = COM_CANALI.map(c => {
+  bar.innerHTML = comCanali().map(c => {
     const x = Comun.caricato ? comStato(negozio, c) : { attivo: true };
     const on = c.id === Comun.canale;
     return `
@@ -187,6 +207,13 @@ function renderComBody() {
 
   if (!Comun.caricato) { if (canale.id !== 'mail' || !body.querySelector('#mail-root')) metti(`<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`); return; }
   const x = comStato(negozio, canale);
+
+  if (comCanaleShop(canale.id)) {
+    if (!x.attivo) return metti(vuoto(`${canale.label}: niente da mostrare`, `${escapeHtml(negozio.label)} non è un negozio Shopify.`));
+    ShopLinks.negozio = negozio.id;
+    ShopLinks.negozioGls = negozio.id;
+    return metti(canale.id === 'shopify' ? renderControlOrders() : renderControlGls());
+  }
 
   if (canale.id === 'whatsapp') return metti(vuoto('WhatsApp da configurare', 'Il collegamento di WhatsApp non è ancora attivo.'));
 
