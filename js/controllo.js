@@ -1115,6 +1115,43 @@ function renderTaskTelefonata(t) {
     </details>`;
 }
 
+// Chi non risponde (solleciti) o va chiamato (dati mancanti): testo pronto del messaggio e della telefonata
+function taskWhatsApp(tel) {
+  let d = String(tel || '').replace(/\D/g, '').replace(/^00/, '');
+  if (/^3\d{8,9}$/.test(d)) d = `39${d}`;
+  return /^\d{10,15}$/.test(d) && !/^390/.test(d) ? d : '';
+}
+function renderTaskTestiContatto(t) {
+  const x = t.analisi?.testi_contatto, s = t.analisi?.sollecito;
+  if (!x?.messaggio && !s) return '';
+  const tel = x?.telefono || t.analisi?.cliente?.telefono || '';
+  const wa = taskWhatsApp(tel);
+  const g = (iso) => iso ? new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }) : '';
+  const rif = `Ctrl.get('${t.id}').analisi.testi_contatto`;
+  const mail = s ? `
+    <details class="td-sollecito-mail">
+      <summary>La nostra mail del ${g(s.inviata_at)} senza risposta · ${escapeHtml(s.oggetto || 'senza oggetto')}</summary>
+      <p class="td-mail-text">${escapeHtml(s.testo || '')}</p>
+    </details>` : '';
+  if (!x?.messaggio) return `<section class="td-sec td-box">${mail}</section>`;
+  return `
+    <section class="td-sec td-box td-testi">
+      <div class="td-box-head"><h3>${tel ? 'Messaggio da mandare' : 'Mail da rimandare'}</h3>
+        <span class="td-small">${tel ? 'su WhatsApp o SMS' : 'non abbiamo il telefono'}</span></div>
+      <p class="td-testo">${escapeHtml(x.messaggio)}</p>
+      <div class="td-contacts">
+        <button type="button" class="ctrl-btn" onclick="ctrlCopia(${rif}.messaggio, 'Messaggio copiato')">Copia il messaggio</button>
+        ${wa ? `<a class="ctrl-btn is-primary" href="https://wa.me/${wa}?text=${encodeURIComponent(x.messaggio)}" target="_blank" rel="noopener">Apri WhatsApp</a>` : ''}
+        ${tel ? `<a class="ctrl-btn td-call" href="tel:${escapeHtml(String(tel).replace(/[^\d+]/g, ''))}">Chiama ${escapeHtml(tel)}</a>` : ''}
+      </div>
+      ${x.chiamata ? `
+        <div class="td-box-head td-testi-chiamata"><h3>Cosa dire al telefono</h3>
+          <button type="button" class="td-link" onclick="ctrlCopia(${rif}.chiamata, 'Traccia copiata')">Copia</button></div>
+        <pre class="td-testo td-traccia">${escapeHtml(x.chiamata)}</pre>` : ''}
+      ${mail}
+    </section>`;
+}
+
 // Storico preciso di un pacco fermo più volte (tracking-check o cervello): eventi GLS, svincoli, mail
 const GIACENZA_RIGA = { problema: 'is-bad', svincolo: 'is-sv', mail_out: 'is-mail', mail_in: 'is-mail', gls: '' };
 function renderTaskStoricoGiacenza(t) {
@@ -1333,6 +1370,7 @@ function renderTaskDetail(id, storico) {
         ${renderTaskContatto(t)}
         ${renderTaskTelefonata(t)}
         ${renderTaskStoricoGiacenza(t)}
+        ${renderTaskTestiContatto(t)}
         ${t.analisi?.rimborso ? `<p class="td-todo is-advice"><strong>Rimborso richiesto:</strong> va gestito a mano.</p>` : ''}
         ${t.analisi?.note ? `<p class="td-todo is-note"><strong>Note:</strong> ${escapeHtml(t.analisi.note)}</p>` : ''}
         ${renderTaskSvincolo(t, can)}
