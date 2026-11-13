@@ -5,6 +5,7 @@
 --
 --   • tracking: il pacco GLS del task (analisi.spedizione o analisi.svincolo)
 --   • svincolo: la scelta del cliente per il pacco fermo (istruzioni a GLS da mandare)
+--   • chiamare: pacco fermo di nuovo dopo uno svincolo, va chiamato il cliente (2026-11-13)
 --
 -- Si può rieseguire.
 -- ════════════════════════════════════════════════════════
@@ -33,7 +34,8 @@ begin
     select jsonb_agg(jsonb_build_object(
              'id', t.id, 'titolo', t.titolo, 'stato', t.stato, 'assegnato_a', t.assegnato_a, 'mail_id', t.mail_id,
              'bozza_risposta', t.bozza_risposta, 'risposta_inviata_at', t.risposta_inviata_at,
-             'tracking', nullif(coalesce(t.analisi->'svincolo'->>'tracking', t.analisi->'spedizione'->>'tracking'), ''),
+             'tracking', nullif(coalesce(t.analisi->'svincolo'->>'tracking', t.analisi->'spedizione'->>'tracking', t.analisi->'chiamare_cliente'->0->>'tracking'), ''),
+             'chiamare', t.analisi ? 'chiamare_cliente',
              'svincolo', nullif(nullif(t.analisi->'svincolo'->>'scelta', ''), 'nessuna')) order by t.created_at)
       from tasks t join mail_messaggi m on m.id = t.mail_id
      where m.casella_id = p_casella and m.filo = p_filo

@@ -701,18 +701,20 @@ function renderMailReader() {
 const mailLinkTask = (id) => `#/controllo/task/${encodeURIComponent(id)}`;
 
 // Mail su una spedizione: in testa il link al task del pacco nel Centro di controllo.
-// Prima le istruzioni a GLS da mandare (svincolo), poi un task aperto col tracking, poi l'ultimo.
+// Prima il cliente da chiamare (fermo dopo uno svincolo), poi le istruzioni a GLS da mandare,
+// poi un task aperto col tracking, poi l'ultimo.
 // Con il solo tag Giacenza e nessun task, il link porta alla scheda Spedizioni.
 function renderMailSpedizione(c, f) {
   if (!Nav.isAllowed('controllo')) return '';
   const aperto = (t) => !['completato', 'non_completato'].includes(t.stato);
-  const sped = c.tasks.filter(t => t.tracking || t.svincolo);
-  const t = sped.find(t => aperto(t) && t.svincolo) || sped.find(aperto) || sped[sped.length - 1];
+  const sped = c.tasks.filter(t => t.tracking || t.svincolo || t.chiamare);
+  const t = sped.find(t => aperto(t) && t.chiamare) || sped.find(t => aperto(t) && t.svincolo) || sped.find(aperto) || sped[sped.length - 1];
   if (!t) {
     if (!(f.tag || []).includes('giacenza') || !TCAuth.isAdmin()) return '';
     return `<a class="mail-sped" href="#/controllo/gls">${Icons.truck(14)} Pacco in giacenza: apri Spedizioni nel Centro di controllo</a>`;
   }
   const cosa = !aperto(t) ? `Task ${(MAIL_STATI_TASK[t.stato] || t.stato).toLowerCase()}`
+    : t.chiamare ? 'Chiamare il cliente: fermo di nuovo dopo lo svincolo, storico nel task'
     : t.svincolo ? 'Istruzioni GLS da mandare' : 'Spedizione da seguire';
   return `<a class="mail-sped${aperto(t) ? ' is-open' : ''}" href="${mailLinkTask(t.id)}">${Icons.truck(14)} ${cosa}${t.tracking ? ` · <span class="td-mono">${escapeHtml(t.tracking)}</span>` : ''}: apri il task nel Centro di controllo</a>`;
 }

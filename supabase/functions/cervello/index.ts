@@ -20,7 +20,7 @@ import { inviaRisposta } from '../_shared/mail.ts';
 import { applicaIndirizzi, indirizzoDaMail } from './indirizzi.ts';
 import { MODELLI_VERIFICA, verificaTask } from './verifica.ts';
 import { numeriNostri, primoCellulare } from '../_shared/telefoni.ts';
-import { inAttesaDopoSvincolo } from '../_shared/svincolo.ts';
+import { fermaDopoSvincolo, inAttesaDopoSvincolo, storicoGiacenza } from '../_shared/svincolo.ts';
 
 const PER_GIRO = 6;              // mail per giro, elaborate in parallelo
 const MAX_TENTATIVI = 3;         // poi la mail diventa comunque un task, senza bozza
@@ -161,6 +161,7 @@ Regole della bozza:
 - Gli ordini segnati "non verificato" hanno un'email diversa dal mittente: puoi dire lo stato generale dell'ordine, ma non citare indirizzi, articoli o tracking; se serve altro, chiedi di scrivere dall'email usata per l'ordine.
 - Non promettere rimborsi, sconti o cambi: quelli li decide l'operatore. Scrivi che la richiesta è stata presa in carico.
 - Se la spedizione ha stato "svincolata", le istruzioni a GLS le abbiamo già date (il giorno in "svincolata_il"): NON scrivere che il pacco è in giacenza o in attesa di istruzioni, NON scrivere che le mandiamo ora o di nuovo, non compilare "svincolo" e non proporre il ritiro in sede. Scrivi che abbiamo già dato a GLS le istruzioni per la consegna e che il deposito rimetterà in consegna il pacco nei prossimi giorni lavorativi, senza date precise; se il cliente indica un telefono o un indirizzo nuovo, mettilo in "dubbi" per l'operatore.
+- Se la spedizione ha stato "ferma_dopo_svincolo", le istruzioni a GLS le abbiamo già date (vedi "svincoli_gia_fatti" e "storico") e il corriere non è riuscito di nuovo a consegnare: NON compilare "svincolo" e non scrivere che mandiamo nuove istruzioni. Scrivi con chiarezza cosa è successo (date dei tentativi falliti, con la causa se GLS la indica) e che lo chiameremo noi al telefono per capire insieme come fargli arrivare il pacco; se non abbiamo il suo numero, chiediglielo. Non scrivere che il pacco è "in giacenza in attesa di istruzioni" come fosse la prima volta.
 - Se compili "svincolo", la bozza è la conferma che parte DOPO che l'operatore ha dato le istruzioni a GLS: scrivi che abbiamo comunicato a GLS come consegnare il pacco (riassumi la scelta) e che il corriere lo riporterà nei prossimi giorni lavorativi, senza date precise. In quel caso le istruzioni a GLS non sono un dubbio.
 - Ritiro in sede GLS: se la spedizione ha "deposito_gls", usalo nella bozza: scrivi indirizzo (GLS + sede, indirizzo, CAP, provincia) e telefono del deposito dove ritirare il pacco, consigliando di chiamare prima di andare per orari e conferma. "luogo_eventi" è il paese dove il corriere ha registrato gli eventi, non il deposito: non citarlo come luogo di ritiro. Senza "deposito_gls" non inventare indirizzi.`;
 
@@ -447,8 +448,24 @@ async function preparaContesto(db: SupabaseClient, mail: Row, casella: Row | nul
   // Già svincolata: GLS ripete "in giacenza, attesa istruzioni" finché il deposito non rimette in
   // consegna il pacco, ma le istruzioni sono date. Non è più ferma e non va proposto un altro svincolo.
   const svincolata = (t: Row) => t.problema && GIACENZE.has(t.problema) && inAttesaDopoSvincolo(t);
-  const fermate = (tracciate || []).filter((t: Row) => t.problema && GIACENZE.has(t.problema) && !svincolata(t));
-  const spedizioni = new Map((tracciate || []).map((t: Row) => [t.ordine_id, svincolata(t) ? {
+  const ferme = (tracciate || []).filter((t: Row) => t.problema && GIACENZE.has(t.problema) && !svincolata(t));
+  // Ferma di nuovo dopo uno o più svincoli: niente altro svincolo, si chiama il cliente con lo storico
+  const email = (o: Row | undefined) => o?.email || null;
+  const storici = new Map<string, Awaited<ReturnType<typeof storicoGiacenza>>>();
+  for (const t of ferme) {
+    const st = await storicoGiacenza(db, { numero: t.numero, eventi: t.eventi, email: email(ordini.find(o => o.id === t.ordine_id)) });
+    if (fermaDopoSvincolo(st.svincoli, t.eventi)) storici.set(t.ordine_id, st);
+  }
+  const fermate = ferme.filter((t: Row) => !storici.has(t.ordine_id));
+  const daChiamare = ferme.filter((t: Row) => storici.has(t.ordine_id)).map((t: Row) => {
+    const st = storici.get(t.ordine_id)!;
+    return { ordine_id: t.ordine_id, tracking: t.numero, svincoli: st.svincoli.length, storico: st.righe };
+  });
+  const spedizioni = new Map((tracciate || []).map((t: Row) => [t.ordine_id, storici.has(t.ordine_id) ? {
+    stato: 'ferma_dopo_svincolo', problema: t.problema, ultimo_stato_gls: t.ultimo_evento, quando: t.ultimo_at,
+    svincoli_gia_fatti: storici.get(t.ordine_id)!.svincoli.map(v => `${String(v.at).slice(0, 10)}: ${v.tipo}`),
+    storico: storici.get(t.ordine_id)!.righe.map(r => `${r.quando} · ${r.testo}`),
+  } : svincolata(t) ? {
     stato: 'svincolata', problema: null, quando: t.ultimo_at,
     svincolata_il: new Date(t.svincolata_at).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
     nota: 'Istruzioni già date a GLS: il deposito deve ancora rimettere in consegna il pacco. Il tracking pubblico GLS mostra ancora "in giacenza" finché non riparte.',
@@ -477,7 +494,7 @@ async function preparaContesto(db: SupabaseClient, mail: Row, casella: Row | nul
     `<mail>\nDa: ${mail.da_nome || ''} <${mail.da_email || ''}>\nOggetto: ${mail.oggetto || '(senza oggetto)'}\nAllegati: ${(mail.allegati || []).map((a: Row) => a.nome).join(', ') || 'nessuno'}\n\n${(mail.testo || '(mail senza testo)').slice(0, MAX_TESTO)}\n</mail>`,
   ].filter(Boolean).join('\n\n');
 
-  return { contesto, memoria, ordini, precedenti, tracciate, fermate };
+  return { contesto, memoria, ordini, precedenti, tracciate, fermate, daChiamare };
 }
 
 const chiudi = (db: SupabaseClient, id: string, esito: string, taskId: string | null = null) =>
@@ -498,7 +515,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       return { evento: evento.id, esito: 'scartata', categoria: 'regola' };
     }
 
-    const { contesto, memoria, ordini, precedenti, tracciate, fermate } = await preparaContesto(db, mail, casella, negozi, regola);
+    const { contesto, memoria, ordini, precedenti, tracciate, fermate, daChiamare } = await preparaContesto(db, mail, casella, negozi, regola);
     const filtro = regola?.azione === 'task' ? null : await inutile(db, mail, mittente, ordini);
     if (filtro) {
       await chiudi(db, evento.id, `Scartata (filtro): ${filtro}`);
@@ -531,6 +548,12 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
     if (a.memoria?.telefono && nostri.has(String(a.memoria.telefono).replace(/\D/g, '').replace(/^39(?=3)/, ''))) a.memoria.telefono = '';
     const ricordo = mittente ? await ricorda(db, mittente, mail, memoria, a.memoria) : memoria;
 
+    if (daChiamare.length) {
+      const d = daChiamare[0], num = ordini.find(o => o.id === d.ordine_id)?.numero || '';
+      a.titolo = `CHIAMARE · ${num} fermo di nuovo dopo ${d.svincoli === 1 ? 'lo svincolo' : `${d.svincoli} svincoli`} · ${a.titolo}`;
+      a.priorita = 'urgente';
+      a.dubbi = `Pacco già svincolato ${d.svincoli === 1 ? 'una volta' : `${d.svincoli} volte`} e di nuovo fermo: non mandare un altro svincolo, chiama il cliente con lo storico e capisci cosa non va. ${a.dubbi || ''}`.trim();
+    }
     const riferimenti = ordini.map(o => ({ negozio: o.store_id, numero: o.numero, verificato: (o.email || '').toLowerCase() === mittente, ...(o.trovato_con ? { trovato_con: o.trovato_con } : {}) }));
     const taskId = await creaTask(db, evento, mail, storeId, tipi, {
       tipo: TIPI[a.categoria] || TIPI.altro,
@@ -543,6 +566,10 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
         ...(a.chiede_rimborso ? { rimborso: true } : {}),
         ...indirizzoDaMail(a, mail, mittente, ordini),
         ...svincoloDaMail(a, ordini, fermate, mittente, primoCellulare([mail.testo, mail.testo_citato, ...(precedenti || []).map(p => p.testo)], nostri), ricordo),
+        ...(daChiamare.length ? {
+          chiamare_cliente: daChiamare.map(d => ({ ...d, ordine: ordini.find(o => o.id === d.ordine_id)?.numero || null })),
+          contatto: { stato: 'dopo_svincolo', svincoli: daChiamare[0].svincoli, telefono: ricordo?.telefono || ordini.find(o => o.id === daChiamare[0].ordine_id)?.telefono || null },
+        } : {}),
         ...(ricordo ? { memoria: { telefono: ricordo.telefono, campanello: ricordo.campanello, indirizzo: ricordo.indirizzo, note: (ricordo.note || []).slice(-5) } } : {}),
       },
     });
