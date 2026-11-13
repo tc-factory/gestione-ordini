@@ -29,6 +29,17 @@ type Row = Record<string, any>;
 
 const torna = (esito: string) => new Response(null, { status: 302, headers: { Location: RITORNO + encodeURIComponent(esito) } });
 
+const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+// Ogni tentativo resta in automazione_esecuzioni (nome meta-login), senza token: serve a capire i login falliti
+async function registra(esito: string, riepilogo: Row) {
+  await db.from('automazione_esecuzioni').insert({
+    nome: 'meta-login', stato: esito.startsWith('ok') ? 'ok' : 'errore', fine: new Date().toISOString(),
+    riepilogo, output: esito.slice(0, 2000),
+  }).then(() => {}, () => {});
+  return torna(esito);
+}
+
 async function graph(path: string, params: Record<string, string>) {
   const res = await fetch(`${GRAPH}/${path}?${new URLSearchParams(params)}`);
   const json = await res.json().catch(() => ({}));
@@ -40,15 +51,14 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const state = url.searchParams.get('state') || '';
   const code = url.searchParams.get('code') || '';
-  if (url.searchParams.get('error')) return torna('errore:' + (url.searchParams.get('error_description') || 'Accesso annullato'));
-  if (!code || !state) return torna('errore:Risposta di Meta incompleta');
-  if (!APP_SECRET) return torna('errore:Manca il secret META_IG_APP_SECRET in Supabase');
-
-  const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const rie: Row = { parametri: [...url.searchParams.keys()].filter(k => k !== 'code') };
+  if (url.searchParams.get('error')) return registra('errore:' + (url.searchParams.get('error_description') || url.searchParams.get('error_reason') || 'Accesso annullato'), rie);
+  if (!code || !state) return registra('errore:Risposta di Meta incompleta', rie);
+  if (!APP_SECRET) return registra('errore:Manca il secret META_IG_APP_SECRET in Supabase', rie);
 
   // State usa e getta, valido 15 minuti
   const { data: st } = await db.from('meta_login_stati').delete().eq('state', state).select().maybeSingle();
-  if (!st || Date.now() - new Date(st.creato_at).getTime() > 15 * 60_000) return torna('errore:Collegamento scaduto, riprova da Collegamenti');
+  if (!st || Date.now() - new Date(st.creato_at).getTime() > 15 * 60_000) return registra('errore:Collegamento scaduto, riprova da Collegamenti', rie);
 
   try {
     const { access_token: token } = await graph('oauth/access_token', { client_id: APP_ID, client_secret: APP_SECRET, redirect_uri: REDIRECT, code });
@@ -56,9 +66,17 @@ Deno.serve(async (req) => {
 
     // Profili Instagram concessi in questo login
     const { data: info } = await graph('debug_token', { input_token: token, access_token: `${APP_ID}|${APP_SECRET}` });
+    rie.scopes = (info?.granular_scopes || []).map((s: Row) => ({ scope: s.scope, target_ids: s.target_ids }));
+    rie.tipo = info?.type;
     const ids = new Set<string>();
     for (const s of (info?.granular_scopes || []) as Row[]) {
       if (String(s.scope).startsWith('instagram_')) (s.target_ids || []).forEach((id: string) => ids.add(String(id)));
+    }
+    if (!ids.size) {
+      // Nessun profilo nei permessi: si provano le pagine e gli account Instagram del portfolio
+      for (const via of ['me/accounts?fields=instagram_business_account', 'me?fields=id,name']) {
+        try { rie[via] = await graph(via.split('?')[0], { fields: via.split('fields=')[1], access_token: token }); } catch (e) { rie[via] = (e as Error).message; }
+      }
     }
     if (!ids.size) throw new Error('Nessun profilo Instagram concesso: nel login va selezionato almeno un account Instagram');
 
@@ -83,9 +101,10 @@ Deno.serve(async (req) => {
       }
     }
     if (!salvati) throw new Error(errori.join(' · '));
-    return torna(`ok:${salvati}`);
+    rie.errori = errori;
+    return registra(`ok:${salvati}`, rie);
   } catch (e) {
     console.error('meta-login', e);
-    return torna('errore:' + (e as Error).message);
+    return registra('errore:' + (e as Error).message, rie);
   }
 });
