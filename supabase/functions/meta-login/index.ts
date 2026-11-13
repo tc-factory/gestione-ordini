@@ -74,13 +74,18 @@ Deno.serve(async (req) => {
     }
     if (!ids.size) {
       // Token dell'utente di sistema: i permessi non dicono i profili, si chiedono a Meta in più modi
-      const vie: [string, string][] = [
-        ['me/instagram_accounts', 'id,username'],
-        ['me/instagram_business_accounts', 'id,username'],
-        ['me/accounts', 'instagram_business_account{id,username}'],
-        ['me/businesses', 'id,name,owned_instagram_accounts{id,username},instagram_business_accounts{id,username}'],
-        ['me', 'id,name'],
-      ];
+      // Il token di integrazione appartiene al portfolio del cliente: i profili si leggono da lì
+      let biz = '';
+      try { biz = (await graph('me', { fields: 'client_business_id', access_token: token })).client_business_id || ''; rie.client_business_id = biz; }
+      catch (e) { rie.client_business_id = (e as Error).message; }
+      const vie: [string, string][] = biz ? [
+        [`${biz}/owned_instagram_assets`, 'id,username,name'],
+        [`${biz}/instagram_business_accounts`, 'id,username,name'],
+        [`${biz}/owned_instagram_accounts`, 'id,username'],
+        [`${biz}/instagram_accounts`, 'id,username'],
+        [`${biz}/client_instagram_assets`, 'id,username,name'],
+      ] : [];
+      vie.push(['me/accounts', 'instagram_business_account{id,username}']);
       const raccogli = (x: unknown): void => {
         if (Array.isArray(x)) { x.forEach(raccogli); return; }
         if (!x || typeof x !== 'object') return;
@@ -89,11 +94,17 @@ Deno.serve(async (req) => {
         Object.values(o).forEach(raccogli);
       };
       for (const [via, fields] of vie) {
-        try { const r = await graph(via, { fields, access_token: token }); rie[via] = r; raccogli(r); }
+        try {
+          const r = await graph(via, { fields, access_token: token }); rie[via] = r; raccogli(r);
+          if (via.startsWith(biz + '/')) (r.data || []).forEach((x: Row) => x.id && ids.add(String(x.id)));
+        }
         catch (e) { rie[via] = (e as Error).message; }
       }
     }
-    if (!ids.size) throw new Error('Nessun profilo Instagram concesso: nel login va selezionato almeno un account Instagram');
+    if (!ids.size) {
+      await db.from('meta_token_attesa').insert({ token, riepilogo: rie }).then(() => {}, () => {});
+      throw new Error('Nessun profilo Instagram concesso: nel login va selezionato almeno un account Instagram');
+    }
 
     let salvati = 0;
     const errori: string[] = [];

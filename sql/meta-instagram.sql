@@ -79,3 +79,12 @@ begin
   return jsonb_build_object('success', true);
 end;
 $function$;
+
+-- Token di un login che non ha trovato profili: resta qui per controllarlo senza rifare il login (solo service role)
+create table if not exists public.meta_token_attesa (
+  id bigint generated always as identity primary key,
+  token text not null,
+  riepilogo jsonb,
+  creato_at timestamptz not null default now()
+);
+alter table public.meta_token_attesa enable row level security;
