@@ -85,7 +85,8 @@ Deno.serve(async (req) => {
         [`${biz}/instagram_accounts`, 'id,username'],
         [`${biz}/client_instagram_assets`, 'id,username,name'],
       ] : [];
-      vie.push(['me/accounts', 'instagram_business_account{id,username}']);
+      vie.unshift(['me/assigned_instagram_accounts', 'id,username']);
+      vie.push(['me/assigned_pages', 'instagram_business_account{id,username}']);
       const raccogli = (x: unknown): void => {
         if (Array.isArray(x)) { x.forEach(raccogli); return; }
         if (!x || typeof x !== 'object') return;
@@ -94,9 +95,10 @@ Deno.serve(async (req) => {
         Object.values(o).forEach(raccogli);
       };
       for (const [via, fields] of vie) {
+        if (ids.size) break;
         try {
           const r = await graph(via, { fields, access_token: token }); rie[via] = r; raccogli(r);
-          if (via.startsWith(biz + '/')) (r.data || []).forEach((x: Row) => x.id && ids.add(String(x.id)));
+          if (via.startsWith(biz + '/') || via === 'me/assigned_instagram_accounts') (r.data || []).forEach((x: Row) => x.id && ids.add(String(x.id)));
         }
         catch (e) { rie[via] = (e as Error).message; }
       }
