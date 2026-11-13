@@ -187,7 +187,9 @@ async function valuta(db: SupabaseClient, client: Anthropic, c: Row, caselle: Ma
     d = await scrivi(db, client, contesto(negozio, p, mails), c.mail_id, !!p.telefono);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    await segna('errore', msg);
+    // Primo errore: si riprova al giro dopo; al secondo la mail resta segnata come errore
+    const { data: prima } = await db.from('mail_solleciti').select('esito').eq('mail_id', c.mail_id).maybeSingle();
+    await segna(prima?.esito === 'riprova' ? 'errore' : 'riprova', msg);
     return { email, esito: 'errore', errore: msg };
   }
   if (!d.serve) { await segna('non_serve', d.motivo); return { email, esito: 'non_serve', motivo: d.motivo }; }
