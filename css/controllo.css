@@ -876,3 +876,10 @@ html.dark .gz-tipo, html.dark .gz-red { color: #fca5a5 !important; }
 .com-negozio-canali .com-mini-ch b { top: -7px; right: -10px; min-width: 18px; height: 18px; line-height: 18px; font-size: 11px; border-radius: 9px; }
 @media (max-width: 1100px) { .com-negozi { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .com-negozi { grid-template-columns: 1fr; } .com-negozio-logo { height: 140px; } }
+
+/* Comunicazione: box larghi e bassi */
+.com-negozio { gap: 12px; padding: 16px 20px 14px; }
+.com-negozio-logo { height: 84px; }
+.com-negozio-canali { gap: 16px; padding-top: 12px; }
+.com-negozio-canali .com-mini-ch svg { width: 24px; height: 24px; }
+@media (max-width: 600px) { .com-negozio-logo { height: 72px; } }
