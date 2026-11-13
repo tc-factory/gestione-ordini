@@ -73,9 +73,24 @@ Deno.serve(async (req) => {
       if (String(s.scope).startsWith('instagram_')) (s.target_ids || []).forEach((id: string) => ids.add(String(id)));
     }
     if (!ids.size) {
-      // Nessun profilo nei permessi: si provano le pagine e gli account Instagram del portfolio
-      for (const via of ['me/accounts?fields=instagram_business_account', 'me?fields=id,name']) {
-        try { rie[via] = await graph(via.split('?')[0], { fields: via.split('fields=')[1], access_token: token }); } catch (e) { rie[via] = (e as Error).message; }
+      // Token dell'utente di sistema: i permessi non dicono i profili, si chiedono a Meta in più modi
+      const vie: [string, string][] = [
+        ['me/instagram_accounts', 'id,username'],
+        ['me/instagram_business_accounts', 'id,username'],
+        ['me/accounts', 'instagram_business_account{id,username}'],
+        ['me/businesses', 'id,name,owned_instagram_accounts{id,username},instagram_business_accounts{id,username}'],
+        ['me', 'id,name'],
+      ];
+      const raccogli = (x: unknown): void => {
+        if (Array.isArray(x)) { x.forEach(raccogli); return; }
+        if (!x || typeof x !== 'object') return;
+        const o = x as Row;
+        if (o.id && o.username) ids.add(String(o.id));
+        Object.values(o).forEach(raccogli);
+      };
+      for (const [via, fields] of vie) {
+        try { const r = await graph(via, { fields, access_token: token }); rie[via] = r; raccogli(r); }
+        catch (e) { rie[via] = (e as Error).message; }
       }
     }
     if (!ids.size) throw new Error('Nessun profilo Instagram concesso: nel login va selezionato almeno un account Instagram');
