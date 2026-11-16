@@ -123,7 +123,9 @@ def carica_nel_gestionale(cartella, reg):
     file = sorted(p for p in cartella.rglob('*') if p.is_file() and not p.name.startswith('.') and p.suffix != '.part')
     if not file:
         return []
-    percorso = {p: p.relative_to(cartella.parent).as_posix() for p in file}
+    # Mattine di prova del server: in prova-server/, che la scheda non mostra
+    prefisso = os.environ.get('CS_PREFISSO_GESTIONALE', '').strip('/')
+    percorso = {p: '/'.join(x for x in (prefisso, p.relative_to(cartella.parent).as_posix()) if x) for p in file}
     link = chiama_file_mattino('carica', percorsi=list(percorso.values()))['link']
     falliti = []
     for p in file:
@@ -137,6 +139,35 @@ def carica_nel_gestionale(cartella, reg):
             falliti.append(f'{p.name} ({type(e).__name__}: {str(e)[:120]})')
     reg.scrivi(f"File del mattino nel gestionale: {len(file) - len(falliti)} di {len(file)} caricati")
     return falliti
+
+
+def scarica_libreria(base, reg):
+    """Server del mattino: copia la libreria DTF dal gestionale (bucket dtf-libreria) nella cartella locale,
+    scaricando solo i file nuovi o cambiati e togliendo quelli spariti. Sul Mac in sede non serve."""
+    remoti = chiama_file_mattino('libreria')['file']
+    base.mkdir(parents=True, exist_ok=True)
+    scaricati = 0
+    for f in remoti:
+        dest = base / f['percorso']
+        data = leggi_data(f['data']).timestamp() if f.get('data') else 0
+        if dest.is_file() and dest.stat().st_size == f['peso'] and dest.stat().st_mtime >= data:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + '.part')
+        with requests.get(f['link'], stream=True, timeout=(30, 600)) as g:
+            g.raise_for_status()
+            with tmp.open('wb') as out:
+                for pezzo in g.iter_content(1024 * 1024):
+                    out.write(pezzo)
+        tmp.rename(dest)
+        scaricati += 1
+    nomi = {f['percorso'] for f in remoti}
+    tolti = 0
+    for p in base.rglob('*'):
+        if p.is_file() and p.relative_to(base).as_posix() not in nomi:
+            p.unlink()
+            tolti += 1
+    reg.scrivi(f"Libreria DTF dal gestionale: {len(remoti)} file, {scaricati} scaricati, {tolti} tolti")
 
 
 CONTENT_TYPE = {'.pdf': 'application/pdf', '.tif': 'image/tiff', '.tiff': 'image/tiff', '.jpg': 'image/jpeg', '.png': 'image/png'}
@@ -647,7 +678,11 @@ def main():
     ap.add_argument('--rigenera', type=dt.date.fromisoformat, help="rifà la cartella di quel giorno (AAAA-MM-GG), senza tag né esito")
     ap.add_argument('--dal', help="con --rigenera: ordini creati da questo momento (ISO, es. 2026-11-12T04:00:00Z)")
     ap.add_argument('--al', help="con --rigenera: ordini creati prima di questo momento")
+    ap.add_argument('--solo-ora', type=int, help="server: parte solo se a Roma è quest'ora (la programmazione in UTC copre l'ora legale)")
+    ap.add_argument('--libreria-remota', action='store_true', help='server: prende la libreria DTF dal gestionale')
     args = ap.parse_args()
+    if args.solo_ora is not None and dt.datetime.now(ROMA).hour != args.solo_ora:
+        return 0
     carica_env(args.env)
     if args.pulisci:
         reg = Registro('pulizia')
@@ -675,7 +710,8 @@ def main():
         if not (args.dal and args.al):
             ap.error('--rigenera vuole anche --dal e --al')
         applica = False
-    reg = Registro('rigenera' if args.rigenera else 'mattino')
+    # Il server nelle mattine di prova scrive nel registro con un nome suo (CS_NOME_REGISTRO=mattino-server)
+    reg = Registro('rigenera' if args.rigenera else os.environ.get('CS_NOME_REGISTRO', 'mattino'))
     try:
         codice, stato, riepilogo = giro(args, applica, reg)
         reg.chiudi(stato, riepilogo)
@@ -704,6 +740,12 @@ def giro(args, applica, reg):
         reg.scrivi(f"{oggi} giorno non lavorativo ({dati.get('motivo')}): nessun giro")
         return 0, 'saltato', {'motivo': dati.get('motivo')}
     cartella.mkdir(parents=True, exist_ok=True)
+    if args.libreria_remota:
+        try:
+            scarica_libreria(args.cartella / CARTELLA_PROTETTA, reg)
+        except Exception as e:
+            # Senza libreria saltano solo i fogli DTF, che finiscono tra gli errori del giorno
+            reg.scrivi(f'ATTENZIONE: libreria DTF non scaricata ({type(e).__name__}: {str(e)[:120]})')
 
     # 1. Mail: il cervello le ha già lette; si controlla che il controllo sia davvero aggiornato
     ora = dt.datetime.now(dt.timezone.utc)
@@ -821,6 +863,9 @@ def giro(args, applica, reg):
                 for o in ordini if (n['id'], o['name']) not in richieste for l in righe_ddt(o)]
         try:
             import dtf   # qui: se mancano le librerie si ferma solo questa parte
+            # Fuori dal Mac (server) il font dei nomi arriva con la libreria
+            if not Path(dtf.FONT_NOME).exists():
+                dtf.FONT_NOME = str(args.cartella / dtf.CARTELLA_LIBRERIA / 'fonts' / 'Impact.ttf')
             voci = [v for v in voci if dtf.tipo_capo(v[1], v[2])]
             if not voci:
                 continue
@@ -913,8 +958,11 @@ def giro(args, applica, reg):
         risposta = invia_esito(not errori_negozio, esito)
         reg.scrivi(f"Centro di controllo: {risposta['ordini_avanzati']} ordini passati alla preparazione")
     # 7. Copia nella scheda "File del mattino": dopo tag ed esito, così un problema qui non ferma la stampa
+    tutto_caricato = False
     try:
-        errori += [f"File del mattino non caricato nel gestionale: {x}" for x in carica_nel_gestionale(cartella, reg)]
+        non_caricati = carica_nel_gestionale(cartella, reg)
+        errori += [f"File del mattino non caricato nel gestionale: {x}" for x in non_caricati]
+        tutto_caricato = not non_caricati
     except Exception as e:
         errori.append(f"File del mattino non caricati nel gestionale ({type(e).__name__}: {str(e)[:120]})")
 
@@ -941,6 +989,10 @@ def giro(args, applica, reg):
         for titolo, voci in info:
             if voci:
                 reg.scrivi(f"    {titolo}: {', '.join(voci)}")
+    # Server: il disco non è di nessuno, i file stanno nel gestionale. Si cancella solo se è arrivato tutto
+    if os.environ.get('CS_CANCELLA_DOPO_CARICAMENTO') and tutto_caricato:
+        shutil.rmtree(cartella)
+        reg.scrivi(f'Cartella locale {cartella.name} cancellata: i file sono nel gestionale')
     codice = 1 if errori or any(avvisi_stampa.values()) or avvisi_mail or bloccati else 0
     stato = ('errore' if codice else 'ok') if applica else 'prova'
     return codice, stato, {'ordini': n_ordini, 'pagine_stampa': pagine_stampa, 'tag': taggati}

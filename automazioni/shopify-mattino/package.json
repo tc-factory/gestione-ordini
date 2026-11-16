@@ -1,0 +1,6 @@
+{
+  "name": "cs-mattino-railway",
+  "private": true,
+  "description": "Solo per la configurazione Railway (.railway/railway.ts): railway config plan / apply",
+  "devDependencies": { "railway": "3.17.0" }
+}

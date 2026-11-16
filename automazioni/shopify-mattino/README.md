@@ -34,3 +34,12 @@ La chiave serve solo per la funzione `tc_mattino_dati` (`sql/automazione-mattino
 - Gira come servizio di sistema (`it.tcfactory.mattino.plist`) con l'utente `csauto`, anche se nessuno è collegato. Registro: `~/shopify-mattino/mattino.log`.
 - Con `CS_PROVA=1` nel file `.env` il giro non mette tag e non chiude lotti.
 - A fine giro chiama `tc_mattino_esito`. Se alle 5:30 non è arrivato nulla, il controllo in `sql/automazione-mattino-esito.sql` passa i lotti al secondario e apre un task di verifica.
+
+## Sul server (Railway)
+
+Lo stesso script gira in un container sul progetto Railway `creative-system` dell'account T&C (servizio `mattino`, disco `mattino-dati` su /data, Amsterdam; configurazione in `.railway/railway.ts`, si applica con `npm install`, `railway config plan` e `railway config apply`; si pubblica con `railway up --service mattino`): programmazione `0 3,4 * * *` in UTC e `--solo-ora 5`, così parte alle 5 di Roma sia con l'ora solare sia con quella legale (l'altra esecuzione esce subito senza scrivere nulla).
+
+- `--libreria-remota`: la libreria DTF (grafiche, bandiere, `mappa-prodotti.csv`, font Impact) arriva dal bucket privato `dtf-libreria` (`sql/dtf-libreria.sql`) tramite la funzione `file-mattino`, azione `libreria`; si scaricano solo i file nuovi o cambiati in `/data` (volume). Una grafica nuova va caricata anche lì.
+- Variabili: `CS_SUPABASE_URL`, `CS_ANON_KEY`, `CS_AUTOMAZIONE_KEY`, `CS_CANCELLA_DOPO_CARICAMENTO=1` (la cartella del giorno si cancella solo se è tutta nel gestionale).
+- Mattine di prova, affiancate al Mac in sede: `CS_PROVA=1` (niente tag né esito), `CS_PREFISSO_GESTIONALE=prova-server` (i file vanno in `prova-server/AAAA-MM-GG`, che la scheda non mostra), `CS_NOME_REGISTRO=mattino-server` (registro a parte). Per passare al server vero si tolgono queste tre e si fermano i servizi sul Mac.
+- La pulizia della domenica del bucket la fa il Mac in sede (`--pulisci`, anche `prova-server/`); col server vero servirà un secondo servizio Railway con `--pulisci`.

@@ -3216,6 +3216,7 @@ const AUTOMAZIONI = {
   mattino: { nome: 'DDT e file di stampa', quando: 'Giorni lavorativi alle 5:00' },
   pulizia: { nome: 'Pulizia della cartella', quando: 'Domenica alle 23:59' },
   rigenera: { nome: 'Rigenerazione di un giorno', quando: 'A mano' },
+  'mattino-server': { nome: 'DDT e file di stampa sul server (prova)', quando: 'Giorni lavorativi alle 5:00, file in prova-server' },
   'avviso-giacenza': { nome: 'Mail ai clienti per le giacenze', quando: 'Ogni ora, anche nel weekend' },
   'richiesta-dati': { nome: 'Richiesta dei dati mancanti', quando: 'Ogni 5 minuti; mail dalle 8 alle 21', modo: true },
   'verifica-indirizzi': { nome: 'Riscontro degli indirizzi', quando: 'Ogni 5 minuti, sugli ordini nuovi', modo: true, modi: [
