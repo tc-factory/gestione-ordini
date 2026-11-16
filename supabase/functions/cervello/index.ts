@@ -158,6 +158,7 @@ Regole della bozza:
 - Se il cliente chiede di un ordine e non ne risulta nessuno del mittente, chiedigli il numero d'ordine e il nome e cognome usati per l'acquisto.
 - Gli ordini con "trovato_con": "nome" hanno nome e cognome del cliente scritti nella mail ma un'email diversa: valgono come "non verificato" e non li dai per certi al cliente.
 - Gli ordini con "trovato_con": "telefono" hanno lo stesso numero di telefono scritto nella mail ma un'email diversa: valgono come "non verificato".
+- Gli ordini con "trovato_con": "telefono_e_nome" hanno lo stesso telefono e lo stesso nome e cognome del cliente (scritti nella mail o nell'indirizzo email): sono verificati, rispondi come per gli altri ordini del mittente (tracking compreso) senza chiedere di scrivere dall'email dell'ordine e senza farne un dubbio.
 - Per un ordine pagato, non spedito ed entro i tempi, dì al cliente che è in preparazione e quando parte secondo i tempi del negozio, contati in giorni lavorativi dalla data dell'ordine; poi i tempi di consegna.
 - Gli ordini segnati "non verificato" hanno un'email diversa dal mittente: puoi dire lo stato generale dell'ordine, ma non citare indirizzi, articoli o tracking; se serve altro, chiedi di scrivere dall'email usata per l'ordine.
 - Non promettere rimborsi, sconti o cambi: quelli li decide l'operatore. Scrivi che la richiesta è stata presa in carico.
@@ -205,8 +206,17 @@ async function cercaOrdini(db: SupabaseClient, mail: Row) {
     return nomi.length >= 2 && nomi.every(p => parole.has(p));
   }).slice(0, 3);
 
+  // Stesso telefono E stesso nome e cognome (scritti nella mail o dentro l'indirizzo email del mittente,
+  // es. noemisabelli27@gmail.com): il cliente è lui anche se ha usato un'altra email → ordine verificato
+  const localeMail = mittente.split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
+  const telefonoENome = (o: Row) => {
+    const nomi = String(o.cliente || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z]+/).filter(p => p.length >= 3);
+    return nomi.length >= 2 && nomi.every(p => parole.has(p) || localeMail.includes(p));
+  };
+
   const visti = new Set<string>();
-  return [...(suoi || []), ...(citati || []), ...perNome.map(o => ({ ...o, trovato_con: 'nome' })), ...(perTelefono || []).map(o => ({ ...o, trovato_con: 'telefono' }))].filter(o => {
+  return [...(suoi || []), ...(citati || []), ...perNome.map(o => ({ ...o, trovato_con: 'nome' })),
+    ...(perTelefono || []).map(o => telefonoENome(o) ? { ...o, trovato_con: 'telefono_e_nome', verificato_da: 'telefono_e_nome' } : { ...o, trovato_con: 'telefono' })].filter(o => {
     const k = `${o.store_id}:${o.numero}`;
     if (visti.has(k)) return false;
     visti.add(k);
@@ -234,9 +244,12 @@ async function aggiungiTempi(db: SupabaseClient, ordini: Row[]) {
   }
 }
 
+// Ordine del mittente: stessa email, oppure stesso telefono e stesso nome e cognome
+const delMittente = (o: Row, mittente: string) => !!o.verificato_da || (o.email || '').toLowerCase() === mittente;
+
 // Solo ciò che serve: se il mittente non è il titolare dell'ordine, niente dati personali
 function perClaude(o: Row, mittente: string, negozi: Map<string, string>, spedizioni: Map<string, Row>) {
-  const verificato = (o.email || '').toLowerCase() === mittente;
+  const verificato = delMittente(o, mittente);
   const base = {
     negozio: negozi.get(o.store_id) || o.store_id,
     numero: o.numero,
@@ -368,7 +381,7 @@ async function creaTask(db: SupabaseClient, evento: Row, mail: Row, storeId: str
 async function puòRispondereDaSolo(db: SupabaseClient, tipo: Row | undefined, a: Row, ordini: Row[], mittente: string) {
   if (tipo?.autonomia !== 'automatico' || (a.dubbi || '').trim() || !(a.bozza || '').trim()) return false;
   if (a.chiede_rimborso || ordini.some(o => o.tempi?.oltre_i_tempi)) return false;   // rimborsi e ordini fermi: sempre una persona
-  if (!ordini.length || ordini.some(o => (o.email || '').toLowerCase() !== mittente)) return false;
+  if (!ordini.length || ordini.some(o => !delMittente(o, mittente))) return false;
   const ieri = new Date(Date.now() - 86_400_000).toISOString();
   const [recenti, oggi] = await Promise.all([
     db.from('mail_messaggi').select('id', { count: 'exact', head: true }).eq('direzione', 'out').eq('a', mittente).gte('ricevuto_at', ieri),
@@ -406,7 +419,7 @@ async function ricorda(db: SupabaseClient, email: string, mail: Row, prima: Row 
 function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string, dalleMail = '', memoria: Row | null = null) {
   const s = a.svincolo;
   if (!s || s.scelta === 'nessuna' || !SCELTE_SVINCOLO.includes(s.scelta)) return {};
-  const suoi = ordini.filter(o => (o.email || '').toLowerCase() === mittente);
+  const suoi = ordini.filter(o => delMittente(o, mittente));
   const ferma = fermate.find(f => suoi.some(o => o.id === f.ordine_id));
   if (!ferma) return {};
   const ordine = suoi.find(o => o.id === ferma.ordine_id)!;
@@ -560,7 +573,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       a.priorita = 'urgente';
       a.dubbi = `Pacco già svincolato ${d.svincoli === 1 ? 'una volta' : `${d.svincoli} volte`} e di nuovo fermo: non mandare un altro svincolo, chiama il cliente con lo storico e capisci cosa non va. ${a.dubbi || ''}`.trim();
     }
-    const riferimenti = ordini.map(o => ({ negozio: o.store_id, numero: o.numero, verificato: (o.email || '').toLowerCase() === mittente, ...(o.trovato_con ? { trovato_con: o.trovato_con } : {}) }));
+    const riferimenti = ordini.map(o => ({ negozio: o.store_id, numero: o.numero, verificato: delMittente(o, mittente), ...(o.trovato_con ? { trovato_con: o.trovato_con } : {}) }));
     const taskId = await creaTask(db, evento, mail, storeId, tipi, {
       tipo: TIPI[a.categoria] || TIPI.altro,
       titolo: a.titolo,

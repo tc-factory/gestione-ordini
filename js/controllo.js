@@ -1007,7 +1007,7 @@ function renderTaskMemoria(m) {
 function taskMailParts(t, can) {
   if (!t.mail_id) return null;
   const m = _taskMail?.taskId === t.id ? _taskMail.mail : null;
-  const ordini = (t.analisi?.ordini || []).map(o => `${escapeHtml(taskMacro(o.negozio)?.label || o.negozio)} ${escapeHtml(o.numero)}${o.verificato ? '' : o.trovato_con === 'telefono' ? ' (stesso telefono, email diversa)' : ' (email diversa dal mittente)'}`);
+  const ordini = (t.analisi?.ordini || []).map(o => `${escapeHtml(taskMacro(o.negozio)?.label || o.negozio)} ${escapeHtml(o.numero)}${o.trovato_con === 'telefono_e_nome' ? ' (stesso telefono e nome, email diversa)' : o.verificato ? '' : o.trovato_con === 'telefono' ? ' (stesso telefono, email diversa)' : ' (email diversa dal mittente)'}`);
   const ricevuta = `
     <section class="td-sec td-mail">
       <h3>Mail ricevuta</h3>
