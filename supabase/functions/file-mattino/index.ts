@@ -4,17 +4,23 @@
 // 'automazione_mattino_key') chiede qui
 //   { chiave, azione: 'carica', percorsi: ['2026-11-16/DDT.pdf', ...] } → un link di caricamento per file
 //   { chiave, azione: 'scarica', percorso } → link per scaricare (agente di stampa, automazioni/stampa)
-//   { chiave, azione: 'pulisci' } → cancella le cartelle dei giorni, tranne l'ultima (come sul Mac in sede)
+//   { chiave, azione: 'pulisci' } → cancella le cartelle dei giorni, tranne l'ultima (come sul Mac in sede),
+//       anche dentro prova-server/
+//   { chiave, azione: 'libreria' } → elenco della libreria DTF (bucket dtf-libreria) con peso, data e link
+//       per scaricarla: la usa il server del mattino, che non ha la cartella del Mac in sede (sql/dtf-libreria.sql)
 // I file finiscono nel bucket privato file-mattino; la scheda "File del mattino" li elenca (sql/file-mattino.sql).
+// Nelle mattine di prova il server carica in prova-server/AAAA-MM-GG/...: la scheda non le mostra.
 //
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const BUCKET = 'file-mattino';
+const LIBRERIA = 'dtf-libreria';
+const PROVA = 'prova-server';
 const GIORNO = /^\d{4}-\d{2}-\d{2}$/;
-// Cartella del giorno, al massimo una sottocartella (fogli DTF), niente percorsi strani
-const PERCORSO = /^\d{4}-\d{2}-\d{2}\/(?:[^/]+\/)?[^/]+$/;
+// Cartella del giorno (anche dentro prova-server/), al massimo una sottocartella (fogli DTF), niente percorsi strani
+const PERCORSO = /^(?:prova-server\/)?\d{4}-\d{2}-\d{2}\/(?:[^/]+\/)?[^/]+$/;
 
 const reply = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -22,16 +28,41 @@ const fail = (error: string, status = 400) => reply({ success: false, error }, s
 
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 
-async function elenca(prefisso: string): Promise<string[]> {
-  const { data, error } = await db.storage.from(BUCKET).list(prefisso, { limit: 1000 });
-  if (error) throw error;
-  const file: string[] = [];
-  for (const x of data || []) {
-    const p = `${prefisso}/${x.name}`;
-    if (x.id) file.push(p);
-    else file.push(...await elenca(p));
+type Voce = { percorso: string; peso: number; data: string };
+
+async function elenca(prefisso: string, bucket = BUCKET): Promise<Voce[]> {
+  const file: Voce[] = [];
+  for (let da = 0; ; da += 1000) {
+    const { data, error } = await db.storage.from(bucket).list(prefisso, { limit: 1000, offset: da });
+    if (error) throw error;
+    for (const x of data || []) {
+      const p = prefisso ? `${prefisso}/${x.name}` : x.name;
+      if (x.id) file.push({ percorso: p, peso: Number(x.metadata?.size ?? 0), data: x.updated_at ?? '' });
+      else file.push(...await elenca(p, bucket));
+    }
+    if ((data || []).length < 1000) return file;
   }
-  return file;
+}
+
+// Le cartelle dei giorni di una radice ('' o prova-server), tranne l'ultima generata
+async function pulisci(radice: string) {
+  const { data, error } = await db.storage.from(BUCKET).list(radice, { limit: 1000 });
+  if (error) throw error;
+  const giorni = (data || []).filter(x => !x.id && GIORNO.test(x.name)).map(x => x.name).sort();
+  // L'ultima generazione (di solito il venerdì) si stampa ancora il lunedì
+  const tenuta = giorni.pop() ?? null;
+  const cancellate: string[] = [];
+  for (const g of giorni) {
+    const cartella = radice ? `${radice}/${g}` : g;
+    const file = (await elenca(cartella)).map(x => x.percorso);
+    for (let i = 0; i < file.length; i += 100) {
+      const { error: e } = await db.storage.from(BUCKET).remove(file.slice(i, i + 100));
+      if (e) throw new Error(`${cartella}: ${e.message}`);
+    }
+    await db.from('file_mattino_stampe').delete().like('percorso', `${cartella}/%`);
+    cancellate.push(cartella);
+  }
+  return { tenuta, cancellate };
 }
 
 Deno.serve(async (req) => {
@@ -66,22 +97,29 @@ Deno.serve(async (req) => {
   }
 
   if (body.azione === 'pulisci') {
-    const { data, error } = await db.storage.from(BUCKET).list('', { limit: 1000 });
-    if (error) return fail(error.message, 500);
-    const giorni = (data || []).filter(x => !x.id && GIORNO.test(x.name)).map(x => x.name).sort();
-    // L'ultima generazione (di solito il venerdì) si stampa ancora il lunedì
-    const tenuta = giorni.pop() ?? null;
-    const cancellate: string[] = [];
-    for (const g of giorni) {
-      const file = await elenca(g);
-      for (let i = 0; i < file.length; i += 100) {
-        const { error: e } = await db.storage.from(BUCKET).remove(file.slice(i, i + 100));
-        if (e) return fail(`${g}: ${e.message}`, 500);
-      }
-      await db.from('file_mattino_stampe').delete().like('percorso', `${g}/%`);
-      cancellate.push(g);
+    try {
+      const veri = await pulisci('');
+      const prova = await pulisci(PROVA);
+      return reply({ success: true, tenuta: veri.tenuta, cancellate: [...veri.cancellate, ...prova.cancellate] });
+    } catch (e) {
+      return fail((e as Error).message, 500);
     }
-    return reply({ success: true, tenuta, cancellate });
+  }
+
+  // Il server del mattino: elenco della libreria DTF con i link per scaricare i file nuovi o cambiati
+  if (body.azione === 'libreria') {
+    try {
+      const file = await elenca('', LIBRERIA);
+      const link: Record<string, string> = {};
+      for (let i = 0; i < file.length; i += 200) {
+        const { data, error } = await db.storage.from(LIBRERIA).createSignedUrls(file.slice(i, i + 200).map(x => x.percorso), 3600);
+        if (error) throw error;
+        for (const x of data || []) if (x.path && x.signedUrl) link[x.path] = x.signedUrl;
+      }
+      return reply({ success: true, file: file.map(x => ({ ...x, link: link[x.percorso] })) });
+    } catch (e) {
+      return fail((e as Error).message, 500);
+    }
   }
 
   return fail('Azione sconosciuta');
