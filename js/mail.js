@@ -28,6 +28,7 @@ const MailBox = {
   caselle: [],
   fili: [],
   casella: null,          // null = tutte
+  gruppo: null,           // pagina Negozi: le caselle del negozio (null = sezione Mail, tutte le caselle)
   vista: 'arrivo',
   cerca: '',
   tag: null,              // filtro per tag
@@ -70,7 +71,7 @@ const MailBox = {
     const gen = ++this._gen;
     const prima = altre && this.fili.length ? this.fili[this.fili.length - 1].ultima_at : null;
     const r = await this._rpc('tc_mail_lista', {
-      p_casella: this.casella, p_vista: this.vista, p_cerca: this.cerca || null, p_prima: prima, p_limite: MAIL_PAGINA, p_tag: this.tag,
+      p_casella: this.casella || this.gruppo?.join(',') || null, p_vista: this.vista, p_cerca: this.cerca || null, p_prima: prima, p_limite: MAIL_PAGINA, p_tag: this.tag,
     });
     if (gen !== this._gen) return false;
     const nuovi = r.fili || [];
@@ -129,8 +130,11 @@ const MailBox = {
 window.MailBox = MailBox;
 
 const mailCasella = (id) => MailBox.caselle.find(c => c.id === id) || MailFirme.caselle.find(c => c.id === id);
-const mailColore = (id) => taskMacro(id)?.color || '#94a3b8';
-const mailNomeCasella = (id) => taskMacro(id)?.label || mailCasella(id)?.nome || id;
+const mailBrand = (id) => mailCasella(id)?.brand || id;
+const mailColore = (id) => regoleBrand(mailBrand(id))?.color || '#94a3b8';
+const mailNomeCasella = (id) => taskMacro(mailBrand(id))?.label || mailCasella(id)?.nome || id;
+// Nei filtri e nel "Da": l'indirizzo quando il brand ha più caselle, altrimenti il nome del brand
+const mailEtichetta = (id) => MailBox.caselle.filter(c => c.brand === mailBrand(id)).length > 1 ? (mailCasella(id)?.indirizzo || id) : mailNomeCasella(id);
 
 // Data breve nell'elenco: ora se oggi, "ieri", altrimenti giorno e mese
 function mailFmtData(iso) {
@@ -536,19 +540,20 @@ function renderMailPage() {
 function renderMailBoxes() {
   const box = document.getElementById('mail-boxes');
   if (!box) return;
-  const tot = MailBox.caselle.reduce((n, c) => n + (c.non_lette || 0), 0);
+  const caselle = MailBox.gruppo ? MailBox.caselle.filter(c => MailBox.gruppo.includes(c.id)) : MailBox.caselle;
+  const tot = caselle.reduce((n, c) => n + (c.non_lette || 0), 0);
   const chip = (id, label, n, color) => {
     const on = MailBox.casella === id;
     return `<button type="button" class="ctrl-filter ${on ? 'is-on' : ''}" aria-pressed="${on}" style="--m:${color || 'var(--text-primary)'};"
       onclick="setMailCasella(${id ? `'${id}'` : 'null'})" ${n ? `title="${n} conversazioni da leggere"` : ''}>
       ${color ? '<i aria-hidden="true"></i>' : ''}<span>${escapeHtml(label)}</span>${n ? `<b>${n}</b>` : ''}</button>`;
   };
-  const errori = MailBox.caselle.filter(c => c.ultimo_errore);
+  const errori = caselle.filter(c => c.ultimo_errore);
   box.innerHTML = `
-    <div class="ctrl-macro-bar" role="group" aria-label="Casella">
-      ${chip(null, 'Tutte le caselle', tot)}
-      ${MailBox.caselle.map(c => chip(c.id, mailNomeCasella(c.id), c.non_lette, mailColore(c.id))).join('')}
-    </div>
+    ${caselle.length > 1 ? `<div class="ctrl-macro-bar" role="group" aria-label="Casella">
+      ${chip(null, MailBox.gruppo ? 'Tutte' : 'Tutte le caselle', tot)}
+      ${caselle.map(c => chip(c.id, MailBox.gruppo ? c.indirizzo : mailEtichetta(c.id), c.non_lette, mailColore(c.id))).join('')}
+    </div>` : ''}
     ${errori.length ? `<div class="mail-warn" role="status">${errori.map(c => `${escapeHtml(c.indirizzo)}: ultima lettura non riuscita (${escapeHtml(c.ultimo_errore.slice(0, 120))})`).join('<br>')}</div>` : ''}`;
   const barra = document.getElementById('mail-tag-bar');
   if (barra) {
@@ -576,7 +581,7 @@ function renderMailList() {
     return;
   }
   const aperto = MailBox.chiave(MailBox.aperto);
-  const tutte = !MailBox.casella;
+  const tutte = !MailBox.casella && !MailBox.gruppo;
   const nota = MailBox.vista === 'cestino' ? `<p class="mail-list-note">Lo spam riconosciuto arriva qui da solo. Le mail restano nel cestino della casella Aruba, da dove si possono recuperare.</p>`
     : MailBox.vista === 'archivio' ? `<p class="mail-list-note">Le mail automatiche (notifiche, newsletter, avvisi) arrivano qui da sole.</p>` : '';
   list.innerHTML = nota + MailBox.fili.map((f, i) => {
@@ -709,7 +714,7 @@ function renderMailSpedizione(c, f) {
   const t = sped.find(t => aperto(t) && t.chiamare) || sped.find(t => aperto(t) && t.svincolo) || sped.find(aperto) || sped[sped.length - 1];
   if (!t) {
     if (!(f.tag || []).includes('giacenza') || !TCAuth.isAdmin()) return '';
-    return `<a class="mail-sped" href="#/comunicazione/${MailBox.casella || ''}/spedizioni">${Icons.truck(14)} Pacco in giacenza: apri le Spedizioni del negozio</a>`;
+    return `<a class="mail-sped" href="#/comunicazione/${mailBrand(f.casella_id)}/spedizioni">${Icons.truck(14)} Pacco in giacenza: apri le Spedizioni del negozio</a>`;
   }
   const cosa = !aperto(t) ? `Task ${(MAIL_STATI_TASK[t.stato] || t.stato).toLowerCase()}`
     : t.chiamare ? 'Chiamare il cliente: fermo di nuovo dopo lo svincolo, storico nel task'
@@ -1062,7 +1067,7 @@ async function scartaMailBozza(id) {
 function openMailCompose(bozza = null) {
   const caselle = MailBox.caselle;
   if (!caselle.length) { showToast('Caselle non ancora caricate', 'error'); return; }
-  Object.assign(MailNuova, { casella: bozza?.casella_id || MailBox.casella || caselle[0].id, ordini: [], ordine: null, cerca: '', modello: null, richiesta: null, bozza: bozza?.id || null });
+  Object.assign(MailNuova, { casella: bozza?.casella_id || MailBox.casella || MailBox.gruppo?.[0] || caselle[0].id, ordini: [], ordine: null, cerca: '', modello: null, richiesta: null, bozza: bozza?.id || null });
   const modal = document.getElementById('mail-modal');
   modal.innerHTML = `
     <div class="modal mail-dialog mail-compose" role="dialog" aria-modal="true" aria-labelledby="mc-title">
@@ -1116,7 +1121,7 @@ function renderComposeBoxes() {
   box.innerHTML = MailBox.caselle.map(c => {
     const on = MailNuova.casella === c.id;
     return `<button type="button" role="radio" aria-checked="${on}" class="ctrl-filter ${on ? 'is-on' : ''}" style="--m:${mailColore(c.id)};" onclick="setComposeBox('${c.id}')" title="${escapeHtml(c.indirizzo)}">
-      <i aria-hidden="true"></i><span>${escapeHtml(mailNomeCasella(c.id))}</span></button>`;
+      <i aria-hidden="true"></i><span>${escapeHtml(mailEtichetta(c.id))}</span></button>`;
   }).join('');
 }
 

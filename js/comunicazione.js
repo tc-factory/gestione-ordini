@@ -7,7 +7,8 @@
  *  #/comunicazione                    → il primo negozio dell'ordine, sulla Mail
  *  #/comunicazione/<negozio>/<canale> → quel negozio e quel canale
  *
- * Mail riusa la sezione Mail (stesso #mail-root, spostato qui e filtrato sulla casella del negozio).
+ * Mail riusa la sezione Mail (stesso #mail-root, spostato qui e filtrato sulle caselle del negozio:
+ * mail_caselle.brand, anche più di una; con più caselle sopra l'elenco si sceglie Tutte o un indirizzo).
  * Instagram e Facebook riusano le conversazioni del Centro di controllo (renderCommsSocial).
  * Shopify e Spedizioni (solo admin) riusano le schede Shop e Spedizioni che erano nel Centro di controllo,
  * filtrate sul negozio (renderControlOrders / renderControlGls).
@@ -15,13 +16,13 @@
  */
 
 const COM_NEGOZI = [
-  { id: 'ciucciamilcalzino', label: 'Ciucciami il Calzino', logo: 'img/loghi-negozi/ciucciamilcalzino.png', casella: 'ciucciamilcalzino' },
-  { id: 'bienjugado',        label: 'Bienjugado',           logo: 'img/loghi-negozi/bienjugado.png',        casella: 'bienjugado' },
-  { id: 'boxfactorylab',     label: 'Box Factory Lab',      logo: 'img/loghi-negozi/boxfactorylab.png',     casella: 'boxfactorylab' },
-  { id: 'asteroidi',         label: 'Asteroidi Store',      logo: 'img/loghi-negozi/asteroidi.png',         casella: 'asteroidi' },
-  { id: 'liveprinting',      label: 'Live Printing',        logo: 'img/loghi-negozi/liveprinting.png',      casella: null },
+  { id: 'ciucciamilcalzino', label: 'Ciucciami il Calzino', logo: 'img/loghi-negozi/ciucciamilcalzino.png' },
+  { id: 'bienjugado',        label: 'Bienjugado',           logo: 'img/loghi-negozi/bienjugado.png' },
+  { id: 'boxfactorylab',     label: 'Box Factory Lab',      logo: 'img/loghi-negozi/boxfactorylab.png' },
+  { id: 'asteroidi',         label: 'Asteroidi Store',      logo: 'img/loghi-negozi/asteroidi.png' },
+  { id: 'liveprinting',      label: 'Live Printing',        logo: 'img/loghi-negozi/liveprinting.png' },
   // Spedizioni fuori dai negozi Shopify (senza ordine Shopify)
-  { id: 'tcfactory',         label: 'T&C Factory',          logo: 'img/loghi-negozi/tcfactory.png',         casella: null, esterne: true },
+  { id: 'tcfactory',         label: 'T&C Factory',          logo: 'img/loghi-negozi/tcfactory.png',         esterne: true },
 ];
 
 const COM_LOGHI = {
@@ -55,6 +56,8 @@ const Comun = {
 };
 
 const comNegozio = (id) => COM_NEGOZI.find(n => n.id === id);
+// Caselle mail del negozio (mail_caselle.brand): anche più di una
+const comCaselle = (negozio, caselle = MailBox.caselle) => caselle.filter(c => c.brand === negozio.id);
 
 // Numero nella navbar: mail da leggere delle caselle dei negozi + conversazioni Instagram/Facebook da leggere.
 // Si aggiorna con il giro di un minuto della Mail (MailBox.poll → loadBadge) e quando si legge qualcosa.
@@ -64,9 +67,8 @@ async function comLoadBadge() {
     supabaseClient.rpc('tc_mail_caselle'),
     supabaseClient.from('social_conversazioni').select('account, social_account!inner(negozio)').eq('da_leggere', true),
   ]);
-  const caselle = COM_NEGOZI.map(n => n.casella).filter(Boolean);
   const negozi = COM_NEGOZI.map(n => n.id);
-  const mail = (c.data?.caselle || []).filter(x => caselle.includes(x.id)).reduce((t, x) => t + (x.non_lette || 0), 0);
+  const mail = (c.data?.caselle || []).filter(x => negozi.includes(x.brand)).reduce((t, x) => t + (x.non_lette || 0), 0);
   const social = (s.data || []).filter(r => negozi.includes(r.social_account?.negozio)).length;
   const n = (c.error ? 0 : mail) + (s.error ? 0 : social);
   if (n !== Comun.badge) { Comun.badge = n; renderSidebar(); }
@@ -83,6 +85,7 @@ function comRestituisciMail() {
   const casa = document.getElementById('view-mail');
   if (root && casa && root.parentElement !== casa) casa.appendChild(root);
   root?.classList.remove('com-embed');
+  MailBox.gruppo = null;
 }
 
 async function comCaricaConteggi() {
@@ -104,10 +107,10 @@ function comStato(negozio, canale) {
   if (comCanaleShop(canale.id)) return taskMacro(negozio.id) ? { testo: canale.label, attivo: true } : { testo: 'Non è un negozio Shopify', attivo: false };
   if (canale.id === 'whatsapp') return { testo: 'Da configurare', attivo: false };
   if (canale.id === 'mail') {
-    if (!negozio.casella) return { testo: 'Da configurare', attivo: false };
-    const c = MailBox.caselle.find(x => x.id === negozio.casella);
-    if (!c) return { testo: Nav.isAllowed('comunicazione') ? 'Casella non trovata' : 'Serve l\'accesso alla Mail', attivo: false };
-    return { testo: c.non_lette ? `${c.non_lette} da leggere` : c.indirizzo, n: c.non_lette || 0, attivo: true, errore: c.ultimo_errore };
+    const cc = comCaselle(negozio);
+    if (!cc.length) return { testo: Nav.isAllowed('comunicazione') ? 'Da configurare' : 'Serve l\'accesso alla Mail', attivo: false };
+    const n = cc.reduce((t, c) => t + (c.non_lette || 0), 0);
+    return { testo: n ? `${n} da leggere` : cc.map(c => c.indirizzo).join(', '), n, attivo: true, errore: cc.find(c => c.ultimo_errore)?.ultimo_errore };
   }
   const conti = (Comun.account || []).filter(a => a.piattaforma === canale.piattaforma && a.negozio === negozio.id);
   if (!conti.length) return { testo: 'Non collegato', attivo: false };
@@ -228,11 +231,13 @@ function renderComBody() {
       body.innerHTML = '';
       mail.classList.add('com-embed');
       body.appendChild(mail);
-      MailBox.casella = negozio.casella;
+      MailBox.gruppo = comCaselle(negozio).map(c => c.id);
+      MailBox.casella = MailBox.gruppo.length === 1 ? MailBox.gruppo[0] : null;
       MailBox.aperto = null;
       openMailPage();
-    } else if (MailBox.casella !== negozio.casella) {
-      setMailCasella(negozio.casella);
+    } else if (MailBox.gruppo?.join() !== comCaselle(negozio).map(c => c.id).join()) {
+      MailBox.gruppo = comCaselle(negozio).map(c => c.id);
+      setMailCasella(MailBox.gruppo.length === 1 ? MailBox.gruppo[0] : null);
     }
     return;
   }

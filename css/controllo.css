@@ -868,7 +868,6 @@ body.com-dragging, body.com-dragging * { cursor: grabbing !important; user-selec
 .com-canale:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .empty-state-icon svg { width: 40px; height: 40px; }
 .soc-list-title { flex: 1; align-self: center; font-size: 13px; color: var(--text-secondary); }
-#mail-root.com-embed .mail-boxes .ctrl-macro-bar { display: none; }
 @media (max-width: 600px) {
   .com-negozi-bar { gap: 10px; }
   .com-negozio-btn { flex-basis: calc(50% - 5px); height: 60px; padding: 10px 14px; }
