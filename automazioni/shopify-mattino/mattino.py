@@ -558,14 +558,18 @@ def conferma_pdf(temporaneo, finale, pagine_attese):
 
 
 def pulisci(base, oggi, reg):
-    """Pulizia della domenica sera: tocca solo le cartelle con il nome a data."""
+    """Pulizia della domenica sera: tocca solo le cartelle con il nome a data e tiene l'ultima."""
     cancellate = 0
     if not base.is_dir():
         reg.scrivi('Cartella non trovata: niente da cancellare')
         return cancellate
-    for p in sorted(base.iterdir()):
-        if p.is_symlink() or not p.is_dir() or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', p.name):
-            continue
+    cartelle = [p for p in sorted(base.iterdir())
+                if not p.is_symlink() and p.is_dir() and re.fullmatch(r'\d{4}-\d{2}-\d{2}', p.name)]
+    # L'ultima generazione (di solito il venerdì) si stampa ancora il lunedì: resta fino alla pulizia successiva
+    if cartelle:
+        reg.scrivi(f'{oggi} pulizia: {cartelle[-1].name} tenuta, è l\'ultima generata')
+        cartelle = cartelle[:-1]
+    for p in cartelle:
         # La libreria DTF (grafiche, bandiere, mappa) non si cancella mai, anche se qualcuno la sposta in una cartella con la data
         if any(x.name in (CARTELLA_PROTETTA, 'mappa-prodotti.csv') for x in p.rglob('*')):
             reg.scrivi(f'{oggi} pulizia: {p.name} NON cancellata, contiene la libreria DTF')
