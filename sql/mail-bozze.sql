@@ -32,7 +32,15 @@ create index if not exists mail_bozze_per_idx on mail_bozze (per) where inviata_
 alter table mail_bozze enable row level security;
 revoke all on mail_bozze from anon, authenticated;   -- solo dalle funzioni qui sotto e dal servizio
 
--- Bozze da inviare della persona collegata
+-- L'amministratore vede (e invia o scarta) anche le bozze preparate per altri
+create or replace function app_is_admin_bozze()
+returns boolean security definer set search_path = public language sql stable as $$
+  select coalesce((select is_admin from app_users where auth_id = auth.uid()), false);
+$$;
+revoke execute on function app_is_admin_bozze() from public, anon;
+grant  execute on function app_is_admin_bozze() to authenticated;
+
+-- Bozze da inviare della persona collegata (tutte, per l'amministratore)
 create or replace function tc_mail_bozze()
 returns jsonb security definer set search_path = public language plpgsql stable as $$
 declare v_me text;
@@ -42,7 +50,7 @@ begin
   return jsonb_build_object('success', true, 'bozze', coalesce((
     select jsonb_agg(jsonb_build_object('id', b.id, 'casella_id', b.casella_id, 'a', b.a, 'a_nome', b.a_nome,
       'oggetto', b.oggetto, 'testo', b.testo, 'nota', b.nota, 'created_at', b.created_at) order by b.created_at, b.a)
-    from mail_bozze b where b.per = v_me and b.inviata_at is null
+    from mail_bozze b where (b.per = v_me or app_is_admin_bozze()) and b.inviata_at is null
   ), '[]'::jsonb));
 end;
 $$;
@@ -55,7 +63,7 @@ returns jsonb security definer set search_path = public language plpgsql as $$
 declare v_me text;
 begin
   select nickname into v_me from app_users where auth_id = auth.uid();
-  delete from mail_bozze where id = p_id and per = v_me and inviata_at is null;
+  delete from mail_bozze where id = p_id and (per = v_me or app_is_admin_bozze()) and inviata_at is null;
   if not found then return jsonb_build_object('success', false, 'error', 'Bozza non trovata'); end if;
   return jsonb_build_object('success', true);
 end;

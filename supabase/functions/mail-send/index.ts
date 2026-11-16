@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
     global: { headers: { Authorization: auth } },
   });
 
-  if (body.nuova) return mailNuova(db, utente, me.nickname, body.nuova, testo);
+  if (body.nuova) return mailNuova(db, utente, me.nickname, body.nuova, testo, me.is_admin);
   if (!body.task_id) return rispondiAMail(db, utente, me.nickname, body.mail_id!, testo);
 
   const { data: task } = await db.from('tasks').select('id, assegnato_a, mail_id, risposta_inviata_at, task_tipi(chiude_con_risposta)').eq('id', body.task_id).maybeSingle();
@@ -132,7 +132,7 @@ async function rispondiAMail(db: any, utente: any, nickname: string, mailId: str
 
 // Mail nuova dalla sezione Mail
 // deno-lint-ignore no-explicit-any
-async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string; richiesta_ordine?: string; bozza?: string }, testo: string) {
+async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string; richiesta_ordine?: string; bozza?: string }, testo: string, admin = false) {
   const { data: puo } = await utente.rpc('app_vede_scheda', { p_scheda: 'mail' });
   if (puo !== true) return fail('Non hai accesso alle mail', 403);
   const a = (n.a || '').trim().toLowerCase();
@@ -148,9 +148,9 @@ async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: 
     const { copia_in_inviata } = await inviaNuova(db, casella, a, (n.a_nome || '').trim() || null, oggetto, testo, { persona: nickname });
     // Richiesta dei dati mancanti mandata a mano: la segue ordini-dati (risposta, task, chiusura)
     if (n.richiesta_ordine) await registraRichiesta(db, n.richiesta_ordine, a, nickname).catch(e => console.error('Richiesta dati', e));
-    // Bozza preparata per questa persona (Mail → Bozze): esce dall'elenco
-    if (n.bozza) await db.from('mail_bozze').update({ inviata_at: new Date().toISOString(), inviata_da: nickname })
-      .eq('id', n.bozza).eq('per', nickname).is('inviata_at', null).then(({ error }: { error: unknown }) => error && console.error('Bozza inviata', error));
+    // Bozza preparata per questa persona, o per chiunque se invia l'amministratore (Mail → Bozze): esce dall'elenco
+    if (n.bozza) { let q = db.from('mail_bozze').update({ inviata_at: new Date().toISOString(), inviata_da: nickname })
+      .eq('id', n.bozza).is('inviata_at', null); if (!admin) q = q.eq('per', nickname); await q.then(({ error }: { error: unknown }) => error && console.error('Bozza inviata', error)); }
     return reply({ success: true, copia_in_inviata });
   } catch (e) {
     console.error('Mail nuova', e);
