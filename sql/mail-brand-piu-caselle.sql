@@ -2,7 +2,7 @@
 -- Più caselle per brand (2026-11-16)
 --   • mail_caselle.brand: il brand (pagina Negozi) a cui appartiene la casella; più caselle per brand.
 --   • T&C Factory: riccardo@tcfactory.it (id 'tcfactory', già collegata) + info@tcfactory.it (id 'tcfactory_info')
---   • Live Printing: info@liveprinting.it (id 'liveprinting') + riccardo@liveprinting.it (id 'liveprinting_riccardo')
+--   • Live Printing: solo info@liveprinting.it (riccardo@liveprinting.it non serve)
 --   • Le caselle interne (T&C Factory) ora si leggono anche: "interna" vuol dire solo che il nome T&C Factory resta nei testi.
 --   Le caselle nuove restano spente finché non c'è la password nel secret MAIL_PASSWORD_<ID IN MAIUSCOLO>.
 -- Si può rieseguire.
@@ -12,9 +12,9 @@ alter table mail_caselle add column if not exists brand text;
 update mail_caselle set brand = coalesce(store_id, id) where brand is null;
 
 insert into mail_caselle (id, indirizzo, nome, brand, interna, attivo) values
-  ('tcfactory_info',        'info@tcfactory.it',        'T&C Factory',   'tcfactory',    true,  false),
-  ('liveprinting_riccardo', 'riccardo@liveprinting.it', 'Live Printing', 'liveprinting', false, false)
+  ('tcfactory_info', 'info@tcfactory.it', 'T&C Factory', 'tcfactory', true, false)
 on conflict (id) do update set indirizzo = excluded.indirizzo, nome = excluded.nome, brand = excluded.brand, interna = excluded.interna;
+delete from mail_caselle where id = 'liveprinting_riccardo' and not attivo;
 
 -- riccardo@tcfactory.it finora solo per inviare: da adesso si legge, dalle mail che arrivano da oggi
 update mail_caselle set attiva_dal = now(), uidvalidity = null, ultimo_uid = null, ultimo_errore = null
