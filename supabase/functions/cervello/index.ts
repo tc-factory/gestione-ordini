@@ -159,6 +159,7 @@ Regole della bozza:
 - Gli ordini con "trovato_con": "nome" hanno nome e cognome del cliente scritti nella mail ma un'email diversa: valgono come "non verificato" e non li dai per certi al cliente.
 - Gli ordini con "trovato_con": "telefono" hanno lo stesso numero di telefono scritto nella mail ma un'email diversa: valgono come "non verificato".
 - Gli ordini con "trovato_con": "telefono_e_nome" hanno lo stesso telefono e lo stesso nome e cognome del cliente (scritti nella mail o nell'indirizzo email): sono verificati, rispondi come per gli altri ordini del mittente (tracking compreso) senza chiedere di scrivere dall'email dell'ordine e senza farne un dubbio.
+- Quando dai il tracking di un ordine, scrivi il numero e subito dopo, su una riga a sé, il suo "url" completo così com'è, in modo che il cliente possa cliccarlo. Senza "url" scrivi solo il numero.
 - Per un ordine pagato, non spedito ed entro i tempi, dì al cliente che è in preparazione e quando parte secondo i tempi del negozio, contati in giorni lavorativi dalla data dell'ordine; poi i tempi di consegna.
 - Gli ordini segnati "non verificato" hanno un'email diversa dal mittente: puoi dire lo stato generale dell'ordine, ma non citare indirizzi, articoli o tracking; se serve altro, chiedi di scrivere dall'email usata per l'ordine.
 - Non promettere rimborsi, sconti o cambi: quelli li decide l'operatore. Scrivi che la richiesta è stata presa in carico.
@@ -169,6 +170,14 @@ Regole della bozza:
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
+
+// Link pubblico del tracking: quello di Shopify, altrimenti la pagina GLS costruita dal numero (sede + spedizione)
+function linkTracking(t: Row): string | null {
+  if (t.url) return t.url;
+  const n = String(t.numero || '').trim();
+  if (!/^[A-Z]{2}\d+$/.test(n) || (t.corriere && !/gls/i.test(t.corriere))) return null;
+  return `https://www.gls-italy.com/?option=com_gls&view=track_e_trace&mode=search&diretto=yes&numsped=${n.slice(2)}&locpartenza=${n.slice(0, 2)}`;
+}
 
 const oggiRoma = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 
@@ -267,7 +276,7 @@ function perClaude(o: Row, mittente: string, negozi: Map<string, string>, spediz
     ...base,
     cliente: o.cliente,
     articoli: (o.righe || []).map((r: Row) => `${r.qnt}× ${r.titolo}${r.variante ? ` (${r.variante})` : ''}`),
-    tracking: (o.tracking || []).filter((t: Row) => t.numero || t.url),
+    tracking: (o.tracking || []).filter((t: Row) => t.numero || t.url).map((t: Row) => ({ ...t, url: linkTracking(t) })),
     spedizione: spedizioni.get(o.id) || null,
     citta: o.indirizzo?.citta || null,
   };
