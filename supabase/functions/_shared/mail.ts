@@ -63,6 +63,13 @@ export function senzaTcFactory(testo: string, negozio: string): string {
     .join('\n');
 }
 
+// Link nel testo cliccabili (tracking, siti): sul testo già escapato, senza la punteggiatura finale
+const conLink = (h: string) => h.replace(/\bhttps?:\/\/[^\s<]+/gi, (u) => {
+  const fine = u.match(/[.,;:!?)]+$/)?.[0] || '';
+  const url = fine ? u.slice(0, -fine.length) : u;
+  return `<a href="${url}" style="color:#1a5fb4">${url}</a>${fine}`;
+});
+
 type Composta = { testo: string; html?: string; immagine?: { content: Uint8Array; contentType: string; filename: string } };
 
 // Nelle firme non va mai un numero di telefono: le righe con numeri lunghi o parole da recapito si tolgono
@@ -138,7 +145,7 @@ async function componi(db: SupabaseClient, casella: Row, testoDato: string, firm
       allegato = { content: new Uint8Array(await file.arrayBuffer()), contentType, filename: `firma.${contentType.split('/')[1] || 'png'}` };
     }
   }
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222">${escapeHtml(corpo).replace(/\n/g, '<br>')}</div>`
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222">${conLink(escapeHtml(corpo)).replace(/\n/g, '<br>')}</div>`
     + firmaHtml(righe, !!allegato, larghezza, casella.nome);
   return { testo, html, immagine: allegato };
 }
