@@ -7,7 +7,7 @@
 // Chi la chiama: lo staff collegato. Va pubblicata con --no-verify-jwt: il controllo lo fa lei.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { erroreLeggibile, GRAPH, salvaMessaggio, tokenAccount } from '../_shared/social.ts';
+import { accessoMessaggi, erroreLeggibile, GRAPH, salvaMessaggio } from '../_shared/social.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -34,14 +34,14 @@ Deno.serve(async (req) => {
   if (!conversazione || !messaggio) return fail('Manca il testo');
   if (messaggio.length > 2000) return fail('Messaggio troppo lungo (massimo 2000 caratteri)');
 
-  const { data: conv } = await db.from('social_conversazioni').select('id, utente_id, account, social_account(id, piattaforma, account_id)').eq('id', conversazione).maybeSingle();
+  const { data: conv } = await db.from('social_conversazioni').select('id, utente_id, account, social_account(id, piattaforma, account_id, negozio)').eq('id', conversazione).maybeSingle();
   // deno-lint-ignore no-explicit-any
   const acc = (conv as any)?.social_account;
   if (!conv || !acc) return fail('Conversazione non trovata', 404);
-  const token = await tokenAccount(db, acc.id);
+  const { nodo, token } = await accessoMessaggi(db, acc);
   if (!token) return fail('Token mancante: ricollega l\'account in Collegamenti');
 
-  const res = await fetch(`${GRAPH}/${acc.account_id}/messages?access_token=${encodeURIComponent(token)}`, {
+  const res = await fetch(`${GRAPH}/${nodo}/messages?access_token=${encodeURIComponent(token)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ recipient: { id: conv.utente_id }, messaging_type: 'RESPONSE', message: { text: messaggio } }),
   });

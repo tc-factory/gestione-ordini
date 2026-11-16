@@ -31,6 +31,19 @@ export async function tokenAccount(db: SupabaseClient, accountId: string) {
   return data?.token as string | undefined;
 }
 
+// Da dove si leggono e si mandano i messaggi di un account. Messenger: la Pagina col suo token.
+// Instagram: con il login Facebook i direct passano dalla Pagina collegata al profilo (stesso negozio),
+// col token della Pagina (app CS Chat Connect, che deve avere instagram_manage_messages); dal profilo
+// Instagram Meta dà una lista vuota. Se la Pagina manca si resta sul profilo.
+export async function accessoMessaggi(db: SupabaseClient, a: Row): Promise<{ nodo: string; token: string | undefined }> {
+  if (a.piattaforma === 'instagram' && a.negozio) {
+    const { data: pagina } = await db.from('social_account').select('id, account_id')
+      .eq('piattaforma', 'messenger').eq('negozio', a.negozio).eq('attivo', true).limit(1).maybeSingle();
+    if (pagina) return { nodo: String(pagina.account_id), token: await tokenAccount(db, pagina.id) };
+  }
+  return { nodo: String(a.account_id), token: await tokenAccount(db, a.id) };
+}
+
 // Conversazione del cliente (la crea se manca) e messaggio; aggiorna l'anteprima se è il più recente.
 // Ritorna true se il messaggio è nuovo.
 export async function salvaMessaggio(db: SupabaseClient, account: string, utenteId: string, m: Messaggio,
@@ -65,6 +78,9 @@ export async function salvaMessaggio(db: SupabaseClient, account: string, utente
 export function erroreLeggibile(msg: string) {
   if (/disabled access to Instagram Direct|disabilitato l'accesso ai direct/i.test(msg)) {
     return 'Nell\'app Instagram del negozio va attivato: Impostazioni → Messaggi e risposte alle storie → Strumenti connessi → Consenti accesso ai messaggi';
+  }
+  if (/Requires instagram_manage_messages/i.test(msg)) {
+    return 'All\'app Meta CS Chat Connect manca il permesso instagram_manage_messages: va aggiunto e poi rifatto "Collega Messenger" spuntando anche i profili Instagram';
   }
   if (/outside of allowed window|24 ore|24-hour/i.test(msg)) return 'Sono passate più di 24 ore dall\'ultimo messaggio del cliente: Meta non permette di rispondere da qui';
   return msg;
