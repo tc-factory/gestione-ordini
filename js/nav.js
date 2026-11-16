@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Cervello, collegamenti, automazioni e team', icon: () => Icons.zap(19), allowed: () => TCAuth.isAdmin(), soloAdmin: true },
   { id: 'tasks',        label: 'Tasks',         subtitle: 'Task del giorno', icon: () => Icons.checkCircle('currentColor', 19) },
   { id: 'comunicazione', label: 'Brand', subtitle: 'Mail, social, WhatsApp, Shopify e spedizioni di ogni brand', icon: () => Icons.messageCircle(19) },
+  { id: 'contenuti',    label: 'Content Studio', subtitle: 'Brand kit e contenuti social dei brand', icon: () => Icons.magic(19) },
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
   { id: 'dtf',          label: 'Interne',       subtitle: 'Lavorazioni fatte in casa',     icon: () => Icons.printer(19) },
@@ -146,6 +147,7 @@ function renderCurrentView() {
     case 'tasks':        openTasksPage(); break;
     case 'mail':         comRestituisciMail(); openMailPage(); break;
     case 'comunicazione': openComunicazionePage(); break;
+    case 'contenuti':    openContenutiPage(); break;
   }
 }
 

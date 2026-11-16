@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="css/controllo.css?v=36">
   <link rel="stylesheet" href="css/mail.css?v=11">
   <link rel="stylesheet" href="css/intro.css?v=3">
+  <link rel="stylesheet" href="css/contenuti.css?v=1">
 </head>
 <body>
   <!-- Intro all'apertura: copre la pagina dal primo disegno mentre il gestionale si carica sotto -->
@@ -74,6 +75,10 @@
 
       <section class="view" id="view-prodotti" data-view="prodotti" hidden>
         <div id="prodotti-root"></div>
+      </section>
+
+      <section class="view" id="view-contenuti" data-view="contenuti" hidden>
+        <div id="contenuti-root"></div>
       </section>
 
       <section class="view" id="view-cataloghi" data-view="cataloghi" hidden>
@@ -152,7 +157,8 @@
   <script src="js/controllo.js?v=54"></script>
   <script src="js/mail.js?v=16"></script>
   <script src="js/comunicazione.js?v=9"></script>
-  <script src="js/nav.js?v=15"></script>
+  <script src="js/contenuti.js?v=1"></script>
+  <script src="js/nav.js?v=16"></script>
   <script>
     Theme.init();
     TCFactory.onUpdate(() => { if (TCAuth.isLoggedIn()) renderApp(); });
