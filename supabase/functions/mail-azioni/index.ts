@@ -35,7 +35,7 @@ async function collega(casella: Row): Promise<Imap> {
   if (!pass) throw new Error(`Manca la password della casella ${casella.indirizzo}`);
   const imap = new Imap();
   await imap.apri(casella.imap_host);
-  await imap.comando(`LOGIN ${quota(casella.indirizzo)} ${quota(pass)}`, 20_000, 'LOGIN');
+  await imap.comando(`LOGIN ${quota(casella.utente || casella.indirizzo)} ${quota(pass)}`, 20_000, 'LOGIN');
   return imap;
 }
 

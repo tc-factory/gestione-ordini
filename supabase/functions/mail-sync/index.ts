@@ -36,7 +36,7 @@ const reply = (body: unknown, status = 200) =>
 const fail = (error: string, status = 400) => reply({ success: false, error }, status);
 
 type Casella = {
-  id: string; indirizzo: string; nome: string; imap_host: string;
+  id: string; indirizzo: string; utente: string | null; nome: string; imap_host: string;
   attiva_dal: string; uidvalidity: number | null; ultimo_uid: number | null;
   inviata_uidvalidity: number | null; inviata_ultimo_uid: number | null;
 };
@@ -223,7 +223,7 @@ async function syncCasella(db: SupabaseClient, c: Casella, deadline: number) {
   let salvate = 0, perCervello = 0, ultimoUid = c.ultimo_uid || 0, uidvalidity = c.uidvalidity;
   try {
     await imap.apri(c.imap_host);
-    await imap.comando(`LOGIN ${quota(c.indirizzo)} ${quota(pass)}`, 20_000, 'LOGIN').catch((e: Error) => {
+    await imap.comando(`LOGIN ${quota(c.utente || c.indirizzo)} ${quota(pass)}`, 20_000, 'LOGIN').catch((e: Error) => {
       throw new Error(/LOGIN:/.test(e.message) ? `Accesso rifiutato da Aruba (${e.message.replace(/^.*LOGIN:\s*/, '').slice(0, 120)})` : e.message);
     });
 
@@ -353,7 +353,7 @@ Deno.serve(async (req) => {
   let body: { casella?: string } = {};
   try { body = await req.json(); } catch { /* corpo vuoto */ }
 
-  let q = db.from('mail_caselle').select('id, indirizzo, nome, imap_host, attiva_dal, uidvalidity, ultimo_uid, inviata_uidvalidity, inviata_ultimo_uid').eq('attivo', true).eq('interna', false).order('nome');   // le caselle interne servono solo a inviare
+  let q = db.from('mail_caselle').select('id, indirizzo, utente, nome, imap_host, attiva_dal, uidvalidity, ultimo_uid, inviata_uidvalidity, inviata_ultimo_uid').eq('attivo', true).order('nome');
   if (body.casella) q = q.eq('id', body.casella);
   const { data: caselle, error } = await q;
   if (error) return fail(`Caselle non leggibili: ${error.message}`, 500);
