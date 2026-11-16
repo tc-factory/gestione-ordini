@@ -22,7 +22,7 @@ Regole:
 - Il giro non cancella e non sovrascrive nulla.
 - Weekend, festivi e chiusure del Planner (`tc_giorno_lavorativo`): il giro si ferma subito e al rientro fa tutto in un'unica sessione.
 - Ogni esecuzione, con il suo output, si legge in Centro di controllo → Automazioni.
-- La pulizia della domenica alle 23:59 (`--pulisci`) cancella le cartelle con il nome a data.
+- La pulizia della domenica alle 23:59 (`--pulisci`) cancella le cartelle con il nome a data, tranne l'ultima generata (di solito quella del venerdì, che si stampa ancora il lunedì).
 - Il font Noto Sans è distribuito con licenza SIL Open Font License.
 
 La chiave serve solo per la funzione `tc_mattino_dati` (`sql/automazione-mattino.sql`). Per revocarla basta cambiare il segreto nel Vault.
