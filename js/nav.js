@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { id: 'ordini',       label: 'Ordini',        subtitle: 'Lista e avanzamento ordini',    icon: () => Icons.package(19) },
   { id: 'planner',      label: 'Planner',       subtitle: 'Calendario aziendale',          icon: () => Icons.calendarDays(19) },
   { id: 'dtf',          label: 'Interne',       subtitle: 'Lavorazioni fatte in casa',     icon: () => Icons.printer(19) },
+  { id: 'file',         label: 'File del mattino', subtitle: 'DDT, file di stampa e fogli DTF di ogni mattina', icon: () => Icons.download(19) },
   { id: 'esterne',      label: 'Esterne',       subtitle: 'Ordini con lavorazione esterna, per tipo', icon: () => Icons.truck(19) },
   { id: 'prodotti',     label: 'Prodotti',      subtitle: 'Anagrafica articoli e prezzi',  icon: () => Icons.shirt(19) },
   { id: 'cataloghi',    label: 'Cataloghi',     subtitle: 'Cataloghi e accessi dell\'app clienti', icon: () => Icons.book(19) },
@@ -148,6 +149,7 @@ function renderCurrentView() {
     case 'mail':         comRestituisciMail(); openMailPage(); break;
     case 'comunicazione': openComunicazionePage(); break;
     case 'contenuti':    openContenutiPage(); break;
+    case 'file':         openFileMattinoPage(); break;
   }
 }
 

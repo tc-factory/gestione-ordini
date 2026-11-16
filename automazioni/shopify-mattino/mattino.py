@@ -104,6 +104,42 @@ def chiama_gestionale(funzione, **parametri):
     return d
 
 
+def chiama_file_mattino(azione, **parametri):
+    """Funzione file-mattino: link di caricamento e pulizia dei file nella scheda "File del mattino"."""
+    r = requests.post(f"{os.environ['CS_SUPABASE_URL']}/functions/v1/file-mattino",
+                      headers={'apikey': os.environ['CS_ANON_KEY'], 'Content-Type': 'application/json'},
+                      json={'chiave': os.environ['CS_AUTOMAZIONE_KEY'], 'azione': azione, **parametri}, timeout=120)
+    d = r.json() if r.headers.get('content-type', '').startswith('application/json') else {}
+    if not r.ok or not d.get('success'):
+        raise RuntimeError(d.get('error') or f'HTTP {r.status_code}')
+    return d
+
+
+def carica_nel_gestionale(cartella, reg):
+    """Copia la cartella del giorno (con la sottocartella DTF) nella scheda "File del mattino".
+    I file restano anche qui: se il caricamento non riesce si stampa come sempre dalla cartella condivisa."""
+    file = sorted(p for p in cartella.rglob('*') if p.is_file() and not p.name.startswith('.') and p.suffix != '.part')
+    if not file:
+        return []
+    percorso = {p: p.relative_to(cartella.parent).as_posix() for p in file}
+    link = chiama_file_mattino('carica', percorsi=list(percorso.values()))['link']
+    falliti = []
+    for p in file:
+        try:
+            with p.open('rb') as f:
+                r = requests.put(link[percorso[p]], data=f, timeout=(30, 1800),
+                                 headers={'Content-Type': CONTENT_TYPE.get(p.suffix.lower(), 'application/octet-stream'), 'x-upsert': 'true'})
+            if not r.ok:
+                raise RuntimeError(f'HTTP {r.status_code} {r.text[:120]}')
+        except Exception as e:
+            falliti.append(f'{p.name} ({type(e).__name__}: {str(e)[:120]})')
+    reg.scrivi(f"File del mattino nel gestionale: {len(file) - len(falliti)} di {len(file)} caricati")
+    return falliti
+
+
+CONTENT_TYPE = {'.pdf': 'application/pdf', '.tif': 'image/tiff', '.tiff': 'image/tiff', '.jpg': 'image/jpeg', '.png': 'image/png'}
+
+
 class Registro:
     """Scrive l'output sia nel file di registro sia nella scheda Automazioni del Centro di controllo.
     Se il gestionale non risponde il lavoro continua: il registro è un di più, l'allarme lo dà il controllo delle 5:30."""
@@ -609,8 +645,16 @@ def main():
         try:
             cancellate = pulisci(args.cartella, dt.datetime.now(ROMA).date(), reg)
             reg.scrivi(f'Cartelle cancellate: {cancellate}')
-            reg.chiudi('ok', {'cancellate': cancellate})
-            return 0
+            # Stessa regola nella scheda "File del mattino" del gestionale
+            stato = 'ok'
+            try:
+                g = chiama_file_mattino('pulisci')
+                reg.scrivi(f"Gestionale: tenuta {g['tenuta'] or 'nessuna'}, cancellate {', '.join(g['cancellate']) or 'nessuna'}")
+            except Exception as e:
+                reg.scrivi(f'ATTENZIONE: pulizia dei file nel gestionale non riuscita ({type(e).__name__}: {str(e)[:120]})')
+                stato = 'errore'
+            reg.chiudi(stato, {'cancellate': cancellate})
+            return 0 if stato == 'ok' else 1
         except Exception:
             reg.scrivi(traceback.format_exc())
             reg.chiudi('errore')
@@ -859,6 +903,12 @@ def giro(args, applica, reg):
         esito = {n['id']: {'fatti': fatti.get(n['id'], []), 'errore': errori_negozio.get(n['id'])} for n in dati['negozi']}
         risposta = invia_esito(not errori_negozio, esito)
         reg.scrivi(f"Centro di controllo: {risposta['ordini_avanzati']} ordini passati alla preparazione")
+    # 7. Copia nella scheda "File del mattino": dopo tag ed esito, così un problema qui non ferma la stampa
+    try:
+        errori += [f"File del mattino non caricato nel gestionale: {x}" for x in carica_nel_gestionale(cartella, reg)]
+    except Exception as e:
+        errori.append(f"File del mattino non caricati nel gestionale ({type(e).__name__}: {str(e)[:120]})")
+
     n_ordini = sum(len(x[4]) for x in per_negozio)
     pagine_stampa = sum(x[1] for x in pdf_stampa.values())
     mb_stampa = sum(x[0].stat().st_size for x in pdf_stampa.values()) // 1024 ** 2
