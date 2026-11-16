@@ -13,10 +13,12 @@
 //
 // Mail nuova (body.nuova = { casella, a, a_nome, oggetto, bozza? }): scritta da zero, da un modello o da una bozza
 // preparata (mail_bozze, che diventa inviata), stessa regola di accesso.
+// Allegati (sezione Mail, risposte e mail nuove): body.allegati = [{ nome, tipo, base64 }], al massimo
+// 10 file e 10 MB in tutto.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { inviaRisposta, inviaNuova } from '../_shared/mail.ts';
+import { inviaRisposta, inviaNuova, type Allegato } from '../_shared/mail.ts';
 import { problemiOrdine } from '../_shared/ordini-dati.ts';
 
 const cors = {
@@ -27,6 +29,28 @@ const cors = {
 const reply = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 const fail = (error: string, status = 400) => reply({ success: false, error }, status);
+
+const MAX_ALLEGATI = 10;
+const MAX_BYTE = 10 * 1024 * 1024;   // in base64 la richiesta resta sotto i 14 MB
+// File allegati dalla pagina (base64): stringa d'errore se qualcosa non va
+function leggiAllegati(lista: unknown): Allegato[] | string {
+  if (lista == null) return [];
+  if (!Array.isArray(lista)) return 'Allegati non validi';
+  if (lista.length > MAX_ALLEGATI) return `Al massimo ${MAX_ALLEGATI} allegati`;
+  const out: Allegato[] = [];
+  let totale = 0;
+  for (const x of lista) {
+    const nome = String(x?.nome || '').replace(/[\\/\r\n\t]+/g, ' ').trim().slice(0, 180);
+    if (!nome || typeof x?.base64 !== 'string') return 'Allegato non valido';
+    let contenuto: Uint8Array;
+    try { contenuto = Uint8Array.from(atob(x.base64), ch => ch.charCodeAt(0)); } catch { return `Allegato non leggibile: ${nome}`; }
+    if (!contenuto.length) return `Il file ${nome} è vuoto`;
+    totale += contenuto.length;
+    if (totale > MAX_BYTE) return 'Allegati troppo grandi: al massimo 10 MB in tutto';
+    out.push({ nome, tipo: String(x.tipo || '').slice(0, 120), contenuto });
+  }
+  return out;
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
@@ -43,7 +67,7 @@ Deno.serve(async (req) => {
   const { data: me } = await db.from('app_users').select('nickname, is_admin').eq('auth_id', caller.user.id).maybeSingle();
   if (!me) return fail('Accesso riservato allo staff', 403);
 
-  let body: { task_id?: string; mail_id?: string; testo?: string; nuova?: { casella?: string; a?: string; a_nome?: string; oggetto?: string; bozza?: string } };
+  let body: { task_id?: string; mail_id?: string; testo?: string; allegati?: unknown; nuova?: { casella?: string; a?: string; a_nome?: string; oggetto?: string; bozza?: string } };
   try { body = await req.json(); } catch { return fail('Richiesta non valida'); }
   const testo = (body.testo || '').trim();
   if ((!body.task_id && !body.mail_id && !body.nuova) || !testo) return fail('Scrivi il testo della mail');
@@ -56,8 +80,11 @@ Deno.serve(async (req) => {
     global: { headers: { Authorization: auth } },
   });
 
-  if (body.nuova) return mailNuova(db, utente, me.nickname, body.nuova, testo, me.is_admin);
-  if (!body.task_id) return rispondiAMail(db, utente, me.nickname, body.mail_id!, testo);
+  const allegati = leggiAllegati(body.allegati);
+  if (typeof allegati === 'string') return fail(allegati);
+
+  if (body.nuova) return mailNuova(db, utente, me.nickname, body.nuova, testo, me.is_admin, allegati);
+  if (!body.task_id) return rispondiAMail(db, utente, me.nickname, body.mail_id!, testo, allegati);
 
   const { data: task } = await db.from('tasks').select('id, assegnato_a, mail_id, risposta_inviata_at, task_tipi(chiude_con_risposta)').eq('id', body.task_id).maybeSingle();
   if (!task) return fail('Task non trovato', 404);
@@ -93,7 +120,7 @@ Deno.serve(async (req) => {
 
 // Risposta dalla sezione Mail
 // deno-lint-ignore no-explicit-any
-async function rispondiAMail(db: any, utente: any, nickname: string, mailId: string, testo: string) {
+async function rispondiAMail(db: any, utente: any, nickname: string, mailId: string, testo: string, allegati: Allegato[] = []) {
   const { data: puo } = await utente.rpc('app_vede_scheda', { p_scheda: 'mail' });
   if (puo !== true) return fail('Non hai accesso alle mail', 403);
 
@@ -111,7 +138,7 @@ async function rispondiAMail(db: any, utente: any, nickname: string, mailId: str
     .select('id, task_tipi(chiude_con_risposta)');
 
   try {
-    const { copia_in_inviata } = await inviaRisposta(db, casella, mail, testo, { persona: nickname });
+    const { copia_in_inviata } = await inviaRisposta(db, casella, mail, testo, { persona: nickname }, allegati);
     let completati = 0;
     for (const t of prenotati || []) {
       await db.from('tasks').update({ bozza_risposta: testo }).eq('id', t.id);
@@ -132,7 +159,7 @@ async function rispondiAMail(db: any, utente: any, nickname: string, mailId: str
 
 // Mail nuova dalla sezione Mail
 // deno-lint-ignore no-explicit-any
-async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string; richiesta_ordine?: string; bozza?: string }, testo: string, admin = false) {
+async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: string; a?: string; a_nome?: string; oggetto?: string; richiesta_ordine?: string; bozza?: string }, testo: string, admin = false, allegati: Allegato[] = []) {
   const { data: puo } = await utente.rpc('app_vede_scheda', { p_scheda: 'mail' });
   if (puo !== true) return fail('Non hai accesso alle mail', 403);
   const a = (n.a || '').trim().toLowerCase();
@@ -145,7 +172,7 @@ async function mailNuova(db: any, utente: any, nickname: string, n: { casella?: 
   const { data: casella } = await db.from('mail_caselle').select('*').eq('id', n.casella || '').eq('attivo', true).maybeSingle();
   if (!casella) return fail('Scegli la casella da cui inviare');
   try {
-    const { copia_in_inviata } = await inviaNuova(db, casella, a, (n.a_nome || '').trim() || null, oggetto, testo, { persona: nickname });
+    const { copia_in_inviata } = await inviaNuova(db, casella, a, (n.a_nome || '').trim() || null, oggetto, testo, { persona: nickname }, allegati);
     // Richiesta dei dati mancanti mandata a mano: la segue ordini-dati (risposta, task, chiusura)
     if (n.richiesta_ordine) await registraRichiesta(db, n.richiesta_ordine, a, nickname).catch(e => console.error('Richiesta dati', e));
     // Bozza preparata per questa persona, o per chiunque se invia l'amministratore (Mail → Bozze): esce dall'elenco

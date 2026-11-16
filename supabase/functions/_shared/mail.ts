@@ -36,6 +36,8 @@ async function copiaInInviata(host: string, user: string, pass: string, raw: Uin
 }
 
 type Invio = { a: string; aNome?: string | null; oggetto: string; testo: string; inReplyTo?: string | null; riferimenti?: string | null };
+// File allegati da chi scrive (sezione Mail): partono come allegati veri, l'elenco resta nella riga della mail
+export type Allegato = { nome: string; tipo: string; contenuto: Uint8Array };
 export type Firma = 'negozio' | { persona: string };
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -151,7 +153,7 @@ async function componi(db: SupabaseClient, casella: Row, testoDato: string, firm
 }
 
 // Invio dalla casella del negozio: SMTP, copia in Inviata, riga "out" in mail_messaggi
-async function invia(db: SupabaseClient, casella: Row, m: Invio, firma: Firma) {
+async function invia(db: SupabaseClient, casella: Row, m: Invio, firma: Firma, allegati: Allegato[] = []) {
   const pass = Deno.env.get(`MAIL_PASSWORD_${casella.id.toUpperCase()}`);
   if (!pass) throw new Error(`Manca la password della casella ${casella.indirizzo}`);
   const messageId = `<${crypto.randomUUID()}@${casella.indirizzo.split('@')[1]}>`;
@@ -168,9 +170,10 @@ async function invia(db: SupabaseClient, casella: Row, m: Invio, firma: Firma) {
     subject: m.oggetto,
     text: c.testo,
     ...(c.html ? { html: c.html } : {}),
-    ...(c.immagine ? {
-      attachments: [{ filename: c.immagine.filename, content: c.immagine.content, contentType: c.immagine.contentType, cid: 'firma@cs', contentDisposition: 'inline' }],
-    } : {}),
+    attachments: [
+      ...(c.immagine ? [{ filename: c.immagine.filename, content: c.immagine.content, contentType: c.immagine.contentType, cid: 'firma@cs', contentDisposition: 'inline' }] : []),
+      ...allegati.map(a => ({ filename: a.nome, content: a.contenuto, contentType: a.tipo || 'application/octet-stream', contentDisposition: 'attachment' })),
+    ],
     messageId,
     inReplyTo: m.inReplyTo || undefined,
     references: m.riferimenti || undefined,
@@ -188,6 +191,7 @@ async function invia(db: SupabaseClient, casella: Row, m: Invio, firma: Firma) {
     casella_id: casella.id, direzione: 'out', message_id: messageId, in_reply_to: m.inReplyTo || null,
     riferimenti: m.riferimenti || null, da_email: casella.indirizzo, da_nome: casella.nome, a: m.a,
     oggetto: m.oggetto, ricevuto_at: new Date().toISOString(), testo: c.testo, invio: { ms },
+    allegati: allegati.map(a => ({ nome: a.nome, tipo: a.tipo || null, dimensione: a.contenuto.length })),
   }).select('id').maybeSingle();
   passo('salvataggio');
 
@@ -204,13 +208,13 @@ async function invia(db: SupabaseClient, casella: Row, m: Invio, firma: Firma) {
 }
 
 // Risposta nella stessa conversazione del cliente
-export function inviaRisposta(db: SupabaseClient, casella: Row, mail: Row, testo: string, firma: Firma = 'negozio') {
+export function inviaRisposta(db: SupabaseClient, casella: Row, mail: Row, testo: string, firma: Firma = 'negozio', allegati: Allegato[] = []) {
   const oggetto = /^\s*(re|r|aw|sv)\s*:/i.test(mail.oggetto || '') ? mail.oggetto : `Re: ${mail.oggetto || ''}`.trim();
   const riferimenti = [mail.riferimenti, mail.message_id].filter(Boolean).join(' ');
-  return invia(db, casella, { a: mail.da_email, aNome: mail.da_nome, oggetto, testo, inReplyTo: mail.message_id, riferimenti }, firma);
+  return invia(db, casella, { a: mail.da_email, aNome: mail.da_nome, oggetto, testo, inReplyTo: mail.message_id, riferimenti }, firma, allegati);
 }
 
 // Mail nuova scritta da noi (es. avviso di giacenza)
-export function inviaNuova(db: SupabaseClient, casella: Row, a: string, aNome: string | null, oggetto: string, testo: string, firma: Firma = 'negozio') {
-  return invia(db, casella, { a, aNome, oggetto, testo }, firma);
+export function inviaNuova(db: SupabaseClient, casella: Row, a: string, aNome: string | null, oggetto: string, testo: string, firma: Firma = 'negozio', allegati: Allegato[] = []) {
+  return invia(db, casella, { a, aNome, oggetto, testo }, firma, allegati);
 }
