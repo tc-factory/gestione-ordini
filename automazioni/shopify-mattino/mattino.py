@@ -61,6 +61,8 @@ CAMPI_NASCOSTI = {'stampa nome', 'stampe', 'cosa vuoi personalizzare?', 'quante 
 INIZIO_CAMPI_NASCOSTI = ('stampa nome (', 'stampa nome alto (', 'stampa nome basso (', 'stampa logo ', 'stampa bandiera (', 'scegli il font', 'image-swatches')
 
 ORDINI_DA_STAMPARE = 'query($after:String){orders(first:100,after:$after,sortKey:CREATED_AT,query:"fulfillment_status:unfulfilled -status:cancelled -tag:stampato -tag:auto-stampato"){pageInfo{hasNextPage endCursor}nodes{id}}}'
+# Rigenerazione di un giorno già fatto: gli ordini col tag dell'automazione creati nella fascia del giro
+ORDINI_GIA_STAMPATI = 'query($after:String,$q:String!){orders(first:100,after:$after,sortKey:CREATED_AT,query:$q){pageInfo{hasNextPage endCursor}nodes{id}}}'
 ORDINE = '''query($id:ID!){order(id:$id){
   id name createdAt cancelledAt tags displayFulfillmentStatus displayFinancialStatus note
   shippingAddress{name company address1 address2 zip city provinceCode country countryCodeV2}
@@ -157,12 +159,23 @@ class Shopify:
             return d['data']
         raise RuntimeError('Shopify non risponde')
 
-    def ordini_da_stampare(self):
+    def ordini_da_stampare(self, fascia=None):
         ordini, dopo = [], None
         while True:
-            pagina = self.chiama(ORDINI_DA_STAMPARE, after=dopo)['orders']
+            if fascia:
+                q = f"tag:{TAG_AUTOMAZIONE} -status:cancelled created_at:>='{fascia[0]}' created_at:<'{fascia[1]}'"
+                pagina = self.chiama(ORDINI_GIA_STAMPATI, after=dopo, q=q)['orders']
+            else:
+                pagina = self.chiama(ORDINI_DA_STAMPARE, after=dopo)['orders']
             for n in pagina['nodes']:
                 o = self.chiama(ORDINE, id=n['id'])['order']
+                if fascia:
+                    # Come erano al giro: anche se nel frattempo sono stati evasi, tutte le righe da spedire
+                    if o and not o['cancelledAt'] and TAG_AUTOMAZIONE in {t.lower() for t in o['tags']}:
+                        for l in o['lineItems']['nodes']:
+                            l['unfulfilledQuantity'] = l['quantity']
+                        ordini.append(o)
+                    continue
                 # Il filtro di Shopify non basta: si ricontrolla ordine per ordine prima di stampare
                 if (o and not o['cancelledAt'] and o['displayFulfillmentStatus'] == 'UNFULFILLED'
                         and not TAG_GIA_STAMPATI & {t.lower() for t in o['tags']}):
@@ -586,6 +599,9 @@ def main():
     ap.add_argument('--applica', action='store_true', help='mette davvero il tag su Shopify')
     ap.add_argument('--env', type=Path, default=QUI / '.env')
     ap.add_argument('--pulisci', action='store_true', help='cancella le cartelle dei giorni passati e basta')
+    ap.add_argument('--rigenera', type=dt.date.fromisoformat, help="rifà la cartella di quel giorno (AAAA-MM-GG), senza tag né esito")
+    ap.add_argument('--dal', help="con --rigenera: ordini creati da questo momento (ISO, es. 2026-11-12T04:00:00Z)")
+    ap.add_argument('--al', help="con --rigenera: ordini creati prima di questo momento")
     args = ap.parse_args()
     carica_env(args.env)
     if args.pulisci:
@@ -602,7 +618,11 @@ def main():
     registra_font()
     # CS_PROVA nel file .env ferma tag ed esito senza toccare la programmazione
     applica = args.applica and not os.environ.get('CS_PROVA')
-    reg = Registro('mattino')
+    if args.rigenera:
+        if not (args.dal and args.al):
+            ap.error('--rigenera vuole anche --dal e --al')
+        applica = False
+    reg = Registro('rigenera' if args.rigenera else 'mattino')
     try:
         codice, stato, riepilogo = giro(args, applica, reg)
         reg.chiudi(stato, riepilogo)
@@ -619,14 +639,15 @@ def main():
 def giro(args, applica, reg):
 
     inizio = time.time()
-    oggi = dt.datetime.now(ROMA).date()
+    oggi = args.rigenera or dt.datetime.now(ROMA).date()
     cartella = args.cartella / oggi.isoformat()
+    fascia = (args.dal, args.al) if args.rigenera else None
 
     errori = []
     errori_negozio = {}
     dati = dati_gestionale()
     # Weekend, festivi e chiusure del Planner: il giorno del rientro fa tutto in un'unica sessione
-    if not dati['lavorativo']:
+    if not dati['lavorativo'] and not fascia:
         reg.scrivi(f"{oggi} giorno non lavorativo ({dati.get('motivo')}): nessun giro")
         return 0, 'saltato', {'motivo': dati.get('motivo')}
     cartella.mkdir(parents=True, exist_ok=True)
@@ -653,7 +674,7 @@ def giro(args, applica, reg):
             s = Shopify(n)
             info = s.chiama(NEGOZIO)
             ordini = []
-            for o in sorted(s.ordini_da_stampare(), key=lambda o: o['createdAt']):
+            for o in sorted(s.ordini_da_stampare(fascia), key=lambda o: o['createdAt']):
                 if o['displayFinancialStatus'] not in PAGAMENTI_DA_STAMPARE:
                     non_pagati[n['id']].append(o)
                 elif n['id'] not in NEGOZI_FILE_STAMPA or file_pronti(o, ora, problemi[n['id']], rimandati[n['id']], n['id'] in NEGOZI_DTF):
@@ -806,7 +827,7 @@ def giro(args, applica, reg):
                 saltati.append(f"{n['nome']} {o['name']}: file di stampa non riuscito")
                 continue
             if not applica:
-                saltati.append(f"{n['nome']} {o['name']}: prova, tag non messo")
+                saltati.append(f"{n['nome']} {o['name']}: {'rigenerato' if fascia else 'prova'}, tag non messo")
                 continue
             if 'write_orders' not in permessi:
                 saltati.append(f"{n['nome']} {o['name']}: manca il permesso write_orders")
@@ -821,7 +842,7 @@ def giro(args, applica, reg):
                 errori.append(f"{n['nome']} {o['name']}: tag non messo ({str(e)[:80]})")
                 errori_negozio[n['id']] = errori[-1]
 
-    bloccati = [x for x in saltati if 'prova' not in x]
+    bloccati = [x for x in saltati if 'prova' not in x and 'rigenerato' not in x]
     if applica:
         for i, avvisi in avvisi_stampa.items():
             if avvisi:
@@ -832,7 +853,7 @@ def giro(args, applica, reg):
     n_ordini = sum(len(x[4]) for x in per_negozio)
     pagine_stampa = sum(x[1] for x in pdf_stampa.values())
     mb_stampa = sum(x[0].stat().st_size for x in pdf_stampa.values()) // 1024 ** 2
-    reg.scrivi(f"--- {dt.datetime.now(ROMA):%Y-%m-%d %H:%M} {'giro vero' if applica else 'prova, nessun tag'}")
+    reg.scrivi(f"--- {dt.datetime.now(ROMA):%Y-%m-%d %H:%M} {'giro vero' if applica else 'rigenerazione, nessun tag' if fascia else 'prova, nessun tag'}")
     reg.scrivi(f"Cartella: {cartella}")
     reg.scrivi(f"DDT: {n_ordini} ordini, {pagine_ddt} pagine, {finale_ddt.stat().st_size // 1024} KB")
     reg.scrivi(f"DTF: {sum(len(v) for v in dtf_creati.values())} fogli, {sum(len(v) for v in dtf_a_mano.values())} pezzi da fare a mano")
