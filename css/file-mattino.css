@@ -10,6 +10,11 @@
 .fm-file-peso { color: var(--text-secondary); font-size: .85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fm-scarica { border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; }
 /* File già stampato o scaricato */
+.fm-azioni { display: inline-flex; gap: 8px; }
+.fm-scarica.is-attesa { --lq-fill: #f59e0b; --lq-fill-hover: #f59e0b; --text-primary: #fff; --x-on: #fff; }
+.fm-scarica.is-errore { --lq-fill: #dc2626; --lq-fill-hover: #b91c1c; --text-primary: #fff; --x-on: #fff; }
+.fm-file-peso.is-errore { color: #dc2626; white-space: normal; max-width: 340px; }
+html.dark .fm-file-peso.is-errore { color: #ff8a8e; }
 .fm-scarica.is-fatto { --lq-fill: #16a34a; --lq-fill-hover: #15803d; --text-primary: #fff; --x-on: #fff; }
 .fm-stampa-frame { position: fixed; width: 1px; height: 1px; right: 0; bottom: 0; border: 0; opacity: 0; pointer-events: none; }
 
@@ -17,5 +22,6 @@
   .fm-giorno { padding: 16px; }
   .fm-file { grid-template-columns: minmax(0, 1fr) auto; }
   .fm-file-peso { grid-column: 1; grid-row: 2; white-space: normal; }
-  .fm-scarica { grid-column: 2; grid-row: 1 / span 2; }
+  .fm-azioni { grid-column: 2; grid-row: 1 / span 2; flex-direction: column; }
+  .fm-file-peso.is-errore { max-width: none; }
 }

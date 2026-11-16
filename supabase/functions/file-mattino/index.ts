@@ -3,6 +3,7 @@
 // Lo script (automazioni/shopify-mattino) non ha chiavi del database: con la sua chiave (Vault,
 // 'automazione_mattino_key') chiede qui
 //   { chiave, azione: 'carica', percorsi: ['2026-11-16/DDT.pdf', ...] } → un link di caricamento per file
+//   { chiave, azione: 'scarica', percorso } → link per scaricare (agente di stampa, automazioni/stampa)
 //   { chiave, azione: 'pulisci' } → cancella le cartelle dei giorni, tranne l'ultima (come sul Mac in sede)
 // I file finiscono nel bucket privato file-mattino; la scheda "File del mattino" li elenca (sql/file-mattino.sql).
 //
@@ -53,6 +54,15 @@ Deno.serve(async (req) => {
       link[p] = data.signedUrl;
     }
     return reply({ success: true, link });
+  }
+
+  // L'agente di stampa in sede, se il file non è già sul suo disco
+  if (body.azione === 'scarica') {
+    const p = (body as { percorso?: unknown }).percorso;
+    if (typeof p !== 'string' || !PERCORSO.test(p) || p.includes('..')) return fail('Percorso non valido');
+    const { data, error } = await db.storage.from(BUCKET).createSignedUrl(p, 3600);
+    if (error) return fail(`${p}: ${error.message}`, 404);
+    return reply({ success: true, link: data.signedUrl });
   }
 
   if (body.azione === 'pulisci') {

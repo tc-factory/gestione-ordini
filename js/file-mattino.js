@@ -7,10 +7,14 @@
  * Il DDT non si scarica: "Stampa" apre la finestra di stampa del browser. Gli altri file hanno "Scarica".
  * Entrambi segnano il file (file_mattino_stampe): il bottone diventa verde con data, ora e operatore,
  * e un nuovo clic chiede conferma.
+ * I PDF dei calzini (nella cartella del giorno, DDT escluso) hanno anche "SC-F500": il file va nella coda
+ * stampa_coda e il Mac in sede (automazioni/stampa) lo manda alla stampante col driver (sql/stampa-coda.sql).
  */
 
-const FileMattino = { giorni: null, errore: null, carica: null, stampe: {} };
+const FileMattino = { giorni: null, errore: null, carica: null, stampe: {}, coda: {}, agenti: [], timer: null };
 const fmDaStampare = (nome) => nome === 'DDT.pdf';
+const fmCalzini = (f) => /^\d{4}-\d{2}-\d{2}\/[^/]+\.pdf$/.test(f.percorso) && !fmDaStampare(f.nome);
+const FM_AGENTE_VIVO = 60 * 1000;   // l'agente chiede lavoro ogni 10 secondi
 
 const fmBucket = () => supabaseClient.storage.from('file-mattino');
 
@@ -43,6 +47,7 @@ async function fmCarica() {
   const [{ data, error }, stampe] = await Promise.all([
     fmBucket().list('', { limit: 1000 }),
     supabaseClient.from('file_mattino_stampe').select('*'),
+    fmCaricaCoda(),
   ]);
   if (error) throw error;
   if (stampe.error) throw stampe.error;
@@ -74,19 +79,61 @@ async function openFileMattinoPage() {
   if (Nav.current === 'file') renderFileMattino();
 }
 
+// Ultimo lavoro di stampa per file, e i Mac che fanno da ponte
+async function fmCaricaCoda() {
+  const [coda, agenti] = await Promise.all([
+    supabaseClient.from('stampa_coda').select('*').order('richiesto_at', { ascending: false }).limit(300),
+    supabaseClient.from('stampa_agenti').select('*'),
+  ]);
+  if (coda.error) throw coda.error;
+  if (agenti.error) throw agenti.error;
+  FileMattino.coda = {};
+  for (const x of coda.data || []) if (!FileMattino.coda[x.percorso]) FileMattino.coda[x.percorso] = x;
+  FileMattino.agenti = agenti.data || [];
+}
+
+const fmAgenteVivo = () => FileMattino.agenti.some(a => Date.now() - new Date(a.visto_at) < FM_AGENTE_VIVO);
+const fmInCorso = (l) => l && (l.stato === 'in_coda' || l.stato === 'in_stampa');
+
+// Mentre c'è un lavoro in coda o in stampa, lo stato si aggiorna da solo
+function fmSegui() {
+  clearTimeout(FileMattino.timer);
+  if (!Object.values(FileMattino.coda).some(fmInCorso)) return;
+  FileMattino.timer = setTimeout(async () => {
+    if (Nav.current !== 'file') return;
+    try { await fmCaricaCoda(); renderFileMattino(); } catch { fmSegui(); }
+  }, 5000);
+}
+
+function fmStatoStampa(l) {
+  const chi = l.richiesto_da ? ` da ${l.richiesto_da}` : '';
+  if (l.stato === 'in_coda') return fmAgenteVivo() ? `In coda per la SC-F500${chi}` : `In coda${chi}: il Mac della stampa non risponde, parte quando si riaccende`;
+  if (l.stato === 'in_stampa') return `In stampa sulla SC-F500${chi}`;
+  if (l.stato === 'stampato') return `Stampato sulla SC-F500 ${fmQuando(l.finito_at || l.richiesto_at)}${chi}`;
+  return `Stampa non riuscita: ${l.errore || 'errore sconosciuto'}`;
+}
+
 // DDT: Stampa. Tutti gli altri: Scarica. Dopo il clic il bottone è verde, con chi e quando, e la volta dopo chiede conferma
 function fmRigaFile(f) {
   const stampa = fmDaStampare(f.nome);
   const s = FileMattino.stampe[f.percorso];
   const azione = stampa ? 'Stampa' : 'Scarica';
   const fatto = s ? `${stampa ? 'Stampato' : 'Scaricato'} ${fmQuando(s.stampato_at)}${s.stampato_da ? ` da ${s.stampato_da}` : ''}` : '';
+  const l = fmCalzini(f) ? FileMattino.coda[f.percorso] : null;
+  const stato = l ? fmStatoStampa(l) : (s ? fatto : fmPeso(f.peso));
+  const sc = !fmCalzini(f) ? '' : `
+      <button type="button" class="btn btn-secondary fm-scarica ${l?.stato === 'stampato' ? 'is-fatto' : l?.stato === 'errore' ? 'is-errore' : fmInCorso(l) ? 'is-attesa' : ''}"
+        data-percorso="${escapeHtml(f.percorso)}" onclick="fmInviaStampante(this)" ${fmInCorso(l) ? 'disabled' : ''}
+        aria-label="Invia ${escapeHtml(f.nome)} alla SC-F500">${Icons.printer(15)} SC-F500</button>`;
   return `
-    <li class="fm-file">
+    <li class="fm-file ${sc ? 'has-due' : ''}">
       <span class="fm-file-nome">${escapeHtml(f.nome)}</span>
-      <span class="fm-file-peso">${s ? escapeHtml(fatto) : fmPeso(f.peso)}</span>
+      <span class="fm-file-peso ${l?.stato === 'errore' ? 'is-errore' : ''}">${escapeHtml(stato)}</span>
+      <span class="fm-azioni">
       <button type="button" class="btn btn-secondary fm-scarica ${s ? 'is-fatto' : ''}" data-percorso="${escapeHtml(f.percorso)}"
         onclick="${stampa ? 'fmStampa' : 'fmScarica'}(this)"
-        aria-label="${azione} ${escapeHtml(f.nome)}${s ? `, già ${stampa ? 'stampato' : 'scaricato'}` : ''}">${stampa ? Icons.printer(15) : Icons.download(15)} ${azione}</button>
+        aria-label="${azione} ${escapeHtml(f.nome)}${s ? `, già ${stampa ? 'stampato' : 'scaricato'}` : ''}">${stampa ? Icons.printer(15) : Icons.download(15)} ${azione}</button>${sc}
+      </span>
     </li>`;
 }
 
@@ -105,9 +152,28 @@ async function fmSegna(percorso) {
   renderFileMattino();
 }
 
+// Il PDF va nella coda: il Mac in sede lo manda alla SC-F500 col driver, senza scaricarlo qui
+async function fmInviaStampante(btn) {
+  const percorso = btn.dataset.percorso;
+  const l = FileMattino.coda[percorso];
+  if (l?.stato === 'stampato' && !(await uiConfirm(`Già stampato sulla SC-F500 ${fmQuando(l.finito_at || l.richiesto_at)}${l.richiesto_da ? ` da ${l.richiesto_da}` : ''}. Stampare di nuovo?`,
+    { title: 'Attenzione', ok: 'Sì', cancel: 'No' }))) return;
+  btn.disabled = true;
+  try {
+    const { data, error } = await supabaseClient.rpc('tc_stampa_invia', { p_percorso: percorso });
+    if (error) throw error;
+    FileMattino.coda[percorso] = data;
+    renderFileMattino();
+  } catch (e) {
+    uiAlert(`Invio alla stampante non riuscito: ${e.message || e}`);
+    btn.disabled = false;
+  }
+}
+
 function renderFileMattino() {
   const root = document.getElementById('file-mattino-root');
   if (!root) return;
+  fmSegui();
   if (FileMattino.errore) {
     root.innerHTML = `<div class="glass-card empty-state"><h2>File non disponibili</h2><p>${escapeHtml(FileMattino.errore)}</p></div>`;
     return;
