@@ -9,6 +9,7 @@ Esce con codice 1 se qualcosa non è andato: il riepilogo in cima al PDF dei DDT
 """
 import argparse
 import datetime as dt
+import hashlib
 import io
 import os
 import re
@@ -23,6 +24,7 @@ from zoneinfo import ZoneInfo
 import requests
 from PIL import Image
 from pypdf import PdfReader
+from reportlab import rl_config
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader, simpleSplit
@@ -514,18 +516,25 @@ def disegna_riepilogo(c, oggi, generale, blocchi):
 # ── File di stampa ──
 
 def crea_pdf_stampa(destinazione, voci, problemi):
-    """Una pagina 23x43 per ogni pezzo. Ritorna gli ordini con tutti i file a posto."""
+    """Una pagina 23x43 per ogni pezzo. Ritorna gli ordini con tutti i file a posto.
+    Peso: ogni grafica è salvata una volta sola anche se torna su più pagine (stesso file = stessa immagine
+    nel PDF, reportlab la riusa) e senza la codifica ASCII85, che aggiunge un quarto. Pagine e pixel non cambiano."""
     W, H = PAGINA_STAMPA
+    rl_config.useA85 = 0
     c = canvas.Canvas(str(destinazione), pagesize=PAGINA_STAMPA, pageCompression=1)
     pagine = 0
     falliti = set()
+    gia_visti = {}   # impronta del PNG → file già messo nel PDF
     with tempfile.TemporaryDirectory() as tmp:
         for i, (ordine, titolo, url, pezzi) in enumerate(voci):
             try:
                 r = requests.get(url, timeout=120)
                 r.raise_for_status()
-                f = Path(tmp) / f'{i}.png'
-                f.write_bytes(r.content)
+                impronta = hashlib.sha256(r.content).hexdigest()
+                f = gia_visti.get(impronta)
+                if f is None:
+                    f = gia_visti[impronta] = Path(tmp) / f'{i}.png'
+                    f.write_bytes(r.content)
                 with Image.open(f) as im:
                     w, h = im.size
                 if abs(w / h - W / H) > 0.01:

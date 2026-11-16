@@ -68,6 +68,7 @@ Deno.serve(async (req) => {
         const { error: e } = await db.storage.from(BUCKET).remove(file.slice(i, i + 100));
         if (e) return fail(`${g}: ${e.message}`, 500);
       }
+      await db.from('file_mattino_stampe').delete().like('percorso', `${g}/%`);
       cancellate.push(g);
     }
     return reply({ success: true, tenuta, cancellate });
