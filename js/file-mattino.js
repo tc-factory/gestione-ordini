@@ -4,8 +4,9 @@
  * DDT, file di stampa e fogli DTF che lo script del mattino carica ogni giorno nel bucket privato
  * file-mattino (AAAA-MM-GG/..., con la sottocartella DTF). Qui si elencano per giorno e si scaricano
  * con un link firmato. La pulizia della domenica tiene solo l'ultima cartella generata (sql/file-mattino.sql).
- * Il DDT non si scarica: "Stampa" apre la finestra di stampa del browser e lo segna stampato (file_mattino_stampe),
- * il bottone diventa verde e una nuova stampa chiede conferma con data, ora e chi l'ha stampato.
+ * Il DDT non si scarica: "Stampa" apre la finestra di stampa del browser. Gli altri file hanno "Scarica".
+ * Entrambi segnano il file (file_mattino_stampe): il bottone diventa verde con data, ora e operatore,
+ * e un nuovo clic chiede conferma.
  */
 
 const FileMattino = { giorni: null, errore: null, carica: null, stampe: {} };
@@ -73,24 +74,35 @@ async function openFileMattinoPage() {
   if (Nav.current === 'file') renderFileMattino();
 }
 
+// DDT: Stampa. Tutti gli altri: Scarica. Dopo il clic il bottone è verde, con chi e quando, e la volta dopo chiede conferma
 function fmRigaFile(f) {
-  if (fmDaStampare(f.nome)) {
-    const s = FileMattino.stampe[f.percorso];
-    return `
-    <li class="fm-file">
-      <span class="fm-file-nome">${escapeHtml(f.nome)}</span>
-      <span class="fm-file-peso">${s ? `Stampato ${escapeHtml(fmQuando(s.stampato_at))}` : fmPeso(f.peso)}</span>
-      <button type="button" class="btn btn-secondary fm-scarica fm-stampa ${s ? 'is-stampato' : ''}" data-percorso="${escapeHtml(f.percorso)}" onclick="fmStampa(this)"
-        aria-label="Stampa ${escapeHtml(f.nome)}${s ? ', già stampato' : ''}">${Icons.printer(15)} Stampa</button>
-    </li>`;
-  }
+  const stampa = fmDaStampare(f.nome);
+  const s = FileMattino.stampe[f.percorso];
+  const azione = stampa ? 'Stampa' : 'Scarica';
+  const fatto = s ? `${stampa ? 'Stampato' : 'Scaricato'} ${fmQuando(s.stampato_at)}${s.stampato_da ? ` da ${s.stampato_da}` : ''}` : '';
   return `
     <li class="fm-file">
       <span class="fm-file-nome">${escapeHtml(f.nome)}</span>
-      <span class="fm-file-peso">${fmPeso(f.peso)}</span>
-      <button type="button" class="btn btn-secondary fm-scarica" data-percorso="${escapeHtml(f.percorso)}" onclick="fmScarica(this)"
-        aria-label="Scarica ${escapeHtml(f.nome)}">${Icons.download(15)} Scarica</button>
+      <span class="fm-file-peso">${s ? escapeHtml(fatto) : fmPeso(f.peso)}</span>
+      <button type="button" class="btn btn-secondary fm-scarica ${s ? 'is-fatto' : ''}" data-percorso="${escapeHtml(f.percorso)}"
+        onclick="${stampa ? 'fmStampa' : 'fmScarica'}(this)"
+        aria-label="${azione} ${escapeHtml(f.nome)}${s ? `, già ${stampa ? 'stampato' : 'scaricato'}` : ''}">${stampa ? Icons.printer(15) : Icons.download(15)} ${azione}</button>
     </li>`;
+}
+
+// Se il file è già stato stampato o scaricato: popup con data, ora e operatore
+async function fmConferma(percorso, stampa) {
+  const s = FileMattino.stampe[percorso];
+  if (!s) return true;
+  return uiConfirm(`Già ${stampa ? 'stampato' : 'scaricato'} ${fmQuando(s.stampato_at)}${s.stampato_da ? ` da ${s.stampato_da}` : ''}. ${stampa ? 'Stampare' : 'Scaricare'} di nuovo?`,
+    { title: 'Attenzione', ok: 'Sì', cancel: 'No' });
+}
+
+async function fmSegna(percorso) {
+  const { data, error } = await supabaseClient.rpc('tc_file_mattino_stampato', { p_percorso: percorso });
+  if (error) throw error;
+  FileMattino.stampe[percorso] = data;
+  renderFileMattino();
 }
 
 function renderFileMattino() {
@@ -117,6 +129,7 @@ function renderFileMattino() {
 
 async function fmScarica(btn) {
   const percorso = btn.dataset.percorso;
+  if (!(await fmConferma(percorso, false))) return;
   btn.disabled = true;
   try {
     const { data, error } = await fmBucket().createSignedUrl(percorso, 3600, { download: percorso.split('/').pop() });
@@ -127,9 +140,9 @@ async function fmScarica(btn) {
     document.body.appendChild(a);
     a.click();
     a.remove();
+    await fmSegna(percorso);
   } catch (e) {
     uiAlert(`Download non riuscito: ${e.message || e}`);
-  } finally {
     btn.disabled = false;
   }
 }
@@ -142,9 +155,7 @@ function fmQuando(iso) {
 // Il PDF si apre in un riquadro nascosto della pagina e parte la finestra di stampa del browser
 async function fmStampa(btn) {
   const percorso = btn.dataset.percorso;
-  const s = FileMattino.stampe[percorso];
-  if (s && !(await uiConfirm(`Già stampato ${fmQuando(s.stampato_at)}${s.stampato_da ? ` da ${s.stampato_da}` : ''}. Stampare di nuovo?`,
-    { title: 'Attenzione', ok: 'Sì', cancel: 'No' }))) return;
+  if (!(await fmConferma(percorso, true))) return;
   btn.disabled = true;
   try {
     const { data, error } = await fmBucket().download(percorso);
@@ -161,10 +172,7 @@ async function fmStampa(btn) {
       catch { window.open(url, '_blank', 'noopener'); }   // browser che non stampano dal riquadro: si apre in una scheda
     };
     document.body.appendChild(frame);
-    const { data: riga, error: e2 } = await supabaseClient.rpc('tc_file_mattino_stampato', { p_percorso: percorso });
-    if (e2) throw e2;
-    FileMattino.stampe[percorso] = riga;
-    renderFileMattino();
+    await fmSegna(percorso);
   } catch (e) {
     uiAlert(`Stampa non riuscita: ${e.message || e}`);
     btn.disabled = false;
