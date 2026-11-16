@@ -12,7 +12,7 @@
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import PostalMime from 'npm:postal-mime@2';
-import { Imap, Cartelle, cartelleCasella, capacita, uidDaMessageId, quota } from '../_shared/imap.ts';
+import { Imap, Cartelle, cartelleCasella, capacita, uidDaMessageId, quota, cartellaInviata } from '../_shared/imap.ts';
 
 const MAX_PER_GIRO = 40;
 const MAX_MAIL = 30_000_000;   // oltre questa dimensione l'allegato si apre dal programma di posta
@@ -145,18 +145,20 @@ async function segnaErrore(db: SupabaseClient, righe: Row[], e: unknown) {
 async function allegato(db: SupabaseClient, mailId: string, indice: number, nome: string | null) {
   const { data: mail } = await db.from('mail_messaggi').select('id, casella_id, uid, message_id, cartella, direzione').eq('id', mailId).maybeSingle();
   if (!mail) return fail('Mail non trovata', 404);
-  if (mail.direzione !== 'in') return fail('Gli allegati delle mail inviate sono nella cartella Inviata della casella');
   const { data: casella } = await db.from('mail_caselle').select('*').eq('id', mail.casella_id).maybeSingle();
   if (!casella) return fail('Casella non trovata');
 
   const imap = await collega(casella);
   try {
     const cartelle = await cartelleCasella(imap);
-    // Prima dove dovrebbe stare, poi nelle altre (il programma di posta può averla spostata)
-    const ordine = [mail.cartella, ...['inbox', 'archivio', 'cestino'].filter(c => c !== mail.cartella)];
+    // Mail inviata dal gestionale: la copia con gli allegati è nella cartella Inviata.
+    // Ricevuta: prima dove dovrebbe stare, poi nelle altre (il programma di posta può averla spostata)
+    const inviata = mail.direzione === 'out' ? await cartellaInviata(imap) : null;
+    if (mail.direzione === 'out' && (!inviata || !mail.message_id)) return fail('Mail inviata non trovata nella cartella Inviata', 404);
+    const ordine = inviata ? [inviata] : [mail.cartella, ...['inbox', 'archivio', 'cestino'].filter(c => c !== mail.cartella)];
     let uid: number | null = null;
     for (const c of ordine) {
-      await imap.comando(`EXAMINE ${quota(nomeCartella(cartelle, c))}`, 20_000, `apertura ${c}`);
+      await imap.comando(`EXAMINE ${quota(inviata || nomeCartella(cartelle, c))}`, 20_000, `apertura ${c}`);
       if (mail.message_id) uid = (await uidDaMessageId(imap, mail.message_id))[0] || null;
       else if (c === 'inbox' && mail.uid) uid = mail.uid;
       if (uid) break;

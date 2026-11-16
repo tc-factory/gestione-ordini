@@ -142,6 +142,9 @@ html .btn.btn-primary.btn-sm.mail-ddt { height: 26px; min-height: 26px; padding:
 .mail-att-open { min-width: 0; }
 .mail-att-open span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
 .mail-att-open small { color: var(--text-muted); }
+.mail-allega { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mail-allega .btn { gap: 6px; }
+span.mail-att-open { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; font-size: 0.78rem; color: var(--text-secondary); }
 .mail-att-dl { border-left: 1px solid var(--border) !important; padding: 4px 7px !important; }
 .mail-att.is-loading { opacity: 0.55; pointer-events: none; }
 .mail-att.is-loading .mail-att-dl svg { animation: mail-pulse 0.9s ease-in-out infinite alternate; }

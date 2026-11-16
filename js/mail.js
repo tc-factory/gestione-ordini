@@ -10,7 +10,7 @@
  *  • Modelli: mail di richiesta pronte (mail_modelli), riempite con i dati dell'ordine.
  *
  * Dati: funzioni tc_mail_* (sql/mail-sezione.sql, sql/mail-archivio-firme-modelli.sql).
- * Invio: edge function mail-send (mail_id per le risposte, nuova per le mail nuove).
+ * Invio: edge function mail-send (mail_id per le risposte, nuova per le mail nuove), con eventuali allegati.
  * Lo stato "letta" è condiviso dal team: aprire una conversazione la segna letta per tutti.
  */
 
@@ -685,6 +685,7 @@ function renderMailReader() {
       <textarea id="mail-bozza" class="form-textarea" maxlength="20000" rows="9" placeholder="Scrivi la risposta…"
         oninput="MailBox.bozza=this.value">${escapeHtml(MailBox.bozza)}</textarea>
       ${mailFirmaImmagineNota(f.casella_id)}
+      ${mailAllegatiHtml('risposta')}
       <div class="mail-reply-actions">
         ${taskAperti.length ? `<small>Inviando, ${taskAperti.length === 1 ? 'il task collegato viene completato' : 'i task collegati vengono completati'}.</small>` : '<small>Parte da ' + escapeHtml(casella?.indirizzo || 'la casella del negozio') + ', con copia nella cartella Inviata.</small>'}
         <button type="submit" class="btn btn-primary btn-sm" id="mail-send" ${MailBox.invio ? 'disabled' : ''}>${Icons.reply(14)} ${MailBox.invio ? 'Invio…' : 'Invia risposta'}</button>
@@ -761,7 +762,7 @@ async function openMailThread(i) {
   MailBox.aperto = { casella_id: f.casella_id, filo: f.filo, oggetto: f.oggetto, tag: f.tag };
   MailBox.conversazione = null;
   MailBox.ordiniCitati = [];
-  if (MailBox.bozzaDi !== k) { MailBox.bozza = ''; MailBox.bozzaDi = k; MailBox.ordini = []; MailBox.ordine = null; }
+  if (MailBox.bozzaDi !== k) { MailBox.bozza = ''; MailBox.bozzaDi = k; MailBox.ordini = []; MailBox.ordine = null; MailAllegati.risposta = []; }
   renderMailList();
   renderMailReader();
   try {
@@ -968,6 +969,59 @@ async function openMailAttachment(mailId, indice, scarica, btn) {
   }
 }
 
+// ── Allegati in uscita: 'risposta' (conversazione aperta) e 'nuova' (Nuova mail) ──
+const MAIL_ALLEGATI_MAX = 10;
+const MAIL_ALLEGATI_BYTE = 10 * 1024 * 1024;   // come mail-send
+const MailAllegati = { risposta: [], nuova: [] };
+
+function mailAllegatiHtml(dove) {
+  const lista = MailAllegati[dove];
+  const totale = lista.reduce((t, f) => t + f.size, 0);
+  return `
+    <div class="mail-allega" id="mail-allega-${dove}">
+      ${lista.map((f, i) => `
+        <span class="mail-att">
+          <span class="mail-att-open">${Icons.paperclip(12)} <span>${escapeHtml(f.name)}</span> <small>${mailFmtSize(f.size)}</small></span>
+          <button type="button" class="mail-att-dl" onclick="removeMailAllegato('${dove}', ${i})" aria-label="Togli ${escapeHtml(f.name)}" title="Togli">${Icons.x(12)}</button>
+        </span>`).join('')}
+      <input type="file" id="mail-allega-input-${dove}" multiple hidden onchange="addMailAllegati('${dove}', this)">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('mail-allega-input-${dove}').click()" ${lista.length >= MAIL_ALLEGATI_MAX ? 'disabled' : ''}>${Icons.paperclip(14)} Allega file</button>
+      ${lista.length ? `<small class="mail-form-opt">${mailFmtSize(totale)} di 10 MB</small>` : ''}
+    </div>`;
+}
+
+function renderMailAllegati(dove) {
+  const box = document.getElementById(`mail-allega-${dove}`);
+  if (box) box.outerHTML = mailAllegatiHtml(dove);
+}
+
+function addMailAllegati(dove, input) {
+  const lista = MailAllegati[dove];
+  for (const f of input.files || []) {
+    if (lista.length >= MAIL_ALLEGATI_MAX) { showToast(`Al massimo ${MAIL_ALLEGATI_MAX} allegati`, 'error'); break; }
+    if (!f.size) { showToast(`Il file ${f.name} è vuoto`, 'error'); continue; }
+    if (lista.reduce((t, x) => t + x.size, 0) + f.size > MAIL_ALLEGATI_BYTE) { showToast(`${f.name}: si supererebbero i 10 MB in tutto`, 'error'); continue; }
+    if (!lista.some(x => x.name === f.name && x.size === f.size)) lista.push(f);
+  }
+  input.value = '';
+  renderMailAllegati(dove);
+}
+
+function removeMailAllegato(dove, i) {
+  MailAllegati[dove].splice(i, 1);
+  renderMailAllegati(dove);
+}
+
+// Per mail-send: [{ nome, tipo, base64 }]
+function mailAllegatiBase64(dove) {
+  return Promise.all(MailAllegati[dove].map(f => new Promise((ok, ko) => {
+    const r = new FileReader();
+    r.onload = () => ok({ nome: f.name, tipo: f.type || '', base64: String(r.result).split(',')[1] || '' });
+    r.onerror = () => ko(new Error(`File non leggibile: ${f.name}`));
+    r.readAsDataURL(f);
+  })));
+}
+
 async function sendMailReply() {
   const testo = (MailBox.bozza || '').trim();
   const c = MailBox.conversazione;
@@ -975,13 +1029,15 @@ async function sendMailReply() {
   if (!m) return;
   if (!testo || testo === MailFirme.di(MailBox.aperto.casella_id)) { showToast('Scrivi la risposta', 'error'); document.getElementById('mail-bozza')?.focus(); return; }
   const casella = mailCasella(MailBox.aperto.casella_id);
-  if (!(await uiConfirm(`Inviare la risposta a ${m.da_email}${casella ? ` da ${casella.indirizzo}` : ''}?`, { ok: 'Invia' }))) return;
+  const nAll = MailAllegati.risposta.length;
+  if (!(await uiConfirm(`Inviare la risposta a ${m.da_email}${casella ? ` da ${casella.indirizzo}` : ''}${nAll ? ` con ${nAll === 1 ? '1 allegato' : `${nAll} allegati`}` : ''}?`, { ok: 'Invia' }))) return;
 
   const k = MailBox.chiave(MailBox.aperto);
   MailBox.invio = true;
   renderMailReaderKeepText();
   try {
-    const { data, error } = await supabaseClient.functions.invoke('mail-send', { body: { mail_id: m.id, testo } });
+    const allegati = await mailAllegatiBase64('risposta');
+    const { data, error } = await supabaseClient.functions.invoke('mail-send', { body: { mail_id: m.id, testo, allegati } });
     if (error) {
       const dett = await error.context?.json?.().catch(() => null);
       throw new Error(dett?.error || error.message || 'Invio non riuscito');
@@ -989,6 +1045,7 @@ async function sendMailReply() {
     if (!data?.success) throw new Error(data?.error || 'Invio non riuscito');
     showToast(data.copia_in_inviata !== false ? 'Risposta inviata' : 'Risposta inviata (copia in Inviata non riuscita)');
     MailBox.bozza = '';
+    MailAllegati.risposta = [];
     MailBox.invio = false;
     if (data.task_completati && window.Ctrl?.loadBadge) Ctrl.loadBadge();
     await MailBox.loadLista();
@@ -1067,6 +1124,7 @@ async function scartaMailBozza(id) {
 function openMailCompose(bozza = null) {
   const caselle = MailBox.caselle;
   if (!caselle.length) { showToast('Caselle non ancora caricate', 'error'); return; }
+  MailAllegati.nuova = [];
   Object.assign(MailNuova, { casella: bozza?.casella_id || MailBox.casella || MailBox.gruppo?.[0] || caselle[0].id, ordini: [], ordine: null, cerca: '', modello: null, richiesta: null, bozza: bozza?.id || null });
   const modal = document.getElementById('mail-modal');
   modal.innerHTML = `
@@ -1097,6 +1155,7 @@ function openMailCompose(bozza = null) {
         <div class="form-group"><label class="form-label" for="mc-testo">Testo</label>
           <textarea id="mc-testo" class="form-textarea" rows="11" maxlength="20000" required></textarea>
           <div id="mc-firma-img">${mailFirmaImmagineNota(MailNuova.casella)}</div></div>
+        ${mailAllegatiHtml('nuova')}
         <div class="mail-form-actions">
           <button type="button" class="btn btn-secondary" onclick="closeModal('mail-modal')">Annulla</button>
           <button type="submit" class="btn btn-primary" id="mc-send">${Icons.reply(14)} Invia</button>
@@ -1197,12 +1256,14 @@ async function sendMailCompose() {
   const testo = document.getElementById('mc-testo').value.trim();
   const casella = mailCasella(MailNuova.casella);
   if (!testo || testo === MailFirme.di(MailNuova.casella)) { showToast('Scrivi il testo della mail', 'error'); return; }
-  if (!(await uiConfirm(`Inviare la mail a ${a} da ${casella?.indirizzo || 'la casella del negozio'}?`, { ok: 'Invia' }))) return;
+  const nAll = MailAllegati.nuova.length;
+  if (!(await uiConfirm(`Inviare la mail a ${a} da ${casella?.indirizzo || 'la casella del negozio'}${nAll ? ` con ${nAll === 1 ? '1 allegato' : `${nAll} allegati`}` : ''}?`, { ok: 'Invia' }))) return;
   const btn = document.getElementById('mc-send');
   btn.disabled = true; btn.lastChild.textContent = ' Invio…';
   try {
+    const allegati = await mailAllegatiBase64('nuova');
     const { data, error } = await supabaseClient.functions.invoke('mail-send', {
-      body: { nuova: { casella: MailNuova.casella, a, a_nome: aNome, oggetto, richiesta_ordine: MailNuova.richiesta || undefined, bozza: MailNuova.bozza || undefined }, testo },
+      body: { nuova: { casella: MailNuova.casella, a, a_nome: aNome, oggetto, richiesta_ordine: MailNuova.richiesta || undefined, bozza: MailNuova.bozza || undefined }, testo, allegati },
     });
     if (error) {
       const dett = await error.context?.json?.().catch(() => null);
