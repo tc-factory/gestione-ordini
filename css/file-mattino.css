@@ -1,0 +1,18 @@
+/* ── File del mattino ── */
+.fm-giorni { display: flex; flex-direction: column; gap: 16px; padding-bottom: 28px; }
+.fm-giorno { padding: 20px 22px; }
+.fm-giorno h2 { font-size: 1.05rem; margin-bottom: 10px; }
+.fm-giorno h3 { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-secondary); margin: 16px 0 6px; }
+.fm-lista { list-style: none; margin: 0; padding: 0; }
+.fm-file { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 8px 0; border-top: 1px solid var(--border); }
+.fm-lista .fm-file:first-child { border-top: 0; }
+.fm-file-nome { min-width: 0; overflow-wrap: anywhere; }
+.fm-file-peso { color: var(--text-secondary); font-size: .85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fm-scarica { border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; }
+
+@media (max-width: 600px) {
+  .fm-giorno { padding: 16px; }
+  .fm-file { grid-template-columns: minmax(0, 1fr) auto; }
+  .fm-file-peso { grid-column: 1; grid-row: 2; }
+  .fm-scarica { grid-column: 2; grid-row: 1 / span 2; }
+}
