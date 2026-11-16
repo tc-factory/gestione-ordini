@@ -1,4 +1,4 @@
-# gestione-ordini — T&C Factory
+# Creative System — T&C Factory
 
 Gestionale ordini per **T&C Factory Creative Lab** — pagina unica, dati su Supabase con sync in tempo reale.
 
@@ -19,7 +19,7 @@ Gestionale ordini per **T&C Factory Creative Lab** — pagina unica, dati su Sup
 ## 📁 Struttura file
 
 ```
-gestione-ordini/
+creative-system/
 ├── index.html                 → Redirect a dashboard.html
 ├── dashboard.html              → L'app: header, statistiche, calendario, lista ordini
 │
