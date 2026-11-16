@@ -689,6 +689,7 @@ def giro(args, applica, reg):
     # 3. Richieste di modifica collegate ai DDT
     in_stampa = {(n['id'], o['name']) for n, _, _, _, ordini in per_negozio for o in ordini + non_pagati[n['id']]}
     richieste = {}
+    modificare = {}   # righe della checklist: una per richiesta, anche se cita più ordini
     # Chiave None: richieste con un negozio che non è tra quelli letti, finiscono in "Generale"
     altrove = {n['id']: [] for n in negozi}
     senza_ordine = {n['id']: [] for n in negozi}
@@ -699,11 +700,19 @@ def giro(args, applica, reg):
         prefisso = '' if chi else f"{m.get('negozio') or 'Negozio non indicato'}: "
         if not m['ordini']:
             senza_ordine.setdefault(chi, []).append(f'{prefisso}{m.get("titolo") or testo}')
-        for num in m['ordini']:
-            if (m.get('negozio'), num) in in_stampa:
-                richieste.setdefault((m['negozio'], num), []).append(testo)
-            else:
-                altrove.setdefault(chi, []).append(f'{prefisso}{num}: {testo}')
+        # Una richiesta che cita più ordini va scritta una volta sola: sotto il primo ordine da
+        # stampare (gli altri citati tra parentesi), oppure in un'unica riga "Controllare"
+        dentro = [num for num in m['ordini'] if (m.get('negozio'), num) in in_stampa]
+        fuori = [num for num in m['ordini'] if num not in dentro]
+        for num in dentro:
+            richieste.setdefault((m['negozio'], num), []).append(testo)   # timbro su ogni DDT
+        if dentro:
+            altri = f" (vale anche per {', '.join(dentro[1:] + fuori)})" if len(m['ordini']) > 1 else ''
+            modificare.setdefault(chi, []).append(f"Modificare {dentro[0]}: {testo}{altri}")
+        elif fuori:
+            voce = f"{prefisso}{', '.join(fuori)}: {testo}"
+            if voce not in altrove.setdefault(chi, []):
+                altrove[chi].append(voce)
 
     # 4. File di stampa: esclusi gli ordini da modificare, per non stampare un file sbagliato
     voci_stampa = []
@@ -785,7 +794,7 @@ def giro(args, applica, reg):
         ordini = ordini_di.get(i)
         fare = [(f'Risolvere: {x}', True) for x in problemi[i] + avvisi_stampa[i]]
         fare += [(f'Fare a mano: {x}', True) for x in dtf_a_mano[i]]
-        fare += [(f"Modificare {k[1]}: {' / '.join(v)}", True) for k, v in sorted(richieste.items()) if k[0] == i]
+        fare += [(x, True) for x in modificare.get(i, [])]
         fare += [(f'Stampare a mano il file di {x} dopo la modifica (escluso dal PDF di stampa)', True) for x in esclusi[i]]
         fare += [(f'Controllare la richiesta su {x} (già stampato, evaso o rimandato)', True) for x in altrove[i]]
         fare += [(f"Controllare la richiesta senza numero d'ordine: {x}", True) for x in senza_ordine[i]]
