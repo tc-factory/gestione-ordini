@@ -9,7 +9,7 @@
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { erroreLeggibile, graph, Row, salvaMessaggio, tokenAccount } from '../_shared/social.ts';
+import { accessoMessaggi, erroreLeggibile, graph, Row, salvaMessaggio } from '../_shared/social.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -27,9 +27,9 @@ const MSG = 20;
 const CAMPI_MSG = `messages.limit(${MSG}){id,message,from,created_time,attachments{mime_type,name,file_url}}`;
 
 async function leggiAccount(db: ReturnType<typeof createClient>, a: Row) {
-  const token = await tokenAccount(db, a.id);
+  const { nodo, token } = await accessoMessaggi(db, a);
   if (!token) throw new Error('Token mancante: ricollega l\'account');
-  const r = await graph(`${a.account_id}/conversations`, { platform: a.piattaforma, fields: 'id,updated_time,participants', limit: String(CONV), access_token: token });
+  const r = await graph(`${nodo}/conversations`, { platform: a.piattaforma, fields: 'id,updated_time,participants', limit: String(CONV), access_token: token });
   const { data: note } = await db.from('social_conversazioni').select('thread_id, ultimo_at').eq('account', a.id);
   const ultimo = new Map((note || []).map(c => [c.thread_id, c.ultimo_at ? new Date(c.ultimo_at).getTime() : 0]));
 
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
     if (!me) return reply({ success: false, error: 'Accesso negato' }, 403);
   }
 
-  const { data: account } = await db.from('social_account').select('id, piattaforma, account_id, username').eq('attivo', true).in('piattaforma', ['messenger', 'instagram']);
+  const { data: account } = await db.from('social_account').select('id, piattaforma, account_id, username, negozio').eq('attivo', true).in('piattaforma', ['messenger', 'instagram']);
   const risultati: Row[] = [];
   for (const a of account || []) {
     try {
