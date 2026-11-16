@@ -879,3 +879,14 @@ body.com-dragging, body.com-dragging * { cursor: grabbing !important; user-selec
   border-radius: 11px; background: #ef4444; color: #fff; font-size: 12px; font-weight: 700; line-height: 22px; text-align: center;
   box-shadow: 0 0 0 2px var(--bg-primary, #fff); pointer-events: none;
 }
+
+/* Consumi in diretta: riga cliccabile con cosa ha fatto la chiamata */
+.ctrl-live-row { cursor: pointer; }
+.ctrl-live-row:hover td, .ctrl-live-row.is-open td { background: var(--fill-hover); }
+.ctrl-live-row:focus-visible { outline: 2px solid var(--accent, #6366f1); outline-offset: -2px; }
+.ctrl-live-detail td { white-space: normal; padding-top: 0; }
+.ctrl-live-detail-box { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 4px 0 12px; }
+.ctrl-live-esito { margin: 0; font-size: 0.85rem; max-width: 900px; }
+.ctrl-live-mail { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 900px; }
+.ctrl-live-mail-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.8rem; color: var(--text-secondary); max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: 12px; background: var(--fill-hover); }
+.ctrl-live-more { display: flex; justify-content: center; padding: 12px; }

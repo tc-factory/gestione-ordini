@@ -3228,16 +3228,17 @@ const AUTOMAZIONE_STATI = {
   in_corso: ['In corso', '#f59e0b'], ok: ['Riuscita', '#22c55e'], errore: ['Errore', '#ef4444'],
   saltato: ['Non lavorativo', '#94a3b8'], prova: ['Prova', '#6366f1'], interrotta: ['Interrotta', '#ef4444'],
 };
-const CtrlAuto = { righe: null, error: null, modi: {}, consumi: [], oggetti: {}, channel: null, nuove: new Set() };
+const CtrlAuto = { righe: null, error: null, modi: {}, consumi: [], oggetti: {}, channel: null, nuove: new Set(),
+  eventi: {}, verifiche: {}, solleciti: {}, testi: {}, cercati: new Set(), aperta: null, quante: 15 };
 
 async function loadControlAutomations() {
   const [{ data, error }, imp, consumi] = await Promise.all([
     supabaseClient.from('automazione_esecuzioni').select('*').order('at', { ascending: false }).limit(100),
     supabaseClient.from('automazioni_impostazioni').select('nome, modo, aggiornato_at, aggiornato_da'),
-    supabaseClient.from('cervello_consumi').select('id, at, modello, costo_usd, prova, input, output, mail_id').gte('at', new Date(Date.now() - 30 * 86400e3).toISOString()).order('at').limit(10000),
+    supabaseClient.from('cervello_consumi').select('id, at, modello, costo_usd, prova, input, output, mail_id, evento_id').gte('at', new Date(Date.now() - 30 * 86400e3).toISOString()).order('at').limit(10000),
   ]);
   CtrlAuto.consumi = consumi.error ? [] : (consumi.data || []);
-  await consumiOggetti(CtrlAuto.consumi.slice(-CONSUMI_RIGHE));
+  await consumiOggetti(CtrlAuto.consumi.filter(c => !c.prova).slice(-CtrlAuto.quante));
   consumiInDiretta();
   CtrlAuto.modi = Object.fromEntries((imp.data || []).map(r => [r.nome, r]));
   CtrlAuto.righe = data || [];
@@ -3246,13 +3247,105 @@ async function loadControlAutomations() {
 }
 
 // ── Consumi del cervello in diretta: ogni chiamata a Claude arriva da sola (Realtime su cervello_consumi) ──
-const CONSUMI_RIGHE = 15;
-
+// Per ogni chiamata si legge anche cosa ne è uscito: esito dell'evento, task creato, verifica, sollecito
 async function consumiOggetti(righe) {
-  const ids = [...new Set(righe.map(c => c.mail_id).filter(id => id && !(id in CtrlAuto.oggetti)))];
-  if (!ids.length) return;
-  const { data } = await supabaseClient.from('mail_messaggi').select('id, oggetto').in('id', ids);
-  (data || []).forEach(m => { CtrlAuto.oggetti[m.id] = m.oggetto || '(senza oggetto)'; });
+  righe = righe.filter(c => !CtrlAuto.cercati.has(c.id));
+  if (!righe.length) return;
+  righe.forEach(c => CtrlAuto.cercati.add(c.id));
+  const mailIds = [...new Set(righe.map(c => c.mail_id).filter(id => id && !(id in CtrlAuto.oggetti)))];
+  const evIds = [...new Set(righe.map(c => c.evento_id).filter(Boolean))];
+  const senzaEvento = [...new Set(righe.filter(c => !c.evento_id && c.mail_id).map(c => c.mail_id))];
+  const [mail, eventi, taskMail, solleciti] = await Promise.all([
+    mailIds.length ? supabaseClient.from('mail_messaggi').select('id, oggetto').in('id', mailIds) : { data: [] },
+    evIds.length ? supabaseClient.from('eventi').select('id, esito, task_id, elaborato_at').in('id', evIds) : { data: [] },
+    senzaEvento.length ? supabaseClient.from('tasks').select('id, mail_id').in('mail_id', senzaEvento) : { data: [] },
+    senzaEvento.length ? supabaseClient.from('tasks').select('id, fonte_rif').in('fonte_rif->>evento_id', senzaEvento.map(m => `sollecito:${m}`)) : { data: [] },
+  ]);
+  (mail.data || []).forEach(m => { CtrlAuto.oggetti[m.id] = m.oggetto || '(senza oggetto)'; });
+  (eventi.data || []).forEach(e => { CtrlAuto.eventi[e.id] = e; });
+  (solleciti.data || []).forEach(t => { CtrlAuto.solleciti[String(t.fonte_rif?.evento_id).replace('sollecito:', '')] = t.id; });
+  const taskIds = (taskMail.data || []).map(t => t.id);
+  if (taskIds.length) {
+    const { data } = await supabaseClient.from('task_verifiche').select('task_id, at, esito, certo, motivo, chiuso, prova').in('task_id', taskIds);
+    const mailDi = new Map((taskMail.data || []).map(t => [t.id, t.mail_id]));
+    (data || []).forEach(v => { const m = mailDi.get(v.task_id); (CtrlAuto.verifiche[m] ||= []).push(v); });
+  }
+}
+
+const CONSUMO_TONI = { ok: '#22c55e', task: '#6366f1', scarto: '#94a3b8', avanti: '#0ea5e9', attesa: '#f59e0b', errore: '#ef4444' };
+const VERIFICA_ESITI = { fatto: 'Già fatto', non_necessario: 'Non necessario', doppione: 'Doppione', aperto: 'Lasciato aperto', errore: 'Errore' };
+
+// Cosa ha fatto una chiamata: ruolo, esito breve, spiegazione e task a cui rimanda
+function esitoConsumo(c) {
+  const haiku = /haiku/i.test(c.modello);
+  if (c.evento_id) {
+    const ev = CtrlAuto.eventi[c.evento_id];
+    const testo = ev?.esito || '';
+    if (haiku && CtrlAuto.consumi.some(x => x.evento_id === c.evento_id && !x.prova && /opus/i.test(x.modello))) {
+      return { ruolo: 'filtro', etichetta: 'Passata a Opus', tono: 'avanti', testo: 'Haiku non l\'ha considerata spam: l\'ha analizzata Opus (riga sopra).', taskId: null };
+    }
+    if (!ev?.elaborato_at) return { ruolo: haiku ? 'filtro' : 'analisi e bozza', etichetta: 'In corso', tono: 'attesa', testo: '', taskId: null };
+    const scartata = /^Scartata/i.test(testo);
+    return {
+      ruolo: haiku ? 'filtro' : 'analisi e bozza',
+      etichetta: scartata ? 'Scartata' : /^Risposta automatica/i.test(testo) ? 'Risposta inviata' : /^Task creato/i.test(testo) ? 'Task creato' : (testo.split(/[:(]/)[0] || 'Fatto'),
+      tono: scartata ? 'scarto' : /^Risposta automatica/i.test(testo) ? 'ok' : ev.task_id ? 'task' : 'errore',
+      testo: scartata ? testo.replace(/^Scartata\s*/, '') : testo,
+      taskId: ev.task_id || null,
+    };
+  }
+  // Senza evento: verifica di chiusura dei task (Haiku) o sollecito / testi di contatto (Opus)
+  const v = (CtrlAuto.verifiche[c.mail_id] || []).filter(x => !!x.prova === !!c.prova)
+    .map(x => [x, Math.abs(new Date(x.at) - new Date(c.at))]).filter(([, d]) => d < 10 * 60e3).sort((a, b) => a[1] - b[1])[0]?.[0];
+  if (v) return {
+    ruolo: 'verifica task', etichetta: v.chiuso ? 'Task chiuso' : (VERIFICA_ESITI[v.esito] || v.esito),
+    tono: v.chiuso ? 'ok' : v.esito === 'errore' ? 'errore' : v.esito === 'aperto' ? 'task' : 'attesa',
+    testo: `${v.motivo || ''}${!v.chiuso && v.esito !== 'aperto' && v.esito !== 'errore' ? (v.certo ? ' · Non chiuso: questo tipo di task non si chiude da solo.' : ' · Non chiuso: Haiku non era sicuro.') : ''}`.trim(),
+    taskId: v.task_id,
+  };
+  if (c.mail_id && CtrlAuto.solleciti[c.mail_id]) return { ruolo: 'sollecito', etichetta: 'Task sollecito', tono: 'task', testo: 'Il cliente non ha risposto: messaggio e traccia della telefonata sono nel task.', taskId: CtrlAuto.solleciti[c.mail_id] };
+  if (c.mail_id) return { ruolo: haiku ? 'verifica task' : 'sollecito', etichetta: '—', tono: null, testo: '', taskId: null };
+  return { ruolo: 'testi contatto', etichetta: 'Testi scritti', tono: 'task', testo: 'Messaggio e traccia della telefonata per un task "Dati mancanti per spedire".', taskId: null };
+}
+
+async function ricaricaEsiti() {
+  const recenti = CtrlAuto.consumi.filter(c => !c.prova && Date.now() - new Date(c.at) < 15 * 60e3);
+  const daRifare = recenti.filter(c => c.evento_id ? !CtrlAuto.eventi[c.evento_id]?.elaborato_at : true);
+  if (!daRifare.length) return;
+  daRifare.forEach(c => CtrlAuto.cercati.delete(c.id));
+  await consumiOggetti(daRifare);
+  aggiornaConsumiDiretta();
+}
+
+async function apriConsumo(id) {
+  CtrlAuto.aperta = CtrlAuto.aperta === id ? null : id;
+  aggiornaConsumiDiretta();
+  const c = CtrlAuto.consumi.find(x => x.id === id);
+  if (CtrlAuto.aperta && c?.mail_id && !(c.mail_id in CtrlAuto.testi)) {
+    const { data } = await supabaseClient.from('mail_messaggi').select('da_nome, da_email, a, direzione, ricevuto_at, testo').eq('id', c.mail_id).maybeSingle();
+    CtrlAuto.testi[c.mail_id] = data || null;
+    aggiornaConsumiDiretta();
+  }
+}
+
+async function altriConsumi() {
+  CtrlAuto.quante += 30;
+  await consumiOggetti(CtrlAuto.consumi.filter(c => !c.prova).slice(-CtrlAuto.quante));
+  aggiornaConsumiDiretta();
+}
+
+function dettaglioConsumo(c, e) {
+  const m = c.mail_id ? CtrlAuto.testi[c.mail_id] : null;
+  const caricata = !c.mail_id || c.mail_id in CtrlAuto.testi;
+  const chi = m ? (m.direzione === 'out' ? `A ${m.a || ''}` : `Da ${m.da_nome ? `${m.da_nome} ` : ''}<${m.da_email || ''}>`) : '';
+  return `<tr class="ctrl-live-detail"><td colspan="6"><div class="ctrl-live-detail-box">
+    ${e.testo ? `<p class="ctrl-live-esito"><strong>Cosa ha fatto:</strong> ${escapeHtml(e.testo)}</p>` : ''}
+    ${e.taskId ? `<button type="button" class="ctrl-btn" onclick="event.stopPropagation(); apriTaskDaLink('${e.taskId}')">Apri task</button>` : ''}
+    ${c.mail_id ? (!caricata ? '<p class="ctrl-cell-sub">Carico la mail…</p>' : m ? `
+      <div class="ctrl-live-mail"><span class="ctrl-cell-sub">${escapeHtml(chi)} · ${ctrlFmtQuando(m.ricevuto_at)}</span>
+        <div class="ctrl-live-mail-text">${escapeHtml(String(m.testo || '(mail senza testo)').slice(0, 2000))}${String(m.testo || '').length > 2000 ? '…' : ''}</div></div>`
+      : '<p class="ctrl-cell-sub">Mail non più disponibile.</p>') : ''}
+  </div></td></tr>`;
 }
 
 function consumiInDiretta() {
@@ -3264,6 +3357,8 @@ function consumiInDiretta() {
       CtrlAuto.nuove.add(p.new.id);
       await consumiOggetti([p.new]);
       aggiornaConsumiDiretta();
+      // L'esito si scrive dopo la chiamata: si rilegge poco dopo
+      [20e3, 90e3].forEach(ms => setTimeout(ricaricaEsiti, ms));
     })
     .subscribe((stato) => { CtrlAuto.collegata = stato === 'SUBSCRIBED'; aggiornaConsumiDiretta(); });
 }
@@ -3294,7 +3389,7 @@ function renderConsumiDiretta() {
   diOggi.forEach(c => { if (c.mail_id) perMail.set(c.mail_id, [...(perMail.get(c.mail_id) || []), c.modello]); });
   const fermate = [...perMail.values()].filter(m => m.some(x => /haiku/i.test(x)) && !m.some(x => /opus/i.test(x))).length;
   const opusOggi = diOggi.filter(c => /opus/i.test(c.modello));
-  const ultime = vere.slice(-CONSUMI_RIGHE).reverse();
+  const ultime = vere.slice(-CtrlAuto.quante).reverse();
   const quando = (iso) => {
     const d = new Date(iso);
     return d >= oggi ? d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : ctrlFmtQuando(iso);
@@ -3304,7 +3399,7 @@ function renderConsumiDiretta() {
     <section class="glass-card page-card ctrl-group" id="ctrl-consumi-diretta">
       <div class="page-card-head"><h2>Consumi in diretta</h2>
         <span class="ctrl-onair ${CtrlAuto.collegata ? 'on' : ''}">${CtrlAuto.collegata ? 'In diretta' : 'Collegamento…'}</span>
-        <span class="ctrl-group-hint">Ogni chiamata a Claude compare qui appena succede</span></div>
+        <span class="ctrl-group-hint">Ogni chiamata a Claude compare qui appena succede · clicca una riga per vedere cosa ha fatto</span></div>
       <div class="ctrl-live-nums">
         ${numero(usd(somma(diOggi)), `oggi · ${diOggi.length} ${diOggi.length === 1 ? 'chiamata' : 'chiamate'}`)}
         ${numero(usd(somma(ora)), 'ultima ora')}
@@ -3312,16 +3407,20 @@ function renderConsumiDiretta() {
         ${numero(fermate, 'mail fermate da Haiku oggi (Opus risparmiato)')}
       </div>
       ${ultime.length ? `<div class="table-scroll"><table class="data-table ctrl-live-table">
-        <thead><tr><th>Ora</th><th>Modello</th><th>Mail</th><th>Token</th><th>Costo</th></tr></thead>
+        <thead><tr><th>Ora</th><th>Modello</th><th>Mail</th><th>Esito</th><th>Token</th><th>Costo</th></tr></thead>
         <tbody>${ultime.map(c => {
-          const [nome, ruolo] = modello(c.modello);
-          return `<tr class="${CtrlAuto.nuove.has(c.id) ? 'ctrl-live-new' : ''}">
+          const [nome] = modello(c.modello);
+          const e = esitoConsumo(c);
+          const aperta = CtrlAuto.aperta === c.id;
+          return `<tr class="ctrl-live-row ${CtrlAuto.nuove.has(c.id) ? 'ctrl-live-new' : ''} ${aperta ? 'is-open' : ''}" onclick="apriConsumo(${c.id})" tabindex="0" onkeydown="if(event.key==='Enter')apriConsumo(${c.id})" aria-expanded="${aperta}">
             <td>${quando(c.at)}</td>
-            <td><strong>${escapeHtml(nome)}</strong>${ruolo ? ` <span class="ctrl-cell-sub">${ruolo}</span>` : ''}</td>
+            <td><strong>${escapeHtml(nome)}</strong> <span class="ctrl-cell-sub">${escapeHtml(e.ruolo)}</span></td>
             <td class="ctrl-live-subject">${escapeHtml(CtrlAuto.oggetti[c.mail_id] || '—')}</td>
+            <td>${e.tono ? `<span class="ctrl-status" style="--st:${CONSUMO_TONI[e.tono]};">${escapeHtml(e.etichetta)}</span>` : '<span class="ctrl-cell-sub">—</span>'}</td>
             <td class="ctrl-cell-sub">${Number(c.input || 0).toLocaleString('it-IT')} → ${Number(c.output || 0).toLocaleString('it-IT')}</td>
-            <td>${usd(c.costo_usd || 0, 3)}</td></tr>`;
-        }).join('')}</tbody></table></div>`
+            <td>${usd(c.costo_usd || 0, 3)}</td></tr>${aperta ? dettaglioConsumo(c, e) : ''}`;
+        }).join('')}</tbody></table></div>
+        ${vere.length > ultime.length ? `<div class="ctrl-live-more"><button type="button" class="ctrl-btn" onclick="altriConsumi()">Mostra altre</button></div>` : ''}`
       : '<div class="empty-list">Nessuna chiamata a Claude negli ultimi 30 giorni.</div>'}
     </section>`;
   CtrlAuto.nuove.clear();
