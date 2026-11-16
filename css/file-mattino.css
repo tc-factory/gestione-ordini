@@ -9,6 +9,9 @@
 .fm-file-nome { min-width: 0; overflow-wrap: anywhere; }
 .fm-file-peso { color: var(--text-secondary); font-size: .85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fm-scarica { border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; }
+/* DDT già stampato */
+.fm-stampa.is-stampato { --lq-fill: #16a34a; --lq-fill-hover: #15803d; --text-primary: #fff; --x-on: #fff; }
+.fm-stampa-frame { position: fixed; width: 1px; height: 1px; right: 0; bottom: 0; border: 0; opacity: 0; pointer-events: none; }
 
 @media (max-width: 600px) {
   .fm-giorno { padding: 16px; }

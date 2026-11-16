@@ -4,9 +4,12 @@
  * DDT, file di stampa e fogli DTF che lo script del mattino carica ogni giorno nel bucket privato
  * file-mattino (AAAA-MM-GG/..., con la sottocartella DTF). Qui si elencano per giorno e si scaricano
  * con un link firmato. La pulizia della domenica tiene solo l'ultima cartella generata (sql/file-mattino.sql).
+ * Il DDT non si scarica: "Stampa" apre la finestra di stampa del browser e lo segna stampato (file_mattino_stampe),
+ * il bottone diventa verde e una nuova stampa chiede conferma con data, ora e chi l'ha stampato.
  */
 
-const FileMattino = { giorni: null, errore: null, carica: null };
+const FileMattino = { giorni: null, errore: null, carica: null, stampe: {} };
+const fmDaStampare = (nome) => nome === 'DDT.pdf';
 
 const fmBucket = () => supabaseClient.storage.from('file-mattino');
 
@@ -36,8 +39,13 @@ async function fmElenca(cartella) {
 }
 
 async function fmCarica() {
-  const { data, error } = await fmBucket().list('', { limit: 1000 });
+  const [{ data, error }, stampe] = await Promise.all([
+    fmBucket().list('', { limit: 1000 }),
+    supabaseClient.from('file_mattino_stampe').select('*'),
+  ]);
   if (error) throw error;
+  if (stampe.error) throw stampe.error;
+  FileMattino.stampe = Object.fromEntries((stampe.data || []).map(x => [x.percorso, x]));
   const nomi = (data || []).filter(x => !x.id && /^\d{4}-\d{2}-\d{2}$/.test(x.name)).map(x => x.name).sort().reverse();
   return Promise.all(nomi.map(async g => {
     const { file, sotto } = await fmElenca(g);
@@ -66,6 +74,16 @@ async function openFileMattinoPage() {
 }
 
 function fmRigaFile(f) {
+  if (fmDaStampare(f.nome)) {
+    const s = FileMattino.stampe[f.percorso];
+    return `
+    <li class="fm-file">
+      <span class="fm-file-nome">${escapeHtml(f.nome)}</span>
+      <span class="fm-file-peso">${s ? `Stampato ${escapeHtml(fmQuando(s.stampato_at))}` : fmPeso(f.peso)}</span>
+      <button type="button" class="btn btn-secondary fm-scarica fm-stampa ${s ? 'is-stampato' : ''}" data-percorso="${escapeHtml(f.percorso)}" onclick="fmStampa(this)"
+        aria-label="Stampa ${escapeHtml(f.nome)}${s ? ', già stampato' : ''}">${Icons.printer(15)} Stampa</button>
+    </li>`;
+  }
   return `
     <li class="fm-file">
       <span class="fm-file-nome">${escapeHtml(f.nome)}</span>
@@ -112,6 +130,43 @@ async function fmScarica(btn) {
   } catch (e) {
     uiAlert(`Download non riuscito: ${e.message || e}`);
   } finally {
+    btn.disabled = false;
+  }
+}
+
+function fmQuando(iso) {
+  const d = new Date(iso);
+  return `il ${d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })} alle ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+// Il PDF si apre in un riquadro nascosto della pagina e parte la finestra di stampa del browser
+async function fmStampa(btn) {
+  const percorso = btn.dataset.percorso;
+  const s = FileMattino.stampe[percorso];
+  if (s && !(await uiConfirm(`Già stampato ${fmQuando(s.stampato_at)}${s.stampato_da ? ` da ${s.stampato_da}` : ''}. Stampare di nuovo?`,
+    { title: 'Attenzione', ok: 'Sì', cancel: 'No' }))) return;
+  btn.disabled = true;
+  try {
+    const { data, error } = await fmBucket().download(percorso);
+    if (error) throw error;
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+    document.getElementById('fm-stampa-frame')?.remove();
+    const frame = document.createElement('iframe');
+    frame.id = 'fm-stampa-frame';
+    frame.className = 'fm-stampa-frame';
+    frame.title = 'DDT da stampare';
+    frame.src = url;
+    frame.onload = () => {
+      try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+      catch { window.open(url, '_blank', 'noopener'); }   // browser che non stampano dal riquadro: si apre in una scheda
+    };
+    document.body.appendChild(frame);
+    const { data: riga, error: e2 } = await supabaseClient.rpc('tc_file_mattino_stampato', { p_percorso: percorso });
+    if (e2) throw e2;
+    FileMattino.stampe[percorso] = riga;
+    renderFileMattino();
+  } catch (e) {
+    uiAlert(`Stampa non riuscita: ${e.message || e}`);
     btn.disabled = false;
   }
 }

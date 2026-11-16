@@ -27,3 +27,29 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke execute on function _tc_mattino_chiave_ok(text) from public, anon, authenticated;
 grant  execute on function _tc_mattino_chiave_ok(text) to service_role;
+
+-- Stampe del DDT dalla scheda: il bottone diventa verde e, prima di ristampare, si avvisa con data, ora e chi
+create table if not exists public.file_mattino_stampe (
+  percorso     text primary key,               -- es. 2026-11-16/DDT.pdf
+  stampato_at  timestamptz not null default now(),
+  stampato_da  text
+);
+alter table public.file_mattino_stampe enable row level security;
+drop policy if exists file_mattino_stampe_legge on public.file_mattino_stampe;
+create policy file_mattino_stampe_legge on public.file_mattino_stampe for select to authenticated using (app_vede_scheda('file'));
+revoke all on public.file_mattino_stampe from anon, authenticated;
+grant select on public.file_mattino_stampe to authenticated;
+
+create or replace function tc_file_mattino_stampato(p_percorso text) returns public.file_mattino_stampe
+language plpgsql security definer set search_path = public as $$
+declare r public.file_mattino_stampe;
+begin
+  if not app_vede_scheda('file') then raise exception 'Non autorizzato'; end if;
+  insert into file_mattino_stampe (percorso, stampato_at, stampato_da) values (p_percorso, now(), app_nickname())
+  on conflict (percorso) do update set stampato_at = excluded.stampato_at, stampato_da = excluded.stampato_da
+  returning * into r;
+  return r;
+end;
+$$;
+revoke execute on function tc_file_mattino_stampato(text) from public, anon;
+grant  execute on function tc_file_mattino_stampato(text) to authenticated;
