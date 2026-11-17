@@ -52,6 +52,7 @@ const TIPI: Record<string, string> = {
   preventivo: 'Preventivo',
   pagamenti: 'Pagamenti e fatture',
   bonifico: 'Riscontro pagamento con bonifico',
+  sviluppo: 'Lavorazione con Claude Code',
   altro: 'Mail da gestire',
 };
 
@@ -113,7 +114,7 @@ Decidi "azione":
 Le correzioni del team valgono più del tuo giudizio: se una mail assomiglia a una segnata come spam, scartala anche se il mittente è nuovo; se assomiglia a una recuperata, tienila.
 
 Campi:
-- categoria: stato_ordine, reso_cambio, problema_ordine, modifica_ordine, info_prodotto, preventivo, pagamenti, bonifico, altro. "bonifico" se il cliente manda la contabile di un bonifico o scrive di aver pagato con bonifico: non confermare mai di aver ricevuto il pagamento, lo verifica una persona. Se la mail contiene più richieste, scegli la categoria di quella che chiede più lavoro all'operatore (per esempio stato ordine + cambio indirizzo = modifica_ordine).
+- categoria: stato_ordine, reso_cambio, problema_ordine, modifica_ordine, info_prodotto, preventivo, pagamenti, bonifico, sviluppo, altro. "sviluppo" per il lavoro tecnico sui sistemi di T&C Factory, che si fa con Claude Code: il gestionale Creative System, il sito Live Printing, la piattaforma Kamon (errori, deploy e avvisi di Railway, Supabase, Vercel o GitHub; integrazioni, API, EDI o import ordini con i fornitori). "bonifico" se il cliente manda la contabile di un bonifico o scrive di aver pagato con bonifico: non confermare mai di aver ricevuto il pagamento, lo verifica una persona. Se la mail contiene più richieste, scegli la categoria di quella che chiede più lavoro all'operatore (per esempio stato ordine + cambio indirizzo = modifica_ordine).
 - modifica: "indirizzo" se la categoria è modifica_ordine e l'unica cosa chiesta è cambiare l'indirizzo di spedizione; "altro" per le altre modifiche o se l'indirizzo è chiesto insieme ad altro; "nessuna" in tutti gli altri casi.
 - ordine_modifica: se modifica è "indirizzo", il numero dell'ordine da modificare; "" se non è chiaro quale.
 - nuovo_indirizzo: se modifica è "indirizzo", i dati copiati dalla mail senza correggerli né completarli: presso (azienda o "presso …"), via con numero civico, cap, citta, provincia (sigla di 2 lettere), paese (codice ISO di 2 lettere). I dati che la mail non dà restano "". Se modifica non è "indirizzo", tutti i campi "". Se la grafia dell'indirizzo o del nome è dubbia, scrivilo in "dubbi".
@@ -366,9 +367,10 @@ const macroareaCasella = (casella: Row | null) =>
 
 async function creaTask(db: SupabaseClient, evento: Row, mail: Row, storeId: string | null, tipi: Map<string, Row>, dati: Row) {
   const tipo = tipi.get(dati.tipo);
-  // Subito alla persona responsabile della competenza nel negozio (claude escluso: lì decide il piano)
-  const { data: resp } = storeId && tipo?.competenza
-    ? await db.from('competenze_responsabili').select('primario').eq('voce', `${storeId}:${tipo.competenza}`).maybeSingle()
+  // Subito alla persona responsabile della competenza nell'area del tipo, se fissa, o nel negozio (claude escluso: lì decide il piano)
+  const area = tipo?.area || storeId;
+  const { data: resp } = area && tipo?.competenza
+    ? await db.from('competenze_responsabili').select('primario').eq('voce', `${area}:${tipo.competenza}`).maybeSingle()
     : { data: null };
   const { data, error } = await db.from('tasks').insert({
     tipo_id: tipo?.id || null,
@@ -724,7 +726,7 @@ Deno.serve(async (req) => {
 
   const [{ data: stores }, { data: tipiRows }] = await Promise.all([
     db.from('shopify_stores').select('id, nome'),
-    db.from('task_tipi').select('id, nome, autonomia, chiude_con_risposta, competenza'),
+    db.from('task_tipi').select('id, nome, autonomia, chiude_con_risposta, competenza, area'),
   ]);
   const negozi = new Map((stores || []).map(s => [s.id, s.nome]));
   const tipi = new Map((tipiRows || []).map(t => [t.nome, t]));
