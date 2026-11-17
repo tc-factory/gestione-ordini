@@ -570,6 +570,7 @@ const TkIcons = {
   user: (s = 22) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>`,
   list: (s = 18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>`,
   layers: (s = 22) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
+  code: (s = 17) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
   arrow: (s = 15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`,
 };
 
@@ -594,6 +595,8 @@ const taskCaricoTesto = (c) => `${ctrlFmtMin(c.min)}${c.cap ? ` / ${ctrlFmtMin(c
 
 // Titolo "Attività · Cliente · ordine #123": l'attività a sinistra, il cliente nella sua colonna
 function taskParti(t) {
+  // Commit: il titolo intero è l'attività, il progetto sta nel cliente
+  if (t.fonte === 'github') return { attivita: t.titolo, cliente: t.analisi?.cliente?.nome || '', ordine: null };
   const [primo, ...resto] = t.titolo.split(/\s+·\s+/);
   const altri = resto.filter(p => !/^ordine\s+#\d+$/i.test(p));
   return {
@@ -629,6 +632,7 @@ function taskAvatar(nick, size = 26) {
 
 // Icona dell'attività dal titolo
 function taskIcona(t) {
+  if (t.fonte === 'github') return TkIcons.code(17);
   const s = t.titolo;
   if (/sped|consegn|rientro|giacenz|tracking|gls|fermo|ritir|pacc/i.test(s)) return Icons.truck(17);
   if (/stamp|dtf|uv\b|mimaki|laser|applicaz|lavoraz|ricam|serigraf/i.test(s)) return Icons.printer(17);
@@ -843,7 +847,7 @@ function renderTaskTable() {
     const ora = t.scadenza && ctrlFmtOra(t.scadenza) !== '00:00' ? ` ${ctrlFmtOra(t.scadenza)}` : '';
     const inLista = chiuso ? '' : taskInListaTesto(t);
     return `
-      <tr class="${t.stato === 'completato' ? 'is-done' : ''} ${v.sel.has(t.id) ? 'is-sel' : ''}">
+      <tr class="${t.stato === 'completato' && t.fonte !== 'github' ? 'is-done' : ''} ${v.sel.has(t.id) ? 'is-sel' : ''}">
         <td class="tk-check">${chiuso ? '' : `<input type="checkbox" ${v.sel.has(t.id) ? 'checked' : ''} onchange="taskToggleSel('${t.id}', this.checked)" aria-label="Seleziona ${escapeHtml(t.titolo)}">`}</td>
         <td>${prioTag(t)}</td>
         <td><button type="button" class="tk-act" onclick="openTaskDetail('${t.id}')" title="${escapeHtml(t.titolo)}">
@@ -852,8 +856,9 @@ function renderTaskTable() {
           ${ordine || m ? `<small>${[ordine ? escapeHtml(ordine) : '', m ? `<span class="ctrl-macro-tag" style="--m:${m.color};">${m.label}</span>` : ''].filter(Boolean).join(' · ')}</small>` : ''}</td>
         <td>${g ? `<span class="tk-date ${late ? 'is-late' : g === ctrlOggi() ? 'is-today' : ''}">${Icons.calendarDays(14)} ${taskDataBreve(g)}${ora}</span>
           ${dist && !chiuso ? `<span class="tk-delta ${dist.passato ? 'is-late' : ''}">${taskDistanzaTesto(dist)}</span>` : ''}`
-          : '<span class="tk-none">Nessuna</span>'}
-          ${inLista ? `<small class="tk-inlista">${inLista}</small>` : ''}</td>
+          : chiuso ? '' : '<span class="tk-none">Nessuna</span>'}
+          ${inLista ? `<small class="tk-inlista">${inLista}</small>` : ''}
+          ${chiuso && t.completato_at ? `<small class="tk-inlista">${t.fonte === 'github' ? 'commit' : 'fatto'} ${ctrlGiornoDi(t.completato_at) === ctrlOggi() ? 'alle' : `il ${taskDataBreve(ctrlGiornoDi(t.completato_at))},`} ${ctrlFmtOra(t.completato_at)}</small>` : ''}</td>
         <td>${taskChiSelect(t)}</td>
         <td class="tk-num">${t.minuti_stimati ? ctrlFmtMin(t.minuti_stimati) : '<span class="tk-none">—</span>'}</td>
         <td>${statoTag(t)}</td>
