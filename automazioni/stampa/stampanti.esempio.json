@@ -1,6 +1,13 @@
 {
   "sc-f500": {
+    "nome": "SC-F500 1",
     "coda": "Epson_2",
+    "pronta": false,
+    "opzioni": {}
+  },
+  "sc-f500-2": {
+    "nome": "SC-F500 2",
+    "coda": "CODA_DELLA_SECONDA_STAMPANTE",
     "pronta": false,
     "opzioni": {}
   }

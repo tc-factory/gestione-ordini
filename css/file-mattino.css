@@ -1,27 +1,47 @@
-/* ── File del mattino ── */
+/* ── Stampe del giorno ── */
 .fm-giorni { display: flex; flex-direction: column; gap: 16px; padding-bottom: 28px; }
 .fm-giorno { padding: 20px 22px; }
-.fm-giorno h2 { font-size: 1.05rem; margin-bottom: 10px; }
+.fm-giorno h2 { font-size: 1.05rem; }
+.fm-giorno-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; min-height: 36px; }
+.fm-stampa-scelti { border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; }
 .fm-giorno h3 { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-secondary); margin: 16px 0 6px; }
 .fm-lista { list-style: none; margin: 0; padding: 0; }
-.fm-file { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 8px 0; border-top: 1px solid var(--border); }
+.fm-file { display: grid; grid-template-columns: 18px minmax(160px, 1fr) auto auto; align-items: center; gap: 14px; padding: 8px 0; border-top: 1px solid var(--border); }
 .fm-lista .fm-file:first-child { border-top: 0; }
-.fm-file-nome { min-width: 0; overflow-wrap: anywhere; }
-.fm-file-peso { color: var(--text-secondary); font-size: .85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fm-file-nome { min-width: 0; overflow-wrap: break-word; }
+.fm-file-peso { color: var(--text-secondary); font-size: .85rem; font-variant-numeric: tabular-nums; max-width: 240px; text-align: right; }
 .fm-scarica { border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; }
 /* File già stampato o scaricato */
 .fm-azioni { display: inline-flex; gap: 8px; }
 .fm-scarica.is-attesa { --lq-fill: #f59e0b; --lq-fill-hover: #f59e0b; --text-primary: #fff; --x-on: #fff; }
 .fm-scarica.is-errore { --lq-fill: #dc2626; --lq-fill-hover: #b91c1c; --text-primary: #fff; --x-on: #fff; }
-.fm-file-peso.is-errore { color: #dc2626; white-space: normal; max-width: 340px; }
+.fm-file-peso.is-errore { color: #dc2626; }
 html.dark .fm-file-peso.is-errore { color: #ff8a8e; }
 .fm-scarica.is-fatto { --lq-fill: #16a34a; --lq-fill-hover: #15803d; --text-primary: #fff; --x-on: #fff; }
+.fm-scelta { width: 18px; height: 18px; margin: 0; accent-color: var(--brand-gold, #d4a017); cursor: pointer; }
+.fm-scelta:disabled { cursor: default; opacity: .4; }
 .fm-stampa-frame { position: fixed; width: 1px; height: 1px; right: 0; bottom: 0; border: 0; opacity: 0; pointer-events: none; }
+
+/* Impostazioni di stampa */
+.modal.fm-stampa { max-width: 480px; }
+.fm-stampa .modal-body { gap: 16px; max-height: 70vh; overflow-y: auto; }
+.fm-stampa .form-group { display: flex; flex-direction: column; gap: 8px; }
+.fm-stampa .form-label span { font-weight: 500; color: var(--text-muted); }
+.fm-stampa .segmented { align-self: flex-start; flex-wrap: wrap; }
+.fm-stampa-file { list-style: none; margin: 0; padding: 0; font-weight: 600; font-size: .9rem; overflow-wrap: anywhere; }
+.fm-stampa-avviso { margin: 0; font-size: .82rem; color: #b45309; }
+html.dark .fm-stampa-avviso { color: #fbbf24; }
+.fm-stampa-misure { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+.fm-stampa-misure .form-input { width: 90px; }
+.fm-stampa-copie { width: 90px; }
+.fm-stampa-blocco .switch-row { padding: 8px 0; }
+#fm-formato { color: var(--text-secondary); font-size: .88rem; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 600px) {
   .fm-giorno { padding: 16px; }
-  .fm-file { grid-template-columns: minmax(0, 1fr) auto; }
-  .fm-file-peso { grid-column: 1; grid-row: 2; white-space: normal; }
-  .fm-azioni { grid-column: 2; grid-row: 1 / span 2; flex-direction: column; }
+  .fm-file { grid-template-columns: 18px minmax(0, 1fr) auto; }
+  .fm-file-peso { grid-column: 2; grid-row: 2; max-width: none; text-align: left; }
+  .fm-azioni { grid-column: 3; grid-row: 1 / span 2; flex-direction: column; }
+  .fm-stampa .segmented { align-self: stretch; }
   .fm-file-peso.is-errore { max-width: none; }
 }

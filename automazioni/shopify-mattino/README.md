@@ -22,7 +22,7 @@ Regole:
 - Il giro non cancella e non sovrascrive nulla.
 - Weekend, festivi e chiusure del Planner (`tc_giorno_lavorativo`): il giro si ferma subito e al rientro fa tutto in un'unica sessione.
 - Ogni esecuzione, con il suo output, si legge in Centro di controllo → Automazioni.
-- A fine giro (dopo tag ed esito) la cartella del giorno, con la sottocartella DTF, viene copiata nella scheda **File del mattino** del gestionale (bucket privato `file-mattino`, `sql/file-mattino.sql`), da cui si scaricano i file. I link di caricamento li dà la funzione `file-mattino` con la stessa chiave dello script. Se il caricamento non riesce, i file restano nella cartella condivisa e il registro lo segnala. La pulizia della domenica applica la stessa regola anche lì.
+- A fine giro (dopo tag ed esito) la cartella del giorno, con la sottocartella DTF, viene copiata nella scheda **Stampe del giorno** del gestionale (bucket privato `file-mattino`, `sql/file-mattino.sql`), da cui si scaricano i file. I link di caricamento li dà la funzione `file-mattino` con la stessa chiave dello script. Se il caricamento non riesce, i file restano nella cartella condivisa e il registro lo segnala. La pulizia della domenica applica la stessa regola anche lì.
 - `--rigenera AAAA-MM-GG --dal ISO --al ISO` rifà DDT e file di stampa di un giorno già fatto (es. cartella cancellata): prende gli ordini con `auto-stampato` creati in quella fascia, anche se evasi, e non mette tag né manda l'esito.
 - La pulizia della domenica alle 23:59 (`--pulisci`) cancella le cartelle con il nome a data, tranne l'ultima generata (di solito quella del venerdì, che si stampa ancora il lunedì).
 - Il font Noto Sans è distribuito con licenza SIL Open Font License.

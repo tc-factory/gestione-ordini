@@ -3,8 +3,10 @@
 Gira su un Mac in sede che vede le stampanti (oggi il Mac mini, servizio it.tcfactory.stampa).
 Ogni 10 secondi chiede al gestionale il prossimo lavoro (tc_stampa_prossima, sql/stampa-coda.sql),
 prende il PDF dalla cartella condivisa del mattino o, se non c'è, lo scarica dal gestionale
-(funzione file-mattino), lo manda alla stampante col driver Epson (lp) con le impostazioni di
-stampanti.json, aspetta che la stampante l'abbia ricevuto e scrive com'è andata (tc_stampa_esito).
+(funzione file-mattino), lo manda alla stampante col driver Epson (lp) con le opzioni di base di
+stampanti.json più le impostazioni scelte nel gestionale (formato, qualità, pagine, copie: vedi
+opzioni_driver), aspetta che la stampante l'abbia ricevuto e scrive com'è andata (tc_stampa_esito).
+A ogni domanda dice al gestionale quali stampanti ha, così lì si può scegliere tra quelle.
 
 Finché in stampanti.json la stampante non è "pronta" (preset e colori confermati con una stampa
 di prova) non stampa nulla: il lavoro va in errore con il motivo, così non si spreca carta.
@@ -73,14 +75,52 @@ def scarica(percorso, cartella_tmp):
     return f
 
 
+# Impostazioni del gestionale → opzioni del driver Epson SC-F500 (nomi del PPD, lpoptions -p <coda> -l)
+QUALITA = {'velocita': '502', 'qualita': '503', 'massima': '504'}   # EPIJ_Qual: Velocità, Qualità, Qualità massima
+
+
+def opzioni_driver(imp):
+    """Opzioni lp per le impostazioni scelte nel gestionale; senza impostazioni (lavori vecchi) nessuna."""
+    if not imp:
+        return {}, []
+    o = {}
+    w, h = imp.get('larghezza'), imp.get('altezza')
+    if w and h:
+        o['PageSize'] = f'Custom.{w:g}x{h:g}mm'          # dimensione pagina, es. 230x430 mm
+    if imp.get('rotolo', True):
+        o['EPIJ_FdSo'] = '16'                             # alimentazione: carta in rotolo
+    if imp.get('aggraffa'):
+        o['EPIJ_JustSize'] = '2'                          # Aggraffa dai margini
+    if imp.get('qualita') in QUALITA:
+        o['EPIJ_Mode'] = '3'                              # impostazioni avanzate, se no il livello non vale
+        o['EPIJ_Qual'] = QUALITA[imp['qualita']]
+    if 'alta_velocita' in imp:
+        o['EPIJ_Bi_D'] = '1' if imp['alta_velocita'] else '0'
+    if 'massimo_dettaglio' in imp:
+        o['EPIJ_FDet'] = '1' if imp['massimo_dettaglio'] else '0'
+    pagine = imp.get('pagine')
+    if pagine:
+        if not re.fullmatch(r'\d+(-\d+)?(,\d+(-\d+)?)*', pagine):
+            raise RuntimeError(f'pagine non valide: {pagine}')
+        o['page-ranges'] = pagine
+    extra = []
+    copie = int(imp.get('copie') or 1)
+    if not 1 <= copie <= 99:
+        raise RuntimeError(f'copie non valide: {copie}')
+    if copie > 1:
+        extra = ['-n', str(copie)]
+    return o, extra
+
+
 def lpstat(*argomenti):
     return subprocess.run(['lpstat', *argomenti], capture_output=True, text=True, env={**os.environ, 'LANG': 'C'}).stdout
 
 
-def stampa(file, cfg, titolo):
+def stampa(file, cfg, titolo, imp=None):
     """Manda il PDF alla coda CUPS e aspetta che la stampante l'abbia preso tutto."""
-    comando = ['lp', '-d', cfg['coda'], '-t', titolo]
-    for k, v in cfg.get('opzioni', {}).items():
+    scelte, extra = opzioni_driver(imp or {})
+    comando = ['lp', '-d', cfg['coda'], '-t', titolo, *extra]
+    for k, v in {**cfg.get('opzioni', {}), **scelte}.items():   # le scelte del gestionale vincono sulla base
         comando += ['-o', f'{k}={v}']
     comando.append(str(file))
     r = subprocess.run(comando, capture_output=True, text=True, env={**os.environ, 'LANG': 'C'})
@@ -114,7 +154,7 @@ def esegui(lavoro, stampanti, base):
         else:
             log(f"{lavoro['percorso']}: non è sul disco, lo scarico dal gestionale")
             file = scarica(lavoro['percorso'], tmp)
-        return stampa(file, cfg, Path(lavoro['percorso']).stem)
+        return stampa(file, cfg, Path(lavoro['percorso']).stem, lavoro.get('impostazioni'))
 
 
 def main():
@@ -129,7 +169,8 @@ def main():
     while True:
         try:
             stampanti = json.loads(args.stampanti.read_text()) if args.stampanti.exists() else {}
-            lavoro = rpc('tc_stampa_prossima', p_agente=agente)['lavoro']
+            elenco = [{'id': k, 'nome': v.get('nome') or k, 'pronta': bool(v.get('pronta'))} for k, v in stampanti.items()]
+            lavoro = rpc('tc_stampa_prossima', p_agente=agente, p_stampanti=elenco)['lavoro']
         except Exception as e:
             log(f'gestionale non raggiungibile: {e}')
             time.sleep(60)
