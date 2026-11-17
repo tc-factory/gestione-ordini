@@ -1166,3 +1166,12 @@ button.team-info:hover .team-nome { text-decoration: underline; }
 .tk-split > .page-card { margin: 0; min-width: 0; }
 .tk-split .tk-split-list { max-height: 70vh; overflow-y: auto; scrollbar-width: thin; }
 @media (max-width: 1100px) { .tk-split { grid-template-columns: minmax(0, 1fr); } }
+
+/* Attivazioni: TC Lavoro sui Mac */
+.att-body { padding: 4px 16px 16px; display: grid; gap: 14px; }
+.att-testo { margin: 0; font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary); max-width: 760px; }
+.att-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.att-cmd { display: flex; gap: 10px; align-items: center; padding: 10px 10px 10px 16px; border-radius: 14px; background: var(--fill-hover); }
+.att-cmd code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 0.82rem; color: var(--text-primary); }
+.att-azioni { text-align: right; white-space: nowrap; }
+.att-azioni .ctrl-btn + .ctrl-btn { margin-left: 6px; }
