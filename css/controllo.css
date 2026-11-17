@@ -1041,7 +1041,7 @@ body.com-dragging, body.com-dragging * { cursor: grabbing !important; user-selec
 .tk-act:hover span:last-child { text-decoration: underline; text-underline-offset: 3px; }
 .tk-act:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .tk-act-icon { display: inline-grid; place-items: center; flex-shrink: 0; color: var(--text-secondary); }
-.tk-cliente { font-weight: 600; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tk-cliente { font-weight: 600; max-width: 190px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tk-date { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-weight: 600; }
 .tk-date svg { color: var(--text-muted); }
 .tk-date.is-late, .tk-date.is-late svg { color: #dc2626; }
@@ -1077,3 +1077,20 @@ html.dark .tk-now-icon { color: #fbbf24; }
   .tk-sort { margin-left: 0; }
   .tk-search { max-width: none; }
 }
+
+/* Tasks: dati secondari, risultati, selezione multipla */
+.tk-stat-sub { font-size: 0.74rem; color: var(--text-muted); line-height: 1.25; }
+.tk-load-bar em { display: flex; align-items: center; height: 100%; padding: 0 8px; font-size: 0.68rem; font-style: normal; color: var(--text-muted); }
+.tk-result { padding: 8px 16px; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); border-bottom: 1px solid var(--border-light, var(--border)); }
+.tk-bulk {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px;
+  background: color-mix(in srgb, var(--lq-yellow, #fbbf24) 16%, transparent); border-bottom: 1px solid var(--border-light, var(--border));
+  font-size: 0.84rem;
+}
+.tk-bulk select.filter-pill { max-width: 260px; background-color: var(--bg-secondary); }
+.tk-bulk-load { color: var(--text-secondary); }
+.tk-bulk-load b.is-over { color: #dc2626; }
+.tk-check { width: 36px; padding-right: 0 !important; }
+.tk-check input { width: 16px; height: 16px; accent-color: var(--brand-gold, #f59e0b); cursor: pointer; vertical-align: middle; }
+.tk-table tbody tr.is-sel td { background: color-mix(in srgb, var(--lq-yellow, #fbbf24) 10%, transparent); }
+.tk-inlista { display: block; margin-top: 3px; font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
