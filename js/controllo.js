@@ -1113,6 +1113,7 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
   const meta = [
     showStore && taskMacro(t.macroarea) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(t.macroarea).color};">${taskMacro(t.macroarea).label}</span>` : '',
     showOwner ? `<strong>${t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune'}</strong>` : '',
+    !t.assegnato_a && t.suggerito ? `<span class="task-suggerito">suggerito a ${escapeHtml(t.suggerito)}</span>` : '',
     showAuto && t.automazione_errore ? '<span class="task-late">automazione non riuscita</span>' : '',
     t.delega?.da ? `delegato da ${escapeHtml(t.delega.da)}` : '',
     // Il tipo solo se il titolo non lo dice già
@@ -1150,13 +1151,13 @@ function taskQuickActions(t, { fatto = true } = {}) {
     if (['completato', 'non_completato'].includes(t.stato)) return '';
     return `<select class="ctrl-assign" aria-label="Assegna il task" onchange="taskAssign('${t.id}', this.value)">
       <option value="">${t.assegnato_a ? 'Coda comune' : 'Assegna a…'}</option>
-      ${Ctrl.users.map(u => `<option value="${escapeHtml(u)}" ${t.assegnato_a === u ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('')}
+      ${Ctrl.users.map(u => `<option value="${escapeHtml(u)}" ${t.assegnato_a === u ? 'selected' : ''}>${escapeHtml(u)}${!t.assegnato_a && t.suggerito === u ? ' (suggerito)' : ''}</option>`).join('')}
     </select>`;
   }
   const btn = (stato, icon, label, cls = '') =>
     `<button class="ctrl-btn ${cls}" onclick="taskSetStato('${t.id}','${stato}')">${icon} <span>${label}</span></button>`;
   const primo = Ctrl._prossimo === t.id ? 'is-primary' : '';
-  const prendi = !t.assegnato_a ? `<button class="ctrl-btn" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
+  const prendi = !t.assegnato_a ? `<button class="ctrl-btn ${t.suggerito === Ctrl._me() ? 'is-primary' : ''}" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
   if (['completato', 'non_completato'].includes(t.stato)) return btn('da_fare', CtrlIcons.undo(), 'Riapri');
   // Prova dei tempi: sui lotti di lavorazione si misura il tempo con Inizia/Pausa
   const cronometro = !t.assegnato_a || !taskInProva(t) ? ''
