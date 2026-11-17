@@ -1142,7 +1142,7 @@ button.team-av { cursor: pointer; }
 button.team-av:focus-visible, .team-info:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .team-stato {
   position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center;
-  width: 16px; height: 16px; border-radius: 50%; color: #fff; border: 2px solid var(--bg-card, #fff);
+  width: 17px; height: 17px; border-radius: 50%; color: #fff; border: 0; box-shadow: 0 0 0 2px #fff;
 }
 .team-stato.is-ok { background: #22c55e; }
 .team-stato.is-no { background: #ef4444; }
