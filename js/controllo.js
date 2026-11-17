@@ -596,7 +596,7 @@ const taskCaricoTesto = (c) => `${ctrlFmtMin(c.min)}${c.cap ? ` / ${ctrlFmtMin(c
 // Titolo "Attività · Cliente · ordine #123": l'attività a sinistra, il cliente nella sua colonna
 function taskParti(t) {
   // Commit: il titolo intero è l'attività, il progetto sta nel cliente
-  if (t.fonte === 'github') return { attivita: t.titolo, cliente: t.analisi?.cliente?.nome || '', ordine: null };
+  if (['github', 'claude_code'].includes(t.fonte)) return { attivita: t.titolo, cliente: t.analisi?.cliente?.nome || '', ordine: null };
   const [primo, ...resto] = t.titolo.split(/\s+·\s+/);
   const altri = resto.filter(p => !/^ordine\s+#\d+$/i.test(p));
   return {
@@ -632,7 +632,7 @@ function taskAvatar(nick, size = 26) {
 
 // Icona dell'attività dal titolo
 function taskIcona(t) {
-  if (t.fonte === 'github') return TkIcons.code(17);
+  if (['github', 'claude_code'].includes(t.fonte)) return TkIcons.code(17);
   const s = t.titolo;
   if (/sped|consegn|rientro|giacenz|tracking|gls|fermo|ritir|pacc/i.test(s)) return Icons.truck(17);
   if (/stamp|dtf|uv\b|mimaki|laser|applicaz|lavoraz|ricam|serigraf/i.test(s)) return Icons.printer(17);
@@ -847,7 +847,7 @@ function renderTaskTable() {
     const ora = t.scadenza && ctrlFmtOra(t.scadenza) !== '00:00' ? ` ${ctrlFmtOra(t.scadenza)}` : '';
     const inLista = chiuso ? '' : taskInListaTesto(t);
     return `
-      <tr class="${t.stato === 'completato' && t.fonte !== 'github' ? 'is-done' : ''} ${v.sel.has(t.id) ? 'is-sel' : ''}">
+      <tr class="${t.stato === 'completato' && !['github', 'claude_code'].includes(t.fonte) ? 'is-done' : ''} ${v.sel.has(t.id) ? 'is-sel' : ''}">
         <td class="tk-check">${chiuso ? '' : `<input type="checkbox" ${v.sel.has(t.id) ? 'checked' : ''} onchange="taskToggleSel('${t.id}', this.checked)" aria-label="Seleziona ${escapeHtml(t.titolo)}">`}</td>
         <td>${prioTag(t)}</td>
         <td><button type="button" class="tk-act" onclick="openTaskDetail('${t.id}')" title="${escapeHtml(t.titolo)}">
@@ -858,7 +858,7 @@ function renderTaskTable() {
           ${dist && !chiuso ? `<span class="tk-delta ${dist.passato ? 'is-late' : ''}">${taskDistanzaTesto(dist)}</span>` : ''}`
           : chiuso ? '' : '<span class="tk-none">Nessuna</span>'}
           ${inLista ? `<small class="tk-inlista">${inLista}</small>` : ''}
-          ${chiuso && t.completato_at ? `<small class="tk-inlista">${t.fonte === 'github' ? 'commit' : 'fatto'} ${ctrlGiornoDi(t.completato_at) === ctrlOggi() ? 'alle' : `il ${taskDataBreve(ctrlGiornoDi(t.completato_at))},`} ${ctrlFmtOra(t.completato_at)}</small>` : ''}</td>
+          ${chiuso && t.completato_at ? `<small class="tk-inlista">${t.fonte === 'github' ? 'commit' : t.fonte === 'claude_code' ? 'sessione fino' : 'fatto'} ${ctrlGiornoDi(t.completato_at) === ctrlOggi() ? 'alle' : `il ${taskDataBreve(ctrlGiornoDi(t.completato_at))},`} ${ctrlFmtOra(t.completato_at)}</small>` : ''}</td>
         <td>${taskChiSelect(t)}</td>
         <td class="tk-num">${t.minuti_stimati ? ctrlFmtMin(t.minuti_stimati) : '<span class="tk-none">—</span>'}</td>
         <td>${statoTag(t)}</td>
