@@ -699,10 +699,7 @@ function renderControlAdminTasks() {
         </span>
       </div>
     </div>
-    <div class="tk-duo">
-      ${renderTaskSubito(urgenti)}
-      ${renderTeamLoad()}
-    </div>
+    <div class="tk-duo tk-solo">${renderTaskSubito(urgenti)}</div>
     ${renderTaskBoard()}`;
 }
 
@@ -742,46 +739,41 @@ function renderTaskSubito(urgenti) {
 }
 
 // Ore stimate dei task aperti di ogni persona sulle sue ore del giorno
-function renderTeamLoad() {
-  const righe = Ctrl.users.map(nick => ({ nick, ...taskCarico(nick) }))
-    .sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1) || b.min - a.min || a.nick.localeCompare(b.nick));
-  const tono = (p) => p >= 90 ? '#ef4444' : p >= 75 ? '#f97316' : p >= 50 ? '#f59e0b' : '#22c55e';
-  return `
-    <section class="glass-card page-card tk-panel">
-      <header class="tk-panel-head">
-        <span class="tk-panel-icon" style="--t:#6366f1;">${Icons.users(22)}</span>
-        <div><h2>Carico del team</h2><p>Ore stimate dei task aperti sulle ore della giornata del piano. Clic su una persona per vedere tutti i suoi task.</p></div>
-      </header>
-      <ul class="tk-load-list">
-        ${righe.map(r => `
-          <li><button type="button" class="tk-load ${TaskView.chi === r.nick && TaskView.tab === 'tutti' ? 'is-on' : ''}" aria-pressed="${TaskView.chi === r.nick && TaskView.tab === 'tutti'}" onclick="taskPersona('${escapeHtml(r.nick)}')" aria-label="Tutti i task di ${escapeHtml(r.nick)}">
-            ${taskAvatar(r.nick, 28)}
-            <strong class="tk-load-nome">${escapeHtml(r.nick)}${Ctrl.assenti.has(r.nick) && r.nick !== 'claude' ? ' <span class="ctrl-preview-off">Assente</span>' : ''}</strong>
-            <span class="tk-load-n">${r.n} task</span>
-            <span class="tk-load-bar" role="progressbar" aria-valuenow="${r.pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Carico">
-              ${r.min && r.cap ? `<span style="width:${Math.min(100, Math.max(r.pct, 12))}%;--t:${tono(r.pct)};">${r.pct}%</span>` : ''}${r.min && !r.cap ? '<em>ore non impostate</em>' : ''}</span>
-            <span class="tk-load-ore">${r.min ? ctrlFmtMin(r.min) : '0′'}${r.cap ? ` <small>/ ${ctrlFmtMin(r.cap)}</small>` : ''}</span>
-          </button></li>`).join('')}
-      </ul>
-    </section>`;
-}
-
-// Presenze (admin e addetti): i nomi del team, grigio da confermare, verde presente, rosso assente.
-// Un clic passa al colore dopo: grigio → verde → rosso → grigio.
+// Team di oggi (admin e addetti): una box per persona col nome colorato dalla presenza
+// (grigio da confermare, verde presente, rosso assente; un clic passa al colore dopo)
+// e sotto il carico: task aperti e ore stimate sulle ore del piano (clic: i suoi task, solo admin).
 function renderPresenzeOggi() {
-  const s = Presenze.stato;
-  if (!s?.addetto || Ctrl.giorno !== ctrlOggi() || !s.tutti?.length) return '';
-  const stato = (p) => p.stato === 'presente' ? 'is-presente' : p.stato === 'assente' || p.assente ? 'is-assente' : '';
-  const titolo = (p) => p.assente && !p.stato ? 'Assente nel Planner'
-    : p.stato ? `${p.stato === 'presente' ? 'Presente' : 'Assente'} · ${ctrlFmtOra(p.confermato_at)}${p.confermato_da !== p.nickname ? ` · ${p.confermato_da}` : ''}`
-    : `Da confermare · entrata ${p.ora_inizio}`;
+  const s = Presenze.stato, admin = TCAuth.isAdmin();
+  if (!admin && !s?.addetto) return '';
+  const oggi = Ctrl.giorno === ctrlOggi();
+  const pres = Object.fromEntries((oggi && s?.addetto ? s.tutti || [] : []).map(p => [p.nickname, p]));
+  const persone = admin ? Ctrl.users : Object.keys(pres);
+  if (!persone.length) return '';
+  const tono = (p) => p >= 90 ? '#ef4444' : p >= 75 ? '#f97316' : p >= 50 ? '#f59e0b' : '#22c55e';
+  const classe = (p) => !p ? 'is-libero' : p.stato === 'presente' ? 'is-presente' : p.stato === 'assente' || p.assente ? 'is-assente' : '';
+  const titolo = (p) => !p ? 'Senza orario di entrata' : p.assente && !p.stato ? 'Assente nel Planner'
+    : p.stato ? `${p.stato === 'presente' ? 'Presente' : 'Assente'} dalle ${ctrlFmtOra(p.confermato_at)}${p.confermato_da !== p.nickname ? `, confermato da ${p.confermato_da}` : ''}`
+    : `Da confermare, entrata alle ${p.ora_inizio}`;
+  const card = (nick) => {
+    const p = pres[nick], c = taskCarico(nick);
+    const nome = `<span class="team-nome-testo">${escapeHtml(nick)}</span><small>${escapeHtml(titolo(p))}</small>`;
+    const carico = `
+      <span class="team-carico-riga"><span>${c.n} task</span><strong>${c.min ? ctrlFmtMin(c.min) : '0′'}${c.cap ? ` <small>/ ${ctrlFmtMin(c.cap)}</small>` : ''}</strong></span>
+      <span class="tk-load-bar" role="progressbar" aria-valuenow="${c.pct ?? 0}" aria-valuemin="0" aria-valuemax="100" aria-label="Carico di ${escapeHtml(nick)}">
+        ${c.min && c.cap ? `<span style="width:${Math.min(100, Math.max(c.pct, 12))}%;--t:${tono(c.pct)};">${c.pct}%</span>` : ''}</span>`;
+    return `
+      <div class="team-card ${classe(p)}">
+        ${p ? `<button type="button" class="team-nome" title="${escapeHtml(titolo(p))}" onclick="Presenze.ciclo('${escapeHtml(nick)}')">${nome}</button>`
+            : `<div class="team-nome">${nome}</div>`}
+        ${admin ? `<button type="button" class="team-carico ${TaskView.chi === nick && TaskView.tab === 'tutti' ? 'is-on' : ''}" onclick="taskPersona('${escapeHtml(nick)}')" aria-label="Tutti i task di ${escapeHtml(nick)}">${carico}</button>`
+                : `<div class="team-carico">${carico}</div>`}
+      </div>`;
+  };
   return `
-    <section class="glass-card page-card pres-box" aria-label="Presenze di oggi">
-      ${!s.reti ? `<div class="pres-avviso"><span>Nessuna rete del posto di lavoro registrata: non si possono confermare le presenze.</span>
-        ${TCAuth.isAdmin() ? `<button type="button" class="ctrl-btn is-primary" onclick="addRetePresenze()">${Icons.plus(14)} Aggiungi la rete di questo dispositivo</button>` : ''}</div>` : ''}
-      <div class="pres-nomi">${s.tutti.map(p => `
-        <button type="button" class="pres-btn ${stato(p)}" title="${escapeHtml(titolo(p))}" aria-label="${escapeHtml(p.nickname)}: ${escapeHtml(titolo(p))}"
-          onclick="Presenze.ciclo('${escapeHtml(p.nickname)}')">${escapeHtml(p.nickname)}</button>`).join('')}</div>
+    <section class="glass-card page-card pres-box" aria-label="Team di oggi">
+      ${s?.addetto && oggi && !s.reti ? `<div class="pres-avviso"><span>Nessuna rete del posto di lavoro registrata: non si possono confermare le presenze.</span>
+        ${admin ? `<button type="button" class="ctrl-btn is-primary" onclick="addRetePresenze()">${Icons.plus(14)} Aggiungi la rete di questo dispositivo</button>` : ''}</div>` : ''}
+      <div class="team-grid">${persone.map(card).join('')}</div>
     </section>`;
 }
 
