@@ -1,6 +1,20 @@
-# T&C Factory — Parte comune dell'installatore di TC Lavoro (la prima parte la scrive crea-installatore.sh:
-# CHIAVE, URL, ANON e il programma in /tmp/tc-lavoro.js). Si può rilanciare: reinstalla e riparte.
+#!/bin/zsh
+# T&C Factory — Installatore di TC Lavoro (tempo sui file dei clienti → task nel gestionale).
+#
+# Il comando lo dà il gestionale (Centro di controllo → Attivazioni), con la chiave del Mac:
+#   curl -fsSL https://cs.pngs.it/mac/installa.zsh | zsh -s <chiave>
+# Scarica tc-lavoro.js dal sito, lo compila in ~/Applications/TC Lavoro.app e lo fa partire
+# a ogni accensione. Si può rilanciare: reinstalla e riparte.
 set -e
+CHIAVE="$1"
+[[ "$CHIAVE" =~ '^[0-9a-f]{32,}$' ]] || { echo "Manca la chiave: copia il comando dal gestionale (Centro di controllo → Attivazioni)."; exit 1; }
+SITO="https://cs.pngs.it"
+CONFIG_JS=$(curl -fsSL "$SITO/js/supabase-config.js")
+URL=$(print -r -- "$CONFIG_JS" | sed -n "s/^const SUPABASE_URL = '\(.*\)';/\1/p")
+ANON=$(print -r -- "$CONFIG_JS" | sed -n "s/^const SUPABASE_ANON_KEY = '\(.*\)';/\1/p")
+[[ -n "$URL" && -n "$ANON" ]] || { echo "Non riesco a leggere la configurazione dal sito."; exit 1; }
+JS="${TMPDIR:-/tmp}/tc-lavoro-$$.js"
+curl -fsSL "$SITO/mac/tc-lavoro.js" -o "$JS"
 APP="$HOME/Applications/TC Lavoro.app"
 CONF="$HOME/Library/Application Support/TC Lavoro"
 AGENTE="$HOME/Library/LaunchAgents/it.tcfactory.lavoro.plist"
@@ -14,8 +28,8 @@ printf '{"chiave":"%s","url":"%s","anon":"%s"}\n' "$CHIAVE" "$URL" "$ANON" > "$C
 chmod 600 "$CONF/config.json"
 
 rm -rf "$APP"
-osacompile -l JavaScript -s -o "$APP" /tmp/tc-lavoro.js
-rm -f /tmp/tc-lavoro.js
+osacompile -l JavaScript -s -o "$APP" "$JS"
+rm -f "$JS"
 P="$APP/Contents/Info.plist"
 plutil -replace LSUIElement -bool true "$P"
 plutil -replace CFBundleIdentifier -string it.tcfactory.lavoro "$P"

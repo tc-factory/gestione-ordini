@@ -6,3 +6,5 @@ COPY index.html dashboard.html privacy.html cliente-dtf.html /srv/
 COPY css /srv/css
 COPY js /srv/js
 COPY img /srv/img
+# Installatore di TC Lavoro per i Mac (Centro di controllo → Attivazioni)
+COPY automazioni/lavoro-file/installa.zsh automazioni/lavoro-file/tc-lavoro.js /srv/mac/

@@ -80,3 +80,26 @@ end;
 $$;
 revoke execute on function tc_registra_lavoro_file(text, jsonb) from public;
 grant execute on function tc_registra_lavoro_file(text, jsonb) to anon, authenticated;
+
+-- Attivazioni dal gestionale (Centro di controllo → Attivazioni): solo admin
+create or replace function tc_lavoro_attiva(p_utente text, p_nome text)
+returns text security definer set search_path = public language plpgsql as $$
+declare v_chiave text := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
+begin
+  if not app_is_admin() then raise exception 'Solo gli admin collegano i Mac'; end if;
+  insert into lavoro_dispositivi (chiave, utente, nome) values (v_chiave, p_utente, left(coalesce(nullif(trim(p_nome), ''), 'Mac di ' || p_utente), 80));
+  return v_chiave;
+end;
+$$;
+revoke execute on function tc_lavoro_attiva(text, text) from public, anon;
+grant execute on function tc_lavoro_attiva(text, text) to authenticated;
+
+create or replace function tc_lavoro_rimuovi(p_chiave text)
+returns void security definer set search_path = public language plpgsql as $$
+begin
+  if not app_is_admin() then raise exception 'Solo gli admin scollegano i Mac'; end if;
+  delete from lavoro_dispositivi where chiave = p_chiave;
+end;
+$$;
+revoke execute on function tc_lavoro_rimuovi(text) from public, anon;
+grant execute on function tc_lavoro_rimuovi(text) to authenticated;

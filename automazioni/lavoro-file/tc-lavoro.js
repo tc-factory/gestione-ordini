@@ -1,6 +1,6 @@
 // T&C Factory — TC Lavoro: tempo passato sui file dei clienti (NAS e locale) → task nel gestionale.
 //
-// App "stay-open" (JavaScript for Automation) compilata da installa.command, senza icona nel Dock.
+// App "stay-open" (JavaScript for Automation) compilata da installa.zsh, senza icona nel Dock.
 // Ogni 20 secondi: quale app è davanti, quale documento ha aperto, se la persona è attiva
 // (mouse/tastiera usati negli ultimi 3 minuti). Il tempo attivo si somma al cliente del file.
 // Ogni 5 minuti manda i totali del giorno a tc_registra_lavoro_file (sql/task-lavoro-file.sql).

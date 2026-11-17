@@ -437,6 +437,7 @@ function loadControlExtras() {
   if (Ctrl.view === 'cervello' && CtrlBrain.sez === 'tempi') loadTempiLavorazione();
   if (Ctrl.view === 'report') loadControlReport();
   if (Ctrl.view === 'automazioni') loadControlAutomations();
+  if (Ctrl.view === 'attivazioni') loadControlAttivazioni();
 }
 
 async function setControlDay(iso) {
@@ -462,7 +463,7 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = inTasks ? [] : [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report']];
+  const tabs = inTasks ? [] : [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report'], ['attivazioni', 'Attivazioni']];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
@@ -471,6 +472,7 @@ function renderControlPage() {
     : Ctrl.view === 'automazioni' ? renderControlAutomations()
     : Ctrl.view === 'competenze' ? renderControlSkills()
     : Ctrl.view === 'report' ? renderControlReport()
+    : Ctrl.view === 'attivazioni' ? renderControlAttivazioni()
     : renderControlMyDay();
 
   root.innerHTML = `
@@ -4293,3 +4295,82 @@ function renderControlReport() {
       </div>
     </section>`;
 }
+
+// ── Attivazioni: TC Lavoro sui Mac (tempo sui file dei clienti → task "Lavorazione grafica") ──
+// L'admin, dal Mac da collegare, sceglie la persona: il gestionale crea la chiave e dà il comando da incollare nel Terminale.
+const CtrlAtt = { lista: null, error: null, persona: '', nuova: null };
+const ATT_COMANDO = (chiave) => `curl -fsSL https://cs.pngs.it/mac/installa.zsh | zsh -s ${chiave}`;
+
+async function loadControlAttivazioni() {
+  const { data, error } = await supabaseClient.from('lavoro_dispositivi').select('*').order('utente').order('created_at');
+  CtrlAtt.lista = data || [];
+  CtrlAtt.error = error || null;
+  refreshControlPage();
+}
+
+async function attivaMac() {
+  const chi = CtrlAtt.persona;
+  if (!chi) return showToast('Scegli la persona che usa questo Mac', 'error');
+  const giaN = (CtrlAtt.lista || []).filter(d => d.utente === chi).length;
+  const nome = `Mac di ${chi.charAt(0).toUpperCase()}${chi.slice(1)}${giaN ? ` (${giaN + 1})` : ''}`;
+  const { data, error } = await supabaseClient.rpc('tc_lavoro_attiva', { p_utente: chi, p_nome: nome });
+  if (error) return showToast(error.message, 'error');
+  CtrlAtt.nuova = data;
+  await loadControlAttivazioni();
+  ctrlCopia(ATT_COMANDO(data), 'Comando copiato: incollalo nel Terminale di questo Mac');
+}
+
+async function rimuoviMac(chiave, nome) {
+  if (!(await uiConfirm(`Scollegare ${nome}? Il tempo già registrato resta nei task; da quel Mac non arriva più niente.`, { ok: 'Scollega', danger: true }))) return;
+  const { error } = await supabaseClient.rpc('tc_lavoro_rimuovi', { p_chiave: chiave });
+  if (error) return showToast(error.message, 'error');
+  if (CtrlAtt.nuova === chiave) CtrlAtt.nuova = null;
+  loadControlAttivazioni();
+}
+
+function renderControlAttivazioni() {
+  if (CtrlAtt.error) return `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(CtrlAtt.error.message)}</div></div>`;
+  if (!CtrlAtt.lista) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
+  const persone = (Ctrl.users || []).filter(u => u !== 'claude');
+  const contatto = (d) => !d.ultimo_contatto ? 'Mai: non ancora installato'
+    : `${ctrlGiornoDi(d.ultimo_contatto) === ctrlOggi() ? 'Oggi' : taskDataBreve(ctrlGiornoDi(d.ultimo_contatto))}, ${ctrlFmtOra(d.ultimo_contatto)}`;
+  const comando = (chiave) => `
+    <div class="att-cmd">
+      <code>${escapeHtml(ATT_COMANDO(chiave))}</code>
+      <button type="button" class="ctrl-btn is-primary" onclick="ctrlCopia(ATT_COMANDO('${chiave}'), 'Comando copiato')">Copia</button>
+    </div>`;
+
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>TC Lavoro sui Mac</h2><span class="ctrl-group-hint">Tempo sui file dei clienti, NAS e locale</span></div>
+      <div class="att-body">
+        <p class="att-testo">Apri questa pagina dal Mac da collegare, scegli chi lo usa e premi Attiva. Il comando viene copiato:
+          aprilo nel <strong>Terminale</strong> (Applicazioni ▸ Utility), incolla e premi Invio. Poi in Impostazioni ▸ Privacy e sicurezza ▸
+          Accessibilità attiva <strong>TC Lavoro</strong>, e quando Illustrator, Photoshop o InDesign lo chiedono rispondi Consenti.</p>
+        <div class="att-form">
+          <select class="filter-pill" aria-label="Chi usa questo Mac" onchange="CtrlAtt.persona=this.value">
+            <option value="">Chi usa questo Mac?</option>
+            ${persone.map(u => `<option value="${escapeHtml(u)}" ${CtrlAtt.persona === u ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('')}
+          </select>
+          <button type="button" class="ctrl-btn is-primary" onclick="attivaMac()">Attiva questo Mac</button>
+        </div>
+        ${CtrlAtt.nuova ? comando(CtrlAtt.nuova) : ''}
+      </div>
+    </section>
+
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Mac collegati</h2></div>
+      ${CtrlAtt.lista.length ? `<div class="table-scroll"><table class="data-table">
+        <thead><tr><th>Persona</th><th>Mac</th><th>Ultimo invio</th><th></th></tr></thead>
+        <tbody>${CtrlAtt.lista.map(d => `<tr>
+          <td><strong>${escapeHtml(d.utente)}</strong></td>
+          <td>${escapeHtml(d.nome)}</td>
+          <td>${contatto(d)}</td>
+          <td class="att-azioni">
+            <button type="button" class="ctrl-btn" onclick="ctrlCopia(ATT_COMANDO('${d.chiave}'), 'Comando copiato: incollalo nel Terminale del Mac')">Copia comando</button>
+            <button type="button" class="ctrl-btn" onclick="rimuoviMac('${d.chiave}', '${escapeHtml(d.nome).replace(/'/g, '&#39;')}')">Scollega</button>
+          </td></tr>`).join('')}</tbody>
+      </table></div>` : `<div class="empty-list">Nessun Mac collegato.</div>`}
+    </section>`;
+}
+
