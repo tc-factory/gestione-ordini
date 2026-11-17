@@ -86,6 +86,7 @@ const TASK_COMPETENZE = [
   { id: 'check_serigrafia',  label: 'Check Serigrafia' },
   { id: 'check_manifattura', label: 'Check Manifattura' },
   { id: 'check_arti',        label: 'Check Arti grafiche' },
+  { id: 'claude_code',       label: 'Lavorazioni con Claude Code (Creative System, Live Printing, Kamon)' },
 ];
 const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'bonifico', 'ddt', 'preparazione', 'lavorazione', 'spedizione', 'post_spedizione'];
 const COMPETENZE_NUOVO_PRODOTTO = ['np_bozza', 'np_mockup', 'np_stampa', 'np_shopify', 'np_customily', 'np_check'];
@@ -108,6 +109,7 @@ const TASK_AREE = [
     'fatturazione', 'check_pagamento',
   ] },
   { id: 'automazioni', label: 'Automazioni', color: '#111827', competenze: ['verifica'] },
+  { id: 'sviluppo', label: 'Sviluppo', color: '#d97757', competenze: ['claude_code'] },
 ];
 const TASK_ESCLUSI = new Set(['tcfactory', 'andrea']);
 const competenzaLabel = (id) => TASK_COMPETENZE.find(c => c.id === id)?.label || id;
@@ -3449,7 +3451,7 @@ function renderControlSkills() {
   const riga = (a, c) => {
     const voce = `${a.id}:${c}`;
     // Claude non verifica sé stesso
-    const persone = a.id === 'automazioni' ? Ctrl.users.filter(nick => nick !== 'claude') : Ctrl.users;
+    const persone = ['automazioni', 'sviluppo'].includes(a.id) ? Ctrl.users.filter(nick => nick !== 'claude') : Ctrl.users;
     return `<tr class="${Ctrl.responsabili[voce]?.primario === 'claude' ? 'is-auto' : ''}">
       <th scope="row"><strong>${a.etichette?.[c] || competenzaLabel(c)}</strong><span class="ctrl-auto-tag">${Icons.zap(11)} Automazione</span></th>
       <td><div class="ctrl-skill-people">${persone.map(nick => pulsante(voce, nick)).join('') || '<span class="ctrl-cell-sub">Nessuno nel team</span>'}</div></td></tr>`;
