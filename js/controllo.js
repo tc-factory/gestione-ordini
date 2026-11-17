@@ -178,7 +178,6 @@ const Ctrl = {
   responsabili: {},      // voce "area:competenza" → { primario, secondario }
   assenti: new Set(),    // chi è in ferie o a un evento nel giorno scelto
   problemi: [],          // collegamenti con problemi, in cima alla pagina (solo admin)
-  soloUrgenti: false,    // lista dei task urgenti al posto della coda
   persona: null,         // admin: tutti i task di questa persona al posto della pagina
   punteggi: {},          // operatore → punteggio del giorno mostrato
   punteggi7: {},         // operatore → punteggio degli ultimi 7 giorni
@@ -554,79 +553,316 @@ function renderControlMyDay(persona = null) {
       </details>` : ''}`;
 }
 
-// L'admin non ha task suoi: vede la coda e la assegna
+// ── Tasks (admin): panoramica di produzione ──
+// L'admin non ha task suoi: numeri del giorno, cosa gestire subito, carico del team e la tabella di tutti i task
+
+const TASK_TABS = [
+  ['coda', 'Coda di lavorazione'], ['oggi', 'Oggi'], ['ritardo', 'In ritardo'], ['assegnare', 'Da assegnare'], ['chiusi', 'Completati'],
+];
+const TASK_PAGINA = 50;
+const TaskView = { tab: 'coda', brand: '', tipo: '', chi: '', prio: '', q: '', ordina: 'scadenza', limite: TASK_PAGINA };
+
+const TkIcons = {
+  alert: (s = 22) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.7 3.86a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  user: (s = 22) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>`,
+  list: (s = 18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>`,
+  layers: (s = 22) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
+  arrow: (s = 15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`,
+};
+
+const taskChiuso = (t) => ['completato', 'non_completato'].includes(t.stato);
+// Giorno di riferimento: la scadenza, altrimenti il giorno del task
+const taskGiornoRif = (t) => t.scadenza ? ctrlGiornoDi(t.scadenza) : t.giorno;
+
+// Titolo "Attività · Cliente · ordine #123": l'attività a sinistra, il cliente nella sua colonna
+function taskParti(t) {
+  const [primo, ...resto] = t.titolo.split(/\s+·\s+/);
+  const altri = resto.filter(p => !/^ordine\s+#\d+$/i.test(p));
+  return {
+    attivita: resto.length ? primo : t.titolo,
+    cliente: t.analisi?.cliente?.nome || altri.join(' · '),
+    ordine: taskOrdine(t),
+  };
+}
+
+// Giorni tra oggi e il giorno del task: totali e lavorativi
+function taskDistanza(iso) {
+  const oggi = ctrlOggi();
+  if (iso === oggi) return null;
+  const passato = iso < oggi;
+  let d = passato ? iso : oggi;
+  const fine = passato ? oggi : iso;
+  let tot = 0, lav = 0;
+  while (d < fine && tot < 400) { d = ctrlAddDays(d, 1); tot++; if (ctrlLavorativo(d)) lav++; }
+  return { passato, tot, lav };
+}
+const taskDistanzaTesto = ({ passato, tot, lav }) =>
+  `${passato ? '−' : '+'}${tot} ${tot === 1 ? 'giorno' : 'giorni'}${lav !== tot ? ` (${lav} lav.)` : ''}`;
+
+const taskDataBreve = (iso) => iso === ctrlOggi() ? 'Oggi'
+  : new Date(iso + 'T12:00:00Z').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+
+// Iniziale e colore fisso di ogni persona
+const TK_AV_COLORI = ['#f59e0b', '#8b5cf6', '#22c55e', '#3b82f6', '#ec4899', '#14b8a6', '#ef4444', '#6366f1'];
+function taskAvatar(nick, size = 26) {
+  const n = [...nick].reduce((h, c) => h + c.charCodeAt(0), 0);
+  return `<span class="tk-av" style="--a:${TK_AV_COLORI[n % TK_AV_COLORI.length]};width:${size}px;height:${size}px;" aria-hidden="true">${escapeHtml(nick.slice(0, 1).toUpperCase())}</span>`;
+}
+
+// Icona dell'attività dal titolo
+function taskIcona(t) {
+  const s = t.titolo;
+  if (/sped|consegn|rientro|giacenz|tracking|gls|fermo|ritir|pacc/i.test(s)) return Icons.truck(17);
+  if (/stamp|dtf|uv\b|mimaki|laser|applicaz|lavoraz|ricam|serigraf/i.test(s)) return Icons.printer(17);
+  if (/mail|chiama|rispond|messagg|whatsapp|cliente/i.test(s)) return Icons.mail(17);
+  if (/ordinar|merce|fornitor|scorte|controllo|confezion/i.test(s)) return Icons.package(17);
+  return TkIcons.layers(17);
+}
+
+// Persona assegnata: avatar e nome, con la scelta per riassegnare
+function taskChiSelect(t, { compatto = false } = {}) {
+  const chi = t.assegnato_a;
+  if (taskChiuso(t)) return chi ? `<span class="tk-who">${taskAvatar(chi, 22)}<span>${escapeHtml(chi)}</span></span>` : '<span class="tk-none">—</span>';
+  return `
+    <label class="tk-who tk-who-pick ${compatto ? 'is-pill' : ''}">
+      ${chi ? taskAvatar(chi, 22) : `<span class="tk-av is-empty" aria-hidden="true">${TkIcons.user(13)}</span>`}
+      <select aria-label="Assegna ${escapeHtml(t.titolo)}" onchange="taskAssign('${t.id}', this.value)">
+        <option value="">${chi ? 'Coda comune' : 'Da assegnare'}</option>
+        ${Ctrl.users.map(u => `<option value="${escapeHtml(u)}" ${chi === u ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('')}
+      </select>
+    </label>`;
+}
+
 function renderControlAdminTasks() {
   if (Ctrl.persona && Ctrl.users.includes(Ctrl.persona)) return renderControlMyDay(Ctrl.persona);
   const d = Ctrl.giorno;
-  const aperti = Ctrl.tasks.filter(t => TASK_APERTI.includes(t.stato) || t.stato === 'bloccato');
-  const coda = Ctrl.tasks.filter(t => !t.assegnato_a && !['completato', 'non_completato'].includes(t.stato));
-  const chiusi = Ctrl.tasks.filter(t => t.giorno === d && ['completato', 'non_completato'].includes(t.stato));
-  const stat = (label, value, sub = '') => `
-    <div class="glass-card stat-card"><div class="stat-card-label">${label}</div>
-      <div class="stat-card-value">${value}</div>${sub ? `<div class="ctrl-stat-sub">${sub}</div>` : ''}</div>`;
+  const aperti = Ctrl.tasks.filter(t => !taskChiuso(t));
   const urgenti = aperti.filter(t => t.priorita === 'urgente');
-  // I task assegnati rimasti indietro: arretrati dei giorni prima o scadenza passata
-  const inRitardo = Ctrl.tasks.filter(t => t.assegnato_a && (t.giorno < d
-    || (t.scadenza && TASK_APERTI.includes(t.stato) && new Date(t.scadenza) < new Date())));
+  const inRitardo = aperti.filter(taskInRitardo);
+  const coda = aperti.filter(t => !t.assegnato_a);
+  const delGiorno = Ctrl.tasks.filter(t => t.giorno === d);
+  const fatti = delGiorno.filter(t => t.stato === 'completato').length;
+  const pct = delGiorno.length ? Math.round(fatti / delGiorno.length * 100) : 0;
+
+  const stat = (icon, tono, value, label, extra = '', onclick = '') => `
+    <${onclick ? `button type="button" onclick="${onclick}"` : 'div'} class="glass-card tk-stat ${onclick ? 'is-link' : ''}" style="--t:${tono};">
+      <span class="tk-stat-icon">${icon}</span>
+      <span class="tk-stat-text"><strong>${value}</strong><span>${label}</span>${extra}</span>
+    </${onclick ? 'button' : 'div'}>`;
+
   return `
-    <div class="stat-grid ctrl-stats">
-      ${stat('Task aperti', aperti.length, `${coda.length} da assegnare`)}
-      <button type="button" class="glass-card stat-card ctrl-stat-link ${Ctrl.soloUrgenti ? 'is-on' : ''}" aria-pressed="${Ctrl.soloUrgenti}" onclick="toggleUrgentTasks()">
-        <div class="stat-card-label">Urgenti</div>
-        <div class="stat-card-value" style="color:${urgenti.length ? '#dc2626' : 'inherit'};">${urgenti.length}</div>
-        <div class="ctrl-stat-sub">${Ctrl.soloUrgenti ? 'Torna alla coda' : 'Vedi la lista'}</div>
-      </button>
-      ${stat('Arretrati', aperti.filter(t => t.giorno < d).length, 'dai giorni prima')}
-      ${stat('Chiusi', chiusi.length, ctrlFmtGiorno(d).toLowerCase())}
+    <div class="tk-stats">
+      ${stat(TkIcons.layers(22), '#3b82f6', aperti.length, 'Task aperti', '', `taskVaiA('coda')`)}
+      ${stat(TkIcons.alert(), '#ef4444', urgenti.length, 'Urgenti', urgenti.length ? '<em class="tk-stat-tag">Azioni immediate</em>' : '', `taskVaiA('coda', 'urgente')`)}
+      ${stat(Icons.calendarDays(22), '#f97316', inRitardo.length, 'In ritardo', '', `taskVaiA('ritardo')`)}
+      ${stat(TkIcons.user(), '#6366f1', coda.length, 'Da assegnare', '', `taskVaiA('assegnare')`)}
+      <div class="glass-card tk-stat tk-progress-card">
+        <span class="tk-ring" style="--p:${pct};" role="img" aria-label="${pct}% dei task del giorno completati"><b>${pct}%</b></span>
+        <span class="tk-stat-text">
+          <strong class="tk-small-title">Avanzamento ${ctrlFmtGiorno(d).toLowerCase()}</strong>
+          <span>${fatti}/${delGiorno.length} task completati</span>
+          <span class="ctrl-progress tk-bar"><span style="width:${pct}%"></span></span>
+        </span>
+      </div>
     </div>
-    ${renderTeamPreview()}
-    ${Ctrl.soloUrgenti ? taskGroupOwner('Task urgenti', urgenti, 'Nessun task urgente.') : renderTaskQueue(coda, 'Nessun task in coda.')}
-    ${Ctrl.soloUrgenti ? '' : taskGroupOwner('In ritardo', inRitardo, '', 'Arretrati dei giorni prima o scadenza passata')}`;
+    <div class="tk-duo">
+      ${renderTaskSubito(urgenti)}
+      ${renderTeamLoad()}
+    </div>
+    ${renderTaskBoard()}`;
 }
 
-// Anteprima dei task del giorno di ogni persona: i primi in vista, gli altri a richiesta
-const TEAM_PREVIEW_MAX = 5;
-
-function renderTeamPreview() {
-  const d = Ctrl.giorno;
-  const riga = (t) => `
-    <li><button type="button" class="ctrl-preview-task" onclick="event.stopPropagation();openTaskDetail('${t.id}')">
-      <i class="${t.stato === 'in_lavorazione' ? 'ctrl-live' : ''}" style="background:${taskStato(t.stato).color};" aria-hidden="true"></i>
-      <span>${escapeHtml(t.titolo)}</span>
-      ${t.giorno < d ? '<small class="task-late">arretrato</small>' : t.priorita === 'urgente' ? '<small class="task-late">urgente</small>' : ''}
-    </button></li>`;
-  const card = (nick) => {
-    const suoi = Ctrl.tasks.filter(t => t.assegnato_a === nick);
-    const delGiorno = suoi.filter(t => t.giorno === d);
-    const aperti = sortTasks(suoi.filter(t => !['completato', 'non_completato'].includes(t.stato)));
-    const fatti = delGiorno.filter(t => t.stato === 'completato').length;
-    const totale = fatti + aperti.length;
-    const pct = totale ? Math.round(fatti / totale * 100) : 0;
-    const minuti = aperti.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
+// I task urgenti, i più vecchi prima
+function renderTaskSubito(urgenti) {
+  const lista = urgenti.slice().sort((a, b) => taskGiornoRif(a).localeCompare(taskGiornoRif(b)) || a.created_at.localeCompare(b.created_at));
+  const riga = (t) => {
+    const { attivita, cliente } = taskParti(t);
+    const g = taskGiornoRif(t), dist = taskDistanza(g), scaduto = dist?.passato;
+    const inLista = t.giorno < ctrlOggi() ? taskDistanza(t.giorno) : null;
+    const sotto = [
+      scaduto ? `Scaduto il ${taskDataBreve(g)}` : g === ctrlOggi() ? 'Scade oggi' : `Scade il ${taskDataBreve(g)}`,
+      inLista ? `in lista da ${inLista.tot} ${inLista.tot === 1 ? 'giorno' : 'giorni'}${inLista.lav !== inLista.tot ? ` (${inLista.lav} lav.)` : ''}` : '',
+    ].filter(Boolean).join(' · ');
     return `
-      <article class="glass-card ctrl-person ctrl-preview is-link" onclick="openPersonTasks('${escapeHtml(nick)}')">
-        <header>
-          <h3><button type="button" class="ctrl-preview-nome" onclick="event.stopPropagation();openPersonTasks('${escapeHtml(nick)}')" aria-label="Tutti i task di ${escapeHtml(nick)}">${escapeHtml(nick)}</button></h3>
-          ${Ctrl.assenti.has(nick) && nick !== 'claude' ? '<span class="ctrl-preview-off">Assente</span>' : ''}
-        </header>
-        <div class="ctrl-progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Task completati"><span style="width:${pct}%"></span></div>
-        <div class="ctrl-person-meta"><span>${fatti}/${totale} task</span>${minuti ? `<span>${ctrlFmtMin(minuti)} da fare</span>` : ''}</div>
-        ${aperti.length ? `<ul>${aperti.slice(0, TEAM_PREVIEW_MAX).map(riga).join('')}</ul>` : `<div class="ctrl-idle">${totale ? 'Tutto fatto' : 'Nessun task'}</div>`}
-        ${aperti.length > TEAM_PREVIEW_MAX ? `<details onclick="event.stopPropagation()"><summary>Altri ${aperti.length - TEAM_PREVIEW_MAX}</summary><ul>${aperti.slice(TEAM_PREVIEW_MAX).map(riga).join('')}</ul></details>` : ''}
-      </article>`;
+      <li class="tk-now ${scaduto ? 'is-late' : ''}">
+        <span class="tk-now-icon" aria-hidden="true">!</span>
+        <button type="button" class="tk-now-main" onclick="openTaskDetail('${t.id}')">
+          <strong>${escapeHtml(attivita)}${cliente ? ` · ${escapeHtml(cliente)}` : ''}</strong>
+          <span>${sotto}</span>
+        </button>
+        ${t.minuti_stimati ? `<span class="tk-chip">${Icons.clock(13)} ${ctrlFmtMin(t.minuti_stimati)}</span>` : ''}
+        ${taskChiSelect(t, { compatto: true })}
+        <button class="btn-icon" onclick="openTaskDetail('${t.id}')" aria-label="Dettagli">${CtrlIcons.more()}</button>
+      </li>`;
   };
-  return `<div class="ctrl-team ctrl-previews" aria-label="Task di ogni persona">${Ctrl.users.slice().sort((a, b) => a.localeCompare(b)).map(card).join('')}</div>`;
+  return `
+    <section class="glass-card page-card tk-panel">
+      <header class="tk-panel-head">
+        <span class="tk-panel-icon" style="--t:#f59e0b;">${Icons.zap(22)}</span>
+        <div><h2>Da gestire subito ${lista.length ? `<span class="tk-count is-red">${lista.length} task</span>` : ''}</h2>
+          <p>Task urgenti, i più vecchi prima.</p></div>
+        ${lista.length > 5 ? `<button type="button" class="tk-link" onclick="taskVaiA('coda', 'urgente')">Vedi tutti ${TkIcons.arrow()}</button>` : ''}
+      </header>
+      ${lista.length ? `<ul class="tk-now-list">${lista.slice(0, 5).map(riga).join('')}</ul>`
+        : '<div class="empty-list">Nessun task urgente.</div>'}
+    </section>`;
+}
+
+// Ore stimate dei task aperti di ogni persona sulle sue ore del giorno
+function renderTeamLoad() {
+  const cap = (nick) => Ctrl.operatori.find(o => o.nickname === nick)?.minuti_giorno || 420;
+  const righe = Ctrl.users.map(nick => {
+    const suoi = Ctrl.tasks.filter(t => t.assegnato_a === nick && !taskChiuso(t) && t.stato !== 'bloccato');
+    const min = suoi.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
+    return { nick, n: suoi.length, min, cap: cap(nick), pct: Math.round(min / cap(nick) * 100) };
+  }).sort((a, b) => b.pct - a.pct || a.nick.localeCompare(b.nick));
+  const tono = (p) => p >= 90 ? '#ef4444' : p >= 75 ? '#f97316' : p >= 50 ? '#f59e0b' : '#22c55e';
+  return `
+    <section class="glass-card page-card tk-panel">
+      <header class="tk-panel-head">
+        <span class="tk-panel-icon" style="--t:#6366f1;">${Icons.users(22)}</span>
+        <div><h2>Carico del team</h2><p>Ore stimate dei task aperti sulle ore della giornata. Clic per i task della persona.</p></div>
+      </header>
+      <ul class="tk-load-list">
+        ${righe.map(r => `
+          <li><button type="button" class="tk-load" onclick="openPersonTasks('${escapeHtml(r.nick)}')" aria-label="Tutti i task di ${escapeHtml(r.nick)}">
+            ${taskAvatar(r.nick, 28)}
+            <strong class="tk-load-nome">${escapeHtml(r.nick)}${Ctrl.assenti.has(r.nick) && r.nick !== 'claude' ? ' <span class="ctrl-preview-off">Assente</span>' : ''}</strong>
+            <span class="tk-load-n">${r.n} task</span>
+            <span class="tk-load-bar" role="progressbar" aria-valuenow="${r.pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Carico">
+              ${r.min ? `<span style="width:${Math.min(100, Math.max(r.pct, 12))}%;--t:${tono(r.pct)};">${r.pct}%</span>` : ''}</span>
+            <span class="tk-load-ore">${r.min ? ctrlFmtMin(r.min) : '0′'} <small>/ ${ctrlFmtMin(r.cap)}</small></span>
+          </button></li>`).join('')}
+      </ul>
+    </section>`;
+}
+
+// Tabella con schede, filtri e ordinamento
+function taskBoardBase() {
+  const d = Ctrl.giorno;
+  const aperti = Ctrl.tasks.filter(t => !taskChiuso(t));
+  return {
+    coda: aperti,
+    oggi: aperti.filter(t => t.giorno === d && !taskInRitardo(t)),
+    ritardo: aperti.filter(taskInRitardo),
+    assegnare: aperti.filter(t => !t.assegnato_a),
+    chiusi: Ctrl.tasks.filter(t => t.giorno === d && taskChiuso(t)),
+  };
+}
+
+function taskBoardList() {
+  const v = TaskView, q = v.q.trim().toLowerCase();
+  const list = taskBoardBase()[v.tab].filter(t =>
+    (!v.brand || (v.brand === '_' ? !t.macroarea : t.macroarea === v.brand))
+    && (!v.tipo || t.tipo_id === v.tipo)
+    && (!v.chi || (v.chi === '_' ? !t.assegnato_a : t.assegnato_a === v.chi))
+    && (!v.prio || t.priorita === v.prio)
+    && (!q || `${t.titolo} ${t.analisi?.cliente?.nome || ''}`.toLowerCase().includes(q)));
+  const per = {
+    scadenza: (a, b) => taskGiornoRif(a).localeCompare(taskGiornoRif(b)) || taskPrioRank(a.priorita) - taskPrioRank(b.priorita),
+    priorita: (a, b) => taskPrioRank(a.priorita) - taskPrioRank(b.priorita) || taskGiornoRif(a).localeCompare(taskGiornoRif(b)),
+    tempo: (a, b) => (b.minuti_stimati || 0) - (a.minuti_stimati || 0),
+    arrivo: (a, b) => b.created_at.localeCompare(a.created_at),
+  }[v.ordina];
+  return list.sort((a, b) => per(a, b) || a.created_at.localeCompare(b.created_at));
+}
+
+function renderTaskBoard() {
+  const v = TaskView, base = taskBoardBase();
+  const tabIcon = { coda: TkIcons.list(17), oggi: Icons.calendarDays(16), ritardo: TkIcons.alert(16), assegnare: TkIcons.user(16), chiusi: Icons.checkCircle('currentColor', 16) };
+  const sel = (key, label, opzioni) => `
+    <select class="filter-pill ${v[key] ? 'on' : ''}" aria-label="${label}" onchange="setTaskView('${key}', this.value)">
+      ${opzioni.map(([id, l]) => `<option value="${escapeHtml(id)}" ${v[key] === id ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+    </select>`;
+  const tipiUsati = Ctrl.tipi.filter(tp => Ctrl.tasks.some(t => t.tipo_id === tp.id));
+  const filtri = v.brand || v.tipo || v.chi || v.prio || v.q;
+  return `
+    <section class="glass-card page-card tk-board" id="tk-board">
+      <div class="tk-tabs" role="tablist" aria-label="Elenco dei task">
+        ${TASK_TABS.map(([id, label]) => `<button type="button" role="tab" aria-selected="${v.tab === id}" class="tk-tab ${v.tab === id ? 'active' : ''}"
+          onclick="setTaskView('tab', '${id}')">${tabIcon[id]} <span>${label}</span>${id === 'coda' ? '' : ` <b>${base[id].length}</b>`}</button>`).join('')}
+      </div>
+      <div class="tk-filters">
+        <input type="search" class="filter-pill tk-search" placeholder="Cerca task, cliente, ordine…" aria-label="Cerca" value="${escapeHtml(v.q)}" oninput="setTaskSearch(this.value)">
+        ${sel('brand', 'Brand', [['', 'Tutti i brand'], ...TASK_BRAND.map(m => [m.id, m.label]), ['_', 'Senza brand']])}
+        ${tipiUsati.length ? sel('tipo', 'Lavorazione', [['', 'Tutte le lavorazioni'], ...tipiUsati.map(tp => [tp.id, tp.nome])]) : ''}
+        ${sel('chi', 'Assegnato a', [['', 'Tutti gli assegnati'], ['_', 'Da assegnare'], ...Ctrl.users.map(u => [u, u])])}
+        ${sel('prio', 'Priorità', [['', 'Tutte le priorità'], ...TASK_PRIORITA.map(p => [p.id, p.label])])}
+        ${filtri ? `<button type="button" class="btn btn-ghost btn-sm" onclick="resetTaskView()">Azzera filtri</button>` : ''}
+        <span class="tk-sort">Ordina per
+          ${sel('ordina', 'Ordina per', [['scadenza', 'Scadenza'], ['priorita', 'Priorità'], ['tempo', 'Tempo stimato'], ['arrivo', 'Più recenti']]).replace('filter-pill on', 'filter-pill')}</span>
+      </div>
+      <div id="tk-table">${renderTaskTable()}</div>
+    </section>`;
+}
+
+function renderTaskTable() {
+  const list = taskBoardList(), mostrati = list.slice(0, TaskView.limite);
+  if (!list.length) return `<div class="empty-list">Nessun task${TaskView.brand || TaskView.tipo || TaskView.chi || TaskView.prio || TaskView.q ? ' con questi filtri' : ''}.</div>`;
+  const prioTag = (t) => { const p = taskPrio(t.priorita); return `<span class="td-tag tk-prio" style="--c:${p.color};"><b aria-hidden="true">!</b> ${p.label}</span>`; };
+  const statoTag = (t) => !taskChiuso(t) && taskInRitardo(t) ? `<span class="td-tag" style="--c:#ef4444;">In ritardo</span>`
+    : `<span class="td-tag" style="--c:${taskStato(t.stato).color};">${taskStato(t.stato).label}</span>`;
+  const riga = (t) => {
+    const { attivita, cliente, ordine } = taskParti(t);
+    const g = taskGiornoRif(t), dist = taskDistanza(g), m = taskMacro(t.macroarea);
+    const ora = t.scadenza && ctrlFmtOra(t.scadenza) !== '00:00' ? ` ${ctrlFmtOra(t.scadenza)}` : '';
+    const late = dist?.passato && !taskChiuso(t);
+    return `
+      <tr class="${t.stato === 'completato' ? 'is-done' : ''}">
+        <td>${prioTag(t)}</td>
+        <td><button type="button" class="tk-act" onclick="openTaskDetail('${t.id}')">
+          <span class="tk-act-icon" aria-hidden="true">${taskIcona(t)}</span><span>${escapeHtml(attivita)}</span></button></td>
+        <td><div class="tk-cliente">${cliente ? escapeHtml(cliente) : '<span class="tk-none">—</span>'}</div>
+          ${ordine || m ? `<small>${[ordine ? escapeHtml(ordine) : '', m ? `<span class="ctrl-macro-tag" style="--m:${m.color};">${m.label}</span>` : ''].filter(Boolean).join(' · ')}</small>` : ''}</td>
+        <td><span class="tk-date ${late ? 'is-late' : g === ctrlOggi() ? 'is-today' : ''}">${Icons.calendarDays(14)} ${taskDataBreve(g)}${ora}</span>
+          ${dist && !taskChiuso(t) ? `<span class="tk-delta ${dist.passato ? 'is-late' : ''}">${taskDistanzaTesto(dist)}</span>` : ''}</td>
+        <td>${taskChiSelect(t)}</td>
+        <td class="tk-num">${t.minuti_stimati ? ctrlFmtMin(t.minuti_stimati) : '<span class="tk-none">—</span>'}</td>
+        <td>${statoTag(t)}</td>
+        <td class="tk-more"><button class="btn-icon" onclick="openTaskDetail('${t.id}')" aria-label="Dettagli di ${escapeHtml(t.titolo)}">${CtrlIcons.more()}</button></td>
+      </tr>`;
+  };
+  return `
+    <div class="table-scroll"><table class="data-table tk-table">
+      <thead><tr><th>Priorità</th><th>Attività</th><th>Cliente / Ordine</th><th>Scadenza</th><th>Assegnato a</th><th class="tk-num">Tempo</th><th>Stato</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+      <tbody>${mostrati.map(riga).join('')}</tbody>
+    </table></div>
+    ${list.length > mostrati.length ? `<div class="tk-more-rows"><button type="button" class="btn btn-secondary btn-sm" onclick="TaskView.limite += ${TASK_PAGINA};taskRefreshTable()">Mostra altri ${Math.min(TASK_PAGINA, list.length - mostrati.length)} di ${list.length - mostrati.length}</button></div>` : ''}`;
+}
+
+function taskRefreshTable() {
+  const el = document.getElementById('tk-table');
+  if (el) el.innerHTML = renderTaskTable();
+}
+
+function setTaskView(key, value) {
+  TaskView[key] = value;
+  TaskView.limite = TASK_PAGINA;
+  refreshControlPage();
+}
+
+function setTaskSearch(value) {
+  TaskView.q = value;
+  TaskView.limite = TASK_PAGINA;
+  taskRefreshTable();
+}
+
+function resetTaskView() {
+  Object.assign(TaskView, { brand: '', tipo: '', chi: '', prio: '', q: '', limite: TASK_PAGINA });
+  refreshControlPage();
+}
+
+// Dai numeri in alto e da "Vedi tutti" alla tabella, con la scheda e la priorità giuste
+function taskVaiA(tab, prio = '') {
+  Object.assign(TaskView, { tab, prio, limite: TASK_PAGINA });
+  refreshControlPage();
+  document.getElementById('tk-board')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function openPersonTasks(nick) {
   Ctrl.persona = nick;
   refreshControlPage();
   window.scrollTo({ top: 0 });
-}
-
-function toggleUrgentTasks() {
-  Ctrl.soloUrgenti = !Ctrl.soloUrgenti;
-  refreshControlPage();
 }
 
 async function taskAssign(id, nick) {
