@@ -624,7 +624,7 @@ function taskChiSelect(t, { compatto = false } = {}) {
   const chi = t.assegnato_a;
   if (taskChiuso(t)) return chi ? `<span class="tk-who">${taskAvatar(chi, 22)}<span>${escapeHtml(chi)}</span></span>` : '<span class="tk-none">—</span>';
   return `
-    <label class="tk-who tk-who-pick ${compatto ? 'is-pill' : ''}">
+    <label class="tk-who tk-who-pick ${compatto ? 'is-pill' : ''} ${chi ? '' : 'is-free'}">
       ${chi ? taskAvatar(chi, 22) : `<span class="tk-av is-empty" aria-hidden="true">${TkIcons.user(13)}</span>`}
       <select aria-label="Assegna ${escapeHtml(t.titolo)}" onchange="taskAssign('${t.id}', this.value)">
         <option value="">${chi ? 'Coda comune' : 'Da assegnare'}</option>

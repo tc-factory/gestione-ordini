@@ -989,6 +989,7 @@ body.com-dragging, body.com-dragging * { cursor: grabbing !important; user-selec
 }
 .tk-who-pick select:focus-visible { outline: none; }
 .tk-who-pick:focus-within { box-shadow: var(--focus-ring); }
+.tk-who-pick.is-free, .tk-who-pick.is-free select { text-transform: none; color: var(--text-secondary); }
 .tk-none { color: var(--text-muted); }
 
 /* Carico del team */
