@@ -546,6 +546,7 @@ function renderControlMyDay(persona = null) {
       ${stat('Da fare', ctrlFmtMin(minTot - minFatti), 'stima del lavoro che resta', '#f59e0b')}
     </div>
 
+    ${persona ? '' : renderPresenzeOggi()}
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>${persona ? `Task di <span class="ctrl-persona-nome">${escapeHtml(me)}</span>` : 'I miei task'}</h2><span class="table-count">${visibili.length}</span>
         ${unicoNegozio ? `<span class="ctrl-group-hint ctrl-macro-tag" style="--m:${unicoNegozio.color};">${unicoNegozio.label}</span>` : ''}</div>
@@ -702,6 +703,7 @@ function renderControlAdminTasks() {
       ${renderTaskSubito(urgenti)}
       ${renderTeamLoad()}
     </div>
+    ${renderPresenzeOggi()}
     ${renderTaskBoard()}`;
 }
 
@@ -762,6 +764,34 @@ function renderTeamLoad() {
             <span class="tk-load-ore">${r.min ? ctrlFmtMin(r.min) : '0′'}${r.cap ? ` <small>/ ${ctrlFmtMin(r.cap)}</small>` : ''}</span>
           </button></li>`).join('')}
       </ul>
+    </section>`;
+}
+
+// Presenze di oggi (admin e addetti): chi ha confermato, chi manca, chi è assente nel Planner
+function renderPresenzeOggi() {
+  const s = Presenze.stato;
+  if (!s?.addetto || Ctrl.giorno !== ctrlOggi() || !s.tutti) return '';
+  const lista = s.tutti;
+  const stato = (p) => p.assente ? ['Assente', '#94a3b8', 'In ferie o impegnato nel Planner']
+    : p.confermato_at ? ['Presente', '#22c55e', `dalle ${ctrlFmtOra(p.confermato_at)}${p.confermato_da !== p.nickname ? `, confermato da ${escapeHtml(p.confermato_da)}` : ''}`]
+    : p.scaduto ? ['Non confermata', '#ef4444', `entrata alle ${p.ora_inizio}: i suoi task sono in coda comune`]
+    : ['In attesa', '#f59e0b', `entrata alle ${p.ora_inizio}`];
+  const presenti = lista.filter(p => p.confermato_at && !p.assente).length;
+  return `
+    <section class="glass-card page-card tk-panel">
+      <header class="tk-panel-head">
+        <span class="tk-panel-icon" style="--t:#22c55e;">${TkIcons.user()}</span>
+        <div><h2>Presenze di oggi</h2><p>${presenti} presenti su ${lista.filter(p => !p.assente).length} attesi.${s.in_rete ? '' : ' Per confermare devi essere sulla rete del posto di lavoro.'}</p></div>
+      </header>
+      ${lista.length ? `<ul class="tk-load-list">${lista.map(p => {
+        const [label, tono, sub] = stato(p);
+        return `<li class="pres-row">
+          ${taskAvatar(p.nickname, 28)}
+          <strong class="tk-load-nome">${escapeHtml(p.nickname)}</strong>
+          <span class="pres-stato"><span class="ctrl-status" style="--st:${tono};">${label}</span><small class="ctrl-cell-sub">${sub}</small></span>
+          ${!p.assente && !p.confermato_at && s.in_rete ? `<button type="button" class="ctrl-btn" onclick="Presenze.conferma('${escapeHtml(p.nickname)}')">Conferma</button>` : '<span></span>'}
+        </li>`; }).join('')}</ul>`
+        : `<div class="empty-list">Nessuno ha l'orario di entrata.${TCAuth.isAdmin() ? ' Si imposta in Centro di controllo → Team → Piano.' : ''}</div>`}
     </section>`;
 }
 
