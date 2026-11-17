@@ -539,14 +539,13 @@ function renderControlMyDay(persona = null) {
   return `
     ${persona ? `<div class="ctrl-persona-head">
       <button type="button" class="ctrl-btn" onclick="openPersonTasks(null)">${Icons.chevronLeft(14)} Tutto il team</button>
-      ${Ctrl.assenti.has(me) && me !== 'claude' ? '<span class="ctrl-preview-off">Assente</span>' : ''}</div>` : ''}
+      ${Ctrl.assenti.has(me) && me !== 'claude' ? '<span class="ctrl-preview-off">Assente</span>' : ''}</div>` : renderPresenzeOggi()}
     <div class="stat-grid ctrl-stats">
       ${stat('Task', `${chiusi.filter(t => t.stato === 'completato').length}/${delGiorno.length}`, 'completati', '#22c55e')}
       ${stat('Tempo stimato', `${ctrlFmtMin(minFatti)} <small>/ ${ctrlFmtMin(minTot)}</small>`, 'dei task completati', '#6366f1')}
       ${stat('Da fare', ctrlFmtMin(minTot - minFatti), 'stima del lavoro che resta', '#f59e0b')}
     </div>
 
-    ${persona ? '' : renderPresenzeOggi()}
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>${persona ? `Task di <span class="ctrl-persona-nome">${escapeHtml(me)}</span>` : 'I miei task'}</h2><span class="table-count">${visibili.length}</span>
         ${unicoNegozio ? `<span class="ctrl-group-hint ctrl-macro-tag" style="--m:${unicoNegozio.color};">${unicoNegozio.label}</span>` : ''}</div>
@@ -685,6 +684,7 @@ function renderControlAdminTasks() {
     </${onclick ? 'button' : 'div'}>`;
 
   return `
+    ${renderPresenzeOggi()}
     <div class="tk-stats">
       ${stat(TkIcons.layers(22), '#3b82f6', aperti.length, 'Task aperti', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(aperti))} stimate</small>`, `taskVaiA('coda')`)}
       ${stat(TkIcons.alert(), '#ef4444', urgenti.length, 'Urgenti', urgenti.length ? '<em class="tk-stat-tag">Azioni immediate</em>' : '', `taskVaiA('coda', 'urgente')`)}
@@ -703,7 +703,6 @@ function renderControlAdminTasks() {
       ${renderTaskSubito(urgenti)}
       ${renderTeamLoad()}
     </div>
-    ${renderPresenzeOggi()}
     ${renderTaskBoard()}`;
 }
 
@@ -767,33 +766,22 @@ function renderTeamLoad() {
     </section>`;
 }
 
-// Presenze di oggi (admin e addetti): chi ha confermato, chi manca, chi è assente nel Planner
+// Presenze (admin e addetti): i nomi del team, grigio da confermare, verde presente, rosso assente.
+// Un clic passa al colore dopo: grigio → verde → rosso → grigio.
 function renderPresenzeOggi() {
   const s = Presenze.stato;
-  if (!s?.addetto || Ctrl.giorno !== ctrlOggi() || !s.tutti) return '';
-  const lista = s.tutti;
-  const stato = (p) => p.assente ? ['Assente', '#94a3b8', 'In ferie o impegnato nel Planner']
-    : p.confermato_at ? ['Presente', '#22c55e', `dalle ${ctrlFmtOra(p.confermato_at)}${p.confermato_da !== p.nickname ? `, confermato da ${escapeHtml(p.confermato_da)}` : ''}`]
-    : p.scaduto ? ['Non confermata', '#ef4444', `entrata alle ${p.ora_inizio}: i suoi task sono in coda comune`]
-    : ['In attesa', '#f59e0b', `entrata alle ${p.ora_inizio}`];
-  const presenti = lista.filter(p => p.confermato_at && !p.assente).length;
+  if (!s?.addetto || Ctrl.giorno !== ctrlOggi() || !s.tutti?.length) return '';
+  const stato = (p) => p.stato === 'presente' ? 'is-presente' : p.stato === 'assente' || p.assente ? 'is-assente' : '';
+  const titolo = (p) => p.assente && !p.stato ? 'Assente nel Planner'
+    : p.stato ? `${p.stato === 'presente' ? 'Presente' : 'Assente'} · ${ctrlFmtOra(p.confermato_at)}${p.confermato_da !== p.nickname ? ` · ${p.confermato_da}` : ''}`
+    : `Da confermare · entrata ${p.ora_inizio}`;
   return `
-    <section class="glass-card page-card tk-panel">
-      <header class="tk-panel-head">
-        <span class="tk-panel-icon" style="--t:#22c55e;">${TkIcons.user()}</span>
-        <div><h2>Presenze di oggi</h2><p>${presenti} presenti su ${lista.filter(p => !p.assente).length} attesi.${!s.reti ? '' : s.in_rete ? '' : ' Questo dispositivo non è sulla rete del posto di lavoro: da qui non si conferma.'}</p></div>
-      </header>
-      ${!s.reti ? `<div class="pres-avviso"><span><strong>Nessuna rete del posto di lavoro registrata.</strong> Finché non ce n'è una nessuno può confermare e la regola delle presenze è ferma.</span>
+    <section class="glass-card page-card pres-box" aria-label="Presenze di oggi">
+      ${!s.reti ? `<div class="pres-avviso"><span>Nessuna rete del posto di lavoro registrata: non si possono confermare le presenze.</span>
         ${TCAuth.isAdmin() ? `<button type="button" class="ctrl-btn is-primary" onclick="addRetePresenze()">${Icons.plus(14)} Aggiungi la rete di questo dispositivo</button>` : ''}</div>` : ''}
-      ${lista.length ? `<ul class="tk-load-list">${lista.map(p => {
-        const [label, tono, sub] = stato(p);
-        return `<li class="pres-row">
-          ${taskAvatar(p.nickname, 28)}
-          <strong class="tk-load-nome">${escapeHtml(p.nickname)}</strong>
-          <span class="pres-stato"><span class="ctrl-status" style="--st:${tono};">${label}</span><small class="ctrl-cell-sub">${sub}</small></span>
-          ${!p.assente && !p.confermato_at && s.in_rete ? `<button type="button" class="ctrl-btn" onclick="Presenze.conferma('${escapeHtml(p.nickname)}')">Conferma</button>` : '<span></span>'}
-        </li>`; }).join('')}</ul>`
-        : `<div class="empty-list">Nessuno ha l'orario di entrata.${TCAuth.isAdmin() ? ' Si imposta in Centro di controllo → Team → Piano.' : ''}</div>`}
+      <div class="pres-nomi">${s.tutti.map(p => `
+        <button type="button" class="pres-btn ${stato(p)}" title="${escapeHtml(titolo(p))}" aria-label="${escapeHtml(p.nickname)}: ${escapeHtml(titolo(p))}"
+          onclick="Presenze.ciclo('${escapeHtml(p.nickname)}')">${escapeHtml(p.nickname)}</button>`).join('')}</div>
     </section>`;
 }
 

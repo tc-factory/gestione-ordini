@@ -44,6 +44,15 @@ const Presenze = {
     return true;
   },
 
+  // Riquadro Presenze (addetti): grigio → presente → assente → da confermare
+  async ciclo(chi) {
+    const p = (this.stato?.tutti || []).find(x => x.nickname === chi);
+    const prossimo = !p?.stato ? 'presente' : p.stato === 'presente' ? 'assente' : null;
+    const { data, error } = await supabaseClient.rpc('tc_presenza_imposta', { p_chi: chi, p_stato: prossimo });
+    if (error || !data?.success) { showToast(data?.error || 'Errore di connessione', 'error'); return; }
+    await this.check();
+  },
+
   renderBar() {
     let el = document.getElementById('presenza-bar');
     const me = this.stato?.me;
