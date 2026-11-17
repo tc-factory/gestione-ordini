@@ -154,6 +154,10 @@ const ctrlFmtMin = (min) => {
 };
 // Secondi lavorati, compresa la sessione in corso
 const taskLavoratoSec = (t) => (t.lavorato_sec || 0) + (t.lavoro_dal ? (Date.now() - new Date(t.lavoro_dal)) / 1000 : 0);
+// Prova dei tempi di lavorazione: solo i lotti "Lavorazione ordini", solo mentre la prova è attiva
+const taskLottoLav = (t) => t.fonte === 'shopify' && t.fonte_rif?.fase === 'lav';
+const taskInProva = (t) => !!Ctrl.tempiTest?.attivo && taskLottoLav(t);
+const taskMisurato = (t) => taskLottoLav(t) && (t.stato === 'in_lavorazione' || t.lavorato_sec > 0);
 
 const CtrlIcons = {
   play:  (s = 14) => `<svg viewBox="0 0 24 24" fill="currentColor" width="${s}" height="${s}" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/></svg>`,
@@ -212,13 +216,15 @@ const Ctrl = {
     const d = this.giorno;
     try {
       const aperti = TASK_APERTI.join(',');
-      const [tasks, tipi, users] = await Promise.all([
+      const [tasks, tipi, users, prova] = await Promise.all([
         supabaseClient.from('tasks').select('*')
           .or(`giorno.eq.${d},and(giorno.lt.${d},stato.in.(${aperti}))`)
           .order('created_at'),
         supabaseClient.from('task_tipi').select('*').order('nome'),
         this.users.length ? null : TCAuth.listUsers().catch(() => []),
+        supabaseClient.from('app_settings').select('value').eq('key', 'tempi_test').maybeSingle(),
       ]);
+      this.tempiTest = prova?.data?.value || {};
       if (tasks.error) throw this._fail(tasks.error);
       if (tipi.error)  throw this._fail(tipi.error);
       this.tasks = tasks.data || [];
@@ -417,6 +423,7 @@ async function setControlView(view) {
 function loadControlExtras() {
   if (['cervello', 'collegamenti'].includes(Ctrl.view)) loadShopifyLinks();
   if (Ctrl.view === 'cervello') loadBrainRules();
+  if (Ctrl.view === 'cervello' && CtrlBrain.sez === 'tempi') loadTempiLavorazione();
   if (Ctrl.view === 'report') loadControlReport();
   if (Ctrl.view === 'automazioni') loadControlAutomations();
 }
@@ -1129,7 +1136,7 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
         ${taskMotivoVisibile(t.stato, t.motivo) ? `<span class="task-motivo">${escapeHtml(t.motivo)}</span>` : ''}
       </button>
       <div class="task-badges">${badges}</div>
-      <span class="task-time">${t.minuti_stimati ? `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}` : ''}</span>
+      <span class="task-time">${t.minuti_stimati ? `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}` : ''}${taskMisurato(t) ? `<span class="task-timer ${t.stato === 'in_lavorazione' ? 'is-on' : ''}" data-task-timer="${t.id}" title="Tempo misurato">${ctrlFmtDur(taskLavoratoSec(t))}</span>` : ''}</span>
       <div class="task-actions">${Ctrl.canAct(t) ? taskQuickActions(t) : ''}
         <button class="btn-icon" onclick="openTaskDetail('${t.id}')" aria-label="Altre azioni">${CtrlIcons.more()}</button>
       </div>
@@ -1149,7 +1156,10 @@ function taskQuickActions(t, { fatto = true } = {}) {
   const primo = Ctrl._prossimo === t.id ? 'is-primary' : '';
   const prendi = !t.assegnato_a ? `<button class="ctrl-btn" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
   if (['completato', 'non_completato'].includes(t.stato)) return btn('da_fare', CtrlIcons.undo(), 'Riapri');
-  return prendi + (fatto ? btn('completato', CtrlIcons.check(), 'Fatto', primo) : '');
+  // Prova dei tempi: sui lotti di lavorazione si misura il tempo con Inizia/Pausa
+  const cronometro = !t.assegnato_a || !taskInProva(t) ? ''
+    : t.stato === 'in_lavorazione' ? btn('in_pausa', CtrlIcons.pause(), 'Pausa') : btn('in_lavorazione', CtrlIcons.play(), t.lavorato_sec ? 'Riprendi' : 'Inizia');
+  return prendi + cronometro + (fatto ? btn('completato', CtrlIcons.check(), 'Fatto', primo) : '');
 }
 
 async function taskSetStato(id, stato, motivo = null, giorno = null) {
@@ -3062,6 +3072,7 @@ async function setBrainSection(id) {
   if (!(await leaveRulesOk())) return;
   CtrlBrain.sez = id;
   refreshControlPage();
+  if (id === 'tempi') loadTempiLavorazione();
 }
 
 async function setBrainStore(id) {
@@ -3077,8 +3088,9 @@ async function leaveRulesOk() {
 }
 
 function renderControlBrain() {
-  const sezioni = [['regole', 'Regole dei brand'], ['tipi', 'Tipi di task'], ['scartate', `Mail scartate · ${ShopLinks.scartate.length}`], ['correzioni', `Correzioni · ${ShopLinks.regole.length}`]];
+  const sezioni = [['regole', 'Regole dei brand'], ['tipi', 'Tipi di task'], ['tempi', 'Tempi di lavorazione'], ['scartate', `Mail scartate · ${ShopLinks.scartate.length}`], ['correzioni', `Correzioni · ${ShopLinks.regole.length}`]];
   const body = CtrlBrain.sez === 'tipi' ? renderControlTypes()
+    : CtrlBrain.sez === 'tempi' ? renderTempiLavorazione()
     : CtrlBrain.sez === 'scartate' ? renderBrainDiscarded()
     : CtrlBrain.sez === 'correzioni' ? renderBrainCorrections()
     : renderBrainRules();
@@ -3207,6 +3219,159 @@ function renderBrainCorrections() {
           <button class="btn-icon" onclick="removeMailRule('${escapeHtml(r.mittente)}')" aria-label="Togli la correzione">${Icons.trash()}</button>
         </article>`).join('')}</div>
     </section>`;
+}
+
+// ── Tempi di lavorazione per categoria e prova dei tempi ──
+
+const CtrlTempi = { categorie: null, prova: null, error: null };
+
+async function loadTempiLavorazione() {
+  try {
+    const [cat, prova] = await Promise.all([
+      supabaseClient.from('tempi_categorie').select('*').order('ordine').order('id'),
+      Ctrl._rpc('tc_tempi_test'),
+    ]);
+    if (cat.error) throw Ctrl._fail(cat.error);
+    CtrlTempi.categorie = cat.data || [];
+    CtrlTempi.prova = prova;
+    CtrlTempi.error = null;
+  } catch (e) { CtrlTempi.error = e; }
+  refreshControlPage();
+}
+
+const tempiFmtSec = (sec) => {
+  sec = Math.round(sec || 0);
+  if (sec < 60) return `${sec}″`;
+  const m = Math.floor(sec / 60), r = sec % 60;
+  return m >= 60 ? ctrlFmtMin(m) : `${m}′${r ? ` ${r}″` : ''}`;
+};
+const tempiScarto = (stima, reale) => {
+  if (!stima) return '<span class="ctrl-cell-sub">—</span>';
+  const p = Math.round((reale - stima) / stima * 100);
+  return `<span class="tempi-scarto ${Math.abs(p) <= 15 ? 'is-ok' : p > 0 ? 'is-over' : 'is-under'}">${p > 0 ? '+' : ''}${p}%</span>`;
+};
+
+function renderTempiLavorazione() {
+  if (CtrlTempi.error) return `<div class="glass-card page-card"><div class="empty-list">${CtrlTempi.error.notInstalled ? 'Esegui lo script <strong>sql/tempi-lavorazione.sql</strong> su Supabase.' : escapeHtml(CtrlTempi.error.message)}</div></div>`;
+  if (!CtrlTempi.categorie) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
+  const cats = CtrlTempi.categorie, pr = CtrlTempi.prova || {}, test = Ctrl.tempiTest || {};
+  const lotti = pr.lotti || [], senza = pr.senza_categoria || [];
+
+  const righe = cats.map(c => `
+    <tr>
+      <td><input class="form-input" value="${escapeHtml(c.nome)}" maxlength="60" aria-label="Nome" onchange="saveTempoCategoria(${c.id}, 'nome', this.value)"></td>
+      <td><input class="form-input" value="${escapeHtml((c.inizia_con || []).join(', '))}" aria-label="Il titolo inizia con" placeholder="es. calzin, calzino"
+        onchange="saveTempoCategoria(${c.id}, 'inizia_con', this.value)"></td>
+      <td><input class="form-input tempi-num" type="number" min="0" max="3600" value="${c.secondi}" aria-label="Secondi a stampa" onchange="saveTempoCategoria(${c.id}, 'secondi', this.value)"></td>
+      <td><input class="form-input tempi-num" type="number" min="1" max="10" value="${c.stampe}" aria-label="Stampe per capo" onchange="saveTempoCategoria(${c.id}, 'stampe', this.value)"></td>
+      <td class="tempi-capo">${tempiFmtSec(c.secondi * c.stampe)}</td>
+      <td class="ctrl-cell-actions"><button class="btn-icon" onclick="removeTempoCategoria(${c.id})" aria-label="Elimina ${escapeHtml(c.nome)}">${Icons.trash()}</button></td>
+    </tr>`).join('');
+
+  // Confronto per categoria: solo i lotti con capi di una categoria sola
+  const perCat = {};
+  lotti.forEach(l => {
+    const nomi = Object.keys(l.capi || {});
+    if (nomi.length !== 1 || nomi[0] === 'Senza categoria') return;
+    const c = cats.find(x => x.nome === nomi[0]); if (!c) return;
+    const p = perCat[c.nome] ||= { lotti: 0, capi: 0, reale: 0, stima: 0 };
+    p.lotti++; p.capi += l.capi[c.nome]; p.reale += l.reale_sec; p.stima += l.stima_sec;
+  });
+  const totStima = lotti.reduce((a, l) => a + l.stima_sec, 0), totReale = lotti.reduce((a, l) => a + l.reale_sec, 0);
+  const capiTesto = (capi) => Object.entries(capi || {}).map(([k, v]) => `${v} ${escapeHtml(k.toLowerCase())}`).join(', ');
+
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Tempi per categoria</h2><span class="table-count">${cats.length}</span>
+        <span class="ctrl-group-hint">Stampa, applicazione DTF o lavorazione simile. Un prodotto è della categoria se il titolo inizia con una delle parole.</span></div>
+      <div class="table-scroll"><table class="data-table tempi-table">
+        <thead><tr><th>Categoria</th><th>Il titolo inizia con</th><th>Secondi a stampa</th><th>Stampe a capo</th><th>A capo</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+        <tbody>${righe}</tbody>
+      </table></div>
+      <div class="tempi-foot"><button class="ctrl-btn" onclick="addTempoCategoria()">${Icons.plus(14)} Aggiungi categoria</button>
+        <span class="ctrl-cell-sub">La stima di un lotto "Lavorazione ordini" è la somma dei capi dei suoi ordini.</span></div>
+    </section>
+
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Prova dei tempi</h2>
+        <span class="ctrl-group-hint">${test.attivo ? `In corso dal ${ctrlFmtGiorno(test.dal).toLowerCase()}` : test.dal ? `Ferma · risultati dal ${ctrlFmtGiorno(test.dal).toLowerCase()}` : 'Non avviata'}</span></div>
+      <p class="tempi-help">Durante la prova, sui lotti "Lavorazione ordini" chi lavora preme <strong>Inizia</strong>, <strong>Pausa</strong> se si ferma e <strong>Fatto</strong> alla fine. Il tempo misurato si confronta con la stima calcolata con i tempi di adesso.</p>
+      <div class="tempi-foot">
+        ${test.attivo ? `<button class="ctrl-btn" onclick="setTempiTest(false)">${CtrlIcons.pause()} Ferma la prova</button>`
+          : `<button class="ctrl-btn is-primary" onclick="setTempiTest(true)">${CtrlIcons.play()} ${test.dal ? 'Avvia una nuova prova' : 'Avvia la prova'}</button>`}
+      </div>
+      ${lotti.length ? `
+        <div class="tempi-totale">
+          <div><span>Lotti misurati</span><strong>${lotti.length}</strong></div>
+          <div><span>Stima</span><strong>${tempiFmtSec(totStima)}</strong></div>
+          <div><span>Tempo reale</span><strong>${tempiFmtSec(totReale)}</strong></div>
+          <div><span>Scarto</span><strong>${tempiScarto(totStima, totReale)}</strong></div>
+        </div>
+        ${Object.keys(perCat).length ? `
+          <h3 class="tempi-h3">Per categoria <span class="ctrl-cell-sub">· solo i lotti con capi di una categoria</span></h3>
+          <div class="table-scroll"><table class="data-table tempi-table">
+            <thead><tr><th>Categoria</th><th>Lotti</th><th>Capi</th><th>Stima a capo</th><th>Reale a capo</th><th>Scarto</th></tr></thead>
+            <tbody>${Object.entries(perCat).map(([nome, p]) => `
+              <tr><td><strong>${escapeHtml(nome)}</strong></td><td>${p.lotti}</td><td>${p.capi}</td>
+                <td>${tempiFmtSec(p.stima / p.capi)}</td><td>${tempiFmtSec(p.reale / p.capi)}</td><td>${tempiScarto(p.stima, p.reale)}</td></tr>`).join('')}</tbody>
+          </table></div>` : ''}
+        <h3 class="tempi-h3">Lotti</h3>
+        <div class="table-scroll"><table class="data-table tempi-table">
+          <thead><tr><th>Quando</th><th>Chi</th><th>Negozio</th><th>Capi</th><th>Stima</th><th>Reale</th><th>Scarto</th></tr></thead>
+          <tbody>${lotti.map(l => `
+            <tr><td>${ctrlFmtQuando(l.at)}</td><td>${escapeHtml(l.chi || '—')}</td><td>${escapeHtml(shopNome(l.negozio))}</td>
+              <td>${capiTesto(l.capi)}<div class="ctrl-cell-sub">${l.ordini} ${l.ordini === 1 ? 'ordine' : 'ordini'}</div></td>
+              <td>${tempiFmtSec(l.stima_sec)}</td><td>${tempiFmtSec(l.reale_sec)}</td><td>${tempiScarto(l.stima_sec, l.reale_sec)}</td></tr>`).join('')}</tbody>
+        </table></div>`
+      : test.dal ? `<div class="empty-list">Nessun lotto misurato finora.</div>` : ''}
+    </section>
+
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Prodotti senza categoria</h2><span class="table-count">${senza.length}</span>
+        <span class="ctrl-group-hint">Ordini degli ultimi 60 giorni: questi capi non hanno tempo nella stima</span></div>
+      ${senza.length ? `<ul class="tempi-senza">${senza.map(x => `<li><span>${escapeHtml(x.titolo || '(senza titolo)')}</span><span class="ctrl-cell-sub">${x.capi} ${x.capi === 1 ? 'capo' : 'capi'}</span></li>`).join('')}</ul>`
+        : `<div class="empty-list">Tutti i prodotti hanno una categoria.</div>`}
+    </section>`;
+}
+
+async function saveTempoCategoria(id, campo, valore) {
+  let v = valore;
+  if (campo === 'inizia_con') v = valore.split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  if (campo === 'secondi' || campo === 'stampe') v = parseInt(valore, 10);
+  if (campo === 'nome' && !String(v).trim()) { showToast('Il nome non può essere vuoto', 'error'); return loadTempiLavorazione(); }
+  if ((campo === 'secondi' && !(v >= 0 && v <= 3600)) || (campo === 'stampe' && !(v >= 1 && v <= 10))) {
+    showToast(campo === 'secondi' ? 'Secondi tra 0 e 3600' : 'Stampe tra 1 e 10', 'error'); return loadTempiLavorazione();
+  }
+  const { error } = await supabaseClient.from('tempi_categorie').update({ [campo]: typeof v === 'string' ? v.trim() : v }).eq('id', id);
+  if (error) showToast(Ctrl._fail(error).message, 'error'); else showToast('Tempo salvato, stime dei lotti aggiornate');
+  loadTempiLavorazione();
+}
+
+async function addTempoCategoria() {
+  const nome = (await uiPrompt('Nome della categoria', { placeholder: 'es. Canotta', ok: 'Aggiungi' }))?.trim();
+  if (!nome) return;
+  const ordine = Math.max(0, ...CtrlTempi.categorie.map(c => c.ordine)) + 1;
+  const { error } = await supabaseClient.from('tempi_categorie').insert({ nome, inizia_con: [nome.toLowerCase()], secondi: 0, stampe: 1, ordine });
+  if (error) showToast(error.code === '23505' ? 'Esiste già una categoria con questo nome' : Ctrl._fail(error).message, 'error');
+  loadTempiLavorazione();
+}
+
+async function removeTempoCategoria(id) {
+  const c = CtrlTempi.categorie.find(x => x.id === id);
+  if (!(await uiConfirm(`Eliminare la categoria "${c?.nome}"? I suoi prodotti resteranno senza tempo.`, { ok: 'Elimina', danger: true }))) return;
+  const { error } = await supabaseClient.from('tempi_categorie').delete().eq('id', id);
+  if (error) showToast(Ctrl._fail(error).message, 'error');
+  loadTempiLavorazione();
+}
+
+async function setTempiTest(attivo) {
+  if (!attivo && !(await uiConfirm('Fermare la prova? Spariscono Inizia e Pausa dai lotti; i risultati restano.', { ok: 'Ferma la prova' }))) return;
+  const value = attivo ? { attivo: true, dal: ctrlOggi() } : { ...Ctrl.tempiTest, attivo: false };
+  const { error } = await supabaseClient.from('app_settings').upsert({ key: 'tempi_test', value, updated_at: new Date().toISOString() });
+  if (error) { showToast(Ctrl._fail(error).message, 'error'); return; }
+  Ctrl.tempiTest = value;
+  showToast(attivo ? 'Prova dei tempi avviata' : 'Prova dei tempi fermata');
+  loadTempiLavorazione();
 }
 
 // ── Collegamenti: solo lo stato ──
