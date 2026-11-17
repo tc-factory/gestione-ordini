@@ -781,8 +781,10 @@ function renderPresenzeOggi() {
     <section class="glass-card page-card tk-panel">
       <header class="tk-panel-head">
         <span class="tk-panel-icon" style="--t:#22c55e;">${TkIcons.user()}</span>
-        <div><h2>Presenze di oggi</h2><p>${presenti} presenti su ${lista.filter(p => !p.assente).length} attesi.${s.in_rete ? '' : ' Per confermare devi essere sulla rete del posto di lavoro.'}</p></div>
+        <div><h2>Presenze di oggi</h2><p>${presenti} presenti su ${lista.filter(p => !p.assente).length} attesi.${!s.reti ? '' : s.in_rete ? '' : ' Questo dispositivo non è sulla rete del posto di lavoro: da qui non si conferma.'}</p></div>
       </header>
+      ${!s.reti ? `<div class="pres-avviso"><span><strong>Nessuna rete del posto di lavoro registrata.</strong> Finché non ce n'è una nessuno può confermare e la regola delle presenze è ferma.</span>
+        ${TCAuth.isAdmin() ? `<button type="button" class="ctrl-btn is-primary" onclick="addRetePresenze()">${Icons.plus(14)} Aggiungi la rete di questo dispositivo</button>` : ''}</div>` : ''}
       ${lista.length ? `<ul class="tk-load-list">${lista.map(p => {
         const [label, tono, sub] = stato(p);
         return `<li class="pres-row">
