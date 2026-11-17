@@ -233,7 +233,7 @@ const Ctrl = {
       if (users) this.users = users.filter(u => !TASK_ESCLUSI.has(u.nickname)).map(u => u.nickname);
 
       if (TCAuth.isAdmin()) {
-        const [oggi, sette, tempi, operatori, problemi, responsabili, calendario] = await Promise.all([
+        const [oggi, sette, tempi, operatori, problemi, responsabili, calendario, reti] = await Promise.all([
           this._rpc('tc_task_punteggi', { p_dal: d, p_al: d }),
           this._rpc('tc_task_punteggi', { p_dal: ctrlAddDays(d, -6), p_al: d }),
           this._rpc('tc_task_tempi_reali'),
@@ -241,7 +241,9 @@ const Ctrl = {
           this._rpc('tc_problemi_collegamenti').catch(() => ({ problemi: [] })),
           supabaseClient.from('competenze_responsabili').select('*'),
           supabaseClient.from('calendar_events').select('user_ids').lte('date_from', d).gte('date_to', d).in('event_type', ['ferie', 'impegno']),
+          supabaseClient.from('presenze_reti').select('*').order('aggiunta_at'),
         ]);
+        this.reti = reti.data || [];
         this.assenti = new Set((calendario.data || []).flatMap(e => e.user_ids || []));
         this.responsabili = Object.fromEntries((responsabili.data || []).map(r => [r.voce, r]));
         this.operatori = operatori.data || [];
@@ -3592,12 +3594,18 @@ function renderTeamTable(people) {
     const voci = Object.values(Ctrl.responsabili);
     const prim = voci.filter(r => r.primario === nick).length, sec = voci.filter(r => r.secondario === nick).length;
     const attivo = o.attivo !== false;
+    const pr = (Presenze.stato?.tutti || []).find(x => x.nickname === nick);
+    const presenza = !pr ? '<span class="ctrl-cell-sub">—</span>'
+      : pr.confermato_at ? `<span class="ctrl-status" style="--st:#22c55e;">Dalle ${ctrlFmtOra(pr.confermato_at)}</span>${pr.confermato_da !== nick ? `<div class="ctrl-cell-sub">da ${escapeHtml(pr.confermato_da)}</div>` : ''}`
+      : pr.scaduto ? '<span class="task-late">Non confermata</span>' : '<span class="ctrl-cell-sub">In attesa</span>';
     return `
       <tr>
         <td><strong>${escapeHtml(nick)}</strong></td>
         <td>${attivo ? '<span class="ctrl-status" style="--st:#22c55e;">Sì</span>' : '<span class="ctrl-cell-sub">No</span>'}</td>
         <td>${!attivo ? '<span class="ctrl-cell-sub">—</span>' : nick === 'claude' ? 'Senza limite' : ctrlFmtMin(o.minuti_giorno || 420)}</td>
         <td>${prim || sec ? `${prim} primario · ${sec} secondario` : '<span class="ctrl-cell-sub">Nessuna competenza</span>'}</td>
+        <td>${o.ora_inizio ? o.ora_inizio.slice(0, 5) : '<span class="ctrl-cell-sub">—</span>'}${o.addetto_presenze ? '<div class="ctrl-cell-sub">addetto presenze</div>' : ''}</td>
+        <td>${presenza}</td>
         <td class="ctrl-cell-actions"><button class="ctrl-btn" onclick="openMemberForm('${escapeHtml(nick)}')">Piano</button></td>
       </tr>`;
   };
@@ -3606,9 +3614,19 @@ function renderTeamTable(people) {
       <div class="page-card-head"><h2>Team</h2><span class="table-count">${people.length}</span>
         <span class="ctrl-group-hint">Le competenze si assegnano dalla scheda Competenze</span></div>
       <div class="table-scroll"><table class="data-table ctrl-links">
-        <thead><tr><th>Persona</th><th>Nel piano</th><th>Tempo al giorno</th><th>Competenze</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+        <thead><tr><th>Persona</th><th>Nel piano</th><th>Tempo al giorno</th><th>Competenze</th><th>Entrata</th><th>Presenza oggi</th><th><span class="sr-only">Azioni</span></th></tr></thead>
         <tbody>${people.map(riga).join('')}</tbody>
       </table></div>
+    </section>
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Rete del posto di lavoro</h2><span class="table-count">${(Ctrl.reti || []).length}</span>
+        <span class="ctrl-group-hint">La presenza si conferma solo da queste reti</span></div>
+      ${(Ctrl.reti || []).length ? `<ul class="tempi-senza">${(Ctrl.reti || []).map(r => `
+        <li><span>${escapeHtml(r.nome || r.rete)}${r.nome ? ` <span class="ctrl-cell-sub">${escapeHtml(r.rete)}</span>` : ''}</span>
+          <button class="btn-icon" onclick="removeRetePresenze('${escapeHtml(r.rete)}')" aria-label="Togli la rete">${Icons.trash()}</button></li>`).join('')}</ul>`
+        : `<div class="empty-list">Nessuna rete: finché non ne aggiungi una, nessuno può confermare la presenza.</div>`}
+      <div class="tempi-foot"><button class="ctrl-btn" onclick="addRetePresenze()">${Icons.plus(14)} Aggiungi la rete di questo dispositivo</button>
+        <span class="ctrl-cell-sub">Da usare quando sei collegato al Wi-Fi del laboratorio.</span></div>
     </section>`;
 }
 
@@ -3701,7 +3719,16 @@ function openMemberForm(nick) {
       ${nick === 'claude' ? '' : `<div class="form-group">
         <label class="form-label" for="mb-minuti">Minuti di lavoro al giorno</label>
         <input id="mb-minuti" type="number" class="form-input" min="30" max="720" value="${o.minuti_giorno || 420}">
-      </div>`}
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="mb-entrata">Orario di entrata</label>
+        <input id="mb-entrata" type="time" class="form-input" value="${o.ora_inizio ? o.ora_inizio.slice(0, 5) : ''}">
+        <small class="ctrl-cell-sub">Vuoto: non deve confermare la presenza. Dopo 30 minuti senza conferma si apre il popup.</small>
+      </div>
+      <label class="switch-row" style="padding:0;">
+        <span><strong>Addetto alle presenze</strong><small>Può confermare la presenza degli altri e riceve il popup di chi non ha confermato</small></span>
+        <input id="mb-addetto" type="checkbox" class="switch" ${o.addetto_presenze ? 'checked' : ''}>
+      </label>`}
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button type="button" class="btn btn-secondary" onclick="closeModal('${CTRL_MODAL}')">Annulla</button>
         <button type="submit" class="btn btn-primary" id="mb-save">Salva</button>
@@ -3713,6 +3740,10 @@ async function submitMemberForm(nick) {
   const minuti = document.getElementById('mb-minuti');
   const row = { nickname: nick, attivo: document.getElementById('mb-attivo').checked };
   if (minuti) row.minuti_giorno = Math.min(720, Math.max(30, parseInt(minuti.value, 10) || 420));
+  if (minuti) {
+    row.ora_inizio = document.getElementById('mb-entrata').value || null;
+    row.addetto_presenze = document.getElementById('mb-addetto').checked;
+  }
   const btn = document.getElementById('mb-save');
   btn.disabled = true;
   const { error } = await supabaseClient.from('task_operatori').upsert(row);
@@ -3721,6 +3752,23 @@ async function submitMemberForm(nick) {
   showToast('Piano salvato');
   await Ctrl.load();
   refreshControlPage();
+}
+
+async function addRetePresenze() {
+  const nome = await uiPrompt('Nome della rete', { placeholder: 'es. Wi-Fi laboratorio', ok: 'Aggiungi' });
+  if (nome === null) return;
+  try {
+    const r = await Ctrl._rpc('tc_presenze_rete_aggiungi', { p_nome: nome.trim() });
+    showToast(`Rete aggiunta: ${r.rete}`);
+    await Ctrl.load(); refreshControlPage(); Presenze.check();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function removeRetePresenze(rete) {
+  if (!(await uiConfirm(`Togliere la rete ${rete}? Da lì non si potrà più confermare la presenza.`, { ok: 'Togli', danger: true }))) return;
+  const { error } = await supabaseClient.from('presenze_reti').delete().eq('rete', rete);
+  if (error) { showToast(Ctrl._fail(error).message, 'error'); return; }
+  await Ctrl.load(); refreshControlPage(); Presenze.check();
 }
 
 async function removeMailRule(mittente) {
