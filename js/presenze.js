@@ -58,7 +58,7 @@ const Presenze = {
     el.classList.toggle('is-late', !!me.scaduto);
     el.innerHTML = `
       <span><strong>Sei al lavoro?</strong> Entrata alle ${escapeHtml(me.ora_inizio)}.
-        ${this.stato.in_rete ? '' : 'Puoi confermare solo dalla rete del posto di lavoro.'}</span>
+        ${this.stato.in_rete ? '' : this.stato.reti ? 'Puoi confermare solo dalla rete del posto di lavoro.' : 'La rete del posto di lavoro non è ancora stata registrata.'}</span>
       ${this.stato.in_rete ? `<button type="button" class="btn btn-primary" onclick="Presenze.conferma()">Sono al lavoro</button>` : ''}`;
   },
 

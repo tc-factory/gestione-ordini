@@ -1129,3 +1129,4 @@ html.dark .tk-now-icon { color: #fbbf24; }
 .pres-row { display: grid; grid-template-columns: auto minmax(80px, 140px) 1fr auto; align-items: center; gap: 12px; padding: 8px 4px; }
 .pres-stato { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
 @media (max-width: 600px) { .pres-row { grid-template-columns: auto 1fr auto; } .pres-stato { grid-column: 2 / -1; } }
+.pres-avviso { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 4px 0 8px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--priority-urgent); font-size: 0.88rem; }
