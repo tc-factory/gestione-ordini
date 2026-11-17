@@ -23,8 +23,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
-from PIL import Image
-from pypdf import PdfReader
+from PIL import Image, ImageCms
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject, NumberObject, TextStringObject
 from reportlab import rl_config
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
@@ -547,16 +548,84 @@ def disegna_riepilogo(c, oggi, generale, blocchi):
 
 # ── File di stampa ──
 
-def crea_pdf_stampa(destinazione, voci, problemi):
+# Profilo colore della SC-F500 per i calzini: le grafiche si convertono in questo profilo e il PDF lo porta
+# incorporato, così da qualsiasi programma o Mac il colore è quello di Illustrator (driver: nessuna regolazione colore).
+PROFILO_STAMPA = 'Epson_SC-F500_GeneralPurpose(Textile).icc'
+NOME_PROFILO = 'Epson SC-F500 General Purpose/Textile'
+# Come Illustrator di serie: colorimetrico relativo con compensazione del punto nero
+INTENTO_STAMPA = ImageCms.Intent.RELATIVE_COLORIMETRIC
+
+
+def trova_profilo_stampa(libreria):
+    """Il profilo Textile: nella libreria (server: profili/ dal bucket dtf-libreria) o dove lo mette il driver Epson."""
+    posti = [os.environ.get('CS_PROFILO_STAMPA'), libreria / 'profili' / PROFILO_STAMPA,
+             *sorted(Path('/Library/Printers/EPSON').glob(f'**/{PROFILO_STAMPA}')),
+             Path('/Library/ColorSync/Profiles') / PROFILO_STAMPA, Path.home() / 'Library/ColorSync/Profiles' / PROFILO_STAMPA]
+    for p in posti:
+        if p and Path(p).is_file():
+            return Path(p).read_bytes()
+    return None
+
+
+def converti_al_profilo(f, profilo, trasformazioni):
+    """Converte il PNG (sRGB o il suo profilo incorporato) nel profilo di stampa, trasparenza compresa."""
+    with Image.open(f) as im:
+        im.load()
+        sorgente = im.info.get('icc_profile') or b''
+        alfa = None
+        if 'A' in im.getbands() or 'transparency' in im.info:
+            im = im.convert('RGBA')
+            alfa = im.getchannel('A')
+        rgb = im.convert('RGB')
+    t = trasformazioni.get(sorgente)
+    if t is None:
+        da = ImageCms.ImageCmsProfile(io.BytesIO(sorgente)) if sorgente else ImageCms.createProfile('sRGB')
+        t = trasformazioni[sorgente] = ImageCms.buildTransform(
+            da, ImageCms.ImageCmsProfile(io.BytesIO(profilo)), 'RGB', 'RGB',
+            renderingIntent=INTENTO_STAMPA, flags=ImageCms.Flags.BLACKPOINTCOMPENSATION)
+    out = ImageCms.applyTransform(rgb, t)
+    if alfa is not None:
+        out.putalpha(alfa)
+    out.info.pop('icc_profile', None)   # il profilo va una volta sola nel PDF, non in ogni immagine
+    out.save(f, 'PNG', compress_level=1)
+
+
+def incorpora_profilo(pdf, profilo):
+    """Le immagini RGB del PDF diventano ICCBased col profilo di stampa, che è anche l'OutputIntent del file."""
+    w = PdfWriter(clone_from=str(pdf))
+    icc = DecodedStreamObject()
+    icc.set_data(profilo)
+    icc[NameObject('/N')] = NumberObject(3)
+    icc[NameObject('/Alternate')] = NameObject('/DeviceRGB')
+    rif = w._add_object(icc.flate_encode())
+    spazio = ArrayObject([NameObject('/ICCBased'), rif])
+    for pagina in w.pages:
+        for x in (pagina.get('/Resources', {}).get_object().get('/XObject') or {}).values():
+            x = x.get_object()
+            if x.get('/Subtype') == '/Image' and x.get('/ColorSpace') == '/DeviceRGB':
+                x[NameObject('/ColorSpace')] = spazio
+    w._root_object[NameObject('/OutputIntents')] = ArrayObject([DictionaryObject({
+        NameObject('/Type'): NameObject('/OutputIntent'), NameObject('/S'): NameObject('/GTS_PDFX'),
+        NameObject('/OutputConditionIdentifier'): TextStringObject(NOME_PROFILO),
+        NameObject('/Info'): TextStringObject(NOME_PROFILO), NameObject('/DestOutputProfile'): rif})])
+    tmp = pdf.with_name(pdf.name + '.icc')
+    with tmp.open('wb') as out:
+        w.write(out)
+    tmp.replace(pdf)
+
+
+def crea_pdf_stampa(destinazione, voci, problemi, profilo=None):
     """Una pagina 23x43 per ogni grafica DIVERSA: le stampe identiche (stesso file) stanno su una pagina sola
     e si stampano in più copie. Le pagine sono in ordine di copie (prima quelle da 1, poi da 2, ...), così ogni
     gruppo è un intervallo di pagine da stampare con lo stesso numero di copie.
+    Con il profilo (Textile della SC-F500) le grafiche sono convertite e il profilo è incorporato nel PDF.
     Ritorna (pagine, ordini non riusciti, copie per pagina)."""
     W, H = PAGINA_STAMPA
     rl_config.useA85 = 0
     c = canvas.Canvas(str(destinazione), pagesize=PAGINA_STAMPA, pageCompression=1)
     falliti = set()
     uniche = {}   # impronta del PNG → [file, copie], nell'ordine in cui compaiono
+    trasformazioni = {}
     with tempfile.TemporaryDirectory() as tmp:
         for i, (ordine, titolo, url, pezzi) in enumerate(voci):
             try:
@@ -572,6 +641,8 @@ def crea_pdf_stampa(destinazione, voci, problemi):
                     w, h = im.size
                 if abs(w / h - W / H) > 0.01:
                     raise ValueError(f'formato {w}x{h}, non 23x43')
+                if profilo:
+                    converti_al_profilo(f, profilo, trasformazioni)
                 uniche[impronta] = [f, pezzi]
             except Exception as e:
                 falliti.add(ordine)
@@ -583,6 +654,8 @@ def crea_pdf_stampa(destinazione, voci, problemi):
             c.showPage()
         if pagine:
             c.save()   # Va salvato qui: i file temporanei servono fino alla scrittura del PDF
+            if profilo:
+                incorpora_profilo(Path(destinazione), profilo)
     return len(pagine), falliti, [n for _, n in pagine]
 
 
@@ -846,13 +919,18 @@ def giro(args, applica, reg):
     # Un PDF per negozio: (negozio, ordine) dei file non riusciti, pdf_stampa[negozio] = (file, pagine, copie per pagina)
     falliti_stampa = set()
     pdf_stampa = {}
+    profilo_stampa = None
     for i, prefisso in NEGOZI_FILE_STAMPA.items():
         voci = [v[1:] for v in voci_stampa if v[0] == i]
         if not voci:
             continue
         tmp = nome_libero(cartella, f'{prefisso}.part')
         try:
-            pagine, falliti, copie = crea_pdf_stampa(tmp, voci, avvisi_stampa[i])
+            if profilo_stampa is None:
+                profilo_stampa = trova_profilo_stampa(args.cartella / CARTELLA_PROTETTA) or b''
+            if not profilo_stampa:
+                avvisi_stampa[i].append(f'PDF SENZA il profilo {NOME_PROFILO} (file {PROFILO_STAMPA} non trovato): i colori non sono quelli di Illustrator')
+            pagine, falliti, copie = crea_pdf_stampa(tmp, voci, avvisi_stampa[i], profilo_stampa or None)
             falliti_stampa |= {(i, x) for x in falliti}
             if pagine:
                 # Il nome dice il primo e l'ultimo ordine davvero stampati
