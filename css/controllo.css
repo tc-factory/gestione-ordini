@@ -1126,7 +1126,17 @@ html.dark .tk-now-icon { color: #fbbf24; }
 .presenza-bar.is-late { border-color: var(--priority-urgent); }
 .presenza-bar.is-late strong { color: var(--priority-urgent); }
 .task-suggerito { color: var(--text-secondary); font-weight: 600; }
-.pres-row { display: grid; grid-template-columns: auto minmax(80px, 140px) 1fr auto; align-items: center; gap: 12px; padding: 8px 4px; }
-.pres-stato { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
-@media (max-width: 600px) { .pres-row { grid-template-columns: auto 1fr auto; } .pres-stato { grid-column: 2 / -1; } }
 .pres-avviso { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 4px 0 8px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--priority-urgent); font-size: 0.88rem; }
+
+/* Presenze nella pagina Tasks: nomi del team a pillola */
+.pres-box { margin-bottom: 16px; }
+.pres-nomi { display: flex; flex-wrap: wrap; gap: 8px; }
+.pres-btn {
+  padding: 8px 18px; border-radius: 999px; border: 1px solid transparent; cursor: pointer;
+  font: inherit; font-weight: 700; font-size: 0.9rem; text-transform: capitalize;
+  background: #e5e7eb; color: #4b5563; transition: background .15s, color .15s;
+}
+.pres-btn:hover { filter: brightness(0.95); }
+.pres-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.pres-btn.is-presente { background: #22c55e; color: #fff; }
+.pres-btn.is-assente { background: #ef4444; color: #fff; }
