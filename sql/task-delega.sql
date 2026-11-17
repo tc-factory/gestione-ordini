@@ -2,7 +2,7 @@
 -- T&C Factory — Delega di un task
 --
 -- Chi ha il task in carico (o l'admin) può passarlo a un collega, anche i task della coda comune.
--- Non si delega a claude, a un admin o a chi oggi non c'è.
+-- Non si delega a claude, all'account condiviso tcfactory, a chi non lavora sui task (andrea) o a chi oggi non c'è.
 -- Un task in lavorazione va in pausa, così il cronometro non continua a nome di un altro.
 -- Chi riceve vede da chi arriva e l'eventuale nota; il passaggio resta nell'attività del task.
 --
@@ -28,7 +28,7 @@ begin
   if p_a is null or p_a is not distinct from t.assegnato_a or p_a = v_me then
     return jsonb_build_object('success', false, 'error', 'Scegli un collega');
   end if;
-  if p_a = 'claude' or not exists (select 1 from app_users where nickname = p_a and not is_admin) then
+  if p_a in ('claude', 'tcfactory', 'andrea') or not exists (select 1 from app_users where nickname = p_a) then
     return jsonb_build_object('success', false, 'error', 'A questa persona non si può delegare');
   end if;
   if not tc_disponibile(p_a, tc_oggi()) then

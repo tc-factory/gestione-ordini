@@ -104,7 +104,7 @@ async function comCaricaConteggi() {
 // Stato di un canale per un negozio: { testo, n, colore, attivo }
 function comStato(negozio, canale) {
   if (canale.id === 'spedizioni' && negozio.esterne) return { testo: canale.label, attivo: true };
-  if (comCanaleShop(canale.id)) return taskMacro(negozio.id) ? { testo: canale.label, attivo: true } : { testo: 'Non è un negozio Shopify', attivo: false };
+  if (comCanaleShop(canale.id)) return isNegozioShopify(negozio.id) ? { testo: canale.label, attivo: true } : { testo: 'Non è un negozio Shopify', attivo: false };
   if (canale.id === 'whatsapp') return { testo: 'Da configurare', attivo: false };
   if (canale.id === 'mail') {
     const cc = comCaselle(negozio);
