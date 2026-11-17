@@ -1128,25 +1128,34 @@ html.dark .tk-now-icon { color: #fbbf24; }
 .task-suggerito { color: var(--text-secondary); font-weight: 600; }
 .pres-avviso { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 4px 0 8px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--priority-urgent); font-size: 0.88rem; }
 
-/* Team di oggi nella pagina Tasks: presenza (nome colorato) e carico */
-.pres-box { margin-bottom: 16px; }
-.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
-.team-card { display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); background: var(--bg-card, #fff); }
-.team-nome {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 14px 16px;
-  border: 0; font: inherit; text-align: left; cursor: pointer; background: #e5e7eb; color: #374151;
+/* Team di oggi nella pagina Tasks: una riga, avatar con l'icona della presenza e carico */
+.team-box { margin-bottom: 16px; padding: 10px 12px; }
+.team-riga {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 4px;
+  grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); overflow-x: auto; scrollbar-width: thin;
 }
-div.team-nome { cursor: default; background: var(--fill-hover); }
-.team-nome-testo { font-size: 1.1rem; font-weight: 800; text-transform: capitalize; }
-.team-nome small { font-size: 0.74rem; opacity: .85; }
-.team-card.is-presente .team-nome { background: #22c55e; color: #fff; }
-.team-card.is-assente .team-nome { background: #ef4444; color: #fff; }
-button.team-nome:hover { filter: brightness(0.96); }
-.team-nome:focus-visible, .team-carico:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
-.team-carico { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 12px 16px 14px; border: 0; background: transparent; font: inherit; text-align: left; color: inherit; }
-button.team-carico { cursor: pointer; }
-button.team-carico:hover, .team-carico.is-on { background: var(--fill-hover); }
-.team-carico-riga { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.84rem; color: var(--text-secondary); }
-.team-carico-riga strong { font-variant-numeric: tabular-nums; color: var(--text-primary); }
-.team-carico-riga small { font-weight: 500; color: var(--text-muted); }
+.team-item { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 8px; border-radius: 12px; }
+.team-item.is-on { background: var(--fill-hover); }
+.team-item.is-off .team-info { opacity: .55; }
+.team-av { position: relative; flex-shrink: 0; display: inline-grid; padding: 0; border: 0; background: none; border-radius: 50%; }
+button.team-av { cursor: pointer; }
+button.team-av:focus-visible, .team-info:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.team-stato {
+  position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center;
+  width: 16px; height: 16px; border-radius: 50%; color: #fff; border: 2px solid var(--bg-card, #fff);
+}
+.team-stato.is-ok { background: #22c55e; }
+.team-stato.is-no { background: #ef4444; }
+.team-stato.is-wait { background: #9ca3af; }
+.team-info {
+  display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; padding: 0;
+  border: 0; background: none; font: inherit; color: inherit; text-align: left; border-radius: 6px;
+}
+button.team-info { cursor: pointer; }
+button.team-info:hover .team-nome { text-decoration: underline; }
+.team-nome { font-size: 0.9rem; font-weight: 700; text-transform: capitalize; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team-meta { font-size: 0.74rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.team-cap { color: var(--text-muted); }
+.team-bar { height: 4px; border-radius: 99px; background: var(--fill-hover); overflow: hidden; }
+.team-bar span { display: block; height: 100%; border-radius: inherit; background: var(--t); }
 .tk-duo.tk-solo { grid-template-columns: minmax(0, 1fr); }
