@@ -1125,3 +1125,4 @@ html.dark .tk-now-icon { color: #fbbf24; }
 }
 .presenza-bar.is-late { border-color: var(--priority-urgent); }
 .presenza-bar.is-late strong { color: var(--priority-urgent); }
+.task-suggerito { color: var(--text-secondary); font-weight: 600; }
