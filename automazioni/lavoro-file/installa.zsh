@@ -7,7 +7,7 @@
 # a ogni accensione. Si può rilanciare: reinstalla e riparte.
 set -e
 CHIAVE="$1"
-[[ "$CHIAVE" =~ '^[0-9a-f]{32,}$' ]] || { echo "Manca la chiave: copia il comando dal gestionale (Centro di controllo → Attivazioni)."; exit 1; }
+printf '%s' "$CHIAVE" | grep -Eq '^[0-9a-f]{32,}$' || { echo "Manca la chiave: copia il comando dal gestionale (Centro di controllo → Attivazioni)."; exit 1; }
 SITO="https://cs.pngs.it"
 CONFIG_JS=$(curl -fsSL "$SITO/js/supabase-config.js")
 URL=$(print -r -- "$CONFIG_JS" | sed -n "s/^const SUPABASE_URL = '\(.*\)';/\1/p")
