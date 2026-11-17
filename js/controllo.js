@@ -640,6 +640,8 @@ const taskCaricoTesto = (c) => `${ctrlFmtMin(c.min)}${c.cap ? ` / ${ctrlFmtMin(c
 function taskParti(t) {
   // Commit: il titolo intero è l'attività, il progetto sta nel cliente
   if (t.fonte === 'shopify_admin') return { attivita: t.titolo.replace(/^[^:]+:\s*/, 'Modifiche al sito: '), cliente: '', ordine: null };
+  // Lavoro sui file (TC Lavoro): il titolo è il cliente
+  if (t.fonte === 'file') return { attivita: 'Lavorazione grafica', cliente: t.titolo, ordine: null };
   if (['github', 'claude_code'].includes(t.fonte)) return { attivita: t.titolo, cliente: t.analisi?.cliente?.nome || '', ordine: null };
   const [primo, ...resto] = t.titolo.split(/\s+·\s+/);
   const altri = resto.filter(p => !/^ordine\s+#\d+$/i.test(p));
@@ -677,6 +679,7 @@ function taskAvatar(nick, size = 26) {
 // Icona dell'attività dal titolo
 function taskIcona(t) {
   if (['github', 'claude_code'].includes(t.fonte)) return TkIcons.code(17);
+  if (t.fonte === 'file') return TkIcons.layers(17);
   const s = t.titolo;
   if (/sped|consegn|rientro|giacenz|tracking|gls|fermo|ritir|pacc/i.test(s)) return Icons.truck(17);
   if (/stamp|dtf|uv\b|mimaki|laser|applicaz|lavoraz|ricam|serigraf/i.test(s)) return Icons.printer(17);
@@ -977,7 +980,7 @@ function renderTaskTable() {
     const ora = t.scadenza && ctrlFmtOra(t.scadenza) !== '00:00' ? ` ${ctrlFmtOra(t.scadenza)}` : '';
     const inLista = chiuso ? '' : taskInListaTesto(t);
     return `
-      <tr class="${t.stato === 'completato' && !['github', 'claude_code', 'shopify_admin'].includes(t.fonte) ? 'is-done' : ''} ${v.sel.has(t.id) ? 'is-sel' : ''}">
+      <tr class="${t.stato === 'completato' && !['github', 'claude_code', 'shopify_admin', 'file'].includes(t.fonte) ? 'is-done' : ''} ${v.sel.has(t.id) ? 'is-sel' : ''}">
         <td class="tk-check">${chiuso ? '' : `<input type="checkbox" ${v.sel.has(t.id) ? 'checked' : ''} onchange="taskToggleSel('${t.id}', this.checked)" aria-label="Seleziona ${escapeHtml(t.titolo)}">`}</td>
         <td>${prioTag(t)}</td>
         <td><button type="button" class="tk-act" onclick="openTaskDetail('${t.id}')" title="${escapeHtml(t.titolo)}">
@@ -988,7 +991,7 @@ function renderTaskTable() {
           ${dist && !chiuso ? `<span class="tk-delta ${dist.passato ? 'is-late' : ''}">${taskDistanzaTesto(dist)}</span>` : ''}`
           : chiuso ? '' : '<span class="tk-none">Nessuna</span>'}
           ${inLista ? `<small class="tk-inlista">${inLista}</small>` : ''}
-          ${chiuso && t.completato_at ? `<small class="tk-inlista">${t.fonte === 'github' ? 'commit' : ['claude_code', 'shopify_admin'].includes(t.fonte) ? 'sessione fino' : 'fatto'} ${ctrlGiornoDi(t.completato_at) === ctrlOggi() ? 'alle' : `il ${taskDataBreve(ctrlGiornoDi(t.completato_at))},`} ${ctrlFmtOra(t.completato_at)}</small>` : ''}</td>
+          ${chiuso && t.completato_at ? `<small class="tk-inlista">${t.fonte === 'github' ? 'commit' : ['claude_code', 'shopify_admin', 'file'].includes(t.fonte) ? 'sessione fino' : 'fatto'} ${ctrlGiornoDi(t.completato_at) === ctrlOggi() ? 'alle' : `il ${taskDataBreve(ctrlGiornoDi(t.completato_at))},`} ${ctrlFmtOra(t.completato_at)}</small>` : ''}</td>
         <td>${taskChiSelect(t)}</td>
         <td class="tk-num">${t.minuti_stimati ? ctrlFmtMin(t.minuti_stimati) : '<span class="tk-none">—</span>'}</td>
         <td>${statoTag(t)}</td>
@@ -1874,7 +1877,7 @@ function renderTaskDetail(id, storico) {
     </div>
     <div class="td-grid">
       <div class="td-col">
-        ${t.descrizione ? `<section class="td-sec"><h3>Cosa fare</h3><p class="td-todo">${escapeHtml(t.descrizione)}</p></section>` : ''}
+        ${t.descrizione ? `<section class="td-sec"><h3>${t.fonte === 'file' ? 'File lavorati' : 'Cosa fare'}</h3><p class="td-todo">${escapeHtml(t.descrizione)}</p></section>` : ''}
         ${taskMotivoVisibile(t.stato, t.motivo) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
         ${t.analisi?.dubbi ? `<p class="td-todo is-advice"><strong>Da controllare:</strong> ${escapeHtml(t.analisi.dubbi)}</p>` : ''}
         ${renderTaskContatto(t)}
