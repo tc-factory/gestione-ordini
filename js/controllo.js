@@ -235,7 +235,9 @@ const Ctrl = {
       if (users) this.users = users.filter(u => !TASK_ESCLUSI.has(u.nickname)).map(u => u.nickname);
 
       if (TCAuth.isAdmin()) {
-        const [oggi, sette, tempi, operatori, problemi, responsabili, calendario, reti] = await Promise.all([
+        // Lavoro di Claude nel giorno: task suoi e commit/sessioni di Claude Code chiusi quel giorno
+        const inizio = new Date(`${d}T00:00:00`), fine = new Date(inizio.getTime() + 86400000);
+        const [oggi, sette, tempi, operatori, problemi, responsabili, calendario, reti, claude] = await Promise.all([
           this._rpc('tc_task_punteggi', { p_dal: d, p_al: d }),
           this._rpc('tc_task_punteggi', { p_dal: ctrlAddDays(d, -6), p_al: d }),
           this._rpc('tc_task_tempi_reali'),
@@ -244,7 +246,11 @@ const Ctrl = {
           supabaseClient.from('competenze_responsabili').select('*'),
           supabaseClient.from('calendar_events').select('user_ids').lte('date_from', d).gte('date_to', d).in('event_type', ['ferie', 'impegno']),
           supabaseClient.from('presenze_reti').select('*').order('aggiunta_at'),
+          supabaseClient.from('tasks').select('lavorato_sec, minuti_stimati').eq('stato', 'completato')
+            .gte('completato_at', inizio.toISOString()).lt('completato_at', fine.toISOString())
+            .or('assegnato_a.eq.claude,fonte.in.(github,claude_code)'),
         ]);
+        this.claudeFatti = claude.data || [];
         this.reti = reti.data || [];
         this.assenti = new Set((calendario.data || []).flatMap(e => e.user_ids || []));
         this.responsabili = Object.fromEntries((responsabili.data || []).map(r => [r.voce, r]));
@@ -810,7 +816,7 @@ function renderPresenzeOggi() {
     const icona = def ? `<i class="team-stato ${def.cls}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">${def.icon}</svg></i>`
                       : '<i class="team-stato is-none"></i>';
     // Claude non ha un tempo massimo: task chiusi e minuti lavorati nel giorno
-    const fattiClaude = nick === 'claude' ? Ctrl.tasks.filter(t => t.assegnato_a === 'claude' && t.giorno === Ctrl.giorno && t.stato === 'completato') : null;
+    const fattiClaude = nick === 'claude' ? (Ctrl.claudeFatti || []) : null;
     const info = fattiClaude ? `
       <span class="team-nome">${escapeHtml(nick)}</span>
       <span class="team-meta">${fattiClaude.length} chiusi · ${ctrlFmtMin(fattiClaude.reduce((n, t) => n + (t.lavorato_sec ? t.lavorato_sec / 60 : t.minuti_stimati || 0), 0))} lavorati</span>` : `
