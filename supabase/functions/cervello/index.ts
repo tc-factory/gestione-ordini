@@ -356,6 +356,14 @@ async function inutile(db: SupabaseClient, mail: Row, mittente: string, ordini: 
 
 // ── Task ──
 
+// Brand della casella: il negozio Shopify, oppure il brand stesso per le caselle senza negozio
+// (Live Printing, T&C Factory), che ha le sue regole in negozi_conoscenza con l'id della casella
+const brandCasella = (casella: Row | null) => casella?.store_id || casella?.id || null;
+// Brand che hanno una macroarea nei task oltre ai negozi Shopify
+const BRAND_TASK = new Set(['liveprinting']);
+const macroareaCasella = (casella: Row | null) =>
+  casella?.store_id || (BRAND_TASK.has(casella?.id) ? casella.id : null);
+
 async function creaTask(db: SupabaseClient, evento: Row, mail: Row, storeId: string | null, tipi: Map<string, Row>, dati: Row) {
   const tipo = tipi.get(dati.tipo);
   // Subito alla persona responsabile della competenza nel negozio (claude escluso: lì decide il piano)
@@ -455,7 +463,7 @@ function svincoloDaMail(a: Row, ordini: Row[], fermate: Row[], mittente: string,
 
 // Tutto quello che Claude legge su una mail: ordini, spedizioni, memoria del cliente, mail precedenti
 async function preparaContesto(db: SupabaseClient, mail: Row, casella: Row | null, negozi: Map<string, string>, regola: Row | null) {
-  const storeId = casella?.store_id || null;
+  const brandId = brandCasella(casella);
   const mittente = (mail.da_email || '').toLowerCase();
   const { data: memoria } = mittente ? await db.from('clienti_memoria').select('*').eq('email', mittente).maybeSingle() : { data: null };
   const ordini = await cercaOrdini(db, mail);
@@ -503,7 +511,7 @@ async function preparaContesto(db: SupabaseClient, mail: Row, casella: Row | nul
   }]));
 
   const [{ data: conoscenza }, { data: correzioni }] = await Promise.all([
-    db.from('negozi_conoscenza').select('testo').eq('store_id', storeId).maybeSingle(),
+    brandId ? db.from('negozi_conoscenza').select('testo').eq('store_id', brandId).maybeSingle() : { data: null },
     db.from('mail_regole').select('azione, esempio').not('esempio', 'is', null).order('created_at', { ascending: false }).limit(15),
   ]);
 
@@ -533,7 +541,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
   if (!mail) { await chiudi(db, evento.id, 'Mail non trovata'); return { evento: evento.id, esito: 'mail non trovata' }; }
 
   const { data: casella } = await db.from('mail_caselle').select('*').eq('id', mail.casella_id).maybeSingle();
-  const storeId = casella?.store_id || null;
+  const storeId = macroareaCasella(casella);
   const mittente = (mail.da_email || '').toLowerCase();
 
   try {

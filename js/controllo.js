@@ -38,7 +38,10 @@ const TASK_MACROAREE = [
   { id: 'boxfactorylab',     label: 'Box Factory Lab',      color: '#6366f1' },
   { id: 'asteroidi',         label: 'Asteroidi Store',      color: '#14b8a6' },
 ];
-const taskMacro = (id) => TASK_MACROAREE.find(m => m.id === id);
+// Brand dei task: i negozi più Live Printing (le sue mail arrivano dal cervello, non è un negozio Shopify)
+const TASK_BRAND = [...TASK_MACROAREE, { id: 'liveprinting', label: 'Live Printing', color: '#ef4123' }];
+const taskMacro = (id) => TASK_BRAND.find(m => m.id === id);
+const isNegozioShopify = (id) => TASK_MACROAREE.some(m => m.id === id);
 // Competenze: voci "area:competenza" con primario e secondario (competenze_responsabili); i task senza negozio sono dell'area "produzione"
 const TASK_COMPETENZE = [
   { id: 'whatsapp',     label: 'WhatsApp' },
@@ -91,9 +94,9 @@ const COMPETENZE_NEGOZIO = {
   boxfactorylab: ['grafiche', 'catalogo', 'fatturazione', 'check_pagamento'],
 };
 const TASK_AREE = [
-  ...TASK_MACROAREE.map(m => ({
+  ...TASK_BRAND.map(m => ({
     ...m,
-    competenze: [...COMPETENZE_BASE, ...(COMPETENZE_NEGOZIO[m.id] || []), ...COMPETENZE_NUOVO_PRODOTTO],
+    competenze: [...COMPETENZE_BASE, ...(COMPETENZE_NEGOZIO[m.id] || []), ...(isNegozioShopify(m.id) ? COMPETENZE_NUOVO_PRODOTTO : [])],
     // Stessa competenza dei task (preparazione), altro nome in questi negozi
     etichette: m.id === 'asteroidi' ? {} : { preparazione: 'Preparazione file di stampa' },
   })),
@@ -106,6 +109,7 @@ const TASK_AREE = [
   ] },
   { id: 'automazioni', label: 'Automazioni', color: '#111827', competenze: ['verifica'] },
 ];
+const TASK_ESCLUSI = new Set(['tcfactory', 'andrea']);
 const competenzaLabel = (id) => TASK_COMPETENZE.find(c => c.id === id)?.label || id;
 // Stati ancora da lavorare: se il giorno passa, il task diventa arretrato
 const TASK_APERTI = ['da_fare', 'in_lavorazione', 'in_pausa', 'rimandato'];
@@ -217,7 +221,8 @@ const Ctrl = {
       if (tipi.error)  throw this._fail(tipi.error);
       this.tasks = tasks.data || [];
       this.tipi  = tipi.data || [];
-      if (users) this.users = users.filter(u => !u.is_admin).map(u => u.nickname);   // l'admin non riceve task
+      // Nella lista dei task tutti tranne l'account condiviso tcfactory e chi non lavora sui task
+      if (users) this.users = users.filter(u => !TASK_ESCLUSI.has(u.nickname)).map(u => u.nickname);
 
       if (TCAuth.isAdmin()) {
         const [oggi, sette, tempi, operatori, problemi, responsabili, calendario] = await Promise.all([
@@ -720,7 +725,7 @@ function taskMacroBar(list) {
   return `
     <div class="ctrl-macro-bar" role="group" aria-label="Filtra per macroarea">
       ${chip(null, 'Tutte', list.length)}
-      ${TASK_MACROAREE.map(m => chip(m.id, m.label, conta(m.id), m.color)).join('')}
+      ${TASK_BRAND.map(m => chip(m.id, m.label, conta(m.id), m.color)).join('')}
     </div>`;
 }
 
@@ -1524,7 +1529,7 @@ function openTaskForm(id = null) {
         <label class="form-label" for="tf-macro">Macroarea</label>
         <select id="tf-macro" class="form-select">
           <option value="">Nessuna</option>
-          ${TASK_MACROAREE.map(m => `<option value="${m.id}" ${(t?.macroarea || (!t && Ctrl.macroarea)) === m.id ? 'selected' : ''}>${m.label}</option>`).join('')}
+          ${TASK_BRAND.map(m => `<option value="${m.id}" ${(t?.macroarea || (!t && Ctrl.macroarea)) === m.id ? 'selected' : ''}>${m.label}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
