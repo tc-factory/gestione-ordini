@@ -87,6 +87,7 @@ const TASK_COMPETENZE = [
   { id: 'check_manifattura', label: 'Check Manifattura' },
   { id: 'check_arti',        label: 'Check Arti grafiche' },
   { id: 'claude_code',       label: 'Lavorazioni con Claude Code (Creative System, Live Printing, Kamon)' },
+  { id: 'siti',              label: 'Modifiche al sito (dallo storico di Shopify)' },
 ];
 const COMPETENZE_BASE = ['whatsapp', 'social', 'email', 'bonifico', 'ddt', 'preparazione', 'lavorazione', 'spedizione', 'post_spedizione'];
 const COMPETENZE_NUOVO_PRODOTTO = ['np_bozza', 'np_mockup', 'np_stampa', 'np_shopify', 'np_customily', 'np_check'];
@@ -97,7 +98,7 @@ const COMPETENZE_NEGOZIO = {
 const TASK_AREE = [
   ...TASK_BRAND.map(m => ({
     ...m,
-    competenze: [...COMPETENZE_BASE, ...(COMPETENZE_NEGOZIO[m.id] || []), ...(isNegozioShopify(m.id) ? COMPETENZE_NUOVO_PRODOTTO : [])],
+    competenze: [...COMPETENZE_BASE, ...(COMPETENZE_NEGOZIO[m.id] || []), ...(isNegozioShopify(m.id) ? [...COMPETENZE_NUOVO_PRODOTTO, 'siti'] : [])],
     // Stessa competenza dei task (preparazione), altro nome in questi negozi
     etichette: m.id === 'asteroidi' ? {} : { preparazione: 'Preparazione file di stampa' },
   })),
@@ -246,7 +247,7 @@ const Ctrl = {
           supabaseClient.from('competenze_responsabili').select('*'),
           supabaseClient.from('calendar_events').select('user_ids').lte('date_from', d).gte('date_to', d).in('event_type', ['ferie', 'impegno']),
           supabaseClient.from('presenze_reti').select('*').order('aggiunta_at'),
-          supabaseClient.from('tasks').select('lavorato_sec, minuti_stimati').eq('stato', 'completato')
+          supabaseClient.from('tasks').select('lavorato_sec, minuti_stimati, completato_at').eq('stato', 'completato')
             .gte('completato_at', inizio.toISOString()).lt('completato_at', fine.toISOString())
             .or('assegnato_a.eq.claude,fonte.in.(github,claude_code)'),
         ]);
@@ -638,6 +639,7 @@ const taskCaricoTesto = (c) => `${ctrlFmtMin(c.min)}${c.cap ? ` / ${ctrlFmtMin(c
 // Titolo "Attività · Cliente · ordine #123": l'attività a sinistra, il cliente nella sua colonna
 function taskParti(t) {
   // Commit: il titolo intero è l'attività, il progetto sta nel cliente
+  if (t.fonte === 'shopify_admin') return { attivita: t.titolo.replace(/^[^:]+:\s*/, 'Modifiche al sito: '), cliente: '', ordine: null };
   if (['github', 'claude_code'].includes(t.fonte)) return { attivita: t.titolo, cliente: t.analisi?.cliente?.nome || '', ordine: null };
   const [primo, ...resto] = t.titolo.split(/\s+·\s+/);
   const altri = resto.filter(p => !/^ordine\s+#\d+$/i.test(p));
@@ -819,7 +821,7 @@ function renderPresenzeOggi() {
     const fattiClaude = nick === 'claude' ? (Ctrl.claudeFatti || []) : null;
     const info = fattiClaude ? `
       <span class="team-nome">${escapeHtml(nick)}</span>
-      <span class="team-meta">${fattiClaude.length} chiusi · ${ctrlFmtMin(fattiClaude.reduce((n, t) => n + (t.lavorato_sec ? t.lavorato_sec / 60 : t.minuti_stimati || 0), 0))} lavorati</span>` : `
+      <span class="team-meta">${fattiClaude.length} chiusi · ${ctrlFmtMin(claudeMinutiReali(fattiClaude))} lavorati</span>` : `
       <span class="team-nome">${escapeHtml(nick)}</span>
       <span class="team-meta">${c.n} task · ${c.min ? ctrlFmtMin(c.min) : '0′'}${c.cap ? `<span class="team-cap">/${ctrlFmtMin(c.cap)}</span>` : ''}</span>
       <span class="team-bar"><span style="width:${c.cap ? Math.min(100, c.pct) : 0}%;--t:${tono(c.pct || 0)};"></span></span>`;
@@ -838,6 +840,22 @@ function renderPresenzeOggi() {
         ${admin ? `<button type="button" class="ctrl-btn is-primary" onclick="addRetePresenze()">${Icons.plus(14)} Aggiungi la rete di questo dispositivo</button>` : ''}</div>` : ''}
       <ul class="team-riga">${persone.map(item).join('')}</ul>
     </section>`;
+}
+
+// Minuti di lavoro di Claude senza contare due volte il tempo in cui lavorava su più cose insieme:
+// ogni task occupa l'intervallo che finisce alla chiusura e dura i suoi minuti; si somma l'unione.
+function claudeMinutiReali(tasks) {
+  const tratti = tasks.map(t => {
+    const fine = new Date(t.completato_at).getTime();
+    return [fine - (t.lavorato_sec ? t.lavorato_sec * 1000 : (t.minuti_stimati || 0) * 60000), fine];
+  }).filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
+  let tot = 0, da = null, a = null;
+  for (const [x, y] of tratti) {
+    if (da === null || x > a) { if (da !== null) tot += a - da; da = x; a = y; }
+    else a = Math.max(a, y);
+  }
+  if (da !== null) tot += a - da;
+  return tot / 60000;
 }
 
 // Riordino trascinando (admin): l'ordine si salva per tutti in app_settings.team_ordine
@@ -959,7 +977,7 @@ function renderTaskTable() {
     const ora = t.scadenza && ctrlFmtOra(t.scadenza) !== '00:00' ? ` ${ctrlFmtOra(t.scadenza)}` : '';
     const inLista = chiuso ? '' : taskInListaTesto(t);
     return `
-      <tr class="${t.stato === 'completato' && !['github', 'claude_code'].includes(t.fonte) ? 'is-done' : ''} ${v.sel.has(t.id) ? 'is-sel' : ''}">
+      <tr class="${t.stato === 'completato' && !['github', 'claude_code', 'shopify_admin'].includes(t.fonte) ? 'is-done' : ''} ${v.sel.has(t.id) ? 'is-sel' : ''}">
         <td class="tk-check">${chiuso ? '' : `<input type="checkbox" ${v.sel.has(t.id) ? 'checked' : ''} onchange="taskToggleSel('${t.id}', this.checked)" aria-label="Seleziona ${escapeHtml(t.titolo)}">`}</td>
         <td>${prioTag(t)}</td>
         <td><button type="button" class="tk-act" onclick="openTaskDetail('${t.id}')" title="${escapeHtml(t.titolo)}">
@@ -970,7 +988,7 @@ function renderTaskTable() {
           ${dist && !chiuso ? `<span class="tk-delta ${dist.passato ? 'is-late' : ''}">${taskDistanzaTesto(dist)}</span>` : ''}`
           : chiuso ? '' : '<span class="tk-none">Nessuna</span>'}
           ${inLista ? `<small class="tk-inlista">${inLista}</small>` : ''}
-          ${chiuso && t.completato_at ? `<small class="tk-inlista">${t.fonte === 'github' ? 'commit' : t.fonte === 'claude_code' ? 'sessione fino' : 'fatto'} ${ctrlGiornoDi(t.completato_at) === ctrlOggi() ? 'alle' : `il ${taskDataBreve(ctrlGiornoDi(t.completato_at))},`} ${ctrlFmtOra(t.completato_at)}</small>` : ''}</td>
+          ${chiuso && t.completato_at ? `<small class="tk-inlista">${t.fonte === 'github' ? 'commit' : ['claude_code', 'shopify_admin'].includes(t.fonte) ? 'sessione fino' : 'fatto'} ${ctrlGiornoDi(t.completato_at) === ctrlOggi() ? 'alle' : `il ${taskDataBreve(ctrlGiornoDi(t.completato_at))},`} ${ctrlFmtOra(t.completato_at)}</small>` : ''}</td>
         <td>${taskChiSelect(t)}</td>
         <td class="tk-num">${t.minuti_stimati ? ctrlFmtMin(t.minuti_stimati) : '<span class="tk-none">—</span>'}</td>
         <td>${statoTag(t)}</td>
