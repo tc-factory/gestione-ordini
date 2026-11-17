@@ -559,7 +559,7 @@ function renderControlMyDay(persona = null) {
 // L'admin non ha task suoi: numeri del giorno, cosa gestire subito, carico del team e la tabella di tutti i task
 
 const TASK_TABS = [
-  ['coda', 'Coda di lavorazione'], ['oggi', 'Oggi'], ['ritardo', 'In ritardo'], ['assegnare', 'Da assegnare'], ['chiusi', 'Completati'],
+  ['coda', 'Coda di lavorazione'], ['oggi', 'Oggi'], ['ritardo', 'In ritardo'], ['assegnare', 'Da assegnare'], ['chiusi', 'Completati'], ['tutti', 'Tutti'],
 ];
 const TASK_PAGINA = 50;
 const TaskView = { tab: 'coda', brand: '', tipo: '', chi: '', prio: '', stato: '', scad: '', q: '', ordina: 'scadenza', limite: TASK_PAGINA, sel: new Set(), bulkChi: '' };
@@ -736,11 +736,11 @@ function renderTeamLoad() {
     <section class="glass-card page-card tk-panel">
       <header class="tk-panel-head">
         <span class="tk-panel-icon" style="--t:#6366f1;">${Icons.users(22)}</span>
-        <div><h2>Carico del team</h2><p>Ore stimate dei task aperti sulle ore della giornata del piano. Clic per i task della persona.</p></div>
+        <div><h2>Carico del team</h2><p>Ore stimate dei task aperti sulle ore della giornata del piano. Clic su una persona per vedere tutti i suoi task.</p></div>
       </header>
       <ul class="tk-load-list">
         ${righe.map(r => `
-          <li><button type="button" class="tk-load" onclick="openPersonTasks('${escapeHtml(r.nick)}')" aria-label="Tutti i task di ${escapeHtml(r.nick)}">
+          <li><button type="button" class="tk-load ${TaskView.chi === r.nick && TaskView.tab === 'tutti' ? 'is-on' : ''}" aria-pressed="${TaskView.chi === r.nick && TaskView.tab === 'tutti'}" onclick="taskPersona('${escapeHtml(r.nick)}')" aria-label="Tutti i task di ${escapeHtml(r.nick)}">
             ${taskAvatar(r.nick, 28)}
             <strong class="tk-load-nome">${escapeHtml(r.nick)}${Ctrl.assenti.has(r.nick) && r.nick !== 'claude' ? ' <span class="ctrl-preview-off">Assente</span>' : ''}</strong>
             <span class="tk-load-n">${r.n} task</span>
@@ -762,6 +762,7 @@ function taskBoardBase() {
     ritardo: aperti.filter(taskInRitardo),
     assegnare: aperti.filter(t => !t.assegnato_a),
     chiusi: Ctrl.tasks.filter(t => t.giorno === d && taskChiuso(t)),
+    tutti: Ctrl.tasks.filter(t => !taskChiuso(t) || t.giorno === d),
   };
 }
 
@@ -795,7 +796,7 @@ function taskBoardList() {
 
 function renderTaskBoard() {
   const v = TaskView, base = taskBoardBase();
-  const tabIcon = { coda: TkIcons.list(17), oggi: Icons.calendarDays(16), ritardo: TkIcons.alert(16), assegnare: TkIcons.user(16), chiusi: Icons.checkCircle('currentColor', 16) };
+  const tabIcon = { coda: TkIcons.list(17), oggi: Icons.calendarDays(16), ritardo: TkIcons.alert(16), assegnare: TkIcons.user(16), chiusi: Icons.checkCircle('currentColor', 16), tutti: TkIcons.layers(16) };
   const sel = (key, label, opzioni) => `
     <select class="filter-pill ${v[key] ? 'on' : ''}" aria-label="${label}" onchange="setTaskView('${key}', this.value)">
       ${opzioni.map(([id, l]) => `<option value="${escapeHtml(id)}" ${v[key] === id ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
@@ -949,6 +950,15 @@ function taskVaiA(tab, prio = '') {
   Object.assign(TaskView, { tab, prio, limite: TASK_PAGINA });
   refreshControlPage();
   document.getElementById('tk-board')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Carico del team: tutti i task della persona nella tabella (aperti e chiusi del giorno); un altro clic toglie il filtro
+function taskPersona(nick) {
+  const giaAperta = TaskView.chi === nick && TaskView.tab === 'tutti';
+  Object.assign(TaskView, { brand: '', tipo: '', prio: '', stato: '', scad: '', q: '', limite: TASK_PAGINA,
+    chi: giaAperta ? '' : nick, tab: giaAperta ? 'coda' : 'tutti' });
+  refreshControlPage();
+  if (!giaAperta) document.getElementById('tk-board')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function openPersonTasks(nick) {
