@@ -560,7 +560,8 @@ const TASK_TABS = [
   ['coda', 'Coda di lavorazione'], ['oggi', 'Oggi'], ['ritardo', 'In ritardo'], ['assegnare', 'Da assegnare'], ['chiusi', 'Completati'],
 ];
 const TASK_PAGINA = 50;
-const TaskView = { tab: 'coda', brand: '', tipo: '', chi: '', prio: '', q: '', ordina: 'scadenza', limite: TASK_PAGINA };
+const TaskView = { tab: 'coda', brand: '', tipo: '', chi: '', prio: '', stato: '', scad: '', q: '', ordina: 'scadenza', limite: TASK_PAGINA, sel: new Set(), bulkChi: '' };
+const TASK_FILTRI = ['brand', 'tipo', 'chi', 'prio', 'stato', 'scad', 'q'];
 
 const TkIcons = {
   alert: (s = 22) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.7 3.86a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
@@ -571,8 +572,23 @@ const TkIcons = {
 };
 
 const taskChiuso = (t) => ['completato', 'non_completato'].includes(t.stato);
-// Giorno di riferimento: la scadenza, altrimenti il giorno del task
-const taskGiornoRif = (t) => t.scadenza ? ctrlGiornoDi(t.scadenza) : t.giorno;
+// Scadenza vera (giorno), null se il task non ne ha: il giorno in lista è un'altra cosa
+const taskScad = (t) => t.scadenza ? ctrlGiornoDi(t.scadenza) : null;
+const taskScaduto = (t) => !!t.scadenza && !taskChiuso(t) && new Date(t.scadenza) < new Date();
+// Per ordinare: prima chi ha la scadenza, poi chi è in lista da più tempo
+const taskCmpScad = (a, b) => (taskScad(a) || '9').localeCompare(taskScad(b) || '9') || a.giorno.localeCompare(b.giorno);
+const taskInListaTesto = (t) => {
+  if (t.giorno >= ctrlOggi()) return '';
+  return `in lista dal ${taskDataBreve(t.giorno)}`;
+};
+// Carico di una persona: task aperti non bloccati, minuti stimati, ore della giornata se impostate nel piano
+function taskCarico(nick, extra = 0) {
+  const suoi = Ctrl.tasks.filter(t => t.assegnato_a === nick && !taskChiuso(t) && t.stato !== 'bloccato');
+  const min = suoi.reduce((n, t) => n + (t.minuti_stimati || 0), 0) + extra;
+  const cap = Ctrl.operatori.find(o => o.nickname === nick)?.minuti_giorno || null;
+  return { n: suoi.length, min, cap, pct: cap ? Math.round(min / cap * 100) : null };
+}
+const taskCaricoTesto = (c) => `${ctrlFmtMin(c.min)}${c.cap ? ` / ${ctrlFmtMin(c.cap)}` : ''}`;
 
 // Titolo "Attività · Cliente · ordine #123": l'attività a sinistra, il cliente nella sua colonna
 function taskParti(t) {
@@ -641,6 +657,8 @@ function renderControlAdminTasks() {
   const inRitardo = aperti.filter(taskInRitardo);
   const coda = aperti.filter(t => !t.assegnato_a);
   const delGiorno = Ctrl.tasks.filter(t => t.giorno === d);
+  const minuti = (list) => list.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
+  const scadute = inRitardo.filter(taskScaduto).length;
   const fatti = delGiorno.filter(t => t.stato === 'completato').length;
   const pct = delGiorno.length ? Math.round(fatti / delGiorno.length * 100) : 0;
 
@@ -652,15 +670,15 @@ function renderControlAdminTasks() {
 
   return `
     <div class="tk-stats">
-      ${stat(TkIcons.layers(22), '#3b82f6', aperti.length, 'Task aperti', '', `taskVaiA('coda')`)}
+      ${stat(TkIcons.layers(22), '#3b82f6', aperti.length, 'Task aperti', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(aperti))} stimate</small>`, `taskVaiA('coda')`)}
       ${stat(TkIcons.alert(), '#ef4444', urgenti.length, 'Urgenti', urgenti.length ? '<em class="tk-stat-tag">Azioni immediate</em>' : '', `taskVaiA('coda', 'urgente')`)}
-      ${stat(Icons.calendarDays(22), '#f97316', inRitardo.length, 'In ritardo', '', `taskVaiA('ritardo')`)}
-      ${stat(TkIcons.user(), '#6366f1', coda.length, 'Da assegnare', '', `taskVaiA('assegnare')`)}
+      ${stat(Icons.calendarDays(22), '#f97316', inRitardo.length, 'In ritardo', `<small class="tk-stat-sub">${scadute} scaduti · ${inRitardo.length - scadute} dai giorni prima</small>`, `taskVaiA('ritardo')`)}
+      ${stat(TkIcons.user(), '#6366f1', coda.length, 'Da assegnare', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(coda))} stimate</small>`, `taskVaiA('assegnare')`)}
       <div class="glass-card tk-stat tk-progress-card">
         <span class="tk-ring" style="--p:${pct};" role="img" aria-label="${pct}% dei task del giorno completati"><b>${pct}%</b></span>
         <span class="tk-stat-text">
           <strong class="tk-small-title">Avanzamento ${ctrlFmtGiorno(d).toLowerCase()}</strong>
-          <span>${fatti}/${delGiorno.length} task completati</span>
+          <span>${fatti}/${delGiorno.length} task del giorno completati</span>
           <span class="ctrl-progress tk-bar"><span style="width:${pct}%"></span></span>
         </span>
       </div>
@@ -674,19 +692,18 @@ function renderControlAdminTasks() {
 
 // I task urgenti, i più vecchi prima
 function renderTaskSubito(urgenti) {
-  const lista = urgenti.slice().sort((a, b) => taskGiornoRif(a).localeCompare(taskGiornoRif(b)) || a.created_at.localeCompare(b.created_at));
+  const lista = urgenti.slice().sort((a, b) => taskScaduto(b) - taskScaduto(a) || taskCmpScad(a, b));
   const riga = (t) => {
     const { attivita, cliente } = taskParti(t);
-    const g = taskGiornoRif(t), dist = taskDistanza(g), scaduto = dist?.passato;
-    const inLista = t.giorno < ctrlOggi() ? taskDistanza(t.giorno) : null;
+    const g = taskScad(t), scaduto = taskScaduto(t);
     const sotto = [
-      scaduto ? `Scaduto il ${taskDataBreve(g)}` : g === ctrlOggi() ? 'Scade oggi' : `Scade il ${taskDataBreve(g)}`,
-      inLista ? `in lista da ${inLista.tot} ${inLista.tot === 1 ? 'giorno' : 'giorni'}${inLista.lav !== inLista.tot ? ` (${inLista.lav} lav.)` : ''}` : '',
+      !g ? 'Senza scadenza' : scaduto ? `Scaduto il ${taskDataBreve(g)}` : g === ctrlOggi() ? `Scade oggi${ctrlFmtOra(t.scadenza) !== '00:00' ? ` alle ${ctrlFmtOra(t.scadenza)}` : ''}` : `Scade il ${taskDataBreve(g)}`,
+      taskInListaTesto(t),
     ].filter(Boolean).join(' · ');
     return `
       <li class="tk-now ${scaduto ? 'is-late' : ''}">
         <span class="tk-now-icon" aria-hidden="true">!</span>
-        <button type="button" class="tk-now-main" onclick="openTaskDetail('${t.id}')">
+        <button type="button" class="tk-now-main" onclick="openTaskDetail('${t.id}')" title="${escapeHtml(t.titolo)}">
           <strong>${escapeHtml(attivita)}${cliente ? ` · ${escapeHtml(cliente)}` : ''}</strong>
           <span>${sotto}</span>
         </button>
@@ -700,7 +717,7 @@ function renderTaskSubito(urgenti) {
       <header class="tk-panel-head">
         <span class="tk-panel-icon" style="--t:#f59e0b;">${Icons.zap(22)}</span>
         <div><h2>Da gestire subito ${lista.length ? `<span class="tk-count is-red">${lista.length} task</span>` : ''}</h2>
-          <p>Task urgenti, i più vecchi prima.</p></div>
+          <p>Task con priorità urgente: prima gli scaduti, poi per scadenza.</p></div>
         ${lista.length > 5 ? `<button type="button" class="tk-link" onclick="taskVaiA('coda', 'urgente')">Vedi tutti ${TkIcons.arrow()}</button>` : ''}
       </header>
       ${lista.length ? `<ul class="tk-now-list">${lista.slice(0, 5).map(riga).join('')}</ul>`
@@ -710,18 +727,14 @@ function renderTaskSubito(urgenti) {
 
 // Ore stimate dei task aperti di ogni persona sulle sue ore del giorno
 function renderTeamLoad() {
-  const cap = (nick) => Ctrl.operatori.find(o => o.nickname === nick)?.minuti_giorno || 420;
-  const righe = Ctrl.users.map(nick => {
-    const suoi = Ctrl.tasks.filter(t => t.assegnato_a === nick && !taskChiuso(t) && t.stato !== 'bloccato');
-    const min = suoi.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
-    return { nick, n: suoi.length, min, cap: cap(nick), pct: Math.round(min / cap(nick) * 100) };
-  }).sort((a, b) => b.pct - a.pct || a.nick.localeCompare(b.nick));
+  const righe = Ctrl.users.map(nick => ({ nick, ...taskCarico(nick) }))
+    .sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1) || b.min - a.min || a.nick.localeCompare(b.nick));
   const tono = (p) => p >= 90 ? '#ef4444' : p >= 75 ? '#f97316' : p >= 50 ? '#f59e0b' : '#22c55e';
   return `
     <section class="glass-card page-card tk-panel">
       <header class="tk-panel-head">
         <span class="tk-panel-icon" style="--t:#6366f1;">${Icons.users(22)}</span>
-        <div><h2>Carico del team</h2><p>Ore stimate dei task aperti sulle ore della giornata. Clic per i task della persona.</p></div>
+        <div><h2>Carico del team</h2><p>Ore stimate dei task aperti sulle ore della giornata del piano. Clic per i task della persona.</p></div>
       </header>
       <ul class="tk-load-list">
         ${righe.map(r => `
@@ -730,8 +743,8 @@ function renderTeamLoad() {
             <strong class="tk-load-nome">${escapeHtml(r.nick)}${Ctrl.assenti.has(r.nick) && r.nick !== 'claude' ? ' <span class="ctrl-preview-off">Assente</span>' : ''}</strong>
             <span class="tk-load-n">${r.n} task</span>
             <span class="tk-load-bar" role="progressbar" aria-valuenow="${r.pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Carico">
-              ${r.min ? `<span style="width:${Math.min(100, Math.max(r.pct, 12))}%;--t:${tono(r.pct)};">${r.pct}%</span>` : ''}</span>
-            <span class="tk-load-ore">${r.min ? ctrlFmtMin(r.min) : '0′'} <small>/ ${ctrlFmtMin(r.cap)}</small></span>
+              ${r.min && r.cap ? `<span style="width:${Math.min(100, Math.max(r.pct, 12))}%;--t:${tono(r.pct)};">${r.pct}%</span>` : ''}${r.min && !r.cap ? '<em>ore non impostate</em>' : ''}</span>
+            <span class="tk-load-ore">${r.min ? ctrlFmtMin(r.min) : '0′'}${r.cap ? ` <small>/ ${ctrlFmtMin(r.cap)}</small>` : ''}</span>
           </button></li>`).join('')}
       </ul>
     </section>`;
@@ -750,6 +763,15 @@ function taskBoardBase() {
   };
 }
 
+function taskFiltroScad(t, f) {
+  const g = taskScad(t), oggi = ctrlOggi();
+  if (f === 'scaduti') return taskScaduto(t);
+  if (f === 'oggi') return g === oggi;
+  if (f === 'settimana') return !!g && g >= oggi && g <= ctrlAddDays(oggi, 7);
+  if (f === 'nessuna') return !g;
+  return true;
+}
+
 function taskBoardList() {
   const v = TaskView, q = v.q.trim().toLowerCase();
   const list = taskBoardBase()[v.tab].filter(t =>
@@ -757,10 +779,12 @@ function taskBoardList() {
     && (!v.tipo || t.tipo_id === v.tipo)
     && (!v.chi || (v.chi === '_' ? !t.assegnato_a : t.assegnato_a === v.chi))
     && (!v.prio || t.priorita === v.prio)
-    && (!q || `${t.titolo} ${t.analisi?.cliente?.nome || ''}`.toLowerCase().includes(q)));
+    && (!v.stato || t.stato === v.stato)
+    && (!v.scad || taskFiltroScad(t, v.scad))
+    && (!q || `${t.titolo} ${t.analisi?.cliente?.nome || ''} ${(t.analisi?.ordini || []).map(o => o.numero).join(' ')}`.toLowerCase().includes(q)));
   const per = {
-    scadenza: (a, b) => taskGiornoRif(a).localeCompare(taskGiornoRif(b)) || taskPrioRank(a.priorita) - taskPrioRank(b.priorita),
-    priorita: (a, b) => taskPrioRank(a.priorita) - taskPrioRank(b.priorita) || taskGiornoRif(a).localeCompare(taskGiornoRif(b)),
+    scadenza: (a, b) => taskCmpScad(a, b) || taskPrioRank(a.priorita) - taskPrioRank(b.priorita),
+    priorita: (a, b) => taskPrioRank(a.priorita) - taskPrioRank(b.priorita) || taskCmpScad(a, b),
     tempo: (a, b) => (b.minuti_stimati || 0) - (a.minuti_stimati || 0),
     arrivo: (a, b) => b.created_at.localeCompare(a.created_at),
   }[v.ordina];
@@ -775,7 +799,7 @@ function renderTaskBoard() {
       ${opzioni.map(([id, l]) => `<option value="${escapeHtml(id)}" ${v[key] === id ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
     </select>`;
   const tipiUsati = Ctrl.tipi.filter(tp => Ctrl.tasks.some(t => t.tipo_id === tp.id));
-  const filtri = v.brand || v.tipo || v.chi || v.prio || v.q;
+  const filtri = TASK_FILTRI.some(k => v[k]);
   return `
     <section class="glass-card page-card tk-board" id="tk-board">
       <div class="tk-tabs" role="tablist" aria-label="Elenco dei task">
@@ -788,6 +812,8 @@ function renderTaskBoard() {
         ${tipiUsati.length ? sel('tipo', 'Lavorazione', [['', 'Tutte le lavorazioni'], ...tipiUsati.map(tp => [tp.id, tp.nome])]) : ''}
         ${sel('chi', 'Assegnato a', [['', 'Tutti gli assegnati'], ['_', 'Da assegnare'], ...Ctrl.users.map(u => [u, u])])}
         ${sel('prio', 'Priorità', [['', 'Tutte le priorità'], ...TASK_PRIORITA.map(p => [p.id, p.label])])}
+        ${sel('stato', 'Stato', [['', 'Tutti gli stati'], ...TASK_STATI.map(st => [st.id, st.label])])}
+        ${sel('scad', 'Scadenza', [['', 'Tutte le scadenze'], ['scaduti', 'Scaduti'], ['oggi', 'Scadono oggi'], ['settimana', 'Prossimi 7 giorni'], ['nessuna', 'Senza scadenza']])}
         ${filtri ? `<button type="button" class="btn btn-ghost btn-sm" onclick="resetTaskView()">Azzera filtri</button>` : ''}
         <span class="tk-sort">Ordina per
           ${sel('ordina', 'Ordina per', [['scadenza', 'Scadenza'], ['priorita', 'Priorità'], ['tempo', 'Tempo stimato'], ['arrivo', 'Più recenti']]).replace('filter-pill on', 'filter-pill')}</span>
@@ -797,25 +823,34 @@ function renderTaskBoard() {
 }
 
 function renderTaskTable() {
-  const list = taskBoardList(), mostrati = list.slice(0, TaskView.limite);
-  if (!list.length) return `<div class="empty-list">Nessun task${TaskView.brand || TaskView.tipo || TaskView.chi || TaskView.prio || TaskView.q ? ' con questi filtri' : ''}.</div>`;
+  const v = TaskView, list = taskBoardList(), mostrati = list.slice(0, v.limite);
+  const filtri = TASK_FILTRI.some(k => v[k]);
+  // La selezione tiene solo i task ancora aperti e caricati
+  [...v.sel].forEach(id => { const t = Ctrl.get(id); if (!t || taskChiuso(t)) v.sel.delete(id); });
+  const conta = `<div class="tk-result">${list.length} ${list.length === 1 ? 'task' : 'task'}${filtri ? ' con questi filtri' : ''} · ${ctrlFmtMin(list.reduce((n, t) => n + (t.minuti_stimati || 0), 0))} stimate</div>`;
+  if (!list.length) return `${v.sel.size ? renderTaskBulk() : ''}<div class="empty-list">Nessun task${filtri ? ' con questi filtri' : ''}.</div>`;
+  const selezionabili = mostrati.filter(t => !taskChiuso(t));
+  const tutti = selezionabili.length && selezionabili.every(t => v.sel.has(t.id));
   const prioTag = (t) => { const p = taskPrio(t.priorita); return `<span class="td-tag tk-prio" style="--c:${p.color};"><b aria-hidden="true">!</b> ${p.label}</span>`; };
-  const statoTag = (t) => !taskChiuso(t) && taskInRitardo(t) ? `<span class="td-tag" style="--c:#ef4444;">In ritardo</span>`
-    : `<span class="td-tag" style="--c:${taskStato(t.stato).color};">${taskStato(t.stato).label}</span>`;
+  const statoTag = (t) => `<span class="td-tag" style="--c:${taskStato(t.stato).color};">${taskStato(t.stato).label}</span>`;
   const riga = (t) => {
     const { attivita, cliente, ordine } = taskParti(t);
-    const g = taskGiornoRif(t), dist = taskDistanza(g), m = taskMacro(t.macroarea);
+    const g = taskScad(t), m = taskMacro(t.macroarea), chiuso = taskChiuso(t);
+    const dist = g ? taskDistanza(g) : null, late = taskScaduto(t);
     const ora = t.scadenza && ctrlFmtOra(t.scadenza) !== '00:00' ? ` ${ctrlFmtOra(t.scadenza)}` : '';
-    const late = dist?.passato && !taskChiuso(t);
+    const inLista = chiuso ? '' : taskInListaTesto(t);
     return `
-      <tr class="${t.stato === 'completato' ? 'is-done' : ''}">
+      <tr class="${t.stato === 'completato' ? 'is-done' : ''} ${v.sel.has(t.id) ? 'is-sel' : ''}">
+        <td class="tk-check">${chiuso ? '' : `<input type="checkbox" ${v.sel.has(t.id) ? 'checked' : ''} onchange="taskToggleSel('${t.id}', this.checked)" aria-label="Seleziona ${escapeHtml(t.titolo)}">`}</td>
         <td>${prioTag(t)}</td>
-        <td><button type="button" class="tk-act" onclick="openTaskDetail('${t.id}')">
+        <td><button type="button" class="tk-act" onclick="openTaskDetail('${t.id}')" title="${escapeHtml(t.titolo)}">
           <span class="tk-act-icon" aria-hidden="true">${taskIcona(t)}</span><span>${escapeHtml(attivita)}</span></button></td>
         <td><div class="tk-cliente">${cliente ? escapeHtml(cliente) : '<span class="tk-none">—</span>'}</div>
           ${ordine || m ? `<small>${[ordine ? escapeHtml(ordine) : '', m ? `<span class="ctrl-macro-tag" style="--m:${m.color};">${m.label}</span>` : ''].filter(Boolean).join(' · ')}</small>` : ''}</td>
-        <td><span class="tk-date ${late ? 'is-late' : g === ctrlOggi() ? 'is-today' : ''}">${Icons.calendarDays(14)} ${taskDataBreve(g)}${ora}</span>
-          ${dist && !taskChiuso(t) ? `<span class="tk-delta ${dist.passato ? 'is-late' : ''}">${taskDistanzaTesto(dist)}</span>` : ''}</td>
+        <td>${g ? `<span class="tk-date ${late ? 'is-late' : g === ctrlOggi() ? 'is-today' : ''}">${Icons.calendarDays(14)} ${taskDataBreve(g)}${ora}</span>
+          ${dist && !chiuso ? `<span class="tk-delta ${dist.passato ? 'is-late' : ''}">${taskDistanzaTesto(dist)}</span>` : ''}`
+          : '<span class="tk-none">Nessuna</span>'}
+          ${inLista ? `<small class="tk-inlista">${inLista}</small>` : ''}</td>
         <td>${taskChiSelect(t)}</td>
         <td class="tk-num">${t.minuti_stimati ? ctrlFmtMin(t.minuti_stimati) : '<span class="tk-none">—</span>'}</td>
         <td>${statoTag(t)}</td>
@@ -823,11 +858,66 @@ function renderTaskTable() {
       </tr>`;
   };
   return `
+    ${v.sel.size ? renderTaskBulk() : conta}
     <div class="table-scroll"><table class="data-table tk-table">
-      <thead><tr><th>Priorità</th><th>Attività</th><th>Cliente / Ordine</th><th>Scadenza</th><th>Assegnato a</th><th class="tk-num">Tempo</th><th>Stato</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+      <thead><tr>
+        <th class="tk-check">${selezionabili.length ? `<input type="checkbox" ${tutti ? 'checked' : ''} onchange="taskSelAll(this.checked)" aria-label="Seleziona tutti i task mostrati">` : ''}</th>
+        <th>Priorità</th><th>Attività</th><th>Cliente / Ordine</th><th>Scadenza</th><th>Assegnato a</th><th class="tk-num">Tempo</th><th>Stato</th><th><span class="sr-only">Azioni</span></th></tr></thead>
       <tbody>${mostrati.map(riga).join('')}</tbody>
     </table></div>
     ${list.length > mostrati.length ? `<div class="tk-more-rows"><button type="button" class="btn btn-secondary btn-sm" onclick="TaskView.limite += ${TASK_PAGINA};taskRefreshTable()">Mostra altri ${Math.min(TASK_PAGINA, list.length - mostrati.length)} di ${list.length - mostrati.length}</button></div>` : ''}`;
+}
+
+// Barra della selezione: a chi assegnare, con il carico che avrebbe dopo
+function renderTaskBulk() {
+  const v = TaskView, sel = [...v.sel].map(id => Ctrl.get(id)).filter(Boolean);
+  const min = sel.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
+  const dopo = v.bulkChi && v.bulkChi !== '_' ? taskCarico(v.bulkChi, sel.filter(t => t.assegnato_a !== v.bulkChi).reduce((n, t) => n + (t.minuti_stimati || 0), 0)) : null;
+  const ora = v.bulkChi && v.bulkChi !== '_' ? taskCarico(v.bulkChi) : null;
+  return `
+    <div class="tk-bulk" role="region" aria-label="Task selezionati">
+      <strong>${sel.length} selezionat${sel.length === 1 ? 'o' : 'i'}</strong><span class="tk-none">${ctrlFmtMin(min)} stimate</span>
+      <select class="filter-pill" aria-label="Assegna i selezionati a" onchange="TaskView.bulkChi=this.value;taskRefreshTable()">
+        <option value="">Assegna a…</option>
+        <option value="_" ${v.bulkChi === '_' ? 'selected' : ''}>Coda comune</option>
+        ${Ctrl.users.map(u => { const c = taskCarico(u); return `<option value="${escapeHtml(u)}" ${v.bulkChi === u ? 'selected' : ''}>${escapeHtml(u)} · ${taskCaricoTesto(c)}${Ctrl.assenti.has(u) && u !== 'claude' ? ' · assente' : ''}</option>`; }).join('')}
+      </select>
+      ${dopo ? `<span class="tk-bulk-load">Carico di ${escapeHtml(v.bulkChi)}: ${taskCaricoTesto(ora)} → <b class="${dopo.pct >= 100 ? 'is-over' : ''}">${taskCaricoTesto(dopo)}${dopo.pct != null ? ` (${dopo.pct}%)` : ''}</b></span>` : ''}
+      <button type="button" class="btn btn-primary btn-sm" ${v.bulkChi ? '' : 'disabled'} onclick="taskBulkAssign()">Assegna</button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="taskSelClear()">Annulla selezione</button>
+    </div>`;
+}
+
+function taskToggleSel(id, on) {
+  on ? TaskView.sel.add(id) : TaskView.sel.delete(id);
+  taskRefreshTable();
+}
+
+function taskSelAll(on) {
+  taskBoardList().slice(0, TaskView.limite).filter(t => !taskChiuso(t)).forEach(t => on ? TaskView.sel.add(t.id) : TaskView.sel.delete(t.id));
+  taskRefreshTable();
+}
+
+function taskSelClear() {
+  TaskView.sel.clear();
+  TaskView.bulkChi = '';
+  taskRefreshTable();
+}
+
+async function taskBulkAssign() {
+  const v = TaskView, ids = [...v.sel], chi = v.bulkChi === '_' ? null : v.bulkChi;
+  if (!ids.length || !v.bulkChi) return;
+  const n = ids.length === 1 ? 'il task selezionato' : `i ${ids.length} task selezionati`;
+  if (!(await uiConfirm(chi ? `Assegnare ${n} a ${chi}?` : `Rimettere ${n} in coda comune?`, { ok: chi ? 'Assegna' : 'Rimetti in coda' }))) return;
+  try {
+    const { error } = await supabaseClient.from('tasks').update({ assegnato_a: chi }).in('id', ids);
+    if (error) throw Ctrl._fail(error);
+    showToast(chi ? `${ids.length} task assegnati a ${chi}` : `${ids.length} task rimessi in coda comune`);
+    taskSelClear();
+    await Ctrl.load();
+    refreshControlPage();
+    Ctrl.loadBadge();
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 function taskRefreshTable() {
@@ -848,7 +938,7 @@ function setTaskSearch(value) {
 }
 
 function resetTaskView() {
-  Object.assign(TaskView, { brand: '', tipo: '', chi: '', prio: '', q: '', limite: TASK_PAGINA });
+  Object.assign(TaskView, { brand: '', tipo: '', chi: '', prio: '', stato: '', scad: '', q: '', limite: TASK_PAGINA });
   refreshControlPage();
 }
 
