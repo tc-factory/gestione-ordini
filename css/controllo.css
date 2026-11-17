@@ -1126,3 +1126,6 @@ html.dark .tk-now-icon { color: #fbbf24; }
 .presenza-bar.is-late { border-color: var(--priority-urgent); }
 .presenza-bar.is-late strong { color: var(--priority-urgent); }
 .task-suggerito { color: var(--text-secondary); font-weight: 600; }
+.pres-row { display: grid; grid-template-columns: auto minmax(80px, 140px) 1fr auto; align-items: center; gap: 12px; padding: 8px 4px; }
+.pres-stato { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+@media (max-width: 600px) { .pres-row { grid-template-columns: auto 1fr auto; } .pres-stato { grid-column: 2 / -1; } }

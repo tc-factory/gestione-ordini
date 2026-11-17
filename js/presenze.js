@@ -28,9 +28,11 @@ const Presenze = {
   async check() {
     const { data, error } = await supabaseClient.rpc('tc_presenze_stato');
     if (error || !data?.success) return;
+    // La pagina si ridisegna solo se l'elenco è cambiato (non a ogni minuto: si perderebbe ciò che si sta scrivendo)
+    const cambiato = JSON.stringify(data.tutti) !== JSON.stringify(this.stato?.tutti);
     this.stato = data;
     this.renderBar();
-    if (typeof ctrlAperto === 'function' && ctrlAperto() && Ctrl.view === 'squadra') refreshControlPage();
+    if (cambiato && data.addetto && typeof ctrlAperto === 'function' && ctrlAperto() && ['squadra', 'giorno'].includes(Ctrl.view)) refreshControlPage();
     this.popup();
   },
 
@@ -68,7 +70,7 @@ const Presenze = {
     const coda = [];
     if (s.me && !s.me.confermato_at && s.me.scaduto && daChiedere('')) coda.push(null);
     const me = TCAuth.getNickname();
-    (s.tutti || []).filter(p => !p.confermato_at && p.scaduto && p.nickname !== me && daChiedere(p.nickname))
+    (s.tutti || []).filter(p => !p.assente && !p.confermato_at && p.scaduto && p.nickname !== me && daChiedere(p.nickname))
       .forEach(p => coda.push(p));
     if (!coda.length) return;
 
