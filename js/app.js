@@ -3313,6 +3313,7 @@ async function startApp() {
   Tickets.startPolling();
   Messages.start();
   Ctrl.start();
+  Presenze.start();
   MailBox.start();
   Salvaschermo.start();
 }
@@ -3323,6 +3324,7 @@ async function doLogout() {
   Object.assign(Tickets, { _list: [], loaded: false, error: null });
   Messages.stop();
   Ctrl.stop();
+  Presenze.stop();
   MailBox.stop();
   Salvaschermo.stop();
   ['msg-modal', 'msg-compose-modal', 'ctrl-modal'].forEach(closeModal);

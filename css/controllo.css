@@ -1116,3 +1116,12 @@ html.dark .tk-now-icon { color: #fbbf24; }
 .tempi-scarto.is-under { color: #2563eb; }
 .tempi-senza { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 16px; }
 .tempi-senza li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.86rem; }
+
+/* Presenze: barra "Sei al lavoro?" sotto la testata */
+.presenza-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px;
+  margin: 0 0 16px; padding: 12px 16px; border-radius: 14px;
+  border: 1px solid var(--border); background: var(--bg-card, #fff); font-size: 0.9rem;
+}
+.presenza-bar.is-late { border-color: var(--priority-urgent); }
+.presenza-bar.is-late strong { color: var(--priority-urgent); }
