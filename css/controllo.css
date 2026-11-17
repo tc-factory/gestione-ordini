@@ -1128,15 +1128,25 @@ html.dark .tk-now-icon { color: #fbbf24; }
 .task-suggerito { color: var(--text-secondary); font-weight: 600; }
 .pres-avviso { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 4px 0 8px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--priority-urgent); font-size: 0.88rem; }
 
-/* Presenze nella pagina Tasks: nomi del team a pillola */
+/* Team di oggi nella pagina Tasks: presenza (nome colorato) e carico */
 .pres-box { margin-bottom: 16px; }
-.pres-nomi { display: flex; flex-wrap: wrap; gap: 8px; }
-.pres-btn {
-  padding: 8px 18px; border-radius: 999px; border: 1px solid transparent; cursor: pointer;
-  font: inherit; font-weight: 700; font-size: 0.9rem; text-transform: capitalize;
-  background: #e5e7eb; color: #4b5563; transition: background .15s, color .15s;
+.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.team-card { display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); background: var(--bg-card, #fff); }
+.team-nome {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 14px 16px;
+  border: 0; font: inherit; text-align: left; cursor: pointer; background: #e5e7eb; color: #374151;
 }
-.pres-btn:hover { filter: brightness(0.95); }
-.pres-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.pres-btn.is-presente { background: #22c55e; color: #fff; }
-.pres-btn.is-assente { background: #ef4444; color: #fff; }
+div.team-nome { cursor: default; background: var(--fill-hover); }
+.team-nome-testo { font-size: 1.1rem; font-weight: 800; text-transform: capitalize; }
+.team-nome small { font-size: 0.74rem; opacity: .85; }
+.team-card.is-presente .team-nome { background: #22c55e; color: #fff; }
+.team-card.is-assente .team-nome { background: #ef4444; color: #fff; }
+button.team-nome:hover { filter: brightness(0.96); }
+.team-nome:focus-visible, .team-carico:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+.team-carico { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 12px 16px 14px; border: 0; background: transparent; font: inherit; text-align: left; color: inherit; }
+button.team-carico { cursor: pointer; }
+button.team-carico:hover, .team-carico.is-on { background: var(--fill-hover); }
+.team-carico-riga { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.84rem; color: var(--text-secondary); }
+.team-carico-riga strong { font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.team-carico-riga small { font-weight: 500; color: var(--text-muted); }
+.tk-duo.tk-solo { grid-template-columns: minmax(0, 1fr); }
