@@ -548,22 +548,47 @@ function renderControlMyDay(persona = null) {
       ${stat('Da fare', ctrlFmtMin(minTot - minFatti), 'stima del lavoro che resta', '#f59e0b')}
     </div>
 
-    <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>${persona ? `Task di <span class="ctrl-persona-nome">${escapeHtml(me)}</span>` : 'I miei task'}</h2><span class="table-count">${visibili.length}</span>
-        ${unicoNegozio ? `<span class="ctrl-group-hint ctrl-macro-tag" style="--m:${unicoNegozio.color};">${unicoNegozio.label}</span>` : ''}</div>
-      ${barraNegozi ? taskMacroBar(aperti) : ''}
-      ${taskAutoNote(visibili)}
-      ${taskSub('Da fare', vedi(daFare), opts)}
-      ${taskSub('Arretrati', vedi(arretrati), opts)}
-      ${taskSub('Bloccati', vedi(bloccati), opts)}
-      ${visibili.length ? '' : `<div class="empty-list">${aperti.length ? 'Nessun task per questo negozio.' : d === ctrlOggi() ? 'Niente da fare per oggi.' : 'Nessun task per questo giorno.'}</div>`}
-    </section>
-    ${renderTaskQueue(coda)}
+    ${renderTaskDuo(me, persona)}
     ${chiusi.length ? `
       <details class="glass-card page-card ctrl-group ctrl-closed">
         <summary class="page-card-head"><h2>Chiusi</h2><span class="table-count">${chiusi.length}</span></summary>
         <div class="task-list task-stack">${sortTasks(chiusi).map(t => renderTaskRow(t)).join('')}</div>
       </details>` : ''}`;
+}
+
+// Apertura di Tasks: a sinistra i task assegnati alla persona, a destra la coda comune
+function renderTaskDuo(me, persona = null) {
+  const d = Ctrl.giorno;
+  const mine = Ctrl.tasks.filter(t => t.assegnato_a === me);
+  const delGiorno = mine.filter(t => t.giorno === d);
+  const arretrati = mine.filter(t => t.giorno < d && !taskChiuso(t));
+  const daFare   = delGiorno.filter(t => ['da_fare', 'in_lavorazione', 'in_pausa', 'rimandato'].includes(t.stato));
+  const bloccati = delGiorno.filter(t => t.stato === 'bloccato');
+  const coda = persona ? [] : Ctrl.tasks.filter(t => !t.assegnato_a && !taskChiuso(t));
+  const aperti = [...daFare, ...arretrati, ...bloccati];
+  const negoziLista = new Set(aperti.map(t => t.macroarea || ''));
+  const conNegozio = aperti.filter(t => t.macroarea);
+  const unicoNegozio = negoziLista.size === 1 ? taskMacro(conNegozio[0]?.macroarea) : null;
+  const vedi = (list) => Ctrl.macroarea ? list.filter(t => t.macroarea === Ctrl.macroarea) : list;
+  const visibili = vedi(aperti);
+  const opts = { showStore: !Ctrl.macroarea && negoziLista.size > 1, showAuto: false };
+  const barraNegozi = new Set(conNegozio.map(t => t.macroarea)).size > 1 || Ctrl.macroarea;
+  return `
+    <div class="tk-split ${coda.length || !persona ? '' : 'is-solo'}">
+      <section class="glass-card page-card ctrl-group tk-split-box">
+        <div class="page-card-head"><h2>${persona ? `Task di <span class="ctrl-persona-nome">${escapeHtml(me)}</span>` : 'I miei task'}</h2><span class="table-count">${visibili.length}</span>
+          ${unicoNegozio ? `<span class="ctrl-group-hint ctrl-macro-tag" style="--m:${unicoNegozio.color};">${unicoNegozio.label}</span>` : ''}</div>
+        ${barraNegozi ? taskMacroBar(aperti) : ''}
+        ${taskAutoNote(visibili)}
+        <div class="tk-split-list">
+          ${taskSub('Da fare', vedi(daFare), opts)}
+          ${taskSub('Arretrati', vedi(arretrati), opts)}
+          ${taskSub('Bloccati', vedi(bloccati), opts)}
+          ${visibili.length ? '' : `<div class="empty-list">${aperti.length ? 'Nessun task per questo negozio.' : d === ctrlOggi() ? 'Niente da fare per oggi.' : 'Nessun task per questo giorno.'}</div>`}
+        </div>
+      </section>
+      ${persona ? '' : renderTaskQueue(coda, 'Nessun task in coda comune.')}
+    </div>`;
 }
 
 // ── Tasks (admin): panoramica di produzione ──
@@ -687,6 +712,7 @@ function renderControlAdminTasks() {
 
   return `
     ${renderPresenzeOggi()}
+    ${renderTaskDuo(Ctrl._me())}
     <div class="tk-stats">
       ${stat(TkIcons.layers(22), '#3b82f6', aperti.length, 'Task aperti', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(aperti))} stimate</small>`, `taskVaiA('coda')`)}
       ${stat(TkIcons.alert(), '#ef4444', urgenti.length, 'Urgenti', urgenti.length ? '<em class="tk-stat-tag">Azioni immediate</em>' : '', `taskVaiA('coda', 'urgente')`)}
@@ -1123,7 +1149,7 @@ function renderTaskQueue(coda, emptyText = '') {
         <span class="ctrl-group-hint">Non assegnati: li prende chi li fa</span></div>
       ${taskMacroBar(coda)}
       ${taskAutoNote(list)}
-      ${list.length ? `<div class="${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${taskSections(list).map(([titolo, righe]) =>
+      ${list.length ? `<div class="tk-split-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${taskSections(list).map(([titolo, righe]) =>
           taskSub(`${titolo} · ${righe.length}`, righe, { showStore: !Ctrl.macroarea, showAuto: false })).join('')}</div>`
                     : `<div class="empty-list">${emptyText || 'Nessun task in questa macroarea.'}</div>`}
     </section>`;
@@ -1206,7 +1232,7 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
 }
 
 function taskQuickActions(t, { fatto = true } = {}) {
-  if (TCAuth.isAdmin()) {
+  if (TCAuth.isAdmin() && t.assegnato_a !== Ctrl._me()) {
     if (['completato', 'non_completato'].includes(t.stato)) return '';
     return `<select class="ctrl-assign" aria-label="Assegna il task" onchange="taskAssign('${t.id}', this.value)">
       <option value="">${t.assegnato_a ? 'Coda comune' : 'Assegna a…'}</option>
