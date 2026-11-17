@@ -179,6 +179,7 @@ const Ctrl = {
   assenti: new Set(),    // chi è in ferie o a un evento nel giorno scelto
   problemi: [],          // collegamenti con problemi, in cima alla pagina (solo admin)
   soloUrgenti: false,    // lista dei task urgenti al posto della coda
+  persona: null,         // admin: tutti i task di questa persona al posto della pagina
   punteggi: {},          // operatore → punteggio del giorno mostrato
   punteggi7: {},         // operatore → punteggio degli ultimi 7 giorni
   tempi: {},             // tipo_id → { campioni, mediana_minuti }
@@ -348,6 +349,7 @@ async function openTasksPage() {
   const [dove, taskId] = (Nav.param || '').split('/');
   if (dove) { history.replaceState(null, '', '#/tasks'); Nav.param = null; }
   Ctrl.view = 'giorno';
+  Ctrl.persona = null;
   refreshControlPage();
   await Ctrl.load();
   refreshControlPage();
@@ -487,13 +489,14 @@ function startControlTicker() {
 
 // ── Tasks ──
 
-function renderControlMyDay() {
-  if (TCAuth.isAdmin()) return renderControlAdminTasks();
-  const me = Ctrl._me(), d = Ctrl.giorno;
+// I task di una persona: i propri per l'operatore, quelli di chi ha scelto per l'admin
+function renderControlMyDay(persona = null) {
+  if (TCAuth.isAdmin() && !persona) return renderControlAdminTasks();
+  const me = persona || Ctrl._me(), d = Ctrl.giorno;
   const mine = Ctrl.tasks.filter(t => t.assegnato_a === me);
   const delGiorno = mine.filter(t => t.giorno === d);
   const arretrati = mine.filter(t => t.giorno < d);
-  const coda = Ctrl.tasks.filter(t => !t.assegnato_a);
+  const coda = persona ? [] : Ctrl.tasks.filter(t => !t.assegnato_a);
 
   const daFare   = delGiorno.filter(t => ['da_fare', 'in_lavorazione', 'in_pausa', 'rimandato'].includes(t.stato));
   const bloccati = delGiorno.filter(t => t.stato === 'bloccato');
@@ -524,6 +527,9 @@ function renderControlMyDay() {
     </div>`;
 
   return `
+    ${persona ? `<div class="ctrl-persona-head">
+      <button type="button" class="ctrl-btn" onclick="openPersonTasks(null)">${Icons.chevronLeft(14)} Tutto il team</button>
+      ${Ctrl.assenti.has(me) && me !== 'claude' ? '<span class="ctrl-preview-off">Assente</span>' : ''}</div>` : ''}
     <div class="stat-grid ctrl-stats">
       ${stat('Task', `${chiusi.filter(t => t.stato === 'completato').length}/${delGiorno.length}`, 'completati', '#22c55e')}
       ${stat('Tempo stimato', `${ctrlFmtMin(minFatti)} <small>/ ${ctrlFmtMin(minTot)}</small>`, 'dei task completati', '#6366f1')}
@@ -531,7 +537,7 @@ function renderControlMyDay() {
     </div>
 
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>I miei task</h2><span class="table-count">${visibili.length}</span>
+      <div class="page-card-head"><h2>${persona ? `Task di <span class="ctrl-persona-nome">${escapeHtml(me)}</span>` : 'I miei task'}</h2><span class="table-count">${visibili.length}</span>
         ${unicoNegozio ? `<span class="ctrl-group-hint ctrl-macro-tag" style="--m:${unicoNegozio.color};">${unicoNegozio.label}</span>` : ''}</div>
       ${barraNegozi ? taskMacroBar(aperti) : ''}
       ${taskAutoNote(visibili)}
@@ -550,6 +556,7 @@ function renderControlMyDay() {
 
 // L'admin non ha task suoi: vede la coda e la assegna
 function renderControlAdminTasks() {
+  if (Ctrl.persona && Ctrl.users.includes(Ctrl.persona)) return renderControlMyDay(Ctrl.persona);
   const d = Ctrl.giorno;
   const aperti = Ctrl.tasks.filter(t => TASK_APERTI.includes(t.stato) || t.stato === 'bloccato');
   const coda = Ctrl.tasks.filter(t => !t.assegnato_a && !['completato', 'non_completato'].includes(t.stato));
@@ -583,7 +590,7 @@ const TEAM_PREVIEW_MAX = 5;
 function renderTeamPreview() {
   const d = Ctrl.giorno;
   const riga = (t) => `
-    <li><button type="button" class="ctrl-preview-task" onclick="openTaskDetail('${t.id}')">
+    <li><button type="button" class="ctrl-preview-task" onclick="event.stopPropagation();openTaskDetail('${t.id}')">
       <i class="${t.stato === 'in_lavorazione' ? 'ctrl-live' : ''}" style="background:${taskStato(t.stato).color};" aria-hidden="true"></i>
       <span>${escapeHtml(t.titolo)}</span>
       ${t.giorno < d ? '<small class="task-late">arretrato</small>' : t.priorita === 'urgente' ? '<small class="task-late">urgente</small>' : ''}
@@ -597,18 +604,24 @@ function renderTeamPreview() {
     const pct = totale ? Math.round(fatti / totale * 100) : 0;
     const minuti = aperti.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
     return `
-      <article class="glass-card ctrl-person ctrl-preview">
+      <article class="glass-card ctrl-person ctrl-preview is-link" onclick="openPersonTasks('${escapeHtml(nick)}')">
         <header>
-          <h3>${escapeHtml(nick)}</h3>
+          <h3><button type="button" class="ctrl-preview-nome" onclick="event.stopPropagation();openPersonTasks('${escapeHtml(nick)}')" aria-label="Tutti i task di ${escapeHtml(nick)}">${escapeHtml(nick)}</button></h3>
           ${Ctrl.assenti.has(nick) && nick !== 'claude' ? '<span class="ctrl-preview-off">Assente</span>' : ''}
         </header>
         <div class="ctrl-progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Task completati"><span style="width:${pct}%"></span></div>
         <div class="ctrl-person-meta"><span>${fatti}/${totale} task</span>${minuti ? `<span>${ctrlFmtMin(minuti)} da fare</span>` : ''}</div>
         ${aperti.length ? `<ul>${aperti.slice(0, TEAM_PREVIEW_MAX).map(riga).join('')}</ul>` : `<div class="ctrl-idle">${totale ? 'Tutto fatto' : 'Nessun task'}</div>`}
-        ${aperti.length > TEAM_PREVIEW_MAX ? `<details><summary>Altri ${aperti.length - TEAM_PREVIEW_MAX}</summary><ul>${aperti.slice(TEAM_PREVIEW_MAX).map(riga).join('')}</ul></details>` : ''}
+        ${aperti.length > TEAM_PREVIEW_MAX ? `<details onclick="event.stopPropagation()"><summary>Altri ${aperti.length - TEAM_PREVIEW_MAX}</summary><ul>${aperti.slice(TEAM_PREVIEW_MAX).map(riga).join('')}</ul></details>` : ''}
       </article>`;
   };
   return `<div class="ctrl-team ctrl-previews" aria-label="Task di ogni persona">${Ctrl.users.slice().sort((a, b) => a.localeCompare(b)).map(card).join('')}</div>`;
+}
+
+function openPersonTasks(nick) {
+  Ctrl.persona = nick;
+  refreshControlPage();
+  window.scrollTo({ top: 0 });
 }
 
 function toggleUrgentTasks() {

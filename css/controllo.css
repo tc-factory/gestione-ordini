@@ -140,6 +140,13 @@
 .ctrl-preview header { align-items: center; }
 .ctrl-preview-off { padding: 2px 8px; border-radius: 999px; background: var(--fill-hover); color: var(--text-secondary); font-size: 0.7rem; font-weight: 700; }
 .ctrl-preview .ctrl-idle { font-size: 0.82rem; }
+.ctrl-preview.is-link { cursor: pointer; transition: box-shadow .15s; }
+.ctrl-preview.is-link:hover { box-shadow: 0 0 0 1.5px var(--text-primary); }
+.ctrl-preview-nome { padding: 0; border: none; background: none; color: inherit; font: inherit; text-transform: inherit; cursor: pointer; border-radius: 4px; }
+.ctrl-preview-nome:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.ctrl-persona-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.ctrl-persona-head .ctrl-btn { display: inline-flex; align-items: center; gap: 4px; }
+.ctrl-persona-nome { text-transform: capitalize; }
 .ctrl-preview ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .ctrl-preview-task {
   width: 100%; display: flex; align-items: center; gap: 7px; padding: 5px 6px; margin: 0 -6px; border: none; border-radius: 8px;
