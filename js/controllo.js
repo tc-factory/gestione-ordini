@@ -824,7 +824,7 @@ function renderPresenzeOggi() {
     const fattiClaude = nick === 'claude' ? (Ctrl.claudeFatti || []) : null;
     const info = fattiClaude ? `
       <span class="team-nome">${escapeHtml(nick)}</span>
-      <span class="team-meta">${fattiClaude.length} chiusi · ${ctrlFmtMin(claudeMinutiReali(fattiClaude))} lavorati</span>` : `
+      <span class="team-meta">${fattiClaude.length} chiusi · ${ctrlFmtMin(fattiClaude.reduce((n, t) => n + (t.lavorato_sec ? t.lavorato_sec / 60 : t.minuti_stimati || 0), 0))} lavorati</span>` : `
       <span class="team-nome">${escapeHtml(nick)}</span>
       <span class="team-meta">${c.n} task · ${c.min ? ctrlFmtMin(c.min) : '0′'}${c.cap ? `<span class="team-cap">/${ctrlFmtMin(c.cap)}</span>` : ''}</span>
       <span class="team-bar"><span style="width:${c.cap ? Math.min(100, c.pct) : 0}%;--t:${tono(c.pct || 0)};"></span></span>`;
@@ -843,22 +843,6 @@ function renderPresenzeOggi() {
         ${admin ? `<button type="button" class="ctrl-btn is-primary" onclick="addRetePresenze()">${Icons.plus(14)} Aggiungi la rete di questo dispositivo</button>` : ''}</div>` : ''}
       <ul class="team-riga">${persone.map(item).join('')}</ul>
     </section>`;
-}
-
-// Minuti di lavoro di Claude senza contare due volte il tempo in cui lavorava su più cose insieme:
-// ogni task occupa l'intervallo che finisce alla chiusura e dura i suoi minuti; si somma l'unione.
-function claudeMinutiReali(tasks) {
-  const tratti = tasks.map(t => {
-    const fine = new Date(t.completato_at).getTime();
-    return [fine - (t.lavorato_sec ? t.lavorato_sec * 1000 : (t.minuti_stimati || 0) * 60000), fine];
-  }).filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
-  let tot = 0, da = null, a = null;
-  for (const [x, y] of tratti) {
-    if (da === null || x > a) { if (da !== null) tot += a - da; da = x; a = y; }
-    else a = Math.max(a, y);
-  }
-  if (da !== null) tot += a - da;
-  return tot / 60000;
 }
 
 // Riordino trascinando (admin): l'ordine si salva per tutti in app_settings.team_ordine
