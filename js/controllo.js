@@ -702,7 +702,21 @@ function renderControlAdminTasks() {
   const minuti = (list) => list.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
   const scadute = inRitardo.filter(taskScaduto).length;
   const fatti = delGiorno.filter(t => t.stato === 'completato').length;
-  const pct = delGiorno.length ? Math.round(fatti / delGiorno.length * 100) : 0;
+  const mieiDelGiorno = delGiorno.filter(t => t.assegnato_a === Ctrl._me());
+  const mieiFatti = mieiDelGiorno.filter(t => t.stato === 'completato').length;
+  // Avanzamento del giorno: anello con la percentuale e task completati sul totale
+  const avanz = (titolo, f, tot) => {
+    const p = tot ? Math.round(f / tot * 100) : 0;
+    return `
+      <div class="glass-card tk-stat tk-progress-card">
+        <span class="tk-ring" style="--p:${p};" role="img" aria-label="${titolo}: ${p}%"><b>${p}%</b></span>
+        <span class="tk-stat-text">
+          <strong class="tk-small-title">${titolo}</strong>
+          <span>${f}/${tot} task di ${d === ctrlOggi() ? 'oggi' : ctrlFmtGiorno(d).toLowerCase()}</span>
+          <span class="ctrl-progress tk-bar"><span style="width:${p}%"></span></span>
+        </span>
+      </div>`;
+  };
 
   const stat = (icon, tono, value, label, extra = '', onclick = '') => `
     <${onclick ? `button type="button" onclick="${onclick}"` : 'div'} class="glass-card tk-stat ${onclick ? 'is-link' : ''}" style="--t:${tono};">
@@ -712,21 +726,15 @@ function renderControlAdminTasks() {
 
   return `
     ${renderPresenzeOggi()}
-    ${renderTaskDuo(Ctrl._me())}
     <div class="tk-stats">
       ${stat(TkIcons.layers(22), '#3b82f6', aperti.length, 'Task aperti', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(aperti))} stimate</small>`, `taskVaiA('coda')`)}
       ${stat(TkIcons.alert(), '#ef4444', urgenti.length, 'Urgenti', urgenti.length ? '<em class="tk-stat-tag">Azioni immediate</em>' : '', `taskVaiA('coda', 'urgente')`)}
       ${stat(Icons.calendarDays(22), '#f97316', inRitardo.length, 'In ritardo', `<small class="tk-stat-sub">${scadute} scaduti · ${inRitardo.length - scadute} dai giorni prima</small>`, `taskVaiA('ritardo')`)}
       ${stat(TkIcons.user(), '#6366f1', coda.length, 'Da assegnare', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(coda))} stimate</small>`, `taskVaiA('assegnare')`)}
-      <div class="glass-card tk-stat tk-progress-card">
-        <span class="tk-ring" style="--p:${pct};" role="img" aria-label="${pct}% dei task del giorno completati"><b>${pct}%</b></span>
-        <span class="tk-stat-text">
-          <strong class="tk-small-title">Avanzamento ${ctrlFmtGiorno(d).toLowerCase()}</strong>
-          <span>${fatti}/${delGiorno.length} task del giorno completati</span>
-          <span class="ctrl-progress tk-bar"><span style="width:${pct}%"></span></span>
-        </span>
-      </div>
+      ${avanz('Il mio avanzamento', mieiFatti, mieiDelGiorno.length)}
+      ${avanz('Avanzamento team', fatti, delGiorno.length)}
     </div>
+    ${renderTaskDuo(Ctrl._me())}
     <div class="tk-duo tk-solo">${renderTaskSubito(urgenti)}</div>
     ${renderTaskBoard()}`;
 }
