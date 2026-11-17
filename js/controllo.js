@@ -222,9 +222,11 @@ const Ctrl = {
           .order('created_at'),
         supabaseClient.from('task_tipi').select('*').order('nome'),
         this.users.length ? null : TCAuth.listUsers().catch(() => []),
-        supabaseClient.from('app_settings').select('value').eq('key', 'tempi_test').maybeSingle(),
+        supabaseClient.from('app_settings').select('key, value').in('key', ['tempi_test', 'team_ordine']),
       ]);
-      this.tempiTest = prova?.data?.value || {};
+      const imp = Object.fromEntries((prova?.data || []).map(r => [r.key, r.value]));
+      this.tempiTest = imp.tempi_test || {};
+      this.teamOrdine = Array.isArray(imp.team_ordine) ? imp.team_ordine : [];
       if (tasks.error) throw this._fail(tasks.error);
       if (tipi.error)  throw this._fail(tipi.error);
       this.tasks = tasks.data || [];
@@ -739,20 +741,29 @@ function renderTaskSubito(urgenti) {
 }
 
 // Ore stimate dei task aperti di ogni persona sulle sue ore del giorno
-// Team di oggi (admin e addetti), su una riga: avatar con l'icona della presenza
+// Team di oggi (admin e addetti), su una riga: icona della presenza
 // (clic: da confermare → presente → assente → da confermare), nome, task e ore, barra del carico
-// (clic sul nome: i suoi task, solo admin).
+// (clic sul nome: i suoi task, solo admin). L'admin riordina trascinando; di base in ordine di entrata.
 const TEAM_STATO = {
   presente: { cls: 'is-ok',  label: 'Presente', icon: '<polyline points="5 12.5 10 17 19 7"/>' },
   assente:  { cls: 'is-no',  label: 'Assente',  icon: '<line x1="7" y1="7" x2="17" y2="17"/><line x1="17" y1="7" x2="7" y2="17"/>' },
   attesa:   { cls: 'is-wait', label: 'Da confermare', icon: '<circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="6.5" cy="12" r="1.6" fill="currentColor"/><circle cx="17.5" cy="12" r="1.6" fill="currentColor"/>' },
 };
+
+// Ordine del team: quello salvato, poi chi manca in ordine di entrata (senza orario in fondo) e di nome
+function teamOrdinato(persone, pres) {
+  const ora = (n) => pres[n]?.ora_inizio || Ctrl.operatori?.find(o => o.nickname === n)?.ora_inizio?.slice(0, 5) || '99:99';
+  const salvato = (Ctrl.teamOrdine || []).filter(n => persone.includes(n));
+  const resto = persone.filter(n => !salvato.includes(n)).sort((a, b) => ora(a).localeCompare(ora(b)) || a.localeCompare(b));
+  return [...salvato, ...resto];
+}
+
 function renderPresenzeOggi() {
   const s = Presenze.stato, admin = TCAuth.isAdmin();
   if (!admin && !s?.addetto) return '';
   const oggi = Ctrl.giorno === ctrlOggi();
   const pres = Object.fromEntries((oggi && s?.addetto ? s.tutti || [] : []).map(p => [p.nickname, p]));
-  const persone = admin ? Ctrl.users : Object.keys(pres);
+  const persone = teamOrdinato(admin ? Ctrl.users : Object.keys(pres), pres);
   if (!persone.length) return '';
   const tono = (p) => p >= 90 ? '#ef4444' : p >= 75 ? '#f97316' : p >= 50 ? '#f59e0b' : '#22c55e';
   const statoDi = (p) => !p ? null : p.stato === 'presente' ? 'presente' : p.stato === 'assente' || p.assente ? 'assente' : 'attesa';
@@ -762,15 +773,17 @@ function renderPresenzeOggi() {
 
   const item = (nick) => {
     const p = pres[nick], st = statoDi(p), c = taskCarico(nick), def = st && TEAM_STATO[st];
-    const avatar = `${taskAvatar(nick, 34)}${def ? `<i class="team-stato ${def.cls}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" width="10" height="10">${def.icon}</svg></i>` : ''}`;
+    const icona = def ? `<i class="team-stato ${def.cls}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">${def.icon}</svg></i>`
+                      : '<i class="team-stato is-none"></i>';
     const info = `
       <span class="team-nome">${escapeHtml(nick)}</span>
       <span class="team-meta">${c.n} task · ${c.min ? ctrlFmtMin(c.min) : '0′'}${c.cap ? `<span class="team-cap">/${ctrlFmtMin(c.cap)}</span>` : ''}</span>
       <span class="team-bar"><span style="width:${c.cap ? Math.min(100, c.pct) : 0}%;--t:${tono(c.pct || 0)};"></span></span>`;
     return `
-      <li class="team-item ${st === 'assente' ? 'is-off' : ''} ${TaskView.chi === nick && TaskView.tab === 'tutti' ? 'is-on' : ''}">
-        ${def ? `<button type="button" class="team-av" title="${escapeHtml(dettaglio(p))}" aria-label="${escapeHtml(nick)}: ${escapeHtml(dettaglio(p))}. Cambia presenza" onclick="Presenze.ciclo('${escapeHtml(nick)}')">${avatar}</button>`
-              : `<span class="team-av">${avatar}</span>`}
+      <li class="team-item ${st === 'assente' ? 'is-off' : ''} ${TaskView.chi === nick && TaskView.tab === 'tutti' ? 'is-on' : ''}"
+        data-nick="${escapeHtml(nick)}" ${admin ? 'draggable="true" ondragstart="teamDragStart(event)" ondragover="teamDragOver(event)" ondrop="teamDrop(event)" ondragend="teamDragEnd()"' : ''}>
+        ${def ? `<button type="button" class="team-av" title="${escapeHtml(dettaglio(p))}" aria-label="${escapeHtml(nick)}: ${escapeHtml(dettaglio(p))}. Cambia presenza" onclick="Presenze.ciclo('${escapeHtml(nick)}')">${icona}</button>`
+              : `<span class="team-av" title="Senza orario di entrata">${icona}</span>`}
         ${admin ? `<button type="button" class="team-info" onclick="taskPersona('${escapeHtml(nick)}')" aria-label="Tutti i task di ${escapeHtml(nick)}">${info}</button>`
                 : `<span class="team-info">${info}</span>`}
       </li>`;
@@ -781,6 +794,34 @@ function renderPresenzeOggi() {
         ${admin ? `<button type="button" class="ctrl-btn is-primary" onclick="addRetePresenze()">${Icons.plus(14)} Aggiungi la rete di questo dispositivo</button>` : ''}</div>` : ''}
       <ul class="team-riga">${persone.map(item).join('')}</ul>
     </section>`;
+}
+
+// Riordino trascinando (admin): l'ordine si salva per tutti in app_settings.team_ordine
+let _teamDrag = null;
+function teamDragStart(e) {
+  _teamDrag = e.currentTarget.dataset.nick;
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.classList.add('is-drag');
+}
+function teamDragOver(e) {
+  if (!_teamDrag) return;
+  e.preventDefault();
+  const li = e.currentTarget, riga = li.parentElement, trascinato = riga.querySelector('.is-drag');
+  if (!trascinato || trascinato === li) return;
+  const dopo = e.clientX > li.getBoundingClientRect().left + li.offsetWidth / 2;
+  riga.insertBefore(trascinato, dopo ? li.nextSibling : li);
+}
+function teamDrop(e) { e.preventDefault(); }
+async function teamDragEnd() {
+  const riga = document.querySelector('.team-riga');
+  riga?.querySelector('.is-drag')?.classList.remove('is-drag');
+  if (!_teamDrag || !riga) return;
+  _teamDrag = null;
+  const ordine = [...riga.querySelectorAll('.team-item')].map(li => li.dataset.nick);
+  if (JSON.stringify(ordine) === JSON.stringify(Ctrl.teamOrdine)) return;
+  Ctrl.teamOrdine = ordine;
+  const { error } = await supabaseClient.from('app_settings').upsert({ key: 'team_ordine', value: ordine, updated_at: new Date().toISOString() });
+  if (error) showToast(Ctrl._fail(error).message, 'error');
 }
 
 // Tabella con schede, filtri e ordinamento

@@ -1128,25 +1128,26 @@ html.dark .tk-now-icon { color: #fbbf24; }
 .task-suggerito { color: var(--text-secondary); font-weight: 600; }
 .pres-avviso { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 4px 0 8px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--priority-urgent); font-size: 0.88rem; }
 
-/* Team di oggi nella pagina Tasks: una riga, avatar con l'icona della presenza e carico */
+/* Team di oggi nella pagina Tasks: una riga, icona della presenza, nome e carico */
 .team-box { margin-bottom: 16px; padding: 10px 12px; }
 .team-riga {
   list-style: none; margin: 0; padding: 0; display: grid; gap: 4px;
-  grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); overflow-x: auto; scrollbar-width: thin;
+  grid-auto-flow: column; grid-auto-columns: minmax(140px, 1fr); overflow-x: auto; scrollbar-width: thin;
 }
 .team-item { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 8px; border-radius: 12px; }
 .team-item.is-on { background: var(--fill-hover); }
 .team-item.is-off .team-info { opacity: .55; }
-.team-av { position: relative; flex-shrink: 0; display: inline-grid; padding: 0; border: 0; background: none; border-radius: 50%; }
+.team-item[draggable="true"] { cursor: grab; }
+.team-item.is-drag { opacity: .4; }
+.team-av { flex-shrink: 0; display: inline-grid; padding: 0; border: 0; background: none; border-radius: 50%; }
 button.team-av { cursor: pointer; }
+button.team-av:hover .team-stato { filter: brightness(0.92); }
 button.team-av:focus-visible, .team-info:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.team-stato {
-  position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center;
-  width: 17px; height: 17px; border-radius: 50%; color: #fff; border: 0; box-shadow: 0 0 0 2px #fff;
-}
+.team-stato { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; }
 .team-stato.is-ok { background: #22c55e; }
 .team-stato.is-no { background: #ef4444; }
 .team-stato.is-wait { background: #9ca3af; }
+.team-stato.is-none { background: transparent; box-shadow: inset 0 0 0 2px var(--border); }
 .team-info {
   display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; padding: 0;
   border: 0; background: none; font: inherit; color: inherit; text-align: left; border-radius: 6px;
