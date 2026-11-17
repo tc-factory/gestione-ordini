@@ -9,6 +9,7 @@
 -- Le modifiche vicine (pause sotto i 20 minuti) fanno una sessione = un task completato
 -- "Modifiche al sito", tempo = dalla prima all'ultima modifica + 5 minuti.
 -- Le sessioni si ricalcolano finché il giorno è aperto. Si può rieseguire.
+-- A ritroso: select _tc_siti_sync_call('{"dal":"2026-09-01","al":"2026-09-15"}');
 -- ════════════════════════════════════════════════════════
 
 create table if not exists siti_modifiche (
@@ -92,7 +93,10 @@ begin
 
   for r in select * from _sessioni loop
     v_chi := coalesce((select primario from competenze_responsabili where voce = r.store_id || ':siti'), 'gianluca');
-    if not exists (select 1 from presenze p where p.nickname = v_chi and p.giorno = p_giorno and p.stato = 'presente') then
+    -- Prima delle presenze (17/11/2026) vale il Planner: giorno lavorativo senza ferie o impegni
+    if not (case when p_giorno < date '2026-11-17'
+                 then tc_giorno_lavorativo(p_giorno) and not tc_assente(v_chi, p_giorno)
+                 else exists (select 1 from presenze p where p.nickname = v_chi and p.giorno = p_giorno and p.stato = 'presente') end) then
       delete from tasks where fonte = 'shopify_admin' and fonte_rif->>'sessione' = r.chiave;
       continue;
     end if;
@@ -139,7 +143,8 @@ $$;
 revoke execute on function tc_salva_modifiche_siti(jsonb) from public, anon, authenticated;
 
 -- Ogni 15 minuti
-create or replace function _tc_siti_sync_call()
+drop function if exists _tc_siti_sync_call();
+create or replace function _tc_siti_sync_call(p_body jsonb default '{}')
 returns void security definer set search_path = public language plpgsql as $$
 declare v_key text;
 begin
@@ -148,12 +153,12 @@ begin
   perform net.http_post(
     url     := 'https://gdtlpyowpbwetnovxget.supabase.co/functions/v1/shopify-modifiche',
     headers := jsonb_build_object('Content-Type', 'application/json', 'x-sync-key', v_key),
-    body    := '{}'::jsonb,
-    timeout_milliseconds := 60000
+    body    := p_body,
+    timeout_milliseconds := 150000
   );
 end;
 $$;
-revoke execute on function _tc_siti_sync_call() from public, anon, authenticated;
+revoke execute on function _tc_siti_sync_call(jsonb) from public, anon, authenticated;
 do $$
 begin
   if exists (select 1 from cron.job where jobname = 'shopify-modifiche') then

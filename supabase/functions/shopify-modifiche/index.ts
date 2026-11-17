@@ -39,7 +39,13 @@ Deno.serve(async (req) => {
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: stores } = await db.from('shopify_stores').select('id, nome, dominio, client_id').eq('attivo', true);
-  const dal = new Date(Date.now() - GIORNI * 86400_000).toISOString();
+  // Calcolo a ritroso: { "dal": "2026-09-01", "al": "2026-09-15" } legge solo quel periodo
+  const body = await req.json().catch(() => ({})) as { dal?: string; al?: string };
+  const dal = body.dal ? new Date(body.dal + 'T00:00:00Z').toISOString() : new Date(Date.now() - GIORNI * 86400_000).toISOString();
+  const al = body.al ? ` AND created_at:<'${new Date(body.al + 'T00:00:00Z').toISOString()}'` : '';
+  const filtro = `created_at:>='${dal}'${al} AND NOT subject_type:ORDER AND NOT subject_type:CUSTOMER`;
+  const pagine = body.dal ? 60 : PAGINE;
+  let primo: string | null = null;
   const esito: Record<string, unknown> = {};
   const tenuti: Record<string, string>[] = [];
 
@@ -47,27 +53,28 @@ Deno.serve(async (req) => {
     try {
       const token = await getToken(db, store);
       let after: string | null = null, letti = 0, presi = 0;
-      for (let p = 0; p < PAGINE; p++) {
+      for (let p = 0; p < pagine; p++) {
         const res = await fetch(`https://${store.dominio}/admin/api/${API_VERSION}/graphql.json`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
-          body: JSON.stringify({ query: EVENTI, variables: { q: `created_at:>='${dal}'`, after } }),
+          body: JSON.stringify({ query: EVENTI, variables: { q: filtro, after } }),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || json.errors?.length) throw new Error(`Shopify ${res.status}: ${JSON.stringify(json.errors || json).slice(0, 300)}`);
         const ev = json.data.events;
         for (const e of ev.nodes as Evento[]) {
           letti++;
+          if (!primo || e.createdAt < primo) primo = e.createdAt;
           // Fatta da una persona dall'admin (Shopify Web / app mobile); le app hanno attributeToUser falso
           if (!e.attributeToUser) continue;
           if (ESCLUSI.has(e.subjectType || '')) continue;
           presi++;
           tenuti.push({ store_id: store.id, id: e.id, at: e.createdAt, oggetto: e.subjectType || '', soggetto: e.subjectId || '', messaggio: testo(e.message || '') });
         }
-        if (!ev.pageInfo.hasNextPage) break;
+        if (!ev.pageInfo.hasNextPage) { after = null; break; }
         after = ev.pageInfo.endCursor;
       }
-      esito[store.id] = { letti, modifiche: presi };
+      esito[store.id] = { letti, modifiche: presi, ...(after ? { incompleto: true } : {}) };
     } catch (e) {
       esito[store.id] = `errore: ${(e as Error).message}`;
     }
@@ -75,5 +82,5 @@ Deno.serve(async (req) => {
 
   const { data: sessioni, error } = await db.rpc('tc_salva_modifiche_siti', { p: tenuti });
   if (error) return reply({ success: false, error: error.message, esito }, 500);
-  return reply({ success: true, sessioni, esito });
+  return reply({ success: true, sessioni, esito, primo });
 });
