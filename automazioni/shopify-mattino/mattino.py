@@ -11,6 +11,7 @@ import argparse
 import datetime as dt
 import hashlib
 import io
+import json
 import os
 import re
 import shutil
@@ -170,7 +171,7 @@ def scarica_libreria(base, reg):
     reg.scrivi(f"Libreria DTF dal gestionale: {len(remoti)} file, {scaricati} scaricati, {tolti} tolti")
 
 
-CONTENT_TYPE = {'.pdf': 'application/pdf', '.tif': 'image/tiff', '.tiff': 'image/tiff', '.jpg': 'image/jpeg', '.png': 'image/png'}
+CONTENT_TYPE = {'.json': 'application/json', '.pdf': 'application/pdf', '.tif': 'image/tiff', '.tiff': 'image/tiff', '.jpg': 'image/jpeg', '.png': 'image/png'}
 
 
 class Registro:
@@ -547,40 +548,53 @@ def disegna_riepilogo(c, oggi, generale, blocchi):
 # ── File di stampa ──
 
 def crea_pdf_stampa(destinazione, voci, problemi):
-    """Una pagina 23x43 per ogni pezzo. Ritorna gli ordini con tutti i file a posto.
-    Peso: ogni grafica è salvata una volta sola anche se torna su più pagine (stesso file = stessa immagine
-    nel PDF, reportlab la riusa) e senza la codifica ASCII85, che aggiunge un quarto. Pagine e pixel non cambiano."""
+    """Una pagina 23x43 per ogni grafica DIVERSA: le stampe identiche (stesso file) stanno su una pagina sola
+    e si stampano in più copie. Le pagine sono in ordine di copie (prima quelle da 1, poi da 2, ...), così ogni
+    gruppo è un intervallo di pagine da stampare con lo stesso numero di copie.
+    Ritorna (pagine, ordini non riusciti, copie per pagina)."""
     W, H = PAGINA_STAMPA
     rl_config.useA85 = 0
     c = canvas.Canvas(str(destinazione), pagesize=PAGINA_STAMPA, pageCompression=1)
-    pagine = 0
     falliti = set()
-    gia_visti = {}   # impronta del PNG → file già messo nel PDF
+    uniche = {}   # impronta del PNG → [file, copie], nell'ordine in cui compaiono
     with tempfile.TemporaryDirectory() as tmp:
         for i, (ordine, titolo, url, pezzi) in enumerate(voci):
             try:
                 r = requests.get(url, timeout=120)
                 r.raise_for_status()
                 impronta = hashlib.sha256(r.content).hexdigest()
-                f = gia_visti.get(impronta)
-                if f is None:
-                    f = gia_visti[impronta] = Path(tmp) / f'{i}.png'
-                    f.write_bytes(r.content)
+                if impronta in uniche:
+                    uniche[impronta][1] += pezzi
+                    continue
+                f = Path(tmp) / f'{i}.png'
+                f.write_bytes(r.content)
                 with Image.open(f) as im:
                     w, h = im.size
                 if abs(w / h - W / H) > 0.01:
                     raise ValueError(f'formato {w}x{h}, non 23x43')
-                for _ in range(pezzi):
-                    c.setPageSize(PAGINA_STAMPA)
-                    c.drawImage(str(f), 0, 0, W, H, mask='auto')
-                    c.showPage()
-                    pagine += 1
+                uniche[impronta] = [f, pezzi]
             except Exception as e:
                 falliti.add(ordine)
                 problemi.append(f'{ordine}, {titolo}: file di stampa non riuscito ({type(e).__name__}: {str(e)[:80]})')
+        pagine = sorted(uniche.values(), key=lambda x: x[1])   # stabile: a parità di copie resta l'ordine degli ordini
+        for f, _ in pagine:
+            c.setPageSize(PAGINA_STAMPA)
+            c.drawImage(str(f), 0, 0, W, H, mask='auto')
+            c.showPage()
         if pagine:
             c.save()   # Va salvato qui: i file temporanei servono fino alla scrittura del PDF
-    return pagine, falliti
+    return len(pagine), falliti, [n for _, n in pagine]
+
+
+def testo_copie(copie):
+    """Es. "pag. 1-40: 1 copia · pag. 41-43: 2 copie · pag. 44: 5 copie"."""
+    gruppi = []
+    for n_pag, n in enumerate(copie, 1):
+        if gruppi and gruppi[-1][2] == n:
+            gruppi[-1][1] = n_pag
+        else:
+            gruppi.append([n_pag, n_pag, n])
+    return ' · '.join(f"pag. {a}{f'-{b}' if b != a else ''}: {n} {'copia' if n == 1 else 'copie'}" for a, b, n in gruppi)
 
 
 def capo_dtf(l):
@@ -829,7 +843,7 @@ def giro(args, applica, reg):
                 else:
                     senza_file[n['id']].append(f"{o['name']}: {l['title']}")
 
-    # Un PDF per negozio: (negozio, ordine) dei file non riusciti, pdf_stampa[negozio] = (file, pagine)
+    # Un PDF per negozio: (negozio, ordine) dei file non riusciti, pdf_stampa[negozio] = (file, pagine, copie per pagina)
     falliti_stampa = set()
     pdf_stampa = {}
     for i, prefisso in NEGOZI_FILE_STAMPA.items():
@@ -838,13 +852,15 @@ def giro(args, applica, reg):
             continue
         tmp = nome_libero(cartella, f'{prefisso}.part')
         try:
-            pagine, falliti = crea_pdf_stampa(tmp, voci, avvisi_stampa[i])
+            pagine, falliti, copie = crea_pdf_stampa(tmp, voci, avvisi_stampa[i])
             falliti_stampa |= {(i, x) for x in falliti}
             if pagine:
                 # Il nome dice il primo e l'ultimo ordine davvero stampati
                 finale = nome_libero(cartella, nome_pdf_stampa(prefisso, [v[0] for v in voci if v[0] not in falliti] or [v[0] for v in voci]))
                 conferma_pdf(tmp, finale, pagine)
-                pdf_stampa[i] = (finale, pagine)
+                # Copie di ogni pagina accanto al PDF: la scheda Stampe del giorno le mostra vicino al file
+                finale.with_name(f'{finale.stem}.copie.json').write_text(json.dumps({'copie': copie}))
+                pdf_stampa[i] = (finale, pagine, copie)
         except Exception as e:
             falliti_stampa |= {(i, v[0]) for v in voci}
             errori.append(f"{nomi[i]}: PDF dei file di stampa non riuscito ({type(e).__name__}: {str(e)[:100]})")
@@ -907,7 +923,8 @@ def giro(args, applica, reg):
         for p, alto in dtf_creati.get(i, []):
             fare.append((f'Stampare il foglio DTF "{p.name}" ({alto:g} cm)', False))
         if i in pdf_stampa:
-            fare.append((f'Stampare il PDF dei file di stampa "{pdf_stampa[i][0].name}": {pdf_stampa[i][1]} pagine', False))
+            pdf, pag, copie = pdf_stampa[i]
+            fare.append((f'Stampare il PDF dei file di stampa "{pdf.name}": {pag} pagine, {sum(copie)} stampe ({testo_copie(copie)})', False))
         info = [('Righe senza file di stampa', senza_file[i]), ('Rimandati a domani', rimandati[i])]
         quanti = 'ordini non letti' if ordini is None else f"{len(ordini)} {'ordine' if len(ordini) == 1 else 'ordini'}"
         blocchi.append((n['nome'], quanti, fare, info))
@@ -968,12 +985,13 @@ def giro(args, applica, reg):
 
     n_ordini = sum(len(x[4]) for x in per_negozio)
     pagine_stampa = sum(x[1] for x in pdf_stampa.values())
+    stampe = sum(sum(x[2]) for x in pdf_stampa.values())
     mb_stampa = sum(x[0].stat().st_size for x in pdf_stampa.values()) // 1024 ** 2
     reg.scrivi(f"--- {dt.datetime.now(ROMA):%Y-%m-%d %H:%M} {'giro vero' if applica else 'rigenerazione, nessun tag' if fascia else 'prova, nessun tag'}")
     reg.scrivi(f"Cartella: {cartella}")
     reg.scrivi(f"DDT: {n_ordini} ordini, {pagine_ddt} pagine, {finale_ddt.stat().st_size // 1024} KB")
     reg.scrivi(f"DTF: {sum(len(v) for v in dtf_creati.values())} fogli, {sum(len(v) for v in dtf_a_mano.values())} pezzi da fare a mano")
-    reg.scrivi(f"Stampa: {pagine_stampa} pagine, {mb_stampa} MB"
+    reg.scrivi(f"Stampa: {pagine_stampa} pagine ({stampe} stampe con le copie), {mb_stampa} MB"
                + ''.join(f" ({nomi[i]}: {x[1]})" for i, x in sorted(pdf_stampa.items())))
     conta = lambda d: sum(len(v) for v in d.values())
     reg.scrivi(f"Non pagati (solo DDT): {conta(non_pagati)}, rimandati a domani: {conta(rimandati)}")
