@@ -809,7 +809,11 @@ function renderPresenzeOggi() {
     const p = pres[nick], st = statoDi(p), c = taskCarico(nick), def = st && TEAM_STATO[st];
     const icona = def ? `<i class="team-stato ${def.cls}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">${def.icon}</svg></i>`
                       : '<i class="team-stato is-none"></i>';
-    const info = `
+    // Claude non ha un tempo massimo: task chiusi e minuti lavorati nel giorno
+    const fattiClaude = nick === 'claude' ? Ctrl.tasks.filter(t => t.assegnato_a === 'claude' && t.giorno === Ctrl.giorno && t.stato === 'completato') : null;
+    const info = fattiClaude ? `
+      <span class="team-nome">${escapeHtml(nick)}</span>
+      <span class="team-meta">${fattiClaude.length} chiusi · ${ctrlFmtMin(fattiClaude.reduce((n, t) => n + (t.lavorato_sec ? t.lavorato_sec / 60 : t.minuti_stimati || 0), 0))} lavorati</span>` : `
       <span class="team-nome">${escapeHtml(nick)}</span>
       <span class="team-meta">${c.n} task · ${c.min ? ctrlFmtMin(c.min) : '0′'}${c.cap ? `<span class="team-cap">/${ctrlFmtMin(c.cap)}</span>` : ''}</span>
       <span class="team-bar"><span style="width:${c.cap ? Math.min(100, c.pct) : 0}%;--t:${tono(c.pct || 0)};"></span></span>`;
