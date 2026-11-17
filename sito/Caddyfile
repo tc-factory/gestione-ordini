@@ -1,0 +1,28 @@
+# Railway passa la porta in $PORT; HTTPS e certificato li gestisce Railway davanti.
+{
+	admin off
+	auto_https off
+}
+
+:{$PORT:8080} {
+	root * /srv
+	encode zstd gzip
+	# Come GitHub Pages: /dashboard apre dashboard.html
+	try_files {path} {path}.html
+	file_server
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	# Le pagine si rileggono sempre; css, js e immagini hanno già la versione nell'indirizzo (?v=)
+	@file path /css/* /js/* /img/*
+	header @file Cache-Control "public, max-age=600"
+	@pagine not path /css/* /js/* /img/*
+	header @pagine Cache-Control "no-cache"
+
+	handle_errors {
+		respond "{err.status_code} {err.status_text}" {err.status_code}
+	}
+}
