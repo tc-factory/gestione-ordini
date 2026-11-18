@@ -819,7 +819,6 @@ function renderControlAdminTasks() {
   const aperti = Ctrl.tasks.filter(t => !taskChiuso(t));
   const urgenti = aperti.filter(t => t.priorita === 'urgente');
   const inRitardo = aperti.filter(taskInRitardo);
-  const coda = aperti.filter(t => !t.assegnato_a && !t.designato);
   const delGiorno = Ctrl.tasks.filter(t => t.giorno === d);
   const minuti = (list) => list.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
   const scadute = inRitardo.filter(taskScaduto).length;
@@ -850,7 +849,6 @@ function renderControlAdminTasks() {
       ${stat(TkIcons.layers(22), '#3b82f6', aperti.length, 'Task aperti', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(aperti))} stimate</small>`, `taskVaiA('coda')`)}
       ${stat(TkIcons.alert(), '#ef4444', urgenti.length, 'Urgenti', urgenti.length ? '<em class="tk-stat-tag">Azioni immediate</em>' : '', `taskVaiA('coda', 'urgente')`)}
       ${stat(Icons.calendarDays(22), '#f97316', inRitardo.length, 'In ritardo', `<small class="tk-stat-sub">${scadute} scaduti · ${inRitardo.length - scadute} dai giorni prima</small>`, `taskVaiA('ritardo')`)}
-      ${stat(TkIcons.user(), '#6366f1', coda.length, 'Senza designato', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(coda))} stimate · da prendere a mano</small>`, `taskVaiA('assegnare')`)}
       ${avanz('Avanzamento team', fatti, delGiorno.length)}
     </div>
     ${renderTaskDuo(Ctrl._me())}
