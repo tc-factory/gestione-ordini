@@ -1536,12 +1536,9 @@ function renderCostiVivi() {
           <td>${l.valore == null ? cvDaImpostare : ''}</td></tr>`).join('')}</tbody>
       </table></div>`)}
 
-    ${sez('Merce degli ordini', d.prodotti_senza_costo.length ? `${d.prodotti_senza_costo.length} da impostare` : 0, 'Dal costo del prodotto in anagrafica, per le righe d\'ordine collegate a un prodotto', `
-      ${d.righe_senza_prodotto ? `<p class="tempi-help"><strong>${d.righe_senza_prodotto} righe d'ordine</strong> degli ultimi 90 giorni non sono collegate a un prodotto: la loro merce non entra nel costo.</p>` : ''}
-      ${d.prodotti_senza_costo.length ? `<ul class="tempi-senza">${d.prodotti_senza_costo.map(x => `<li><span>${escapeHtml(x.nome || x.codice || '—')}${x.codice && x.nome !== x.codice ? ` <span class="ctrl-cell-sub">${escapeHtml(x.codice)}</span>` : ''}</span>
-          <span class="ctrl-cell-sub">${x.righe} ${x.righe === 1 ? 'riga' : 'righe'} · ${cvDaImpostare}</span></li>`).join('')}</ul>
-        <p class="ctrl-cell-sub">Il costo si imposta nella scheda Prodotti.</p>`
-        : '<div class="empty-list">Tutti i prodotti usati negli ordini hanno un costo.</div>'}`)}`;
+    ${sez('Prodotti senza costo', d.prodotti_senza_costo.length, 'Si imposta nella scheda Prodotti', `
+      ${d.prodotti_senza_costo.length ? `<ul class="tempi-senza">${d.prodotti_senza_costo.map(x => `<li><span>${escapeHtml(x.nome || '—')}${x.codice && x.nome !== x.codice ? ` <span class="ctrl-cell-sub">${escapeHtml(x.codice)}</span>` : ''}</span></li>`).join('')}</ul>`
+        : '<div class="empty-list">Tutti i prodotti hanno un costo.</div>'}`)}`;
 }
 
 function renderControlTeam() {
