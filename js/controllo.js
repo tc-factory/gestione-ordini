@@ -2243,9 +2243,47 @@ function renderTaskCustomer(t) {
       <div><h3>Cliente</h3><span>${escapeHtml(c.nome || '')}${c.citta ? ` · ${escapeHtml(c.citta)}` : ''}</span></div>
       <div class="td-contacts">
         ${c.telefono ? `<a class="ctrl-btn" href="tel:${escapeHtml(c.telefono)}">${escapeHtml(c.telefono)}</a>` : ''}
-        ${c.email ? `<a class="ctrl-btn" href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>` : ''}
+        ${c.email ? `<button type="button" class="ctrl-btn is-primary" onclick="taskScriviMail('${t.id}')" title="Scrivi dal gestionale, dalla casella del negozio">${Icons.reply(14)} Scrivi a ${escapeHtml(c.email)}</button>` : ''}
       </div>
     </section>`;
+}
+
+// Testo pronto per i problemi di consegna che chiedono di scrivere al cliente (mai segnaposto)
+function taskTestoCliente(t, ordine) {
+  const nome = String(t.analisi?.cliente?.nome || '').trim().split(/\s+/)[0];
+  const ciao = nome ? `Ciao ${nome},` : 'Ciao,';
+  const ord = ordine ? `del tuo ordine ${ordine} ` : '';
+  if (/Rientro al mittente/i.test(t.titolo)) return {
+    oggetto: `Il tuo ordine ${ordine || ''} ci è tornato indietro`.replace(/\s+/g, ' ').trim(),
+    corpo: [ciao, '', `il corriere GLS non è riuscito a consegnarti il pacco ${ord}e ce lo sta rimandando indietro.`, '',
+      'Vuoi che te lo rispediamo? Rispondi a questa mail confermandoci l\'indirizzo completo (con numero civico, interno e nome sul campanello) e un numero di telefono per il corriere.', '',
+      'Appena ci rispondi organizziamo la nuova spedizione.', ''].join('\n'),
+  };
+  return { oggetto: ordine ? `Il tuo ordine ${ordine}` : '', corpo: `${ciao}\n\n` };
+}
+
+// Mail al cliente dal task: la finestra "Nuova mail" con negozio, destinatario e testo già pronti
+async function taskScriviMail(id) {
+  const t = Ctrl.get(id), c = t?.analisi?.cliente;
+  if (!c?.email) return;
+  const ordine = (String(t.titolo).match(/#\d+/) || [''])[0];
+  const testo = taskTestoCliente(t, ordine);
+  if (typeof openMailCompose !== 'function' || typeof MailBox === 'undefined') {
+    location.href = `mailto:${c.email}?subject=${encodeURIComponent(testo.oggetto)}&body=${encodeURIComponent(testo.corpo)}`;
+    return;
+  }
+  try {
+    if (!MailBox.caselle.length) await Promise.all([MailBox.loadCaselle(), window.MailFirme?.load?.(), window.MailModelli?.load?.()]);
+  } catch (e) { showToast(e.message, 'error'); return; }
+  // Le due finestre sono allo stesso livello e quella del task starebbe sopra: si chiude prima
+  closeModal(CTRL_MODAL);
+  openMailCompose();
+  if (MailBox.caselle.some(x => x.id === t.macroarea)) setComposeBox(t.macroarea);
+  document.getElementById('mc-a').value = c.email;
+  document.getElementById('mc-a-nome').value = c.nome || '';
+  document.getElementById('mc-oggetto').value = testo.oggetto;
+  document.getElementById('mc-testo').value = MailFirme.applica(testo.corpo, MailNuova.casella);
+  setTimeout(() => { const el = document.getElementById('mc-testo'); el?.focus(); el?.setSelectionRange?.(0, 0); }, 60);
 }
 
 function renderTaskDetail(id, storico) {
