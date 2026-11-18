@@ -1116,7 +1116,6 @@ html.dark .tk-now-icon { color: #fbbf24; }
 .tempi-scarto.is-under { color: #2563eb; }
 .tempi-senza { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 16px; }
 .tempi-senza li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.86rem; }
-.presenza-bar.is-late strong { color: var(--priority-urgent); }
 .task-suggerito { color: var(--text-secondary); font-weight: 600; }
 .pres-avviso { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 4px 0 8px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--priority-urgent); font-size: 0.88rem; }
 
