@@ -1003,7 +1003,7 @@ function renderPresenzeOggi() {
       <span class="team-nome">${escapeHtml(nick)}</span>
       <span class="team-meta">${fattiClaude.length} chiusi · ${ctrlFmtMin(fattiClaude.reduce((n, t) => n + (t.lavorato_sec ? t.lavorato_sec / 60 : t.minuti_stimati || 0), 0))} lavorati</span>` : `
       <span class="team-nome">${escapeHtml(nick)}</span>
-      <span class="team-meta" title="${f.n} fatti oggi (${ctrlFmtMin(f.min)} stimati) · ${c.n} da fare (${ctrlFmtMin(c.min)})">${f.n} fatti · ${c.n} da fare · ${f.min ? ctrlFmtMin(f.min) : '0′'}${c.cap ? `<span class="team-cap">/${ctrlFmtMin(c.cap)}</span>` : ''}</span>
+      <span class="team-meta">${f.n} fatti · ${f.min ? ctrlFmtMin(f.min) : '0′'}</span>
       <span class="team-bar"><span style="width:${c.cap ? Math.min(100, Math.round(f.min / c.cap * 100)) : 0}%;--t:#22c55e;"></span></span>`;
     return `
       <li class="team-item ${st === 'assente' ? 'is-off' : ''} ${TaskView.chi === nick && TaskView.tab === 'chiusi' ? 'is-on' : ''}"
