@@ -587,6 +587,12 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
       a.priorita = 'urgente';
       a.dubbi = `Pacco già svincolato ${d.svincoli === 1 ? 'una volta' : `${d.svincoli} volte`} e di nuovo fermo: non mandare un altro svincolo, chiama il cliente con lo storico e capisci cosa non va. ${a.dubbi || ''}`.trim();
     }
+    // Il cliente ha detto come vuole il pacco fermo: è il passaggio da non far aspettare, GLS lo rende in pochi giorni
+    const sv = svincoloDaMail(a, ordini, fermate, mittente, primoCellulare([mail.testo, mail.testo_citato, ...(precedenti || []).map(p => p.testo)], nostri), ricordo);
+    if ('svincolo' in sv) {
+      a.priorita = 'urgente';
+      a.titolo = `SVINCOLO DA MANDARE · ${a.titolo}`;
+    }
     const riferimenti = ordini.map(o => ({ negozio: o.store_id, numero: o.numero, verificato: delMittente(o, mittente), ...(o.trovato_con ? { trovato_con: o.trovato_con } : {}) }));
     const taskId = await creaTask(db, evento, mail, storeId, tipi, {
       tipo: TIPI[a.categoria] || TIPI.altro,
@@ -599,7 +605,7 @@ async function elabora(db: SupabaseClient, client: Anthropic, evento: Row, negoz
         ...(a.modifica === 'indirizzo' && a.nuovo_indirizzo?.via ? { indirizzo_proposto: a.nuovo_indirizzo } : {}),
         ...(a.chiede_rimborso ? { rimborso: true } : {}),
         ...indirizzoDaMail(a, mail, mittente, ordini),
-        ...svincoloDaMail(a, ordini, fermate, mittente, primoCellulare([mail.testo, mail.testo_citato, ...(precedenti || []).map(p => p.testo)], nostri), ricordo),
+        ...sv,
         ...(daChiamare.length ? {
           chiamare_cliente: daChiamare.map(d => ({ ...d, ordine: ordini.find(o => o.id === d.ordine_id)?.numero || null })),
           telefonata: daChiamare[0].telefonata,

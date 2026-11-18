@@ -354,14 +354,27 @@ async function aggiornaTask(db: SupabaseClient, s: Row, esito: Row, eventi: Even
     ...(avviso?.avviso_cliente_esito === 'inviata' ? { avviso_cliente: { inviata_at: avviso.avviso_cliente_at, a: s.email } } : {}),
   };
   const tel = contatto?.telefono ? ` al ${contatto.telefono}` : ' (nell\'ordine non c\'è il telefono: cercalo o scrivi di nuovo)';
-  const descrizione = diNuovo ? `Svincolata ${nSv === 1 ? 'una volta' : `${nSv} volte`} (${storico!.svincoli.map(v => `${fmtGiorno(v.at)} ${v.tipo.toLowerCase()}`).join('; ') || fmtGiorno(avviso.svincolata_at)}), ma il ${fmtGiorno(eventi![0].at)} GLS l'ha di nuovo fermata${eventi![0].nota ? ` (${eventi![0].nota})` : ''}. Non mandare un altro svincolo alla cieca: chiama il cliente${tel} con lo storico sotto, capisci cosa non va (nome sul campanello, indirizzo, orari, presenza) e solo dopo dai le istruzioni a GLS.`
+  let descrizione = diNuovo ? `Svincolata ${nSv === 1 ? 'una volta' : `${nSv} volte`} (${storico!.svincoli.map(v => `${fmtGiorno(v.at)} ${v.tipo.toLowerCase()}`).join('; ') || fmtGiorno(avviso.svincolata_at)}), ma il ${fmtGiorno(eventi![0].at)} GLS l'ha di nuovo fermata${eventi![0].nota ? ` (${eventi![0].nota})` : ''}. Non mandare un altro svincolo alla cieca: chiama il cliente${tel} con lo storico sotto, capisci cosa non va (nome sul campanello, indirizzo, orari, presenza) e solo dopo dai le istruzioni a GLS.`
     : !contatto ? (avviso?.avviso_cliente_esito === 'inviata' ? `${esito.fare} Mail al cliente già inviata in automatico: aspetta la sua risposta.` : esito.fare)
     : contatto.stato === 'chiamare' ? `Chiama il cliente${tel}: gli abbiamo scritto il ${fmtGiorno(contatto.ultima_mail_at!)} (${contatto.mail_n} mail) e non ha risposto. Chiedi come vuole ricevere il pacco${anomalie.length ? ' e conferma l\'indirizzo' : ''}, poi dai le istruzioni a GLS.`
     : contatto.stato === 'risposto' ? `Il cliente ha risposto il ${fmtGiorno(contatto.risposta_at!)}: trovi la sua mail nel task della mail, con le istruzioni per GLS.`
     : contatto.stato === 'in_attesa' ? `Mail inviata il ${fmtGiorno(contatto.ultima_mail_at!)}: aspetta la risposta. Se domani non ha risposto, il task passa a "chiamare".`
     : contatto.stato === 'senza_email' ? `Nell'ordine non c'è l'email: chiama il cliente${tel}.`
     : `Cliente non ancora contattato: scrivigli${anomalie.length ? ' e chiedi conferma dell\'indirizzo' : ''}.`;
-  const priorita = diNuovo || contatto?.stato === 'chiamare' ? 'urgente' : esito.priorita;
+  // Quando GLS può rendere il pacco: in testa alla descrizione, perché i rientri arrivano dal ritardo
+  let rientro: string | null = null;
+  if (fermo) {
+    const { data } = await db.rpc('tc_rientro_giacenza', { p_eventi: eventi || [] });
+    rientro = data || null;
+  }
+  if (rientro) {
+    const oggi = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+    const [y, m, d] = rientro.split('-');
+    const avviso = rientro <= oggi ? `URGENTE: GLS può rimandarlo indietro già da oggi (limite ${d}/${m}). ` : `GLS può rimandarlo indietro dal ${d}/${m}: istruzioni a GLS prima di quel giorno. `;
+    descrizione = avviso + descrizione;
+    (analisi as Row).rientro_dal = `${y}-${m}-${d}`;
+  }
+  const priorita = diNuovo || fermo || contatto?.stato === 'chiamare' ? 'urgente' : esito.priorita;
   if (aperto) {
     await db.from('tasks').update({ titolo, descrizione, priorita, analisi }).eq('id', aperto.id);
     return;

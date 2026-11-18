@@ -89,7 +89,8 @@ begin
       'deposito', k.deposito,
       'avviso_cliente_at', k.avviso_cliente_at, 'avviso_cliente_esito', k.avviso_cliente_esito,
       'contatto', ct.analisi->'contatto',
-      'task_svincolo_id', sv.id,
+      'task_svincolo_id', sv.id, 'task_svincolo_at', sv.created_at,
+      'rientro_dal', tc_rientro_giacenza(k.eventi),
       'ferma_dal', g.ferma_dal,
       'ferma_testo', case when g.ferma_dal is not null then tc_testo_giorni((g.ferma_dal at time zone 'Europe/Rome')::date, tc_oggi()) end,
       'prima_giacenza_at', g.prima_giacenza_at, 'tentativi', g.tentativi, 'giacenze_n', g.giacenze_n,
@@ -100,7 +101,7 @@ begin
       left join tasks t on t.fonte_rif->>'evento_id' = 'consegna:' || k.ordine_id and t.stato not in ('completato', 'non_completato')
       left join lateral (select x.analisi from tasks x where x.fonte_rif->>'evento_id' = 'consegna:' || k.ordine_id
                           order by x.created_at desc limit 1) ct on true
-      left join lateral (select x.id from tasks x where x.analisi->'svincolo'->>'tracking' = k.numero
+      left join lateral (select x.id, x.created_at from tasks x where x.analisi->'svincolo'->>'tracking' = k.numero
                             and x.analisi->'svincolo'->>'stato' <> 'inviato' and x.stato not in ('completato', 'non_completato')
                           order by x.created_at desc limit 1) sv on true
       cross join lateral _tc_giacenza_tempi(k.eventi) g
@@ -118,6 +119,7 @@ begin
       'svincolata_at', e.svincolata_at, 'svincolo_tipo', e.svincolo_tipo,
       'deposito', e.deposito,
       'fare', 'Spedizione senza ordine Shopify: contatta il destinatario dal canale di vendita e dai istruzioni a GLS.',
+      'rientro_dal', tc_rientro_giacenza(e.eventi),
       'ferma_dal', g.ferma_dal,
       'ferma_testo', case when g.ferma_dal is not null then tc_testo_giorni((g.ferma_dal at time zone 'Europe/Rome')::date, tc_oggi()) end,
       'prima_giacenza_at', g.prima_giacenza_at, 'tentativi', g.tentativi, 'giacenze_n', g.giacenze_n,

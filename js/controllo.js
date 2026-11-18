@@ -3336,8 +3336,23 @@ const GIACENZE = ['Giacenza in deposito GLS', 'Indirizzo errato', 'Destinatario 
 const glsGiorno = (iso) => iso ? new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Rome' }) : '';
 const telLink = (t) => t ? `<a class="ctrl-link" href="tel:${escapeHtml(String(t).replace(/[^\d+]/g, ''))}">${escapeHtml(t)}</a>` : '';
 
+// Il cliente ha risposto e lo svincolo non è ancora partito: oltre mezza giornata (4 ore) è in ritardo
+const SVINCOLO_ATTESA_MAX_H = 4;
+const svincoloOre = (c) => c.task_svincolo_at ? Math.floor((Date.now() - new Date(c.task_svincolo_at).getTime()) / 3_600_000) : 0;
+
+// Giorni lavorativi che mancano a quando GLS può rendere il pacco (0 = da oggi, negativo = già possibile)
+function giacenzaRientro(c) {
+  if (!c.rientro_dal) return null;
+  const oggi = ctrlOggi();
+  let n = 0;
+  if (c.rientro_dal > oggi) { for (let d = ctrlAddDays(oggi, 1); d <= c.rientro_dal && n < 60; d = ctrlAddDays(d, 1)) if (ctrlLavorativo(d)) n++; }
+  else if (c.rientro_dal < oggi) n = -1;
+  return n;
+}
+
 function giacenzaStato(c) {
   if (c.di_nuovo_ferma) return { id: 'nuova', label: `Di nuovo ferma dopo lo svincolo del ${glsGiorno(c.svincolata_at)}: chiamare il cliente` };
+  if (c.task_svincolo_id && svincoloOre(c) >= SVINCOLO_ATTESA_MAX_H) return { id: 'nuova', label: `Il cliente ha risposto da ${svincoloOre(c)} ore: manda subito le istruzioni a GLS` };
   if (c.task_svincolo_id) return { id: 'istruzioni', label: 'Il cliente ha risposto: istruzioni GLS da mandare' };
   if (c.problema === 'Destinatario chiuso per ferie') return { id: 'ferie', label: 'Riconsegna alla riapertura' };
   return { id: 'gestire', label: 'Da gestire' };
@@ -3358,6 +3373,7 @@ function giacenzaContatto(c) {
 
 function renderGiacenza(c) {
   const st = giacenzaStato(c);
+  const rientro = giacenzaRientro(c);
   const ind = c.indirizzo || {};
   const d = c.deposito;
   const indDep = d ? [d.indirizzo, [d.cap, d.sede].filter(Boolean).join(' ') + (d.provincia ? ` (${d.provincia})` : '')].filter(Boolean).join(', ') : '';
@@ -3381,6 +3397,10 @@ function renderGiacenza(c) {
           ${ripetuta || tentativi ? `<small>${[ripetuta, tentativi].filter(Boolean).join(' · ')}</small>` : ''}
           ${c.giorni_testo ? `<small>Spedita da ${escapeHtml(c.giorni_testo)}</small>` : ''}
         </div>
+        ${rientro != null && st.id !== 'ferie' ? `<div class="gz-f"><span>Rientro al mittente</span>
+          <strong class="${rientro <= 1 ? 'gz-red' : ''}">${rientro < 0 ? 'Possibile da un momento all\'altro' : rientro === 0 ? 'Possibile da oggi' : rientro === 1 ? 'Possibile da domani' : `Tra ${rientro} giorni lavorativi`}</strong>
+          <small>GLS può renderlo dal ${glsGiorno(c.rientro_dal + 'T12:00:00Z')}: istruzioni prima</small>
+        </div>` : ''}
         <div class="gz-f"><span>Ultimo evento GLS</span>
           <strong>${escapeHtml(c.ultimo_evento || ultimo?.stato || '—')}</strong>
           ${c.ultimo_at ? `<small>${ctrlQuandoBreve(c.ultimo_at)}${ultimo?.luogo ? ` · ${escapeHtml(ultimo.luogo)}` : ''}</small>` : ''}
@@ -3433,9 +3453,10 @@ function renderControlGls() {
   // 'tcfactory' (pagina Negozi): le spedizioni fuori dai negozi collegati
   const list = ShopLinks.negozioGls === 'tcfactory' ? visibili.filter(c => c.esterna)
     : ShopLinks.negozioGls ? visibili.filter(c => c.store_id === ShopLinks.negozioGls) : visibili;
-  const ordine = { nuova: 0, gestire: 1, istruzioni: 2, ferie: 3 };
+  // In cima ciò che va fatto subito: in ritardo, poi le istruzioni da mandare (basta un clic), poi le altre; a parità, chi rientra prima
+  const ordine = { nuova: 0, istruzioni: 1, gestire: 2, ferie: 3 };
   const giacenze = list.filter(c => GIACENZE.includes(c.problema))
-    .sort((a, b) => ordine[giacenzaStato(a).id] - ordine[giacenzaStato(b).id] || String(a.ferma_dal).localeCompare(String(b.ferma_dal)));
+    .sort((a, b) => ordine[giacenzaStato(a).id] - ordine[giacenzaStato(b).id] || String(a.rientro_dal || a.ferma_dal).localeCompare(String(b.rientro_dal || b.ferma_dal)));
   const altre = list.filter(c => !GIACENZE.includes(c.problema));
   const daGestire = giacenze.filter(c => giacenzaStato(c).id !== 'ferie').length;
 
