@@ -322,9 +322,8 @@ const Ctrl = {
       if (users) this.users = users.filter(u => !TASK_ESCLUSI.has(u.nickname)).map(u => u.nickname);
 
       if (TCAuth.isAdmin()) {
-        // Flusso del giorno: task entrati e chiusi da tutto il team (senza le sessioni registrate in automatico)
-        const umani = 'fonte.is.null,fonte.not.in.(github,claude_code,shopify_admin,file)';
-        const conta = () => supabaseClient.from('tasks').select('id', { count: 'exact', head: true }).or(umani);
+        // Flusso del giorno: task entrati e chiusi da tutto il team (gli stessi che conta l'avanzamento)
+        const conta = () => supabaseClient.from('tasks').select('id', { count: 'exact', head: true });
         const [oggi, sette, tempi, operatori, problemi, responsabili, calendario, reti, entrati, chiusi] = await Promise.all([
           this._rpc('tc_task_punteggi', { p_dal: d, p_al: d }),
           this._rpc('tc_task_punteggi', { p_dal: ctrlAddDays(d, -6), p_al: d }),
@@ -846,31 +845,29 @@ function renderControlAdminTasks() {
   const scadute = inRitardo.filter(taskScaduto).length;
   const fatti = delGiorno.filter(t => t.stato === 'completato').length;
   // Avanzamento del giorno: anello con la percentuale e task completati sul totale
+  // Avanzamento del giorno: anello coi fatti sul totale, accanto entrati, chiusi e come cambia la coda
   const avanz = (titolo, f, tot) => {
     const p = tot ? Math.round(f / tot * 100) : 0;
+    const fl = Ctrl.flusso;
+    const saldo = fl ? fl.entrati - fl.chiusi : 0;
+    const cifra = (n, label, cls = '', title = '') =>
+      `<span class="tk-av-num ${cls}" title="${title}"><b>${n}</b><small>${label}</small></span>`;
     return `
       <div class="glass-card tk-stat tk-progress-card">
         <span class="tk-ring" style="--p:${p};" role="img" aria-label="${titolo}: ${p}%"><b>${p}%</b></span>
         <span class="tk-stat-text">
           <strong class="tk-small-title">${titolo}</strong>
-          <span>${f}/${tot} task di ${d === ctrlOggi() ? 'oggi' : ctrlFmtGiorno(d).toLowerCase()}</span>
-          <span class="ctrl-progress tk-bar"><span style="width:${p}%"></span></span>
-          ${flusso()}
+          <span><b class="tk-av-fatti">${f}</b> fatti su ${tot}</span>
+          <small class="tk-stat-sub">task di ${d === ctrlOggi() ? 'oggi' : ctrlFmtGiorno(d).toLowerCase()}</small>
         </span>
+        ${fl ? `
+        <span class="tk-av-flow">
+          ${cifra(fl.entrati, 'Entrati', '', 'Task creati nel giorno')}
+          ${cifra(fl.chiusi, 'Chiusi', '', 'Task chiusi nel giorno da tutto il team')}
+          ${cifra(saldo > 0 ? `+${saldo}` : saldo < 0 ? `−${-saldo}` : '0', saldo > 0 ? 'Coda cresce' : saldo < 0 ? 'Coda cala' : 'Coda stabile',
+            saldo > 0 ? 'is-up' : saldo < 0 ? 'is-down' : '', 'Entrati meno chiusi')}
+        </span>` : ''}
       </div>`;
-  };
-  // Entrati e chiusi nel giorno: se la coda cala è verde, se cresce è rossa
-  const flusso = () => {
-    const f = Ctrl.flusso;
-    if (!f) return '';
-    const saldo = f.entrati - f.chiusi;
-    const coda = saldo > 0 ? `Coda +${saldo}` : saldo < 0 ? `Coda −${-saldo}` : 'Coda pari';
-    return `
-      <span class="tk-flow">
-        <span title="Task creati nel giorno">${Icons.plus(12)} ${f.entrati} entrati</span>
-        <span title="Task chiusi nel giorno da tutto il team">${CtrlIcons.check(12)} ${f.chiusi} chiusi</span>
-        <em class="tk-flow-saldo ${saldo > 0 ? 'is-up' : saldo < 0 ? 'is-down' : ''}">${coda}</em>
-      </span>`;
   };
   // Carico del team: ore stimate dei task aperti (non bloccati, non di Claude) sulle ore delle persone presenti
   const carico = () => {
