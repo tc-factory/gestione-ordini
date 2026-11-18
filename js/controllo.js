@@ -411,6 +411,9 @@ const Ctrl = {
     const t = this.tasks.find(x => x.id === id);
     await this._rpc('tc_task_stato', { p_id: id, p_stato: stato, p_motivo: motivo, p_giorno: giorno });
     if (stato === 'completato' && t) await taskAggiornaOrdine(t);
+    // Spedizione col task chiuso: esce subito dalla lista (il database fa lo stesso al prossimo caricamento)
+    if (['completato', 'non_completato'].includes(stato) && typeof ShopLinks !== 'undefined' && ShopLinks.consegne)
+      ShopLinks.consegne = ShopLinks.consegne.filter(c => c.task_id !== id);
   },
   async prendi(id) { await this._rpc('tc_task_prendi', { p_id: id }); },
 

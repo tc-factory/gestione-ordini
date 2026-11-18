@@ -106,6 +106,9 @@ begin
                           order by x.created_at desc limit 1) sv on true
       cross join lateral _tc_giacenza_tempi(k.eventi) g
      where k.stato in ('problema', 'ritardo') and o.annullato_at is null
+       -- Task chiuso e GLS fermo da allora: è gestita, non si mostra finché non arriva un evento nuovo
+       and (t.id is not null or not exists (select 1 from tasks x where x.fonte_rif->>'evento_id' = 'consegna:' || k.ordine_id
+             and x.stato in ('completato', 'non_completato') and coalesce(x.completato_at, x.updated_at) >= coalesce(k.ultimo_at, '-infinity')))
     union all
     -- Spedizioni GLS senza ordine Shopify: i dati del cliente sono quelli dell'etichetta
     select jsonb_build_object(
