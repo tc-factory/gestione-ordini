@@ -902,7 +902,7 @@ body.com-dragging, body.com-dragging * { cursor: grabbing !important; user-selec
    Tasks (admin): panoramica di produzione
    ════════════════════════════════════════════════════════ */
 
-.tk-stats { display: grid; gap: 12px; margin-bottom: var(--space-md, 16px); grid-template-columns: repeat(4, minmax(0, 1fr)) repeat(2, minmax(0, 1.25fr)); }
+.tk-stats { display: grid; gap: 12px; margin-bottom: var(--space-md, 16px); grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.25fr); }
 .tk-stat {
   position: relative; display: flex; align-items: center; gap: 14px; padding: 16px 18px; min-height: 92px;
   border: none; text-align: left; color: inherit; font: inherit;
@@ -1061,6 +1061,7 @@ html.dark .tk-now-icon { color: #fbbf24; }
 
 @media (max-width: 1280px) {
   .tk-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tk-stats > :last-child:nth-child(odd) { grid-column: span 2; }
 }
 @media (max-width: 1100px) { .tk-duo { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 640px) {
