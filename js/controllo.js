@@ -1462,7 +1462,7 @@ function renderConsuntivo() {
     </section>`;
 }
 
-// ── Costi vivi: manodopera, DTF, lavorazioni, materiali a capo, merce. Quello senza valore è "da impostare" ──
+// ── Costi vivi: manodopera, DTF, lavorazioni, merce (dal costo di ogni prodotto). Quello senza valore è "da impostare" ──
 const CtrlVivi = { dati: null, errore: null };
 const DTF_MATERIALI_CV = [
   ['Supporto', 'dtf_supporto_eur', 'dtf_supporto_m', 'rotolo'], ['Inchiostro bianco', 'dtf_ink_white_eur', 'dtf_ink_white_m', 'inchiostro'],
@@ -1484,10 +1484,6 @@ const cvSalvaLav = (voce, v) => cvSalva(async () => {
   const { error } = await supabaseClient.from('costi_vivi').upsert({ voce, valore: cvNum(v), updated_at: new Date().toISOString(), updated_by: Ctrl._me() });
   if (error) throw Ctrl._fail(error);
 });
-const cvSalvaCategoria = (id, v) => cvSalva(async () => {
-  const { error } = await supabaseClient.from('tempi_categorie').update({ costo_capo: cvNum(v) }).eq('id', id);
-  if (error) throw Ctrl._fail(error);
-});
 const cvSalvaOra = (v) => cvSalva(() => Ctrl._rpc('tc_costo_ora_imposta', { p_valore: cvNum(v) ?? 0 }));
 const cvSalvaDtf = (key, v) => cvSalva(() => TCFactory.setSetting(key, cvNum(v) ?? 0));
 
@@ -1495,8 +1491,8 @@ function renderCostiVivi() {
   if (CtrlVivi.errore) return `<div class="glass-card page-card"><div class="empty-list">${CtrlVivi.errore.notInstalled ? 'Esegui lo script <strong>sql/costi-vivi.sql</strong> su Supabase.' : escapeHtml(CtrlVivi.errore.message)}</div></div>`;
   const d = CtrlVivi.dati;
   if (!d) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
-  const lavSenza = d.lavorazioni.filter(l => l.valore == null), catSenza = d.categorie.filter(c => c.costo_capo == null);
-  const daFare = lavSenza.length + catSenza.length + d.prodotti_senza_costo.length + (Number(d.dtf_costo_m) > 0 ? 0 : 1);
+  const lavSenza = d.lavorazioni.filter(l => l.valore == null);
+  const daFare = lavSenza.length + d.prodotti_senza_costo.length + (Number(d.dtf_costo_m) > 0 ? 0 : 1);
   const input = (val, on, label, extra = '') => `<input class="form-input tempi-num" inputmode="decimal" value="${cvVal(val)}" aria-label="${escapeHtml(label)}" onchange="${on}" ${extra}>`;
   const sez = (titolo, n, hint, corpo) => `
     <section class="glass-card page-card ctrl-group">
@@ -1539,15 +1535,6 @@ function renderCostiVivi() {
           <td>${input(l.valore, `cvSalvaLav('${escapeHtml(l.voce)}', this.value)`, `Costo a pezzo ${l.nome}`)}</td>
           <td>${l.valore == null ? cvDaImpostare : ''}</td></tr>`).join('')}</tbody>
       </table></div>`)}
-
-    ${sez('Prodotti dei negozi', catSenza.length ? `${catSenza.length} da impostare` : 0, 'Materiali a capo per categoria (capo neutro, inchiostro, carta…): nel costo degli ordini Shopify', `
-      <div class="table-scroll"><table class="data-table tempi-table">
-        <thead><tr><th>Categoria</th><th>€ a capo</th><th></th></tr></thead>
-        <tbody>${d.categorie.map(c => `<tr><td><strong>${escapeHtml(c.nome)}</strong></td>
-          <td>${input(c.costo_capo, `cvSalvaCategoria(${c.id}, this.value)`, `Costo a capo ${c.nome}`)}</td>
-          <td>${c.costo_capo == null ? cvDaImpostare : ''}</td></tr>`).join('')}</tbody>
-      </table></div>
-      <p class="ctrl-cell-sub">Le categorie e i loro tempi si gestiscono in Cervello → Tempi di lavorazione.</p>`)}
 
     ${sez('Merce degli ordini', d.prodotti_senza_costo.length ? `${d.prodotti_senza_costo.length} da impostare` : 0, 'Dal costo del prodotto in anagrafica, per le righe d\'ordine collegate a un prodotto', `
       ${d.righe_senza_prodotto ? `<p class="tempi-help"><strong>${d.righe_senza_prodotto} righe d'ordine</strong> degli ultimi 90 giorni non sono collegate a un prodotto: la loro merce non entra nel costo.</p>` : ''}
