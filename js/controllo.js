@@ -304,8 +304,8 @@ const Ctrl = {
         supabaseClient.from('tasks').select('*').eq('stato', 'completato').eq('assegnato_a', this._me())
           .gte('completato_at', ini.toISOString()).lt('completato_at', fin.toISOString()).order('completato_at', { ascending: false }),
         // Task chiusi nel giorno da tutti: per il team (fatti e ore) e il lavoro di Claude
-        supabaseClient.from('tasks').select('assegnato_a, fonte, lavorato_sec, minuti_stimati').eq('stato', 'completato')
-          .gte('completato_at', ini.toISOString()).lt('completato_at', fin.toISOString()),
+        supabaseClient.from('tasks').select('*').eq('stato', 'completato')
+          .gte('completato_at', ini.toISOString()).lt('completato_at', fin.toISOString()).order('completato_at', { ascending: false }),
       ]);
       this.mieiFatti = fatti?.data || [];
       this.chiusiOggi = chiusi?.data || [];
@@ -422,7 +422,7 @@ const Ctrl = {
     return data || [];
   },
 
-  get(id)     { return this.tasks.find(t => t.id === id) || this.mieiFatti?.find(t => t.id === id); },
+  get(id)     { return this.tasks.find(t => t.id === id) || this.mieiFatti?.find(t => t.id === id) || this.chiusiOggi?.find(t => t.id === id); },
   tipo(id)    { return this.tipi.find(t => t.id === id); },
   canAct(t)   { return TCAuth.isAdmin() || !t.assegnato_a || t.assegnato_a === this._me(); },
 };
@@ -910,6 +910,8 @@ function renderTaskSubito(urgenti) {
 // Team di oggi (admin e addetti), su una riga: icona della presenza
 // (clic: da confermare → presente → assente → da confermare), nome, task e ore, barra del carico
 // (clic sul nome: i suoi task, solo admin). L'admin riordina trascinando; di base in ordine di entrata.
+// Chi può aprire, dal nome nel team, la lista dei task fatti da ogni persona
+const TEAM_VEDE_FATTI = new Set(['tcfactory', 'riccardo']);
 const TEAM_STATO = {
   presente: { cls: 'is-ok',  label: 'Presente', icon: '<polyline points="5 12.5 10 17 19 7"/>' },
   assente:  { cls: 'is-no',  label: 'Assente',  icon: '<line x1="7" y1="7" x2="17" y2="17"/><line x1="17" y1="7" x2="7" y2="17"/>' },
@@ -952,11 +954,11 @@ function renderPresenzeOggi() {
       <span class="team-meta" title="${f.n} fatti oggi (${ctrlFmtMin(f.min)} stimati) · ${c.n} da fare (${ctrlFmtMin(c.min)})">${f.n} fatti · ${c.n} da fare · ${f.min ? ctrlFmtMin(f.min) : '0′'}${c.cap ? `<span class="team-cap">/${ctrlFmtMin(c.cap)}</span>` : ''}</span>
       <span class="team-bar"><span style="width:${c.cap ? Math.min(100, Math.round(f.min / c.cap * 100)) : 0}%;--t:#22c55e;"></span></span>`;
     return `
-      <li class="team-item ${st === 'assente' ? 'is-off' : ''} ${TaskView.chi === nick && TaskView.tab === 'tutti' ? 'is-on' : ''}"
+      <li class="team-item ${st === 'assente' ? 'is-off' : ''} ${TaskView.chi === nick && TaskView.tab === 'chiusi' ? 'is-on' : ''}"
         data-nick="${escapeHtml(nick)}" ${admin ? 'draggable="true" ondragstart="teamDragStart(event)" ondragover="teamDragOver(event)" ondrop="teamDrop(event)" ondragend="teamDragEnd()"' : ''}>
         ${def ? `<button type="button" class="team-av" title="${escapeHtml(dettaglio(p))}" aria-label="${escapeHtml(nick)}: ${escapeHtml(dettaglio(p))}. Cambia presenza" onclick="Presenze.ciclo('${escapeHtml(nick)}')">${icona}</button>`
               : `<span class="team-av" title="Senza orario di entrata">${icona}</span>`}
-        ${admin ? `<button type="button" class="team-info" onclick="taskPersona('${escapeHtml(nick)}')" aria-label="Tutti i task di ${escapeHtml(nick)}">${info}</button>`
+        ${TEAM_VEDE_FATTI.has(Ctrl._me()) ? `<button type="button" class="team-info" onclick="taskPersona('${escapeHtml(nick)}')" aria-label="Task fatti oggi da ${escapeHtml(nick)}">${info}</button>`
                 : `<span class="team-info">${info}</span>`}
       </li>`;
   };
@@ -1005,7 +1007,8 @@ function taskBoardBase() {
     oggi: aperti.filter(t => t.giorno === d && !taskInRitardo(t)),
     ritardo: aperti.filter(taskInRitardo),
     assegnare: aperti.filter(t => !t.assegnato_a && !t.designato),
-    chiusi: Ctrl.tasks.filter(t => t.giorno === d && taskChiuso(t)),
+    // Chiusi nel giorno (anche se erano in lista da prima) e quelli del giorno non completati
+    chiusi: [...(Ctrl.chiusiOggi || []), ...Ctrl.tasks.filter(t => t.giorno === d && taskChiuso(t) && !(Ctrl.chiusiOggi || []).some(c => c.id === t.id))],
     tutti: Ctrl.tasks.filter(t => !taskChiuso(t) || t.giorno === d),
   };
 }
@@ -1198,10 +1201,12 @@ function taskVaiA(tab, prio = '') {
 }
 
 // Carico del team: tutti i task della persona nella tabella (aperti e chiusi del giorno); un altro clic toglie il filtro
+// Clic sul nome nel team: i task fatti nel giorno da quella persona (solo per TEAM_VEDE_FATTI)
 function taskPersona(nick) {
-  const giaAperta = TaskView.chi === nick && TaskView.tab === 'tutti';
+  if (!TEAM_VEDE_FATTI.has(Ctrl._me())) return;
+  const giaAperta = TaskView.chi === nick && TaskView.tab === 'chiusi';
   Object.assign(TaskView, { brand: '', tipo: '', prio: '', stato: '', scad: '', q: '', limite: TASK_PAGINA,
-    chi: giaAperta ? '' : nick, tab: giaAperta ? 'coda' : 'tutti' });
+    chi: giaAperta ? '' : nick, tab: giaAperta ? 'coda' : 'chiusi' });
   refreshControlPage();
   if (!giaAperta) document.getElementById('tk-board')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
