@@ -383,3 +383,25 @@ begin
        and stato in ('da_fare', 'rimandato', 'in_pausa');
   end if;
 end $$;
+
+-- ─────────────────────────────────────────────
+-- 6. Chi rientra (conferma la presenza) torna designato sui task che gli erano stati tolti, senza prenderli
+-- ─────────────────────────────────────────────
+
+create or replace function _tc_presenze_restituisci(p_chi text)
+returns int security definer set search_path = public language plpgsql as $$
+declare n int;
+begin
+  update tasks set designato = p_chi, suggerito = null, tolto_a = null
+   where tolto_a = p_chi and assegnato_a is null and stato not in ('completato', 'non_completato');
+  get diagnostics n = row_count;
+  return n;
+end;
+$$;
+revoke execute on function _tc_presenze_restituisci(text) from public, anon, authenticated;
+
+-- 2026-11-18: i task restituiti con la conferma della presenza dopo il passaggio tornano liberi
+update tasks set assegnato_a = null
+ where assegnato_a in ('riccardo', 'jacopo') and designato = assegnato_a
+   and stato = 'da_fare' and lavorato_sec = 0 and delega is null
+   and created_at < '2026-11-18 06:40+00';
