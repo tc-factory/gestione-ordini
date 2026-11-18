@@ -42,12 +42,24 @@ export function indirizzoDaMail(a: Row, mail: Row, mittente: string, ordini: Row
   const cercato = senzaCancelletto(a.ordine_modifica);
   const trovati = ordini.filter(o => senzaCancelletto(o.numero) === cercato);
   if (!cercato || trovati.length !== 1 || (trovati[0].email || '').toLowerCase() !== mittente) return null;
-  if (!indirizzoCompleto(a.nuovo_indirizzo || {}, trovati[0].indirizzo?.paese)) return null;
+  const n = completaDaOrdine(a.nuovo_indirizzo || {}, trovati[0].indirizzo || {});
+  if (!n) return null;
+  const tel = String(a.memoria?.telefono || '').replace(/[^\d+]/g, '');
   return {
     indirizzo_stato: 'da_applicare',
-    indirizzo_nuovo: a.nuovo_indirizzo,
+    indirizzo_nuovo: { ...n, ...(tel.replace(/\D/g, '').length >= 8 ? { telefono: tel } : {}) },
     indirizzo_ordine: { negozio: trovati[0].store_id, numero: trovati[0].numero },
   };
+}
+
+// Il cliente scrive solo via e civico (di solito quando gli abbiamo chiesto il civico mancante):
+// CAP, città, provincia e paese restano quelli dell'ordine, presi da Shopify al momento del cambio.
+// Con CAP o città scritti, l'indirizzo dev'essere completo come sempre.
+export function completaDaOrdine(dato: Row, ordine: Row): Row | null {
+  const soloVia = /\d/.test(dato.via || '') && !(dato.cap || '').trim() && !(dato.citta || '').trim();
+  if (!soloVia) return indirizzoCompleto(dato, ordine.paese) ? dato : null;
+  if (!(ordine.cap || '').trim() || !(ordine.citta || '').trim() || !ordine.paese) return null;
+  return { presso: dato.presso || '', via: dato.via, cap: ordine.cap, citta: ordine.citta, provincia: '', paese: ordine.paese, dal_ordine: true };
 }
 
 async function shopify(store: Store, token: string, query: string, variables: Row) {
@@ -63,7 +75,7 @@ async function shopify(store: Store, token: string, query: string, variables: Ro
 }
 
 const LEGGI = `query($id: ID!) { order(id: $id) { displayFulfillmentStatus cancelledAt tags
-  shippingAddress { firstName lastName company phone } } }`;
+  shippingAddress { firstName lastName company phone address2 city zip provinceCode countryCodeV2 } } }`;
 const AGGIORNA = `mutation($input: OrderInput!) { orderUpdate(input: $input) { userErrors { field message } } }`;
 
 async function applica(db: SupabaseClient, t: Row) {
@@ -83,7 +95,8 @@ async function applica(db: SupabaseClient, t: Row) {
   const stampato = (order.tags || []).some((x: string) => ['stampato', 'auto-stampato'].includes(x.toLowerCase()));
   const blocco = order.cancelledAt ? 'ordine annullato'
     : order.displayFulfillmentStatus !== 'UNFULFILLED' ? `ordine non più da evadere (${order.displayFulfillmentStatus})`
-    : a.indirizzo_stato === 'da_applicare' && stampato ? 'ordine già stampato: sui fogli c\'è il vecchio indirizzo'
+    // Completare la via (stessa città e CAP) non cambia la destinazione dei fogli già stampati
+    : a.indirizzo_stato === 'da_applicare' && stampato && !a.indirizzo_nuovo?.dal_ordine ? 'ordine già stampato: sui fogli c\'è il vecchio indirizzo'
     : '';
   if (blocco) return { blocco };
 
@@ -91,10 +104,12 @@ async function applica(db: SupabaseClient, t: Row) {
   const { orderUpdate } = await shopify(store as Store, token, AGGIORNA, { input: {
     id: ordine.shopify_id,
     shippingAddress: {
-      firstName: ora.firstName, lastName: ora.lastName, company: ora.company, phone: ora.phone,
-      address1: n.via.trim(), address2: (n.presso || '').trim() || null,
-      city: n.citta.trim(), zip: n.cap.trim(), provinceCode: (n.provincia || '').trim().toUpperCase() || null,
-      countryCode: n.paese.toUpperCase(),
+      firstName: ora.firstName, lastName: ora.lastName, company: ora.company, phone: n.telefono || ora.phone,
+      address1: n.via.trim(),
+      ...(n.dal_ordine
+        ? { address2: (n.presso || '').trim() || ora.address2 || null, city: ora.city, zip: ora.zip, provinceCode: ora.provinceCode, countryCode: ora.countryCodeV2 }
+        : { address2: (n.presso || '').trim() || null, city: n.citta.trim(), zip: n.cap.trim(),
+            provinceCode: (n.provincia || '').trim().toUpperCase() || null, countryCode: n.paese.toUpperCase() }),
     },
   } });
   if (orderUpdate.userErrors?.length) throw new Error(`Shopify: ${orderUpdate.userErrors.map((e: Row) => e.message).join('; ').slice(0, 300)}`);
