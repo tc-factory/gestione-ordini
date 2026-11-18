@@ -953,7 +953,6 @@ html.dark .tk-av-num.is-up b, html.dark .tk-av-num.is-up small { color: #f87171;
   .tk-progress-card { flex-wrap: wrap; row-gap: 10px; }
   .tk-av-flow { width: 100%; margin-left: 0; padding: 10px 0 0; border-left: none; border-top: 1px solid var(--border-light, var(--border)); grid-template-columns: repeat(3, 1fr); }
 }
-.tk-load-card .tk-bar { margin-top: 4px; height: 6px; }
 
 /* Due pannelli affiancati */
 .tk-duo { display: grid; gap: 12px; margin-bottom: var(--space-md, 16px); grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; }
