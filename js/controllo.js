@@ -315,7 +315,9 @@ const Ctrl = {
   // ── Azioni ──
 
   async setStato(id, stato, motivo = null, giorno = null) {
+    const t = this.tasks.find(x => x.id === id);
     await this._rpc('tc_task_stato', { p_id: id, p_stato: stato, p_motivo: motivo, p_giorno: giorno });
+    if (stato === 'completato' && t) await taskAggiornaOrdine(t);
   },
   async prendi(id) { await this._rpc('tc_task_prendi', { p_id: id }); },
 
@@ -1291,6 +1293,42 @@ async function taskSetStato(id, stato, motivo = null, giorno = null) {
     Ctrl.loadBadge();
     return true;
   } catch (e) { showToast(e.message, 'error'); return false; }
+}
+
+// Task di una fase dell'ordine fatto → lo stato dell'ordine si aggiorna da solo, come col pulsante
+// (il registro dell'ordine segna chi ha fatto il task). Chiave della fase: prod:<ordine>:<chiave>
+async function taskAggiornaOrdine(t) {
+  const ev = t.fonte_rif?.evento_id || '';
+  if (t.fonte !== 'gestionale' || !ev.startsWith('prod:') || typeof Pulsanti === 'undefined') return;
+  const resto = ev.slice(5), i = resto.indexOf(':');
+  const ordine = t.fonte_rif?.ordine || resto.slice(0, i), fase = resto.slice(i + 1);   // es. "applica_dtf", "invio:le-…"
+  const o = TCFactory.getOrderById(ordine);
+  if (!o) return;
+  try {
+    let segnato = null;
+    const P = (id) => Pulsanti.get(id), evade = () => Pulsanti.visibili(o).find(p => p.ruolo === 'evade');
+    if (fase === 'merce') segnato = await Pulsanti.daTask(ordine, P('merceCompleta'));
+    else if (fase === 'stampa_dtf') segnato = await Pulsanti.daTask(ordine, Pulsanti.byStage('dtfPronti'), true);
+    else if (fase === 'applica_dtf') segnato = await Pulsanti.daTask(ordine, Pulsanti.byStage('dtfPronti'));
+    else if (/^li-/.test(fase)) segnato = await Pulsanti.daTask(ordine, Pulsanti.byLink(`interne:${fase}`));
+    else if (/^invio:/.test(fase)) segnato = await Pulsanti.daTask(ordine, Pulsanti.byLink(`esterne:${fase.slice(6)}`) || Pulsanti.byStage('lavorazioneEsterna'), true);
+    else if (fase === 'controllo') segnato = await Pulsanti.daTask(ordine, P('ordineStampato'));
+    else if (fase === 'spedire') segnato = await Pulsanti.daTask(ordine, evade());
+    else if (fase === 'fattura' && !o.invoiceConfirmed) {
+      await TCFactory.updateOrder(ordine, { invoiceConfirmed: true });
+      TCFactory._log('✓ Fattura confermata', ordine, o.nome, { stage: 'fattura', done: true });
+      segnato = 'Fattura';
+    } else if (fase === 'incasso' && !o.paymentDone) {
+      const evaso = Pulsanti.isEvaso(o);
+      await TCFactory.updateOrder(ordine, { paymentDone: true, paymentDate: localISODate(new Date()) });
+      if (evaso) await TCFactory.setArchived(ordine, true);
+      TCFactory._log('✓ Pagato', ordine, o.nome, { stage: 'pagamento', done: true });
+      segnato = 'Pagato';
+    }
+    if (segnato) showToast(`Ordine ${o.nome || ''}: ${segnato} aggiornato`);
+  } catch (e) {
+    showToast(`Task fatto, ma l'ordine non si è aggiornato: ${e.message || e}`, 'error');
+  }
 }
 
 async function taskPrendi(id) {
@@ -3428,8 +3466,8 @@ function renderTempiLavorazione() {
       <div class="page-card-head"><h2>Prova dei tempi</h2>
         <span class="ctrl-group-hint">${test.attivo ? `In corso dal ${ctrlFmtGiorno(test.dal).toLowerCase()}` : test.dal ? `Ferma · risultati dal ${ctrlFmtGiorno(test.dal).toLowerCase()}` : 'Non avviata'}</span></div>
       <p class="tempi-help">Durante la prova, su tutti i task produttivi chi lavora preme <strong>Inizia</strong> (il task diventa suo) e <strong>Pausa</strong> se si ferma.
-        La fine arriva da sola quando l'ordine cambia stato: il cronometro si ferma all'ora del pulsante premuto sull'ordine (C, STAMPA, DTF, ✔, EVASO).
-        Sui lotti Shopify, che non hanno pulsanti, si preme <strong>Fatto</strong>. Il tempo misurato si confronta con la stima.</p>
+        Alla fine preme <strong>Fatto</strong> sul task: il cronometro si ferma e lo stato dell'ordine si aggiorna da solo (es. Stampa DTF → STAMPA giallo, Applicazione DTF → DTF verde).
+        Se invece qualcuno preme il pulsante sull'ordine, il cronometro si ferma all'ora di quel clic. Il tempo misurato si confronta con la stima.</p>
       <div class="tempi-foot">
         ${test.attivo ? `<button class="ctrl-btn" onclick="setTempiTest(false)">${CtrlIcons.pause()} Ferma la prova</button>`
           : `<button class="ctrl-btn is-primary" onclick="setTempiTest(true)">${CtrlIcons.play()} ${test.dal ? 'Avvia una nuova prova' : 'Avvia la prova'}</button>`}

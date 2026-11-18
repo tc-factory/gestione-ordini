@@ -351,6 +351,23 @@ const Pulsanti = {
   },
   // Pulsante che usa una certa fase dell'ordine (per il vecchio toggleStageInline)
   byStage(stageId) { return this.all().find(p => this.stageId(p) === stageId) || null; },
+  // Pulsante collegato a una lavorazione interna/esterna ("interne:li-uv", "esterne:le-…")
+  byLink(key) { return this.all().find(p => p.attivo !== false && !p.eliminato && this.linkKey(p) === key) || null; },
+
+  // Dal task fatto: il pulsante diventa giallo (mezzo) o verde, con gli stessi effetti del clic.
+  // Non torna mai indietro: se è già a quel punto o oltre non fa niente. Torna il nome segnato, o null.
+  async daTask(orderId, p, mezzo = false) {
+    const o = TCFactory.getOrderById(orderId);
+    if (!o || !p) return null;
+    const st = this.stato(o, p);
+    if (st.done || (mezzo && st.mezzo)) return null;
+    if (mezzo) { await this.setMezzo(orderId, p, true); return p.intermedio || this.nome(p); }
+    if (!this.cliccabile(o, p)) throw new Error(this.motivo(p));
+    const wasPaid = !!o.paymentDone, wasEvaso = this.isEvaso(o);
+    await this.set(orderId, p, true);
+    if (!wasEvaso && wasPaid && this.isEvaso(TCFactory.getOrderById(orderId))) await TCFactory.setArchived(orderId, true);
+    return this.nome(p);
+  },
 };
 
 // ── Lista ordini: pill dei pulsanti ──
