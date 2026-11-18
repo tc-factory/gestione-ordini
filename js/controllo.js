@@ -1484,6 +1484,8 @@ const cvSalvaLav = (voce, v) => cvSalva(async () => {
   const { error } = await supabaseClient.from('costi_vivi').upsert({ voce, valore: cvNum(v), updated_at: new Date().toISOString(), updated_by: Ctrl._me() });
   if (error) throw Ctrl._fail(error);
 });
+// Costo del prodotto scritto qui: si salva sul prodotto (come dalla scheda Prodotti) e sparisce dall'elenco
+const cvSalvaProdotto = (id, v) => cvNum(v) ? cvSalva(() => TCFactory.saveProduct(id, { costo: cvNum(v) }), 'Costo del prodotto salvato') : null;
 const cvSalvaOra = (v) => cvSalva(() => Ctrl._rpc('tc_costo_ora_imposta', { p_valore: cvNum(v) ?? 0 }));
 const cvSalvaDtf = (key, v) => cvSalva(() => TCFactory.setSetting(key, cvNum(v) ?? 0));
 
@@ -1537,7 +1539,10 @@ function renderCostiVivi() {
       </table></div>`)}
 
     ${sez('Prodotti senza costo', d.prodotti_senza_costo.length, 'Si imposta nella scheda Prodotti', `
-      ${d.prodotti_senza_costo.length ? `<ul class="tempi-senza">${d.prodotti_senza_costo.map(x => `<li><span>${escapeHtml(x.nome || '—')}${x.codice && x.nome !== x.codice ? ` <span class="ctrl-cell-sub">${escapeHtml(x.codice)}</span>` : ''}</span></li>`).join('')}</ul>`
+      ${d.prodotti_senza_costo.length ? `<ul class="cv-prodotti">${d.prodotti_senza_costo.map(x => `
+          <li><span class="cv-prodotto">${escapeHtml(x.nome || '—')}${x.codice && x.nome !== x.codice ? ` <span class="ctrl-cell-sub">${escapeHtml(x.codice)}</span>` : ''}</span>
+            <input class="form-input tempi-num" inputmode="decimal" placeholder="Costo €" aria-label="Costo di ${escapeHtml(x.nome || x.codice || '')}" onchange="cvSalvaProdotto('${x.id}', this.value)">
+            <button type="button" class="ctrl-btn" onclick="openProductForm('${x.id}')">Scheda</button></li>`).join('')}</ul>`
         : '<div class="empty-list">Tutti i prodotti hanno un costo.</div>'}`)}`;
 }
 
