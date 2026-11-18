@@ -454,6 +454,7 @@ function loadControlExtras() {
   if (Ctrl.view === 'automazioni') loadControlAutomations();
   if (Ctrl.view === 'attivazioni') loadControlAttivazioni();
   if (Ctrl.view === 'costi') loadControlCosti();
+  if (Ctrl.view === 'costivivi') loadCostiVivi();
 }
 
 async function setControlDay(iso) {
@@ -479,7 +480,7 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = inTasks ? [] : [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report'], ['attivazioni', 'Attivazioni'], ['costi', 'Costi']];
+  const tabs = inTasks ? [] : [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report'], ['attivazioni', 'Attivazioni'], ['costivivi', 'Costi vivi'], ['costi', 'Costi servizi']];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
@@ -490,6 +491,7 @@ function renderControlPage() {
     : Ctrl.view === 'report' ? renderControlReport()
     : Ctrl.view === 'attivazioni' ? renderControlAttivazioni()
     : Ctrl.view === 'costi' ? renderControlCosti()
+    : Ctrl.view === 'costivivi' ? renderCostiVivi()
     : renderControlMyDay();
 
   root.innerHTML = `
@@ -1429,20 +1431,25 @@ function renderConsuntivo() {
         ${c.sviluppo?.task ? `<div><span>Sviluppo con Claude, a parte</span><strong>${c.sviluppo.task} sessioni</strong></div>` : ''}
       </div>
       <div class="table-scroll"><table class="data-table tempi-table">
-        <thead><tr><th>Persona</th><th>Task fatti</th><th>Tempo</th><th>Di cui misurato</th><th>€ all'ora</th><th>Costo</th></tr></thead>
+        <thead><tr><th>Persona</th><th>Task fatti</th><th>Tempo stimato</th><th>€ all'ora</th><th>Costo</th></tr></thead>
         <tbody>${c.persone.map(p => `
           <tr><td><strong>${escapeHtml(p.chi)}</strong>${p.chi === 'tcfactory' ? '<div class="ctrl-cell-sub">account condiviso</div>' : ''}</td>
             <td>${p.task}</td><td>${ctrlFmtMin(p.minuti)}</td>
-            <td>${p.minuti_misurati ? ctrlFmtMin(p.minuti_misurati) : '<span class="ctrl-cell-sub">—</span>'}</td>
             <td>${consEuro(p.costo_ora)}</td><td><strong>${consEuro(p.costo)}</strong></td></tr>`).join('')}</tbody>
       </table></div>
       ${c.ordini.length ? `
-        <h3 class="tempi-h3">Costo per ordine <span class="ctrl-cell-sub">· le fasi fatte nel periodo; i lotti Shopify divisi tra i loro ordini</span></h3>
+        <h3 class="tempi-h3">Costo degli ordini lavorati <span class="ctrl-cell-sub">· manodopera delle fasi fatte, DTF, lavorazioni e merce · i lotti Shopify divisi tra i loro ordini</span></h3>
         <div class="table-scroll"><table class="data-table tempi-table">
-          <thead><tr><th>Ordine</th><th>Origine</th><th>Fasi</th><th>Tempo</th><th>Costo</th></tr></thead>
-          <tbody>${c.ordini.slice(0, 40).map(o => `
-            <tr><td><strong>${escapeHtml(o.nome || '—')}</strong></td><td>${escapeHtml(o.origine)}</td><td>${o.fasi}</td>
-              <td>${ctrlFmtMin(o.minuti)}</td><td>${consEuro(o.costo)}</td></tr>`).join('')}</tbody>
+          <thead><tr><th>Ordine</th><th>Origine</th><th>Manodopera</th><th>DTF</th><th>Lavorazioni</th><th>Merce</th><th>Totale</th></tr></thead>
+          <tbody>${c.ordini.slice(0, 60).map(o => `
+            <tr><td><strong>${escapeHtml(o.nome || '—')}</strong>
+                ${(o.mancano || []).length ? `<div class="ctrl-cell-sub task-late">Manca: ${o.mancano.map(escapeHtml).join(' · ')}</div>` : ''}</td>
+              <td>${escapeHtml(o.origine)}</td>
+              <td>${consEuro(o.manodopera)}<div class="ctrl-cell-sub">${ctrlFmtMin(o.minuti)}</div></td>
+              <td>${o.dtf ? `${consEuro(o.dtf)}<div class="ctrl-cell-sub">${String(o.metri_dtf).replace('.', ',')} m</div>` : '<span class="ctrl-cell-sub">—</span>'}</td>
+              <td>${o.lavorazioni ? consEuro(o.lavorazioni) : '<span class="ctrl-cell-sub">—</span>'}</td>
+              <td>${o.merce ? consEuro(o.merce) : '<span class="ctrl-cell-sub">—</span>'}</td>
+              <td><strong>${consEuro(o.totale)}</strong></td></tr>`).join('')}</tbody>
         </table></div>` : ''}`;
   return `
     <section class="glass-card page-card ctrl-group">
@@ -1451,8 +1458,113 @@ function renderConsuntivo() {
           <button type="button" class="ctrl-btn" onclick="cambiaCostoOra()">Cambia</button></span></div>
       <div class="ctrl-skill-people" role="group" aria-label="Periodo">${chip('giorno', 'Giorno')}${chip('settimana', '7 giorni')}${chip('mese', 'Mese')}</div>
       ${corpo}
-      <p class="ctrl-cell-sub">Tempo: quello misurato con Inizia/Fatto se c'è, altrimenti la stima del task. Il costo orario di una persona si cambia dal suo Piano.</p>
+      <p class="ctrl-cell-sub">Tempo: la stima del task (tempi per categoria e minuti dei tipi di task); il cronometro serve solo nella prova dei tempi.
+        I costi si impostano in <button type="button" class="ctrl-btn" onclick="setControlView('costivivi')">Costi vivi</button>.</p>
     </section>`;
+}
+
+// ── Costi vivi: manodopera, DTF, lavorazioni, materiali a capo, merce. Quello senza valore è "da impostare" ──
+const CtrlVivi = { dati: null, errore: null };
+const DTF_MATERIALI_CV = [
+  ['Supporto', 'dtf_supporto_eur', 'dtf_supporto_m', 'rotolo'], ['Inchiostro bianco', 'dtf_ink_white_eur', 'dtf_ink_white_m', 'inchiostro'],
+  ['Inchiostro CMYK (uno dei 4)', 'dtf_ink_cmyk_eur', 'dtf_ink_cmyk_m', 'inchiostro'], ['Colla', 'dtf_colla_eur', 'dtf_colla_m', 'confezione'],
+];
+async function loadCostiVivi() {
+  try { CtrlVivi.dati = await Ctrl._rpc('tc_costi_vivi'); CtrlVivi.errore = null; }
+  catch (e) { CtrlVivi.errore = e; }
+  refreshControlPage();
+}
+const cvNum = (v) => { const t = String(v ?? '').trim().replace(',', '.'); return t === '' ? null : Math.max(0, parseFloat(t) || 0); };
+const cvVal = (v) => v == null ? '' : String(Number(v)).replace('.', ',');
+const cvDaImpostare = '<span class="td-tag" style="--c:#dc2626;">Da impostare</span>';
+async function cvSalva(fn, msg = 'Costo salvato') {
+  try { await fn(); showToast(msg); CtrlCons.chiave = null; await loadCostiVivi(); }
+  catch (e) { showToast(e.message || String(e), 'error'); }
+}
+const cvSalvaLav = (voce, v) => cvSalva(async () => {
+  const { error } = await supabaseClient.from('costi_vivi').upsert({ voce, valore: cvNum(v), updated_at: new Date().toISOString(), updated_by: Ctrl._me() });
+  if (error) throw Ctrl._fail(error);
+});
+const cvSalvaCategoria = (id, v) => cvSalva(async () => {
+  const { error } = await supabaseClient.from('tempi_categorie').update({ costo_capo: cvNum(v) }).eq('id', id);
+  if (error) throw Ctrl._fail(error);
+});
+const cvSalvaPersona = (nick, v) => cvSalva(async () => {
+  const { error } = await supabaseClient.from('task_operatori').update({ costo_ora: cvNum(v) }).eq('nickname', nick);
+  if (error) throw Ctrl._fail(error);
+});
+const cvSalvaOra = (v) => cvSalva(() => Ctrl._rpc('tc_costo_ora_imposta', { p_valore: cvNum(v) ?? 0 }));
+const cvSalvaDtf = (key, v) => cvSalva(() => TCFactory.setSetting(key, cvNum(v) ?? 0));
+
+function renderCostiVivi() {
+  if (CtrlVivi.errore) return `<div class="glass-card page-card"><div class="empty-list">${CtrlVivi.errore.notInstalled ? 'Esegui lo script <strong>sql/costi-vivi.sql</strong> su Supabase.' : escapeHtml(CtrlVivi.errore.message)}</div></div>`;
+  const d = CtrlVivi.dati;
+  if (!d) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
+  const lavSenza = d.lavorazioni.filter(l => l.valore == null), catSenza = d.categorie.filter(c => c.costo_capo == null);
+  const daFare = lavSenza.length + catSenza.length + d.prodotti_senza_costo.length + (Number(d.dtf_costo_m) > 0 ? 0 : 1);
+  const input = (val, on, label, extra = '') => `<input class="form-input tempi-num" inputmode="decimal" value="${cvVal(val)}" aria-label="${escapeHtml(label)}" onchange="${on}" ${extra}>`;
+  const sez = (titolo, n, hint, corpo) => `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>${titolo}</h2>${n ? `<span class="table-count">${n}</span>` : ''}<span class="ctrl-group-hint">${hint}</span></div>
+      ${corpo}
+    </section>`;
+  const set = TCFactory._settings || {};
+  const ora = d.costo_ora?.valore ?? 11.31;
+  return `
+    <div class="tempi-totale">
+      <div><span>Costi da impostare</span><strong class="${daFare ? 'task-late' : ''}">${daFare}</strong></div>
+      <div><span>Manodopera media</span><strong>${consEuro(ora)}/h</strong></div>
+      <div><span>DTF</span><strong>${Number(d.dtf_costo_m) > 0 ? `${consEuro(d.dtf_costo_m)}/m` : 'Da impostare'}</strong></div>
+    </div>
+
+    ${sez('Manodopera', 0, 'Costo lordo all\'ora: il tempo dei task (stimato) per il costo di chi li fa', `
+      <div class="table-scroll"><table class="data-table tempi-table">
+        <thead><tr><th>Voce</th><th>€ all'ora</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><strong>Costo medio</strong>${d.costo_ora?.nota ? `<div class="ctrl-cell-sub">${escapeHtml(d.costo_ora.nota)}</div>` : ''}</td>
+            <td>${input(ora, 'cvSalvaOra(this.value)', 'Costo medio all\'ora')}</td><td></td></tr>
+          ${d.operatori.map(o => `<tr><td>${escapeHtml(o.nickname)}</td>
+            <td>${input(o.costo_ora, `cvSalvaPersona('${escapeHtml(o.nickname)}', this.value)`, `Costo all'ora di ${o.nickname}`, `placeholder="${cvVal(ora)}"`)}</td>
+            <td class="ctrl-cell-sub">${o.costo_ora == null ? 'vale il medio' : ''}</td></tr>`).join('')}
+        </tbody>
+      </table></div>`)}
+
+    ${sez('DTF', 0, `Materiali del rotolo: ${Number(d.dtf_costo_m) > 0 ? `<strong>${consEuro(d.dtf_costo_m)} al metro</strong>` : cvDaImpostare} · nel costo dell'ordine × i metri dei suoi DTF`, `
+      <div class="table-scroll"><table class="data-table tempi-table">
+        <thead><tr><th>Materiale</th><th>Prezzo €</th><th>Metri stampati</th><th>€ al metro</th></tr></thead>
+        <tbody>${DTF_MATERIALI_CV.map(([nome, eur, m, per]) => {
+          const e = parseFloat(set[eur]) || 0, mm = parseFloat(set[m]) || (eur === 'dtf_supporto_eur' ? 100 : 0);
+          const alM = mm > 0 ? e / mm * (eur === 'dtf_ink_cmyk_eur' ? 4 : 1) : 0;
+          return `<tr><td><strong>${nome}</strong><div class="ctrl-cell-sub">prezzo di un ${per}</div></td>
+            <td>${input(set[eur], `cvSalvaDtf('${eur}', this.value)`, `Prezzo ${nome}`)}</td>
+            <td>${input(set[m], `cvSalvaDtf('${m}', this.value)`, `Metri ${nome}`)}</td>
+            <td>${alM ? consEuro(alM) : cvDaImpostare}</td></tr>`;
+        }).join('')}</tbody>
+      </table></div>`)}
+
+    ${sez('Lavorazioni', lavSenza.length ? `${lavSenza.length} da impostare` : 0, 'Costo a pezzo: nel costo dell\'ordine × i pezzi con quella lavorazione', `
+      <div class="table-scroll"><table class="data-table tempi-table">
+        <thead><tr><th>Lavorazione</th><th>Tipo</th><th>Ordini (90 giorni)</th><th>€ a pezzo</th><th></th></tr></thead>
+        <tbody>${d.lavorazioni.map(l => `<tr><td><strong>${escapeHtml(l.nome)}</strong></td><td>${l.tipo === 'interna' ? 'Interna' : 'Esterna'}</td><td>${l.ordini}</td>
+          <td>${input(l.valore, `cvSalvaLav('${escapeHtml(l.voce)}', this.value)`, `Costo a pezzo ${l.nome}`)}</td>
+          <td>${l.valore == null ? cvDaImpostare : ''}</td></tr>`).join('')}</tbody>
+      </table></div>`)}
+
+    ${sez('Prodotti dei negozi', catSenza.length ? `${catSenza.length} da impostare` : 0, 'Materiali a capo per categoria (capo neutro, inchiostro, carta…): nel costo degli ordini Shopify', `
+      <div class="table-scroll"><table class="data-table tempi-table">
+        <thead><tr><th>Categoria</th><th>€ a capo</th><th></th></tr></thead>
+        <tbody>${d.categorie.map(c => `<tr><td><strong>${escapeHtml(c.nome)}</strong></td>
+          <td>${input(c.costo_capo, `cvSalvaCategoria(${c.id}, this.value)`, `Costo a capo ${c.nome}`)}</td>
+          <td>${c.costo_capo == null ? cvDaImpostare : ''}</td></tr>`).join('')}</tbody>
+      </table></div>
+      <p class="ctrl-cell-sub">Le categorie e i loro tempi si gestiscono in Cervello → Tempi di lavorazione.</p>`)}
+
+    ${sez('Merce degli ordini', d.prodotti_senza_costo.length ? `${d.prodotti_senza_costo.length} da impostare` : 0, 'Dal costo del prodotto in anagrafica, per le righe d\'ordine collegate a un prodotto', `
+      ${d.righe_senza_prodotto ? `<p class="tempi-help"><strong>${d.righe_senza_prodotto} righe d'ordine</strong> degli ultimi 90 giorni non sono collegate a un prodotto: la loro merce non entra nel costo.</p>` : ''}
+      ${d.prodotti_senza_costo.length ? `<ul class="tempi-senza">${d.prodotti_senza_costo.map(x => `<li><span>${escapeHtml(x.nome || x.codice || '—')}${x.codice && x.nome !== x.codice ? ` <span class="ctrl-cell-sub">${escapeHtml(x.codice)}</span>` : ''}</span>
+          <span class="ctrl-cell-sub">${x.righe} ${x.righe === 1 ? 'riga' : 'righe'} · ${cvDaImpostare}</span></li>`).join('')}</ul>
+        <p class="ctrl-cell-sub">Il costo si imposta nella scheda Prodotti.</p>`
+        : '<div class="empty-list">Tutti i prodotti usati negli ordini hanno un costo.</div>'}`)}`;
 }
 
 function renderControlTeam() {
