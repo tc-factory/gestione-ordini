@@ -902,7 +902,7 @@ body.com-dragging, body.com-dragging * { cursor: grabbing !important; user-selec
    Tasks (admin): panoramica di produzione
    ════════════════════════════════════════════════════════ */
 
-.tk-stats { display: grid; gap: 12px; margin-bottom: var(--space-md, 16px); grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.6fr) minmax(0, 1fr); }
+.tk-stats { display: grid; gap: 12px; margin-bottom: var(--space-md, 16px); grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 2.1fr) minmax(0, 1.05fr); }
 .tk-stat {
   position: relative; display: flex; align-items: center; gap: 14px; padding: 16px 18px; min-height: 92px;
   border: none; text-align: left; color: inherit; font: inherit;
@@ -934,18 +934,25 @@ body.com-dragging, body.com-dragging * { cursor: grabbing !important; user-selec
   mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px));
 }
 .tk-ring b { position: relative; font-size: 0.95rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-.tk-progress-card .tk-small-title { font-size: 0.95rem; letter-spacing: 0; }
+.tk-progress-card .tk-small-title { font-size: 0.95rem; letter-spacing: 0; white-space: nowrap; }
+.tk-progress-card .tk-stat-text { flex: 0 1 auto; }
 .tk-bar { margin-top: 6px; height: 8px; }
-.tk-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 8px; font-size: 0.76rem; color: var(--text-muted); }
-.tk-flow > span { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
-.tk-flow-saldo {
-  margin-left: auto; padding: 2px 8px; border-radius: 999px; font-style: normal; font-weight: 700; white-space: nowrap;
-  color: var(--text-secondary); background: var(--fill-hover);
+.tk-av-fatti { color: var(--text-primary); font-weight: 800; }
+.tk-av-flow {
+  display: grid; grid-template-columns: repeat(3, auto); flex-shrink: 0; align-self: stretch; align-items: center; gap: 22px;
+  margin-left: auto; padding-left: 22px; border-left: 1px solid var(--border-light, var(--border));
 }
-.tk-flow-saldo.is-down { color: #16a34a; background: color-mix(in srgb, #22c55e 14%, transparent); }
-.tk-flow-saldo.is-up { color: #dc2626; background: color-mix(in srgb, #ef4444 13%, transparent); }
-html.dark .tk-flow-saldo.is-down { color: #4ade80; }
-html.dark .tk-flow-saldo.is-up { color: #f87171; }
+.tk-av-num { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 44px; }
+.tk-av-num b { font-size: 1.35rem; font-weight: 800; line-height: 1.05; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.tk-av-num small { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+.tk-av-num.is-down b, .tk-av-num.is-down small { color: #16a34a; }
+.tk-av-num.is-up b, .tk-av-num.is-up small { color: #dc2626; }
+html.dark .tk-av-num.is-down b, html.dark .tk-av-num.is-down small { color: #4ade80; }
+html.dark .tk-av-num.is-up b, html.dark .tk-av-num.is-up small { color: #f87171; }
+@media (max-width: 1560px) and (min-width: 1281px) {
+  .tk-progress-card { flex-wrap: wrap; row-gap: 10px; }
+  .tk-av-flow { width: 100%; margin-left: 0; padding: 10px 0 0; border-left: none; border-top: 1px solid var(--border-light, var(--border)); grid-template-columns: repeat(3, 1fr); }
+}
 .tk-load-card .tk-bar { margin-top: 4px; height: 6px; }
 
 /* Due pannelli affiancati */
