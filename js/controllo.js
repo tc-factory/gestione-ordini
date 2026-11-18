@@ -1383,6 +1383,78 @@ async function taskPrendi(id) {
 
 // ── Team (admin) ──
 
+// ── Consuntivo (Team): cosa ha fatto ogni persona, quanto tempo e quanto è costato ──
+// Tempo = misurato se c'è, altrimenti la stima. Periodo che finisce nel giorno scelto.
+const CtrlCons = { periodo: 'giorno', chiave: null, dati: null, errore: null };
+const consEuro = (v) => `${(Number(v) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+function consPeriodo() {
+  const d = Ctrl.giorno;
+  const dal = CtrlCons.periodo === 'settimana' ? ctrlAddDays(d, -6) : CtrlCons.periodo === 'mese' ? `${d.slice(0, 8)}01` : d;
+  return { dal, al: d };
+}
+async function loadConsuntivo() {
+  const { dal, al } = consPeriodo(), chiave = `${dal}|${al}`;
+  CtrlCons.chiave = chiave;
+  try {
+    const r = await Ctrl._rpc('tc_consuntivo', { p_dal: dal, p_al: al });
+    if (CtrlCons.chiave !== chiave) return;
+    CtrlCons.dati = r; CtrlCons.errore = null;
+  } catch (e) { CtrlCons.errore = e; }
+  refreshControlPage();
+}
+function setConsPeriodo(p) { CtrlCons.periodo = p; CtrlCons.dati = null; loadConsuntivo(); refreshControlPage(); }
+async function cambiaCostoOra() {
+  const v = await uiPrompt('Costo orario medio (€ lordi all\'ora)', { value: String(CtrlCons.dati?.costo_ora ?? 11.31).replace('.', ','), ok: 'Salva' });
+  if (v === null) return;
+  const n = parseFloat(String(v).replace(',', '.'));
+  if (!(n >= 0)) { showToast('Scrivi un numero', 'error'); return; }
+  try { await Ctrl._rpc('tc_costo_ora_imposta', { p_valore: n }); showToast('Costo orario salvato'); loadConsuntivo(); }
+  catch (e) { showToast(e.message, 'error'); }
+}
+
+function renderConsuntivo() {
+  const { dal, al } = consPeriodo();
+  if (CtrlCons.chiave !== `${dal}|${al}`) { CtrlCons.dati = null; loadConsuntivo(); }
+  const c = CtrlCons.dati, per = CtrlCons.periodo;
+  const chip = (id, label) => `<button type="button" class="ctrl-btn ${per === id ? 'is-primary' : ''}" aria-pressed="${per === id}" onclick="setConsPeriodo('${id}')">${label}</button>`;
+  const periodoTesto = dal === al ? ctrlFmtGiorno(al) : `dal ${ctrlFmtGiorno(dal).toLowerCase()} al ${ctrlFmtGiorno(al).toLowerCase()}`;
+  const corpo = CtrlCons.errore ? `<div class="empty-list">${CtrlCons.errore.notInstalled ? 'Esegui lo script <strong>sql/consuntivo-costi.sql</strong> su Supabase.' : escapeHtml(CtrlCons.errore.message)}</div>`
+    : !c ? '<div class="empty-list">Caricamento…</div>'
+    : !c.persone.length ? '<div class="empty-list">Nessun task fatto in questo periodo.</div>'
+    : `
+      <div class="tempi-totale">
+        <div><span>Task fatti</span><strong>${c.totale.task}</strong></div>
+        <div><span>Tempo di lavoro</span><strong>${ctrlFmtMin(c.totale.minuti)}</strong></div>
+        <div><span>Costo</span><strong>${consEuro(c.totale.costo)}</strong></div>
+        ${c.sviluppo?.task ? `<div><span>Sviluppo con Claude, a parte</span><strong>${c.sviluppo.task} sessioni</strong></div>` : ''}
+      </div>
+      <div class="table-scroll"><table class="data-table tempi-table">
+        <thead><tr><th>Persona</th><th>Task fatti</th><th>Tempo</th><th>Di cui misurato</th><th>€ all'ora</th><th>Costo</th></tr></thead>
+        <tbody>${c.persone.map(p => `
+          <tr><td><strong>${escapeHtml(p.chi)}</strong>${p.chi === 'tcfactory' ? '<div class="ctrl-cell-sub">account condiviso</div>' : ''}</td>
+            <td>${p.task}</td><td>${ctrlFmtMin(p.minuti)}</td>
+            <td>${p.minuti_misurati ? ctrlFmtMin(p.minuti_misurati) : '<span class="ctrl-cell-sub">—</span>'}</td>
+            <td>${consEuro(p.costo_ora)}</td><td><strong>${consEuro(p.costo)}</strong></td></tr>`).join('')}</tbody>
+      </table></div>
+      ${c.ordini.length ? `
+        <h3 class="tempi-h3">Costo per ordine <span class="ctrl-cell-sub">· le fasi fatte nel periodo; i lotti Shopify divisi tra i loro ordini</span></h3>
+        <div class="table-scroll"><table class="data-table tempi-table">
+          <thead><tr><th>Ordine</th><th>Origine</th><th>Fasi</th><th>Tempo</th><th>Costo</th></tr></thead>
+          <tbody>${c.ordini.slice(0, 40).map(o => `
+            <tr><td><strong>${escapeHtml(o.nome || '—')}</strong></td><td>${escapeHtml(o.origine)}</td><td>${o.fasi}</td>
+              <td>${ctrlFmtMin(o.minuti)}</td><td>${consEuro(o.costo)}</td></tr>`).join('')}</tbody>
+        </table></div>` : ''}`;
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Consuntivo</h2>
+        <span class="ctrl-group-hint">${periodoTesto} · costo medio ${consEuro(c?.costo_ora ?? 11.31)}/h
+          <button type="button" class="ctrl-btn" onclick="cambiaCostoOra()">Cambia</button></span></div>
+      <div class="ctrl-skill-people" role="group" aria-label="Periodo">${chip('giorno', 'Giorno')}${chip('settimana', '7 giorni')}${chip('mese', 'Mese')}</div>
+      ${corpo}
+      <p class="ctrl-cell-sub">Tempo: quello misurato con Inizia/Fatto se c'è, altrimenti la stima del task. Il costo orario di una persona si cambia dal suo Piano.</p>
+    </section>`;
+}
+
 function renderControlTeam() {
   const d = Ctrl.giorno;
   const people = Ctrl.users;
@@ -1417,6 +1489,7 @@ function renderControlTeam() {
   const haTask = (nick) => Ctrl.tasks.some(t => t.assegnato_a === nick);
   const attiviOggi = people.filter(haTask);
   return `
+    ${renderConsuntivo()}
     <div class="ctrl-team">${attiviOggi.map(card).join('')}</div>
     ${renderTeamTable(people)}
     ${taskGroupOwner('Tutti i task del giorno', tutti, 'Nessun task assegnato per questo giorno.')}
@@ -3947,6 +4020,11 @@ function openMemberForm(nick) {
         <input id="mb-minuti" type="number" class="form-input" min="30" max="720" value="${o.minuti_giorno || 420}">
       </div>
       <div class="form-group">
+        <label class="form-label" for="mb-costo">Costo orario (€ lordi)</label>
+        <input id="mb-costo" type="number" class="form-input" min="0" max="500" step="0.01" value="${o.costo_ora ?? ''}" placeholder="Medio: ${String(CtrlCons.dati?.costo_ora ?? 11.31).replace('.', ',')}">
+        <small class="ctrl-cell-sub">Vuoto: vale il costo medio.</small>
+      </div>
+      <div class="form-group">
         <label class="form-label" for="mb-entrata">Orario di entrata</label>
         <input id="mb-entrata" type="time" class="form-input" value="${o.ora_inizio ? o.ora_inizio.slice(0, 5) : ''}">
         <small class="ctrl-cell-sub">Vuoto: non deve confermare la presenza. Dopo 30 minuti senza conferma si apre il popup.</small>
@@ -3969,6 +4047,8 @@ async function submitMemberForm(nick) {
   if (minuti) {
     row.ora_inizio = document.getElementById('mb-entrata').value || null;
     row.addetto_presenze = document.getElementById('mb-addetto').checked;
+    const costo = document.getElementById('mb-costo').value.trim();
+    row.costo_ora = costo === '' ? null : Math.min(500, Math.max(0, parseFloat(costo.replace(',', '.')) || 0));
   }
   const btn = document.getElementById('mb-save');
   btn.disabled = true;
