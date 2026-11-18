@@ -768,8 +768,6 @@ function renderControlAdminTasks() {
   const minuti = (list) => list.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
   const scadute = inRitardo.filter(taskScaduto).length;
   const fatti = delGiorno.filter(t => t.stato === 'completato').length;
-  const mieiDelGiorno = delGiorno.filter(t => t.assegnato_a === Ctrl._me());
-  const mieiFatti = mieiDelGiorno.filter(t => t.stato === 'completato').length;
   // Avanzamento del giorno: anello con la percentuale e task completati sul totale
   const avanz = (titolo, f, tot) => {
     const p = tot ? Math.round(f / tot * 100) : 0;
@@ -797,7 +795,6 @@ function renderControlAdminTasks() {
       ${stat(TkIcons.alert(), '#ef4444', urgenti.length, 'Urgenti', urgenti.length ? '<em class="tk-stat-tag">Azioni immediate</em>' : '', `taskVaiA('coda', 'urgente')`)}
       ${stat(Icons.calendarDays(22), '#f97316', inRitardo.length, 'In ritardo', `<small class="tk-stat-sub">${scadute} scaduti · ${inRitardo.length - scadute} dai giorni prima</small>`, `taskVaiA('ritardo')`)}
       ${stat(TkIcons.user(), '#6366f1', coda.length, 'Senza designato', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(coda))} stimate · da prendere a mano</small>`, `taskVaiA('assegnare')`)}
-      ${avanz('Il mio avanzamento', mieiFatti, mieiDelGiorno.length)}
       ${avanz('Avanzamento team', fatti, delGiorno.length)}
     </div>
     ${renderTaskDuo(Ctrl._me())}
