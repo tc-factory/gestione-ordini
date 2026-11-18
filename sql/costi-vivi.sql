@@ -202,7 +202,7 @@ begin
              jsonb_array_elements(q.v) x
        where x->>'id' <> 'li-dtf'), '[]'::jsonb),
     'prodotti_senza_costo', coalesce((
-      select jsonb_agg(jsonb_build_object('nome', coalesce(nullif(p.descrizione, ''), p.codice), 'codice', p.codice)
+      select jsonb_agg(jsonb_build_object('id', p.id, 'nome', coalesce(nullif(p.descrizione, ''), p.codice), 'codice', p.codice)
                        order by coalesce(nullif(p.descrizione, ''), p.codice))
         from products p where coalesce(p.attivo, true) and coalesce(p.costo, 0) = 0), '[]'::jsonb));
 end;
