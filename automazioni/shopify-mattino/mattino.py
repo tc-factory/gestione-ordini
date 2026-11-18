@@ -631,14 +631,16 @@ def crea_pdf_stampa(destinazione, voci, problemi, profilo=None):
             try:
                 r = requests.get(url, timeout=120)
                 r.raise_for_status()
-                impronta = hashlib.sha256(r.content).hexdigest()
+                f = Path(tmp) / f'{i}.png'
+                f.write_bytes(r.content)
+                # Impronta sui pixel, non sui byte: Customily rigenera il PNG a ogni ordine (metadati e
+                # compressione diversi), ma la stessa grafica ha gli stessi pixel
+                with Image.open(f) as im:
+                    w, h = im.size
+                    impronta = hashlib.sha256(f'{im.mode}{im.size}'.encode() + im.tobytes()).hexdigest()
                 if impronta in uniche:
                     uniche[impronta][1] += pezzi
                     continue
-                f = Path(tmp) / f'{i}.png'
-                f.write_bytes(r.content)
-                with Image.open(f) as im:
-                    w, h = im.size
                 if abs(w / h - W / H) > 0.01:
                     raise ValueError(f'formato {w}x{h}, non 23x43')
                 if profilo:
