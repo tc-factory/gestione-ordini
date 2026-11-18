@@ -42,6 +42,45 @@ const TASK_MACROAREE = [
 const TASK_BRAND = [...TASK_MACROAREE, { id: 'liveprinting', label: 'Live Printing', color: '#ef4123' }];
 const taskMacro = (id) => TASK_BRAND.find(m => m.id === id);
 const isNegozioShopify = (id) => TASK_MACROAREE.some(m => m.id === id);
+
+// Categorie della coda: i brand più i tag degli ordini del gestionale (Salvatore, T&C Factory…).
+// Il task di un ordine del gestionale va nella categoria del tag dell'ordine (Box Factory Lab → Box Factory Lab).
+const taskSlug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+function taskCategorie() {
+  const tags = (typeof TCFactory !== 'undefined' ? TCFactory.getTags() : [])
+    .filter(t => !TASK_BRAND.some(m => m.id === taskSlug(t.name)))
+    .map(t => ({ id: taskSlug(t.name), label: t.name, color: t.color }));
+  return [...TASK_BRAND, ...tags];
+}
+const TASK_SENZA_CAT = { id: '_', label: 'Altro', color: '#94a3b8' };
+const taskCatInfo = (id) => id === '_' ? TASK_SENZA_CAT : taskCategorie().find(c => c.id === id) || null;
+// Ordine del gestionale collegato al task (le fasi di produzione e "Ordine in scadenza")
+const taskOrdineGest = (t) => t.fonte === 'gestionale' && t.fonte_rif?.ordine && typeof TCFactory !== 'undefined'
+  ? TCFactory.getOrderById(t.fonte_rif.ordine) : null;
+function taskCat(t) {
+  if (t.macroarea) return t.macroarea;
+  const o = taskOrdineGest(t);
+  const tag = (o?.tags || []).map(taskSlug).find(id => taskCategorie().some(c => c.id === id));
+  return tag || '_';
+}
+
+// Da stampare o servizio: le lavorazioni degli ordini da una parte; mail, messaggi, giacenze, pagamenti dall'altra
+const TASK_COMP_STAMPA = new Set(['ddt', 'preparazione', 'lavorazione', 'spedizione', 'prep_file', 'stampa_dtf', 'stampa_uv', 'stampa_mimaki',
+  'incisione_laser', 'ordine_fornitori', 'creazione_pacchi', 'evasione', 'ext_ricamo', 'ext_serigrafia', 'ext_manifattura', 'ext_arti',
+  'check_ricamo', 'check_serigrafia', 'check_manifattura', 'check_arti']);
+const TASK_LAVORO = [
+  { id: 'stampa',   label: 'Da stampare', hint: 'ordini da lavorare' },
+  { id: 'servizio', label: 'Servizio',    hint: 'mail, messaggi, giacenze, pagamenti' },
+];
+function taskLavoro(t) {
+  // Chi scrive al cliente fa servizio, anche se il task parla di un ordine
+  if (t.fonte === 'mail' || t.mail_id || t.bozza_risposta) return 'servizio';
+  const tipo = Ctrl.tipo(t.tipo_id);
+  if (tipo && /dati mancanti|conferma al cliente|nota ordine/i.test(tipo.nome)) return 'servizio';
+  if (tipo?.competenza) return TASK_COMP_STAMPA.has(tipo.competenza) ? 'stampa' : 'servizio';
+  if (tipo && /stampa/i.test(tipo.nome)) return 'stampa';
+  return taskProduttivo(t) || t.fonte === 'file' ? 'stampa' : 'servizio';
+}
 // Competenze: voci "area:competenza" con primario e secondario (competenze_responsabili); i task senza negozio sono dell'area "produzione"
 const TASK_COMPETENZE = [
   { id: 'whatsapp',     label: 'WhatsApp' },
@@ -183,7 +222,8 @@ const Ctrl = {
   view: 'giorno',        // giorno (sezione Tasks) | cervello | collegamenti | automazioni | competenze | squadra | report (Centro di controllo)
   viewCtrl: 'cervello',  // ultima scheda aperta nel Centro di controllo
   giorno: ctrlOggi(),    // giorno mostrato
-  macroarea: null,       // filtro della coda comune (null = tutte)
+  macroarea: null,       // filtro della coda comune per categoria (null = tutte)
+  lavoro: null,          // da stampare / servizio (null = tutto)
   tasks: [],             // task del giorno + arretrati aperti dei giorni prima
   tipi: [],
   users: [],             // nickname dello staff
@@ -547,13 +587,13 @@ function renderControlMyDay(persona = null) {
 
   // Il negozio si dice una volta sola: sulla riga solo se nella lista ce ne sono diversi
   const aperti = [...daFare, ...arretrati, ...bloccati];
-  const negoziLista = new Set(aperti.map(t => t.macroarea || ''));
-  const conNegozio = aperti.filter(t => t.macroarea);
-  const unicoNegozio = negoziLista.size === 1 ? taskMacro(conNegozio[0]?.macroarea) : null;
-  const vedi = (list) => Ctrl.macroarea ? list.filter(t => t.macroarea === Ctrl.macroarea) : list;
+  const negoziLista = new Set(aperti.map(taskCat));
+  const conNegozio = aperti.filter(t => taskCat(t) !== '_');
+  const unicoNegozio = negoziLista.size === 1 && conNegozio[0] ? taskCatInfo(taskCat(conNegozio[0])) : null;
+  const vedi = (list) => Ctrl.macroarea ? list.filter(t => taskCat(t) === Ctrl.macroarea) : list;
   const visibili = vedi(aperti);
   const opts = { showStore: !Ctrl.macroarea && negoziLista.size > 1, showAuto: false };
-  const barraNegozi = new Set(conNegozio.map(t => t.macroarea)).size > 1 || Ctrl.macroarea;
+  const barraNegozi = new Set(conNegozio.map(taskCat)).size > 1 || Ctrl.macroarea;
 
   // Il tasto giallo va solo sul prossimo task da fare
   Ctrl._prossimo = (sortTasks(vedi(daFare))[0] || sortTasks(vedi(arretrati))[0] || sortTasks(vedi(coda))[0])?.id;
@@ -594,13 +634,13 @@ function renderTaskDuo(me, persona = null) {
   const bloccati = delGiorno.filter(t => t.stato === 'bloccato');
   const coda = persona ? [] : Ctrl.tasks.filter(t => !t.assegnato_a && !taskChiuso(t) && t.designato !== me);
   const aperti = [...daFare, ...arretrati, ...bloccati];
-  const negoziLista = new Set(aperti.map(t => t.macroarea || ''));
-  const conNegozio = aperti.filter(t => t.macroarea);
-  const unicoNegozio = negoziLista.size === 1 ? taskMacro(conNegozio[0]?.macroarea) : null;
-  const vedi = (list) => Ctrl.macroarea ? list.filter(t => t.macroarea === Ctrl.macroarea) : list;
+  const negoziLista = new Set(aperti.map(taskCat));
+  const conNegozio = aperti.filter(t => taskCat(t) !== '_');
+  const unicoNegozio = negoziLista.size === 1 && conNegozio[0] ? taskCatInfo(taskCat(conNegozio[0])) : null;
+  const vedi = (list) => Ctrl.macroarea ? list.filter(t => taskCat(t) === Ctrl.macroarea) : list;
   const visibili = vedi(aperti);
   const opts = { showStore: !Ctrl.macroarea && negoziLista.size > 1, showAuto: false };
-  const barraNegozi = new Set(conNegozio.map(t => t.macroarea)).size > 1 || Ctrl.macroarea;
+  const barraNegozi = new Set(conNegozio.map(taskCat)).size > 1 || Ctrl.macroarea;
   if (!persona) {
     // I task sono tutti comuni: la coda prende lo spazio, a destra quello che ho chiuso
     const comuni = Ctrl.tasks.filter(t => !taskChiuso(t) && (!t.assegnato_a || t.assegnato_a === me));
@@ -643,12 +683,12 @@ function renderTaskFatti() {
         ${lavoratiSec ? `<div><strong>${ctrlFmtDur(lavoratiSec)}</strong><span>cronometrato</span></div>` : ''}
       </div>
       ${list.length ? `<ul class="tk-fatti-list">${list.map(t => {
-        const macro = taskMacro(t.macroarea);
+        const macro = taskCat(t) === '_' ? null : taskCatInfo(taskCat(t));
         return `
           <li><button type="button" onclick="openTaskDetail('${t.id}')" title="${escapeHtml(t.titolo)}">
             <span class="tk-fatti-ok" aria-hidden="true">${CtrlIcons.check(12)}</span>
             <span class="tk-fatti-txt"><strong>${escapeHtml(t.titolo)}</strong>
-              <small>${ctrlFmtOra(t.completato_at)}${macro ? ` · <span style="color:${macro.color};">${macro.label}</span>` : ''}${t.minuti_stimati ? ` · ${ctrlFmtMin(t.minuti_stimati)}` : ''}</small></span>
+              <small>${ctrlFmtOra(t.completato_at)}${macro ? ` · <span style="color:${macro.color};">${escapeHtml(macro.label)}</span>` : ''}${t.minuti_stimati ? ` · ${ctrlFmtMin(t.minuti_stimati)}` : ''}</small></span>
           </button></li>`;
       }).join('')}</ul>`
         : `<div class="empty-list">Ancora nessun task chiuso${d === ctrlOggi() ? ' oggi' : ''}.</div>`}
@@ -662,8 +702,8 @@ const TASK_TABS = [
   ['coda', 'Coda di lavorazione'], ['oggi', 'Oggi'], ['ritardo', 'In ritardo'], ['assegnare', 'Senza designato'], ['chiusi', 'Completati'], ['tutti', 'Tutti'],
 ];
 const TASK_PAGINA = 50;
-const TaskView = { tab: 'coda', brand: '', tipo: '', chi: '', prio: '', stato: '', scad: '', q: '', ordina: 'scadenza', limite: TASK_PAGINA, sel: new Set(), bulkChi: '' };
-const TASK_FILTRI = ['brand', 'tipo', 'chi', 'prio', 'stato', 'scad', 'q'];
+const TaskView = { tab: 'coda', brand: '', lavoro: '', tipo: '', chi: '', prio: '', stato: '', scad: '', q: '', ordina: 'scadenza', limite: TASK_PAGINA, sel: new Set(), bulkChi: '' };
+const TASK_FILTRI = ['brand', 'lavoro', 'tipo', 'chi', 'prio', 'stato', 'scad', 'q'];
 
 const TkIcons = {
   alert: (s = 22) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}" aria-hidden="true"><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.7 3.86a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
@@ -953,7 +993,8 @@ function taskFiltroScad(t, f) {
 function taskBoardList() {
   const v = TaskView, q = v.q.trim().toLowerCase();
   const list = taskBoardBase()[v.tab].filter(t =>
-    (!v.brand || (v.brand === '_' ? !t.macroarea : t.macroarea === v.brand))
+    (!v.brand || taskCat(t) === v.brand)
+    && (!v.lavoro || taskLavoro(t) === v.lavoro)
     && (!v.tipo || t.tipo_id === v.tipo)
     && (!v.chi || (v.chi === '_' ? !t.assegnato_a : t.assegnato_a === v.chi))
     && (!v.prio || t.priorita === v.prio)
@@ -986,7 +1027,8 @@ function renderTaskBoard() {
       </div>
       <div class="tk-filters">
         <input type="search" class="filter-pill tk-search" placeholder="Cerca task, cliente, ordine…" aria-label="Cerca" value="${escapeHtml(v.q)}" oninput="setTaskSearch(this.value)">
-        ${sel('brand', 'Brand', [['', 'Tutti i brand'], ...TASK_BRAND.map(m => [m.id, m.label]), ['_', 'Senza brand']])}
+        ${sel('brand', 'Categoria', [['', 'Tutte le categorie'], ...taskCategorie().map(m => [m.id, m.label]), ['_', 'Altro']])}
+        ${sel('lavoro', 'Tipo di lavoro', [['', 'Stampa e servizio'], ...TASK_LAVORO.map(l => [l.id, l.label])])}
         ${tipiUsati.length ? sel('tipo', 'Lavorazione', [['', 'Tutte le lavorazioni'], ...tipiUsati.map(tp => [tp.id, tp.nome])]) : ''}
         ${sel('chi', 'Assegnato a', [['', 'Tutti gli assegnati'], ['_', 'Da assegnare'], ...Ctrl.users.map(u => [u, u])])}
         ${sel('prio', 'Priorità', [['', 'Tutte le priorità'], ...TASK_PRIORITA.map(p => [p.id, p.label])])}
@@ -1013,7 +1055,7 @@ function renderTaskTable() {
   const statoTag = (t) => `<span class="td-tag" style="--c:${taskStato(t.stato).color};">${taskStato(t.stato).label}</span>`;
   const riga = (t) => {
     const { attivita, cliente, ordine } = taskParti(t);
-    const g = taskScad(t), m = taskMacro(t.macroarea), chiuso = taskChiuso(t);
+    const g = taskScad(t), m = taskCat(t) === '_' ? null : taskCatInfo(taskCat(t)), chiuso = taskChiuso(t);
     const dist = g ? taskDistanza(g) : null, late = taskScaduto(t);
     const ora = t.scadenza && ctrlFmtOra(t.scadenza) !== '00:00' ? ` ${ctrlFmtOra(t.scadenza)}` : '';
     const inLista = chiuso ? '' : taskInListaTesto(t);
@@ -1024,7 +1066,7 @@ function renderTaskTable() {
         <td><button type="button" class="tk-act" onclick="openTaskDetail('${t.id}')" title="${escapeHtml(t.titolo)}">
           <span class="tk-act-icon" aria-hidden="true">${taskIcona(t)}</span><span>${escapeHtml(attivita)}</span></button></td>
         <td><div class="tk-cliente">${cliente ? escapeHtml(cliente) : '<span class="tk-none">—</span>'}</div>
-          ${ordine || m ? `<small>${[ordine ? escapeHtml(ordine) : '', m ? `<span class="ctrl-macro-tag" style="--m:${m.color};">${m.label}</span>` : ''].filter(Boolean).join(' · ')}</small>` : ''}</td>
+          ${ordine || m ? `<small>${[ordine ? escapeHtml(ordine) : '', m ? `<span class="ctrl-macro-tag" style="--m:${m.color};">${escapeHtml(m.label)}</span>` : ''].filter(Boolean).join(' · ')}</small>` : ''}</td>
         <td>${g ? `<span class="tk-date ${late ? 'is-late' : g === ctrlOggi() ? 'is-today' : ''}">${Icons.calendarDays(14)} ${taskDataBreve(g)}${ora}</span>
           ${dist && !chiuso ? `<span class="tk-delta ${dist.passato ? 'is-late' : ''}">${taskDistanzaTesto(dist)}</span>` : ''}`
           : chiuso ? '' : '<span class="tk-none">Nessuna</span>'}
@@ -1117,7 +1159,7 @@ function setTaskSearch(value) {
 }
 
 function resetTaskView() {
-  Object.assign(TaskView, { brand: '', tipo: '', chi: '', prio: '', stato: '', scad: '', q: '', limite: TASK_PAGINA });
+  Object.assign(TaskView, { brand: '', lavoro: '', tipo: '', chi: '', prio: '', stato: '', scad: '', q: '', limite: TASK_PAGINA });
   refreshControlPage();
 }
 
@@ -1163,15 +1205,21 @@ function taskOrdine(t) {
   return t.titolo.match(/#\d{3,}/)?.[0] || (t.analisi?.ordini?.length === 1 ? t.analisi.ordini[0].numero : null);
 }
 
+// Gruppo d'ordine del task: numero Shopify (#1234) o ordine del gestionale
+function taskGruppo(t) {
+  const n = taskOrdine(t);
+  if (n) return `${taskCat(t)}|${n}`;
+  return t.fonte === 'gestionale' && t.fonte_rif?.ordine ? `g|${t.fonte_rif.ordine}` : null;
+}
+
 // I task dello stesso ordine stanno in un blocco unico, al posto del più importante
 function renderTaskItems(list, opts = {}) {
   const ordinati = sortTasks(list);
-  const chiave = (t) => { const n = taskOrdine(t); return n ? `${t.macroarea || ''}|${n}` : null; };
   const gruppi = new Map();
-  ordinati.forEach(t => { const k = chiave(t); if (k) gruppi.set(k, [...(gruppi.get(k) || []), t]); });
+  ordinati.forEach(t => { const k = taskGruppo(t); if (k) gruppi.set(k, [...(gruppi.get(k) || []), t]); });
   const mostrati = new Set();
   return ordinati.map(t => {
-    const k = chiave(t), g = k && gruppi.get(k);
+    const k = taskGruppo(t), g = k && gruppi.get(k);
     if (!g || g.length < 2) return renderTaskRow(t, opts);
     if (mostrati.has(k)) return '';
     mostrati.add(k);
@@ -1181,21 +1229,25 @@ function renderTaskItems(list, opts = {}) {
 
 function renderTaskOrder(g, opts) {
   const primo = (fn) => g.map(fn).find(Boolean);
-  const cliente = primo(t => t.analisi?.cliente?.nome) || primo(t => t.titolo.match(/·\s*ordine\s+#\d+\s*·\s*(.+)$/i)?.[1]);
+  const og = taskOrdineGest(g[0]);
+  const numero = og ? og.nome || `Ordine ${g[0].fonte_rif.ordine}` : taskOrdine(g[0]);
+  const cliente = og ? '' : primo(t => t.analisi?.cliente?.nome) || primo(t => t.titolo.match(/·\s*ordine\s+#\d+\s*·\s*(.+)$/i)?.[1]);
   const situazione = primo(t => t.analisi?.spedizione?.storico?.[0]?.stato);
-  const negozio = opts.showStore ? taskMacro(g[0].macroarea) : null;
+  const negozio = opts.showStore && taskCat(g[0]) !== '_' ? taskCatInfo(taskCat(g[0])) : null;
   const minuti = g.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
+  // Nel blocco il nome dell'ordine è già in testa: la riga dice solo cosa fare
+  const corto = (t) => og ? t.titolo.replace(/\s*[·:]\s*[^·:]+$/, '') : t.titolo.replace(/\s*·\s*ordine\s+#\d+(\s*·\s*[^·]+)?$/i, '');
   return `
-    <section class="task-order" aria-label="Ordine ${escapeHtml(taskOrdine(g[0]))}">
+    <section class="task-order" aria-label="Ordine ${escapeHtml(numero)}">
       <header class="task-order-head">
-        <strong>${escapeHtml(taskOrdine(g[0]))}</strong>
+        <strong>${escapeHtml(numero)}</strong>
+        ${og ? `<span class="task-order-who">ordine ${escapeHtml(g[0].fonte_rif.ordine)}</span>` : ''}
         ${cliente ? `<span class="task-order-who">${escapeHtml(cliente)}</span>` : ''}
-        ${negozio ? `<span class="ctrl-macro-tag" style="--m:${negozio.color};">${negozio.label}</span>` : ''}
+        ${negozio ? `<span class="ctrl-macro-tag" style="--m:${negozio.color};">${escapeHtml(negozio.label)}</span>` : ''}
         ${situazione ? `<span class="task-order-state">GLS · ${escapeHtml(situazione)}</span>` : ''}
         <span class="task-order-sum">${g.length} task${minuti ? ` · ${ctrlFmtMin(minuti)}` : ''}</span>
       </header>
-      <div class="task-order-rows">${g.map(t => renderTaskRow(t, { ...opts, showStore: false,
-        titolo: t.titolo.replace(/\s*·\s*ordine\s+#\d+(\s*·\s*[^·]+)?$/i, '') })).join('')}</div>
+      <div class="task-order-rows">${g.map(t => renderTaskRow(t, { ...opts, showStore: false, titolo: corto(t) })).join('')}</div>
     </section>`;
 }
 
@@ -1211,25 +1263,48 @@ function taskAutoNote(list) {
 const CtrlAnim = { filtro: null };
 
 function ctrlFilter(attivo, label, n, color, onclick) {
-  const appena = attivo && CtrlAnim.filtro === label;
-  return `<button type="button" class="ctrl-filter ${attivo ? 'is-on' : ''} ${appena ? 'is-just' : ''}" aria-pressed="${attivo}" style="--m:${color || 'var(--text-primary)'};" onclick="CtrlAnim.filtro='${label}';${onclick}">
-    ${color ? '<i aria-hidden="true"></i>' : ''}<span>${label}</span>${n != null ? `<b>${n}</b>` : ''}</button>`;
+  const chiave = taskSlug(label);
+  const appena = attivo && CtrlAnim.filtro === chiave;
+  return `<button type="button" class="ctrl-filter ${attivo ? 'is-on' : ''} ${appena ? 'is-just' : ''}" aria-pressed="${attivo}" style="--m:${color || 'var(--text-primary)'};" onclick="CtrlAnim.filtro='${chiave}';${onclick}">
+    ${color ? '<i aria-hidden="true"></i>' : ''}<span>${escapeHtml(label)}</span>${n != null ? `<b>${n}</b>` : ''}</button>`;
 }
 
-// Coda comune con il filtro per macroarea
+// Coda comune: filtro per categoria, poi divisa tra ordini da stampare e servizio
 function renderTaskQueue(coda, emptyText = '') {
   if (!coda.length && !emptyText) return '';
-  const list = Ctrl.macroarea ? coda.filter(t => t.macroarea === Ctrl.macroarea) : coda;
+  const list = Ctrl.macroarea ? coda.filter(t => taskCat(t) === Ctrl.macroarea) : coda;
+  const perLavoro = Object.fromEntries(TASK_LAVORO.map(l => [l.id, list.filter(t => taskLavoro(t) === l.id)]));
+  const mostra = Ctrl.lavoro ? TASK_LAVORO.filter(l => l.id === Ctrl.lavoro) : TASK_LAVORO;
+  const opts = { showStore: !Ctrl.macroarea, showAuto: false };
+  const blocco = (l) => {
+    const righe = perLavoro[l.id];
+    const min = righe.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
+    return `
+      <div class="tk-lavoro is-${l.id}">
+        <div class="tk-lavoro-head"><h3>${l.label}</h3><span class="table-count">${righe.length}</span>
+          <span class="tk-lavoro-hint">${l.hint}${min ? ` · ${ctrlFmtMin(min)} stimate` : ''}</span></div>
+        ${righe.length ? taskSections(righe).map(([titolo, r]) => taskSub(`${titolo} · ${r.length}`, r, opts)).join('')
+                       : `<div class="empty-list">${l.id === 'stampa' ? 'Nessun ordine da stampare.' : 'Nessuna operazione di servizio.'}</div>`}
+      </div>`;
+  };
   return `
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Coda comune</h2><span class="table-count">${list.length}</span>
         <span class="ctrl-group-hint">Non assegnati: li prende chi li fa</span></div>
       ${taskMacroBar(coda)}
+      <div class="tk-lavoro-bar" role="group" aria-label="Da stampare o servizio">
+        ${[{ id: null, label: 'Tutto' }, ...TASK_LAVORO].map(l => `<button type="button" class="tk-lavoro-btn ${Ctrl.lavoro === l.id ? 'is-on' : ''}" aria-pressed="${Ctrl.lavoro === l.id}"
+          onclick="setControlLavoro(${l.id ? `'${l.id}'` : 'null'})">${l.label} <b>${l.id ? perLavoro[l.id].length : list.length}</b></button>`).join('')}
+      </div>
       ${taskAutoNote(list)}
-      ${list.length ? `<div class="tk-split-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${taskSections(list).map(([titolo, righe]) =>
-          taskSub(`${titolo} · ${righe.length}`, righe, { showStore: !Ctrl.macroarea, showAuto: false })).join('')}</div>`
-                    : `<div class="empty-list">${emptyText || 'Nessun task in questa macroarea.'}</div>`}
+      ${list.length ? `<div class="tk-split-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${mostra.map(blocco).join('')}</div>`
+                    : `<div class="empty-list">${emptyText || 'Nessun task in questa categoria.'}</div>`}
     </section>`;
+}
+
+function setControlLavoro(id) {
+  Ctrl.lavoro = id;
+  refreshControlPage();
 }
 
 // Un task è in ritardo se la scadenza è passata o se arriva dai giorni prima
@@ -1238,7 +1313,7 @@ const taskInRitardo = (t) => (t.scadenza && new Date(t.scadenza) < new Date()) |
 // La coda divisa per urgenza; i task dello stesso ordine restano insieme, nella sezione del più importante
 function taskSections(list) {
   const livello = (t) => t.priorita === 'urgente' ? 0 : taskInRitardo(t) ? 1 : 2;
-  const chiave = (t) => { const n = taskOrdine(t); return n ? `${t.macroarea || ''}|${n}` : t.id; };
+  const chiave = (t) => taskGruppo(t) || t.id;
   const min = new Map();
   list.forEach(t => { const k = chiave(t); min.set(k, Math.min(min.get(k) ?? 9, livello(t))); });
   return [['Urgenti', 0], ['In ritardo', 1], ['Da fare', 2]]
@@ -1246,13 +1321,16 @@ function taskSections(list) {
     .filter(([, righe]) => righe.length);
 }
 
+// Filtro per categoria: i brand e i tag degli ordini; le categorie vuote non si mostrano
 function taskMacroBar(list) {
-  const conta = (id) => list.filter(t => t.macroarea === id).length;
+  const conta = {};
+  list.forEach(t => { const c = taskCat(t); conta[c] = (conta[c] || 0) + 1; });
   const chip = (id, label, n, color) => ctrlFilter(Ctrl.macroarea === id, label, n, color, `setControlMacro(${id ? `'${id}'` : 'null'})`);
+  const cat = [...taskCategorie(), TASK_SENZA_CAT].filter(c => conta[c.id] || Ctrl.macroarea === c.id);
   return `
-    <div class="ctrl-macro-bar" role="group" aria-label="Filtra per macroarea">
+    <div class="ctrl-macro-bar" role="group" aria-label="Filtra per categoria">
       ${chip(null, 'Tutte', list.length)}
-      ${TASK_BRAND.map(m => chip(m.id, m.label, conta(m.id), m.color)).join('')}
+      ${cat.map(c => chip(c.id, c.label, conta[c.id] || 0, c.color)).join('')}
     </div>`;
 }
 
@@ -1273,7 +1351,7 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
   const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id);
   const scaduto = t.scadenza && !['completato', 'non_completato'].includes(t.stato) && new Date(t.scadenza) < new Date();
   const meta = [
-    showStore && taskMacro(t.macroarea) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(t.macroarea).color};">${taskMacro(t.macroarea).label}</span>` : '',
+    showStore && taskCat(t) !== '_' ? `<span class="ctrl-macro-tag" style="--m:${taskCatInfo(taskCat(t)).color};">${escapeHtml(taskCatInfo(taskCat(t)).label)}</span>` : '',
     showOwner ? `<strong>${t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune'}</strong>` : '',
     showAuto && t.automazione_errore ? '<span class="task-late">automazione non riuscita</span>' : '',
     t.delega?.da ? `delegato da ${escapeHtml(t.delega.da)}` : '',
@@ -1302,7 +1380,7 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
       <div class="task-badges">${badges}</div>
       <span class="task-time">${t.minuti_stimati ? `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}` : ''}${taskMisurato(t) ? `<span class="task-timer ${t.stato === 'in_lavorazione' ? 'is-on' : ''}" data-task-timer="${t.id}" title="Tempo misurato">${ctrlFmtDur(taskLavoratoSec(t))}</span>` : ''}</span>
       <div class="task-actions">${Ctrl.canAct(t) ? taskQuickActions(t, { assegna: false }) : ''}
-        <button type="button" class="ctrl-btn" onclick="openTaskDetail('${t.id}')" aria-label="Apri ${escapeHtml(t.titolo)}">Apri</button>
+        <button type="button" class="ctrl-btn task-open" onclick="openTaskDetail('${t.id}')" aria-label="Apri ${escapeHtml(t.titolo)}">Apri</button>
       </div>
     </article>`;
 }
@@ -2041,7 +2119,7 @@ function renderTaskCustomer(t) {
 function renderTaskDetail(id, storico) {
   const t = Ctrl.get(id);
   if (!t) { closeModal(CTRL_MODAL); return; }
-  const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id), macro = taskMacro(t.macroarea);
+  const st = taskStato(t.stato), pr = taskPrio(t.priorita), tipo = Ctrl.tipo(t.tipo_id), macro = taskCat(t) === '_' ? null : taskCatInfo(taskCat(t));
   const can = Ctrl.canAct(t);
   const a = _taskAction;
   const chiuso = ['completato', 'non_completato'].includes(t.stato);
@@ -2056,7 +2134,7 @@ function renderTaskDetail(id, storico) {
   const split = !!destra;
   const sep = '<span aria-hidden="true">·</span>';
   const meta = [
-    macro ? `<span class="td-store" style="--m:${macro.color};"><i></i>${macro.label}</span>` : '',
+    macro ? `<span class="td-store" style="--m:${macro.color};"><i></i>${escapeHtml(macro.label)}</span>` : '',
     t.priorita !== 'normale' ? `<span style="color:${pr.color};font-weight:700;">${pr.label}</span>` : '',
     !['da_fare', 'in_lavorazione', 'in_pausa'].includes(t.stato) ? `<span style="color:${st.color};font-weight:700;">${st.label}</span>` : '',
     `<span>${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)} stimati</span>`,
