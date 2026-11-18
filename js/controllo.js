@@ -4474,7 +4474,7 @@ function renderControlAttivazioni() {
 }
 
 
-// ── Costi: i servizi a pagamento del gestionale, mese per mese (sql/costi-gestionale.sql) ──
+// ── Costi: i servizi a pagamento di Creative System, Live Printing e Kamon, mese per mese (sql/costi-gestionale.sql) ──
 // Claude dai consumi veri (vista cervello_costo_giorni), gli altri fissi dal mese in cui si pagano.
 // Previsione: speso finora + ritmo per giorno lavorativo × giorni lavorativi che mancano; il ritmo
 // mescola quello del mese e quello del mese prima, pesati su quanto mese è passato.
@@ -4612,7 +4612,7 @@ function renderControlCosti() {
 
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Servizi</h2>
-        <span class="ctrl-group-hint">Solo quelli a pagamento. Importi in dollari</span>
+        <span class="ctrl-group-hint">Quelli a pagamento di Creative System, Live Printing e Kamon. Importi in dollari</span>
         <button type="button" class="ctrl-btn" onclick="aggiungiCosto()">+ Aggiungi costo</button></div>
       <div class="table-scroll"><table class="data-table costi-table">
         <thead><tr><th>Servizio</th><th>Costo</th><th>Ogni</th><th>Dal</th><th>Al mese</th><th>Nota</th><th></th></tr></thead>
@@ -4622,7 +4622,7 @@ function renderControlCosti() {
             <td class="ctrl-cell-sub">a consumo</td>
             <td></td><td></td>
             <td><strong>${usd(ora?.prevClaude ?? null)}</strong></td>
-            <td class="ctrl-cell-sub">Il cervello: previsione di questo mese</td>
+            <td class="ctrl-cell-sub">Il cervello di Creative System (Live Printing e Kamon non usano Claude): previsione di questo mese</td>
             <td></td>
           </tr>
           ${CtrlCosti.righe.map(r => `<tr>
