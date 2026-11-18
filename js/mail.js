@@ -714,6 +714,8 @@ function renderMailSpedizione(c, f) {
   const sped = c.tasks.filter(t => t.tracking || t.svincolo || t.chiamare);
   const t = sped.find(t => aperto(t) && t.chiamare) || sped.find(t => aperto(t) && t.svincolo) || sped.find(aperto) || sped[sped.length - 1];
   if (!t) {
+    const altro = renderMailTaskAperto(c);
+    if (altro) return altro;
     if (!(f.tag || []).includes('giacenza') || !TCAuth.isAdmin()) return '';
     return `<a class="mail-sped" href="#/comunicazione/${mailBrand(f.casella_id)}/spedizioni">${Icons.truck(14)} Pacco in giacenza: apri le Spedizioni del negozio</a>`;
   }
@@ -721,6 +723,54 @@ function renderMailSpedizione(c, f) {
     : t.chiamare ? 'Chiamare il cliente: fermo di nuovo dopo lo svincolo, storico nel task'
     : t.svincolo ? 'Istruzioni GLS da mandare' : 'Spedizione da seguire';
   return `<a class="mail-sped${aperto(t) ? ' is-open' : ''}" href="${mailLinkTask(t.id)}">${Icons.truck(14)} ${cosa}${t.tracking ? ` · <span class="td-mono">${escapeHtml(t.tracking)}</span>` : ''}: apri il task</a>`;
+}
+
+// Task aperto che non riguarda una spedizione: link sempre in vista e, per il cambio
+// d'indirizzo ancora da fare, il pulsante che lo scrive su Shopify
+function renderMailTaskAperto(c) {
+  const aperti = c.tasks.filter(t => !['completato', 'non_completato'].includes(t.stato));
+  const t = aperti.find(t => t.indirizzo) || aperti[aperti.length - 1];
+  if (!t) return '';
+  const cambia = t.indirizzo && TCAuth.isAdmin()
+    ? `<button type="button" class="mail-sped is-open" onclick="mailCambiaIndirizzo('${t.id}')">${Icons.edit(14)} Cambia indirizzo ${escapeHtml(t.indirizzo.numero)}</button>` : '';
+  return `<span class="mail-task-azioni">${cambia}<a class="mail-sped" href="${mailLinkTask(t.id)}">Apri task</a></span>`;
+}
+
+// L'indirizzo dato dal cliente va nell'ordine su Shopify. Solo via e civico: CAP e città restano
+async function mailCambiaIndirizzo(taskId) {
+  const t = MailBox.conversazione?.tasks.find(x => x.id === taskId);
+  const i = t?.indirizzo;
+  if (!i) return;
+  const att = i.attuale || {}, pro = i.proposto || {};
+  const riga = (a) => `${a.via || ''}, ${[a.cap, a.citta].filter(Boolean).join(' ')}${a.provincia ? ` (${a.provincia})` : ''}`;
+  const via = await uiPrompt(`Ordine ${i.numero}: via e numero civico da scrivere su Shopify\n\nOra: ${riga(att)}`,
+    { title: 'Cambia indirizzo', value: pro.via || att.via || '', ok: 'Avanti' });
+  if (via == null || !via.trim()) return;
+  const altraCitta = (pro.cap && pro.cap !== att.cap) || (pro.citta && pro.citta.toLowerCase() !== String(att.citta || '').toLowerCase());
+  let cap = '', citta = '', provincia = '';
+  if (altraCitta) {
+    const r = await uiPrompt(`CAP, città e sigla della provincia\n\nIl cliente ha scritto un'altra città. Ora: ${[att.cap, att.citta].filter(Boolean).join(' ')}`,
+      { title: 'Cambia indirizzo', value: [pro.cap, pro.citta, pro.provincia].filter(Boolean).join(' '), placeholder: '20121 Milano MI', ok: 'Avanti' });
+    if (r == null) return;
+    const m = r.trim().match(/^(\d{5})\s+(.+?)(?:\s+\(?([A-Za-z]{2})\)?)?$/);
+    if (!m) { uiAlert('Scrivi CAP, città e sigla, per esempio: 20121 Milano MI'); return; }
+    [, cap, citta, provincia = ''] = m;
+  }
+  const dopo = `${via.trim()}, ${cap ? `${cap} ${citta}${provincia ? ` (${provincia.toUpperCase()})` : ''}` : [att.cap, att.citta].filter(Boolean).join(' ')}`;
+  if (!(await uiConfirm(`Ordine ${i.numero}: cambiare l'indirizzo su Shopify?\n\nPrima: ${riga(att)}\n\nDopo: ${dopo}`, { title: 'Cambia indirizzo', ok: 'Cambia su Shopify' }))) return;
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('ordini-dati', { body: { azione: 'cambia-indirizzo', ordine_id: i.ordine_id, via: via.trim(), cap, citta, provincia } });
+    if (error) {
+      const dett = await error.context?.json?.().catch(() => null);
+      throw new Error(dett?.error || error.message || 'Cambio non riuscito');
+    }
+    if (!data?.success) throw new Error(data?.error || 'Cambio non riuscito');
+    if (!data.dopo) throw new Error('Cambio non disponibile: va pubblicata la funzione ordini-dati');
+    showToast(`Indirizzo di ${i.numero} cambiato su Shopify`);
+    const f = MailBox.aperto;
+    const r = await MailBox._rpc('tc_mail_filo', { p_casella: f.casella_id, p_filo: f.filo });
+    if (MailBox.aperto === f) { MailBox.conversazione.tasks = r.tasks || []; renderMailReader(); }
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 function renderMailMessage(m, ultimo) {

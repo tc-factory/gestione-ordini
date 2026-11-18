@@ -102,6 +102,8 @@ html .btn.btn-primary.btn-sm.mail-ddt { height: 26px; min-height: 26px; padding:
   color: var(--text-secondary); background: var(--fill-hover); border: 1px solid var(--border);
 }
 .mail-sped.is-open { color: #fff; background: #d97706; border-color: transparent; }
+button.mail-sped { font-family: inherit; cursor: pointer; }
+.mail-task-azioni { display: flex; flex-wrap: wrap; gap: 6px; }
 .mail-sped:hover { filter: brightness(0.95); }
 .mail-sped .td-mono { font-weight: 500; color: inherit; font-size: inherit; }
 

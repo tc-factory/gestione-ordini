@@ -12,6 +12,7 @@
 //      Se manca solo "Via"/"Piazza" la corregge su Shopify (in Automatica), gli altri dubbi li mostra la scheda Shop.
 //      Corregge anche le mail col dominio scritto male (iclou.com → icloud.com), anche su ordini già spediti
 //
+// Con { azione: 'cambia-indirizzo', ordine_id, via, cap?, citta?, provincia? } (un admin dalla sezione Mail): l'indirizzo dato dal cliente.
 // Con { azione: 'cambia-via', ordine_id, nuova } (un admin dalla scheda Shop): mette su Shopify la via suggerita
 // dalle mappe, rilegge l'ordine da Shopify e risponde con l'indirizzo com'è lì dopo il cambio.
 //
@@ -226,6 +227,33 @@ async function cambiaVia(db: SupabaseClient, body: Row) {
   return { prima: a.address1, dopo: nuova, indirizzo };
 }
 
+// Cambio dell'indirizzo chiesto dal cliente per mail (pulsante "Cambia indirizzo" nella sezione Mail).
+// via obbligatoria; cap/citta/provincia solo se cambiano, altrimenti restano quelli dell'ordine.
+// Il trigger su shopify_orders chiude il task del cambio indirizzo.
+async function cambiaIndirizzo(db: SupabaseClient, body: Row) {
+  const via = String(body.via || '').trim();
+  if (!/\d/.test(via) || !/[a-z]{2}/i.test(via)) throw new Error('Scrivi la via con il numero civico');
+  const cap = String(body.cap || '').trim(), citta = String(body.citta || '').trim(), prov = String(body.provincia || '').trim().toUpperCase();
+  if ((cap || citta) && !(cap && citta)) throw new Error('Servono sia il CAP sia la città');
+  const { data: o } = await db.from('shopify_orders').select('id, shopify_id, store_id, numero, indirizzo').eq('id', body.ordine_id).maybeSingle();
+  if (!o) throw new Error('Ordine non trovato');
+  const { store, token } = await negozio(db, o.store_id);
+  const { order } = await shopify(store, token, LEGGI, { id: o.shopify_id });
+  const a = order?.shippingAddress;
+  if (!order || !a) throw new Error('Ordine senza indirizzo su Shopify');
+  if (order.cancelledAt) throw new Error('Ordine annullato');
+  if (order.displayFulfillmentStatus !== 'UNFULFILLED') throw new Error('Ordine già evaso: l\'indirizzo non si cambia più');
+  await aggiornaSpedizione(store, token, o, a, { address1: via, ...(cap ? { zip: cap, city: citta, provinceCode: prov || null } : {}) });
+  const dopo = (await shopify(store, token, LEGGI, { id: o.shopify_id })).order?.shippingAddress;
+  if (dopo?.address1 !== via) throw new Error(`Shopify non ha preso il cambio: ora c'è "${dopo?.address1 || ''}"`);
+  const indirizzo = { ...o.indirizzo, via: [dopo.address1, dopo.address2].filter(Boolean).join(', '),
+    ...(cap ? { cap: dopo.zip, citta: dopo.city, provincia: dopo.provinceCode || o.indirizzo?.provincia } : {}) };
+  await db.from('shopify_orders').update({ indirizzo }).eq('id', o.id);
+  await db.from('automazione_esecuzioni').insert({ nome: 'verifica-indirizzi', stato: 'ok', fine: new Date().toISOString(),
+    riepilogo: { cambiati_a_mano: 1 }, output: `${o.numero} (${o.store_id}) · indirizzo cambiato dalla mail: "${a.address1}, ${a.zip} ${a.city}" → "${dopo.address1}, ${dopo.zip} ${dopo.city}"` });
+  return { prima: a.address1, dopo: dopo.address1, indirizzo };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return fail('Metodo non consentito', 405);
@@ -243,6 +271,10 @@ Deno.serve(async (req) => {
   }
 
   const body = await req.json().catch(() => ({}));
+  if (body?.azione === 'cambia-indirizzo') {
+    try { return reply({ success: true, ...(await cambiaIndirizzo(db, body)) }); }
+    catch (e) { return fail(e instanceof Error ? e.message : String(e)); }
+  }
   if (body?.azione === 'cambia-via') {
     try { return reply({ success: true, ...(await cambiaVia(db, body)) }); }
     catch (e) { return fail(e instanceof Error ? e.message : String(e)); }
