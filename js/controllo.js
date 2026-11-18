@@ -258,6 +258,7 @@ const Ctrl = {
   users: [],             // nickname dello staff
   operatori: [],         // impostazioni del piano del giorno (task_operatori)
   responsabili: {},      // voce "area:competenza" → { primario, secondario }
+  flusso: null,          // task entrati e chiusi nel giorno (tutto il team)
   assenti: new Set(),    // chi è in ferie o a un evento nel giorno scelto
   problemi: [],          // collegamenti con problemi, in cima alla pagina (solo admin)
   persona: null,         // admin: tutti i task di questa persona al posto della pagina
@@ -321,7 +322,10 @@ const Ctrl = {
       if (users) this.users = users.filter(u => !TASK_ESCLUSI.has(u.nickname)).map(u => u.nickname);
 
       if (TCAuth.isAdmin()) {
-        const [oggi, sette, tempi, operatori, problemi, responsabili, calendario, reti] = await Promise.all([
+        // Flusso del giorno: task entrati e chiusi da tutto il team (senza le sessioni registrate in automatico)
+        const umani = 'fonte.is.null,fonte.not.in.(github,claude_code,shopify_admin,file)';
+        const conta = () => supabaseClient.from('tasks').select('id', { count: 'exact', head: true }).or(umani);
+        const [oggi, sette, tempi, operatori, problemi, responsabili, calendario, reti, entrati, chiusi] = await Promise.all([
           this._rpc('tc_task_punteggi', { p_dal: d, p_al: d }),
           this._rpc('tc_task_punteggi', { p_dal: ctrlAddDays(d, -6), p_al: d }),
           this._rpc('tc_task_tempi_reali'),
@@ -330,7 +334,10 @@ const Ctrl = {
           supabaseClient.from('competenze_responsabili').select('*'),
           supabaseClient.from('calendar_events').select('user_ids').lte('date_from', d).gte('date_to', d).in('event_type', ['ferie', 'impegno']),
           supabaseClient.from('presenze_reti').select('*').order('aggiunta_at'),
+          conta().gte('created_at', ini.toISOString()).lt('created_at', fin.toISOString()),
+          conta().eq('stato', 'completato').gte('completato_at', ini.toISOString()).lt('completato_at', fin.toISOString()),
         ]);
+        this.flusso = entrati.error || chiusi.error ? null : { entrati: entrati.count || 0, chiusi: chiusi.count || 0 };
         this.reti = reti.data || [];
         this.assenti = new Set((calendario.data || []).flatMap(e => e.user_ids || []));
         this.responsabili = Object.fromEntries((responsabili.data || []).map(r => [r.voce, r]));
@@ -848,6 +855,39 @@ function renderControlAdminTasks() {
           <strong class="tk-small-title">${titolo}</strong>
           <span>${f}/${tot} task di ${d === ctrlOggi() ? 'oggi' : ctrlFmtGiorno(d).toLowerCase()}</span>
           <span class="ctrl-progress tk-bar"><span style="width:${p}%"></span></span>
+          ${flusso()}
+        </span>
+      </div>`;
+  };
+  // Entrati e chiusi nel giorno: se la coda cala è verde, se cresce è rossa
+  const flusso = () => {
+    const f = Ctrl.flusso;
+    if (!f) return '';
+    const saldo = f.entrati - f.chiusi;
+    const coda = saldo > 0 ? `Coda +${saldo}` : saldo < 0 ? `Coda −${-saldo}` : 'Coda pari';
+    return `
+      <span class="tk-flow">
+        <span title="Task creati nel giorno">${Icons.plus(12)} ${f.entrati} entrati</span>
+        <span title="Task chiusi nel giorno da tutto il team">${CtrlIcons.check(12)} ${f.chiusi} chiusi</span>
+        <em class="tk-flow-saldo ${saldo > 0 ? 'is-up' : saldo < 0 ? 'is-down' : ''}">${coda}</em>
+      </span>`;
+  };
+  // Carico del team: ore stimate dei task aperti (non bloccati, non di Claude) sulle ore delle persone presenti
+  const carico = () => {
+    const presenti = Ctrl.users.filter(u => u !== 'claude' && !Ctrl.assenti.has(u)
+      && Ctrl.operatori.find(o => o.nickname === u)?.attivo !== false);
+    const cap = presenti.reduce((n, u) => n + (Ctrl.operatori.find(o => o.nickname === u)?.minuti_giorno || 420), 0);
+    const min = minuti(aperti.filter(t => t.stato !== 'bloccato' && t.assegnato_a !== 'claude'));
+    const p = cap ? Math.round(min / cap * 100) : 0;
+    const tono = p > 100 ? '#ef4444' : p > 80 ? '#f97316' : '#22c55e';
+    return `
+      <div class="glass-card tk-stat tk-load-card" style="--t:${tono};">
+        <span class="tk-stat-icon">${Icons.clock(22)}</span>
+        <span class="tk-stat-text">
+          <strong>${cap ? `${p}%` : '—'}</strong>
+          <span>Carico team</span>
+          <small class="tk-stat-sub">${ctrlFmtMin(min)} su ${ctrlFmtMin(cap)} · ${presenti.length} ${presenti.length === 1 ? 'persona' : 'persone'}</small>
+          <span class="ctrl-progress tk-bar"><span style="width:${Math.min(p, 100)}%;background:${tono};"></span></span>
         </span>
       </div>`;
   };
@@ -865,6 +905,7 @@ function renderControlAdminTasks() {
       ${stat(TkIcons.alert(), '#ef4444', urgenti.length, 'Urgenti', urgenti.length ? '<em class="tk-stat-tag">Azioni immediate</em>' : '', `taskVaiA('coda', 'urgente')`)}
       ${stat(Icons.calendarDays(22), '#f97316', inRitardo.length, 'In ritardo', `<small class="tk-stat-sub">${scadute} scaduti · ${inRitardo.length - scadute} dai giorni prima</small>`, `taskVaiA('ritardo')`)}
       ${avanz('Avanzamento team', fatti, delGiorno.length)}
+      ${carico()}
     </div>
     ${renderTaskDuo(Ctrl._me())}
     <div class="tk-duo tk-solo">${renderTaskSubito(urgenti)}</div>
