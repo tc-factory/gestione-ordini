@@ -223,14 +223,19 @@ const Ctrl = {
     const d = this.giorno;
     try {
       const aperti = TASK_APERTI.join(',');
-      const [tasks, tipi, users, prova] = await Promise.all([
+      const ini = new Date(`${d}T00:00:00`), fin = new Date(ini.getTime() + 86400000);
+      const [tasks, tipi, users, prova, fatti] = await Promise.all([
         supabaseClient.from('tasks').select('*')
           .or(`giorno.eq.${d},and(giorno.lt.${d},stato.in.(${aperti}))`)
           .order('created_at'),
         supabaseClient.from('task_tipi').select('*').order('nome'),
         this.users.length ? null : TCAuth.listUsers().catch(() => []),
         supabaseClient.from('app_settings').select('key, value').in('key', ['tempi_test', 'team_ordine']),
+        // Task chiusi dall'utente nel giorno, anche se erano in lista da prima
+        supabaseClient.from('tasks').select('*').eq('stato', 'completato').eq('assegnato_a', this._me())
+          .gte('completato_at', ini.toISOString()).lt('completato_at', fin.toISOString()).order('completato_at', { ascending: false }),
       ]);
+      this.mieiFatti = fatti?.data || [];
       const imp = Object.fromEntries((prova?.data || []).map(r => [r.key, r.value]));
       this.tempiTest = imp.tempi_test || {};
       this.teamOrdine = Array.isArray(imp.team_ordine) ? imp.team_ordine : [];
@@ -349,7 +354,7 @@ const Ctrl = {
     return data || [];
   },
 
-  get(id)     { return this.tasks.find(t => t.id === id); },
+  get(id)     { return this.tasks.find(t => t.id === id) || this.mieiFatti?.find(t => t.id === id); },
   tipo(id)    { return this.tipi.find(t => t.id === id); },
   canAct(t)   { return TCAuth.isAdmin() || !t.assegnato_a || t.assegnato_a === this._me(); },
 };
@@ -594,6 +599,15 @@ function renderTaskDuo(me, persona = null) {
   const visibili = vedi(aperti);
   const opts = { showStore: !Ctrl.macroarea && negoziLista.size > 1, showAuto: false };
   const barraNegozi = new Set(conNegozio.map(t => t.macroarea)).size > 1 || Ctrl.macroarea;
+  if (!persona) {
+    // I task sono tutti comuni: la coda prende lo spazio, a destra quello che ho chiuso
+    const comuni = Ctrl.tasks.filter(t => !taskChiuso(t) && (!t.assegnato_a || t.assegnato_a === me));
+    return `
+    <div class="tk-split is-coda">
+      ${renderTaskQueue(comuni, 'Nessun task in coda comune.')}
+      ${renderTaskFatti()}
+    </div>`;
+  }
   return `
     <div class="tk-split ${coda.length || !persona ? '' : 'is-solo'}">
       <section class="glass-card page-card ctrl-group tk-split-box">
@@ -610,6 +624,33 @@ function renderTaskDuo(me, persona = null) {
       </section>
       ${persona ? '' : renderTaskQueue(coda, 'Nessun task in coda comune.')}
     </div>`;
+}
+
+// Pannello a destra: i task chiusi dall'utente nel giorno, con il resoconto
+function renderTaskFatti() {
+  const list = Ctrl.mieiFatti || [];
+  const d = Ctrl.giorno;
+  const stimati = list.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
+  const lavoratiSec = list.reduce((n, t) => n + (t.lavorato_sec || 0), 0);
+  return `
+    <aside class="glass-card page-card ctrl-group tk-fatti">
+      <div class="page-card-head"><h2>Fatti da me</h2><span class="table-count">${list.length}</span></div>
+      <div class="tk-fatti-sum">
+        <div><strong>${list.length}</strong><span>task chiusi ${d === ctrlOggi() ? 'oggi' : ctrlFmtGiorno(d).toLowerCase()}</span></div>
+        <div><strong>${ctrlFmtMin(stimati)}</strong><span>tempo stimato</span></div>
+        ${lavoratiSec ? `<div><strong>${ctrlFmtDur(lavoratiSec)}</strong><span>cronometrato</span></div>` : ''}
+      </div>
+      ${list.length ? `<ul class="tk-fatti-list">${list.map(t => {
+        const macro = taskMacro(t.macroarea);
+        return `
+          <li><button type="button" onclick="openTaskDetail('${t.id}')" title="${escapeHtml(t.titolo)}">
+            <span class="tk-fatti-ok" aria-hidden="true">${CtrlIcons.check(12)}</span>
+            <span class="tk-fatti-txt"><strong>${escapeHtml(t.titolo)}</strong>
+              <small>${ctrlFmtOra(t.completato_at)}${macro ? ` · <span style="color:${macro.color};">${macro.label}</span>` : ''}${t.minuti_stimati ? ` · ${ctrlFmtMin(t.minuti_stimati)}` : ''}</small></span>
+          </button></li>`;
+      }).join('')}</ul>`
+        : `<div class="empty-list">Ancora nessun task chiuso${d === ctrlOggi() ? ' oggi' : ''}.</div>`}
+    </aside>`;
 }
 
 // ── Tasks (admin): panoramica di produzione ──
