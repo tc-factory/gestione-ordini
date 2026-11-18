@@ -155,10 +155,16 @@ const ctrlFmtMin = (min) => {
 };
 // Secondi lavorati, compresa la sessione in corso
 const taskLavoratoSec = (t) => (t.lavorato_sec || 0) + (t.lavoro_dal ? (Date.now() - new Date(t.lavoro_dal)) / 1000 : 0);
-// Prova dei tempi di lavorazione: solo i lotti "Lavorazione ordini", solo mentre la prova è attiva
+// Prova dei tempi di lavorazione: i task produttivi, solo mentre la prova è attiva.
+// Fasi degli ordini del gestionale (non ordinare la merce, controlli esterni, fattura e incasso) e lotti Shopify
 const taskLottoLav = (t) => t.fonte === 'shopify' && t.fonte_rif?.fase === 'lav';
-const taskInProva = (t) => !!Ctrl.tempiTest?.attivo && taskLottoLav(t);
-const taskMisurato = (t) => taskLottoLav(t) && (t.stato === 'in_lavorazione' || t.lavorato_sec > 0);
+const taskProduttivo = (t) => (t.fonte === 'gestionale' && /^prod:/.test(t.fonte_rif?.evento_id || '')
+    && !/:(ordinare|fattura|incasso|controllo:.*)$/.test(t.fonte_rif.evento_id))
+  || (t.fonte === 'shopify' && ['prep', 'lav', 'spedire'].includes(t.fonte_rif?.fase));
+const taskInProva = (t) => !!Ctrl.tempiTest?.attivo && taskProduttivo(t);
+const taskMisurato = (t) => taskProduttivo(t) && (t.stato === 'in_lavorazione' || t.lavorato_sec > 0);
+// I task di una persona: quelli che ha preso e quelli liberi designati a lei
+const taskMio = (t, nick) => t.assegnato_a === nick || (!t.assegnato_a && t.designato === nick);
 
 const CtrlIcons = {
   play:  (s = 14) => `<svg viewBox="0 0 24 24" fill="currentColor" width="${s}" height="${s}" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/></svg>`,
@@ -271,7 +277,9 @@ const Ctrl = {
   async loadBadge() {
     // All'admin la coda da assegnare, agli altri i propri task
     const q = supabaseClient.from('tasks').select('id', { count: 'exact', head: true }).lte('giorno', ctrlOggi()).in('stato', TASK_APERTI);
-    const { count, error } = await (TCAuth.isAdmin() ? q.is('assegnato_a', null) : q.eq('assegnato_a', this._me()));
+    const me = this._me();
+    const { count, error } = await (TCAuth.isAdmin() ? q.is('assegnato_a', null).is('designato', null)
+      : q.or(`assegnato_a.eq.${me},and(assegnato_a.is.null,designato.eq.${me})`));
     const n = error ? 0 : (count || 0);
     if (n !== this.badge) { this.badge = n; renderSidebar(); }
   },
@@ -514,10 +522,10 @@ function startControlTicker() {
 function renderControlMyDay(persona = null) {
   if (TCAuth.isAdmin() && !persona) return renderControlAdminTasks();
   const me = persona || Ctrl._me(), d = Ctrl.giorno;
-  const mine = Ctrl.tasks.filter(t => t.assegnato_a === me);
+  const mine = Ctrl.tasks.filter(t => taskMio(t, me));
   const delGiorno = mine.filter(t => t.giorno === d);
   const arretrati = mine.filter(t => t.giorno < d);
-  const coda = persona ? [] : Ctrl.tasks.filter(t => !t.assegnato_a);
+  const coda = persona ? [] : Ctrl.tasks.filter(t => !t.assegnato_a && t.designato !== me);
 
   const daFare   = delGiorno.filter(t => ['da_fare', 'in_lavorazione', 'in_pausa', 'rimandato'].includes(t.stato));
   const bloccati = delGiorno.filter(t => t.stato === 'bloccato');
@@ -568,12 +576,12 @@ function renderControlMyDay(persona = null) {
 // Apertura di Tasks: a sinistra i task assegnati alla persona, a destra la coda comune
 function renderTaskDuo(me, persona = null) {
   const d = Ctrl.giorno;
-  const mine = Ctrl.tasks.filter(t => t.assegnato_a === me);
+  const mine = Ctrl.tasks.filter(t => taskMio(t, me));
   const delGiorno = mine.filter(t => t.giorno === d);
   const arretrati = mine.filter(t => t.giorno < d && !taskChiuso(t));
   const daFare   = delGiorno.filter(t => ['da_fare', 'in_lavorazione', 'in_pausa', 'rimandato'].includes(t.stato));
   const bloccati = delGiorno.filter(t => t.stato === 'bloccato');
-  const coda = persona ? [] : Ctrl.tasks.filter(t => !t.assegnato_a && !taskChiuso(t));
+  const coda = persona ? [] : Ctrl.tasks.filter(t => !t.assegnato_a && !taskChiuso(t) && t.designato !== me);
   const aperti = [...daFare, ...arretrati, ...bloccati];
   const negoziLista = new Set(aperti.map(t => t.macroarea || ''));
   const conNegozio = aperti.filter(t => t.macroarea);
@@ -604,7 +612,7 @@ function renderTaskDuo(me, persona = null) {
 // L'admin non ha task suoi: numeri del giorno, cosa gestire subito, carico del team e la tabella di tutti i task
 
 const TASK_TABS = [
-  ['coda', 'Coda di lavorazione'], ['oggi', 'Oggi'], ['ritardo', 'In ritardo'], ['assegnare', 'Da assegnare'], ['chiusi', 'Completati'], ['tutti', 'Tutti'],
+  ['coda', 'Coda di lavorazione'], ['oggi', 'Oggi'], ['ritardo', 'In ritardo'], ['assegnare', 'Senza designato'], ['chiusi', 'Completati'], ['tutti', 'Tutti'],
 ];
 const TASK_PAGINA = 50;
 const TaskView = { tab: 'coda', brand: '', tipo: '', chi: '', prio: '', stato: '', scad: '', q: '', ordina: 'scadenza', limite: TASK_PAGINA, sel: new Set(), bulkChi: '' };
@@ -710,7 +718,7 @@ function renderControlAdminTasks() {
   const aperti = Ctrl.tasks.filter(t => !taskChiuso(t));
   const urgenti = aperti.filter(t => t.priorita === 'urgente');
   const inRitardo = aperti.filter(taskInRitardo);
-  const coda = aperti.filter(t => !t.assegnato_a);
+  const coda = aperti.filter(t => !t.assegnato_a && !t.designato);
   const delGiorno = Ctrl.tasks.filter(t => t.giorno === d);
   const minuti = (list) => list.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
   const scadute = inRitardo.filter(taskScaduto).length;
@@ -743,7 +751,7 @@ function renderControlAdminTasks() {
       ${stat(TkIcons.layers(22), '#3b82f6', aperti.length, 'Task aperti', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(aperti))} stimate</small>`, `taskVaiA('coda')`)}
       ${stat(TkIcons.alert(), '#ef4444', urgenti.length, 'Urgenti', urgenti.length ? '<em class="tk-stat-tag">Azioni immediate</em>' : '', `taskVaiA('coda', 'urgente')`)}
       ${stat(Icons.calendarDays(22), '#f97316', inRitardo.length, 'In ritardo', `<small class="tk-stat-sub">${scadute} scaduti · ${inRitardo.length - scadute} dai giorni prima</small>`, `taskVaiA('ritardo')`)}
-      ${stat(TkIcons.user(), '#6366f1', coda.length, 'Da assegnare', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(coda))} stimate</small>`, `taskVaiA('assegnare')`)}
+      ${stat(TkIcons.user(), '#6366f1', coda.length, 'Senza designato', `<small class="tk-stat-sub">${ctrlFmtMin(minuti(coda))} stimate · da prendere a mano</small>`, `taskVaiA('assegnare')`)}
       ${avanz('Il mio avanzamento', mieiFatti, mieiDelGiorno.length)}
       ${avanz('Avanzamento team', fatti, delGiorno.length)}
     </div>
@@ -883,7 +891,7 @@ function taskBoardBase() {
     coda: aperti,
     oggi: aperti.filter(t => t.giorno === d && !taskInRitardo(t)),
     ritardo: aperti.filter(taskInRitardo),
-    assegnare: aperti.filter(t => !t.assegnato_a),
+    assegnare: aperti.filter(t => !t.assegnato_a && !t.designato),
     chiusi: Ctrl.tasks.filter(t => t.giorno === d && taskChiuso(t)),
     tutti: Ctrl.tasks.filter(t => !taskChiuso(t) || t.giorno === d),
   };
@@ -1223,7 +1231,7 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
   const meta = [
     showStore && taskMacro(t.macroarea) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(t.macroarea).color};">${taskMacro(t.macroarea).label}</span>` : '',
     showOwner ? `<strong>${t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune'}</strong>` : '',
-    !t.assegnato_a && t.suggerito ? `<span class="task-suggerito">suggerito a ${escapeHtml(t.suggerito)}</span>` : '',
+    !t.assegnato_a && (t.designato || t.suggerito) ? `<span class="task-suggerito">designato: ${escapeHtml(t.designato || t.suggerito)}</span>` : '',
     showAuto && t.automazione_errore ? '<span class="task-late">automazione non riuscita</span>' : '',
     t.delega?.da ? `delegato da ${escapeHtml(t.delega.da)}` : '',
     // Il tipo solo se il titolo non lo dice già
@@ -1261,17 +1269,17 @@ function taskQuickActions(t, { fatto = true } = {}) {
     if (['completato', 'non_completato'].includes(t.stato)) return '';
     return `<select class="ctrl-assign" aria-label="Assegna il task" onchange="taskAssign('${t.id}', this.value)">
       <option value="">${t.assegnato_a ? 'Coda comune' : 'Assegna a…'}</option>
-      ${Ctrl.users.map(u => `<option value="${escapeHtml(u)}" ${t.assegnato_a === u ? 'selected' : ''}>${escapeHtml(u)}${!t.assegnato_a && t.suggerito === u ? ' (suggerito)' : ''}</option>`).join('')}
+      ${Ctrl.users.map(u => `<option value="${escapeHtml(u)}" ${t.assegnato_a === u ? 'selected' : ''}>${escapeHtml(u)}${!t.assegnato_a && t.designato === u ? ' (designato)' : ''}</option>`).join('')}
     </select>`;
   }
   const btn = (stato, icon, label, cls = '') =>
     `<button class="ctrl-btn ${cls}" onclick="taskSetStato('${t.id}','${stato}')">${icon} <span>${label}</span></button>`;
   const primo = Ctrl._prossimo === t.id ? 'is-primary' : '';
-  const prendi = !t.assegnato_a ? `<button class="ctrl-btn ${t.suggerito === Ctrl._me() ? 'is-primary' : ''}" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
   if (['completato', 'non_completato'].includes(t.stato)) return btn('da_fare', CtrlIcons.undo(), 'Riapri');
-  // Prova dei tempi: sui lotti di lavorazione si misura il tempo con Inizia/Pausa
-  const cronometro = !t.assegnato_a || !taskInProva(t) ? ''
+  // Prova dei tempi: sui task produttivi chi lavora preme Inizia (e se lo prende); la fine arriva dal pulsante dell'ordine
+  const cronometro = !taskInProva(t) ? ''
     : t.stato === 'in_lavorazione' ? btn('in_pausa', CtrlIcons.pause(), 'Pausa') : btn('in_lavorazione', CtrlIcons.play(), t.lavorato_sec ? 'Riprendi' : 'Inizia');
+  const prendi = !t.assegnato_a && !cronometro ? `<button class="ctrl-btn ${t.designato === Ctrl._me() ? 'is-primary' : ''}" onclick="taskPrendi('${t.id}')">${CtrlIcons.hand()} <span>Prendi</span></button>` : '';
   return prendi + cronometro + (fatto ? btn('completato', CtrlIcons.check(), 'Fatto', primo) : '');
 }
 
@@ -1572,7 +1580,7 @@ async function sendTaskReply(id) {
   }
 }
 
-const TASK_ORIGINI = { manuale: 'Inserito a mano', mail: 'Mail', shopify: 'Shopify', gestionale: 'Gestionale', automazione: 'Automazione' };
+const TASK_ORIGINI = { manuale: 'Inserito a mano', mail: 'Mail', shopify: 'Shopify', gestionale: 'Gestionale', automazione: 'Automazione', stampe: 'Stampe del giorno' };
 
 // Spedizione del task: storico GLS come linea del tempo
 // Contatto col cliente per un pacco fermo (tracking-check): mail mandate, risposta, quando chiamare
@@ -1815,7 +1823,8 @@ function renderTaskDetail(id, storico) {
     t.giorno !== ctrlOggi() ? `<span>${ctrlFmtGiorno(t.giorno)}</span>` : '',
   ].filter(Boolean).join(sep);
   const fatti = [
-    t.assegnato_a !== Ctrl._me() ? (t.assegnato_a ? `Assegnato a ${escapeHtml(t.assegnato_a)}` : 'Coda comune') : '',
+    t.assegnato_a !== Ctrl._me() ? (t.assegnato_a ? `${taskChiuso(t) ? 'Fatto da' : 'Preso da'} ${escapeHtml(t.assegnato_a)}` : t.designato ? `Libero · designato: ${escapeHtml(t.designato)}` : 'Libero · senza designato') : '',
+    t.assegnato_a && t.designato && t.designato !== t.assegnato_a ? `Designato: ${escapeHtml(t.designato)}` : '',
     t.delega?.da ? `Delegato da ${escapeHtml(t.delega.da)}${t.delega.nota ? ` («${escapeHtml(t.delega.nota)}»)` : ''}` : '',
     `${TASK_ORIGINI[t.fonte] || escapeHtml(t.fonte)} · ${ctrlFmtQuando(t.created_at)}${t.creato_da ? ` · ${escapeHtml(t.creato_da)}` : ''}`,
     t.automazione_errore ? `Automazione non riuscita: ${escapeHtml(t.automazione_errore)}` : '',
@@ -3368,7 +3377,17 @@ function renderTempiLavorazione() {
   if (CtrlTempi.error) return `<div class="glass-card page-card"><div class="empty-list">${CtrlTempi.error.notInstalled ? 'Esegui lo script <strong>sql/tempi-lavorazione.sql</strong> su Supabase.' : escapeHtml(CtrlTempi.error.message)}</div></div>`;
   if (!CtrlTempi.categorie) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
   const cats = CtrlTempi.categorie, pr = CtrlTempi.prova || {}, test = Ctrl.tempiTest || {};
-  const lotti = pr.lotti || [], senza = pr.senza_categoria || [];
+  const lotti = pr.lotti || [], senza = pr.senza_categoria || [], fasi = pr.fasi || [];
+  // Fasi per tipo e ordini con il tempo di tutte le loro fasi misurate
+  const perTipo = {}, perOrdine = {};
+  fasi.forEach(f => {
+    const t = perTipo[f.tipo] ||= { n: 0, stima: 0, reale: 0 };
+    t.n++; t.stima += f.stima_sec; t.reale += f.reale_sec;
+    if (!f.ordine) return;
+    const o = perOrdine[f.ordine] ||= { nome: f.ordine_nome, fasi: [], reale: 0, stima: 0, at: f.at };
+    o.fasi.push(f.tipo); o.reale += f.reale_sec; o.stima += f.stima_sec; if (f.at > o.at) o.at = f.at;
+  });
+  const ordini = Object.values(perOrdine).sort((a, b) => b.at.localeCompare(a.at));
 
   const righe = cats.map(c => `
     <tr>
@@ -3408,7 +3427,9 @@ function renderTempiLavorazione() {
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Prova dei tempi</h2>
         <span class="ctrl-group-hint">${test.attivo ? `In corso dal ${ctrlFmtGiorno(test.dal).toLowerCase()}` : test.dal ? `Ferma · risultati dal ${ctrlFmtGiorno(test.dal).toLowerCase()}` : 'Non avviata'}</span></div>
-      <p class="tempi-help">Durante la prova, sui lotti "Lavorazione ordini" chi lavora preme <strong>Inizia</strong>, <strong>Pausa</strong> se si ferma e <strong>Fatto</strong> alla fine. Il tempo misurato si confronta con la stima calcolata con i tempi di adesso.</p>
+      <p class="tempi-help">Durante la prova, su tutti i task produttivi chi lavora preme <strong>Inizia</strong> (il task diventa suo) e <strong>Pausa</strong> se si ferma.
+        La fine arriva da sola quando l'ordine cambia stato: il cronometro si ferma all'ora del pulsante premuto sull'ordine (C, STAMPA, DTF, ✔, EVASO).
+        Sui lotti Shopify, che non hanno pulsanti, si preme <strong>Fatto</strong>. Il tempo misurato si confronta con la stima.</p>
       <div class="tempi-foot">
         ${test.attivo ? `<button class="ctrl-btn" onclick="setTempiTest(false)">${CtrlIcons.pause()} Ferma la prova</button>`
           : `<button class="ctrl-btn is-primary" onclick="setTempiTest(true)">${CtrlIcons.play()} ${test.dal ? 'Avvia una nuova prova' : 'Avvia la prova'}</button>`}
@@ -3437,6 +3458,22 @@ function renderTempiLavorazione() {
               <td>${tempiFmtSec(l.stima_sec)}</td><td>${tempiFmtSec(l.reale_sec)}</td><td>${tempiScarto(l.stima_sec, l.reale_sec)}</td></tr>`).join('')}</tbody>
         </table></div>`
       : test.dal ? `<div class="empty-list">Nessun lotto misurato finora.</div>` : ''}
+      ${fasi.length ? `
+        <h3 class="tempi-h3">Fasi degli ordini <span class="ctrl-cell-sub">· ${fasi.length} misurate</span></h3>
+        <div class="table-scroll"><table class="data-table tempi-table">
+          <thead><tr><th>Fase</th><th>Volte</th><th>Stima media</th><th>Reale media</th><th>Scarto</th></tr></thead>
+          <tbody>${Object.entries(perTipo).sort((a, b) => b[1].n - a[1].n).map(([nome, t]) => `
+            <tr><td><strong>${escapeHtml(nome)}</strong></td><td>${t.n}</td>
+              <td>${tempiFmtSec(t.stima / t.n)}</td><td>${tempiFmtSec(t.reale / t.n)}</td><td>${tempiScarto(t.stima, t.reale)}</td></tr>`).join('')}</tbody>
+        </table></div>
+        ${ordini.length ? `
+          <h3 class="tempi-h3">Per ordine <span class="ctrl-cell-sub">· somma delle fasi misurate</span></h3>
+          <div class="table-scroll"><table class="data-table tempi-table">
+            <thead><tr><th>Ordine</th><th>Fasi misurate</th><th>Stima</th><th>Reale</th><th>Scarto</th></tr></thead>
+            <tbody>${ordini.map(o => `
+              <tr><td><strong>${escapeHtml(o.nome || '—')}</strong></td><td>${escapeHtml(o.fasi.join(', '))}</td>
+                <td>${tempiFmtSec(o.stima)}</td><td>${tempiFmtSec(o.reale)}</td><td>${tempiScarto(o.stima, o.reale)}</td></tr>`).join('')}</tbody>
+          </table></div>` : ''}` : ''}
     </section>
 
     <section class="glass-card page-card ctrl-group">
