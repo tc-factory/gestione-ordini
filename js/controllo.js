@@ -1352,8 +1352,15 @@ function renderOrdineRiga(o, { pos = null, dtf = false } = {}) {
       </button>
       <div class="task-badges">${urg ? `<span class="td-tag" style="--c:${pr.color};">Urgente</span>` : ''}${dtf ? '' : '<span class="td-tag" style="--c:#a855f7;">Senza file</span>'}</div>
       <span class="task-time"></span>
-      <div class="task-actions"><button type="button" class="ctrl-btn task-open" onclick="openOrderDetail('${o.id}')" aria-label="Apri l'ordine ${escapeHtml(o.nome)}">Apri</button></div>
+      <div class="task-actions">${dtf ? `<button type="button" class="ctrl-btn" onclick="codaDtfFatto('${o.id}')" title="Segna il DTF come stampato">${CtrlIcons.check()} <span>Fatto</span></button>` : ''}
+        <button type="button" class="ctrl-btn task-open" onclick="openOrderDetail('${o.id}')" aria-label="Apri l'ordine ${escapeHtml(o.nome)}">Apri</button></div>
     </article>`;
+}
+
+// DTF stampato dalla coda: come "Stampato" nella pagina DTF (giallo Stampa sull'ordine), poi l'ordine passa avanti
+async function codaDtfFatto(id) {
+  await dtfMarkPrinted(id);
+  refreshControlPage();
 }
 
 // Filtro della coda comune: prima le code di produzione (sempre), poi i brand con almeno un task
@@ -1454,7 +1461,9 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
 
 function taskQuickActions(t, { fatto = true, assegna = true } = {}) {
   if (TCAuth.isAdmin() && t.assegnato_a !== Ctrl._me()) {
-    if (!assegna || ['completato', 'non_completato'].includes(t.stato)) return '';
+    if (['completato', 'non_completato'].includes(t.stato)) return '';
+    // In coda comune niente tendina: solo Fatto, come per tutti
+    if (!assegna) return `<button class="ctrl-btn" onclick="taskSetStato('${t.id}','completato')">${CtrlIcons.check()} <span>Fatto</span></button>`;
     return `<select class="ctrl-assign" aria-label="Assegna il task" onchange="taskAssign('${t.id}', this.value)">
       <option value="">${t.assegnato_a ? 'Coda comune' : 'Assegna a…'}</option>
       ${Ctrl.users.map(u => `<option value="${escapeHtml(u)}" ${t.assegnato_a === u ? 'selected' : ''}>${escapeHtml(u)}${!t.assegnato_a && t.designato === u ? ' (designato)' : ''}</option>`).join('')}
