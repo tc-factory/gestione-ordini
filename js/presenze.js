@@ -1,17 +1,15 @@
 /* ════════════════════════════════════════════════════════
- * Presenze: chi lavora oggi conferma di essere al lavoro (sql/presenze.sql)
+ * Presenze (sql/presenze.sql)
  *
- * • Prima della conferma, sotto la testata c'è la barra "Sei al lavoro?" con il pulsante.
- * • Passati 30 minuti dall'orario standard senza conferma si apre un popup a lui
- *   e agli addetti alle presenze (che possono confermare per lui). Si ripete ogni 15 minuti.
- * • Si conferma solo dalla rete del posto di lavoro: lo controlla il database dall'IP.
+ * • Chi apre il gestionale col proprio account dalla rete del posto di lavoro
+ *   risulta presente in automatico: niente domande né popup.
+ * • Fuori dalla rete non si conferma; gli addetti possono sempre segnare
+ *   presenti o assenti gli altri dal riquadro del team.
  * ════════════════════════════════════════════════════════ */
 
 const Presenze = {
   stato: null,
   _timer: null,
-  _chiesto: {},           // persona → ultima volta che il popup è stato mostrato
-  RIPETI_MS: 15 * 60 * 1000,
 
   async start() {
     this.stop();
@@ -21,8 +19,8 @@ const Presenze = {
 
   stop() {
     clearInterval(this._timer);
-    Object.assign(this, { _timer: null, stato: null, _chiesto: {} });
-    this.renderBar();
+    Object.assign(this, { _timer: null, stato: null, _auto: false });
+    document.getElementById('presenza-bar')?.remove();
   },
 
   async check() {
@@ -31,9 +29,19 @@ const Presenze = {
     // La pagina si ridisegna solo se l'elenco è cambiato (non a ogni minuto: si perderebbe ciò che si sta scrivendo)
     const cambiato = JSON.stringify(data.tutti) !== JSON.stringify(this.stato?.tutti);
     this.stato = data;
-    this.renderBar();
     if (cambiato && data.addetto && typeof ctrlAperto === 'function' && ctrlAperto() && ['squadra', 'giorno'].includes(Ctrl.view)) refreshControlPage();
-    this.popup();
+    // Aperto il gestionale dalla rete del lavoro: presente, senza chiedere (chi è segnato assente resta assente)
+    const me = data.me;
+    if (me && !me.confermato_at && !me.stato && data.in_rete && !this._auto) {
+      this._auto = true;
+      const { data: r } = await supabaseClient.rpc('tc_presenza_conferma', { p_chi: null });
+      this._auto = false;
+      if (r?.success) {
+        if (r.restituiti) showToast(`${r.restituiti} task tornati a te`);
+        await this.check();
+        if (typeof ctrlAperto === 'function' && ctrlAperto()) { await Ctrl.load(); refreshControlPage(); }
+      }
+    }
   },
 
   async conferma(chi = null) {
@@ -58,46 +66,4 @@ const Presenze = {
     if (typeof ctrlAperto === 'function' && ctrlAperto()) { await Ctrl.load(); refreshControlPage(); }
   },
 
-  renderBar() {
-    let el = document.getElementById('presenza-bar');
-    const me = this.stato?.me;
-    if (!me || me.confermato_at) { el?.remove(); return; }
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'presenza-bar';
-      el.className = 'presenza-bar';
-      el.setAttribute('role', 'status');
-      document.getElementById('header-root')?.insertAdjacentElement('afterend', el);
-    }
-    el.classList.toggle('is-late', !!me.scaduto);
-    el.innerHTML = `
-      <span><strong>Sei al lavoro?</strong> Entrata alle ${escapeHtml(me.ora_inizio)}.
-        ${this.stato.in_rete ? '' : this.stato.reti ? 'Puoi confermare solo dalla rete del posto di lavoro.' : 'La rete del posto di lavoro non è ancora stata registrata.'}</span>
-      ${this.stato.in_rete ? `<button type="button" class="btn btn-primary" onclick="Presenze.conferma()">Sono al lavoro</button>` : ''}`;
-  },
-
-  // Un popup alla volta: prima la propria presenza, poi quelle degli altri (addetti)
-  async popup() {
-    if (UIDialog._resolve || this._inCorso) return;
-    const s = this.stato, ora = Date.now();
-    const daChiedere = (k) => !this._chiesto[k] || ora - this._chiesto[k] > this.RIPETI_MS;
-    const coda = [];
-    if (s.me && !s.me.confermato_at && s.me.scaduto && daChiedere('')) coda.push(null);
-    const me = TCAuth.getNickname();
-    (s.tutti || []).filter(p => !p.assente && !p.confermato_at && p.scaduto && p.nickname !== me && daChiedere(p.nickname))
-      .forEach(p => coda.push(p));
-    if (!coda.length) return;
-
-    this._inCorso = true;
-    try {
-      for (const p of coda) {
-        this._chiesto[p ? p.nickname : ''] = Date.now();
-        const ok = await uiConfirm(p
-          ? `${p.nickname} non ha confermato la presenza (entrata alle ${p.ora_inizio}). È al lavoro?`
-          : `Non hai ancora confermato la presenza (entrata alle ${s.me.ora_inizio}). Sei al lavoro?`,
-          { title: 'Presenza', ok: p ? 'Sì, confermo' : 'Sono al lavoro', cancel: 'Non ora' });
-        if (ok) await this.conferma(p ? p.nickname : null);
-      }
-    } finally { this._inCorso = false; }
-  },
 };
