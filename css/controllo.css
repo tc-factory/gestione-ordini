@@ -1206,7 +1206,7 @@ button.team-info:hover .team-nome { text-decoration: underline; }
 .cv-prodotto { overflow-wrap: anywhere; }
 @media (max-width: 760px) { .cv-prodotti { grid-template-columns: 1fr; } }
 
-/* ── Coda comune: bottone Apri e divisione Da stampare / Servizio ── */
+/* ── Coda comune: bottone Apri ── */
 
 html .ctrl-btn.task-open {
   height: 32px; padding: 0 16px; border: none; border-radius: 999px; color: var(--lq-on-yellow, #1a1a1a); font-weight: 750;
@@ -1214,20 +1214,3 @@ html .ctrl-btn.task-open {
   box-shadow: 0 1px 2px rgba(120, 90, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 html .ctrl-btn.task-open:hover:not(:disabled) { background: linear-gradient(180deg, #FFE38F, var(--lq-yellow-2, #f59e0b)); }
-
-.tk-lavoro-bar { display: flex; gap: 4px; margin: 0 16px 4px; padding: 4px; width: fit-content; border-radius: 14px; background: var(--fill-hover); }
-.tk-lavoro-btn {
-  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border: none; border-radius: 10px; cursor: pointer;
-  background: transparent; color: var(--text-secondary); font: inherit; font-size: 0.84rem; font-weight: 650; white-space: nowrap;
-}
-.tk-lavoro-btn b { font-size: 0.76rem; font-weight: 750; color: var(--text-muted); }
-.tk-lavoro-btn:hover { color: var(--text-primary); }
-.tk-lavoro-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.tk-lavoro-btn.is-on { background: var(--bg-card, #fff); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
-.tk-lavoro-btn.is-on b { color: var(--text-primary); }
-
-.tk-lavoro + .tk-lavoro { margin-top: 10px; border-top: 1px solid var(--border-light, var(--border)); }
-.tk-lavoro-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; padding: 16px 16px 2px; }
-.tk-lavoro-head h3 { margin: 0; font-size: 1.02rem; font-weight: 800; }
-.tk-lavoro-head .table-count { margin: 0; }
-.tk-lavoro-hint { font-size: 0.78rem; color: var(--text-muted); }
