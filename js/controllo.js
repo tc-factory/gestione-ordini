@@ -94,8 +94,22 @@ const ordineCmp = (a, b) => ordinePrioRank(a) - ordinePrioRank(b)
   || ordineScad(a).localeCompare(ordineScad(b)) || (a?.dataOrdine || '').localeCompare(b?.dataOrdine || '');
 // Coda DTF: la stessa della pagina DTF (Interno), nello stesso ordine
 const ordiniDtf = () => typeof dtfLists === 'function' ? dtfLists().todo : [];
-const ordiniSenzaFile = () => typeof TCFactory === 'undefined' ? []
-  : TCFactory.getActiveOrders().filter(o => !(o.files || []).length).sort(ordineCmp);
+// Coda File: "Fatto" toglie l'ordine dalla coda per tutti (impostazione condivisa)
+const CODA_FILE_KEY = 'coda_file_fatti';
+const codaFileFatti = () => new Set(TCFactory._settings?.[CODA_FILE_KEY]?.ids || []);
+const ordiniSenzaFile = () => {
+  if (typeof TCFactory === 'undefined') return [];
+  const fatti = codaFileFatti();
+  return TCFactory.getActiveOrders().filter(o => !(o.files || []).length && !fatti.has(o.id)).sort(ordineCmp);
+};
+async function codaFileFatto(id) {
+  const ids = [...codaFileFatti(), id];
+  try {
+    await TCFactory.setSetting(CODA_FILE_KEY, { ids });
+    showToast(`"${TCFactory.getOrderById(id)?.nome || id}": file fatti ✓`);
+  } catch { showToast('Impossibile segnare come fatto', 'error'); }
+  refreshControlPage();
+}
 
 // Da stampare o servizio: le lavorazioni degli ordini da una parte; mail, messaggi, giacenze, pagamenti dall'altra
 const TASK_COMP_STAMPA = new Set(['ddt', 'preparazione', 'lavorazione', 'spedizione', 'prep_file', 'stampa_dtf', 'stampa_uv', 'stampa_mimaki',
@@ -1400,7 +1414,7 @@ function renderOrdineRiga(o, { pos = null, dtf = false } = {}) {
       </button>
       <div class="task-badges">${urg ? `<span class="td-tag" style="--c:${pr.color};">Urgente</span>` : ''}${dtf ? '' : '<span class="td-tag" style="--c:#a855f7;">Senza file</span>'}</div>
       <span class="task-time"></span>
-      <div class="task-actions">${dtf ? `<button type="button" class="ctrl-btn" onclick="codaDtfFatto('${o.id}')" title="Segna il DTF come stampato">${CtrlIcons.check()} <span>Fatto</span></button>` : ''}
+      <div class="task-actions"><button type="button" class="ctrl-btn" onclick="${dtf ? 'codaDtfFatto' : 'codaFileFatto'}('${o.id}')" title="${dtf ? 'Segna il DTF come stampato' : 'Togli l\'ordine dalla coda File'}">${CtrlIcons.check()} <span>Fatto</span></button>
         <button type="button" class="ctrl-btn task-open" onclick="openOrderDetail('${o.id}')" aria-label="Apri l'ordine ${escapeHtml(o.nome)}">Apri</button></div>
     </article>`;
 }
@@ -1501,7 +1515,7 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
       </button>
       <div class="task-badges">${badges}</div>
       <span class="task-time">${t.minuti_stimati ? `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}` : ''}${taskMisurato(t) ? `<span class="task-timer ${t.stato === 'in_lavorazione' ? 'is-on' : ''}" data-task-timer="${t.id}" title="Tempo misurato">${ctrlFmtDur(taskLavoratoSec(t))}</span>` : ''}</span>
-      <div class="task-actions">${Ctrl.canAct(t) ? taskQuickActions(t, { assegna: false }) : ''}
+      <div class="task-actions">${Ctrl.canAct(t) ? taskQuickActions(t, { assegna: false, fatto: false }) : ''}
         <button type="button" class="ctrl-btn task-open" onclick="openTaskDetail('${t.id}')" aria-label="Apri ${escapeHtml(t.titolo)}">Apri</button>
       </div>
     </article>`;
@@ -1509,9 +1523,7 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
 
 function taskQuickActions(t, { fatto = true, assegna = true } = {}) {
   if (TCAuth.isAdmin() && t.assegnato_a !== Ctrl._me()) {
-    if (['completato', 'non_completato'].includes(t.stato)) return '';
-    // In coda comune niente tendina: solo Fatto, come per tutti
-    if (!assegna) return `<button class="ctrl-btn" onclick="taskSetStato('${t.id}','completato')">${CtrlIcons.check()} <span>Fatto</span></button>`;
+    if (!assegna || ['completato', 'non_completato'].includes(t.stato)) return '';
     return `<select class="ctrl-assign" aria-label="Assegna il task" onchange="taskAssign('${t.id}', this.value)">
       <option value="">${t.assegnato_a ? 'Coda comune' : 'Assegna a…'}</option>
       ${Ctrl.users.map(u => `<option value="${escapeHtml(u)}" ${t.assegnato_a === u ? 'selected' : ''}>${escapeHtml(u)}${!t.assegnato_a && t.designato === u ? ' (designato)' : ''}</option>`).join('')}
