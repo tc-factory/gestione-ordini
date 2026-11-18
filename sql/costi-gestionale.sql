@@ -23,3 +23,12 @@ insert into costi_gestionale (nome, importo, periodo, nota, ordine) values
   ('Supabase', 25, 'mese', 'Piano Pro: database, funzioni e file. Il server del gestionale rientra nei 10 $ di crediti compresi', 1),
   ('Railway', 5, 'mese', 'Piano Hobby: server del mattino e sito cs.pngs.it. Consumo compreso fino a 5 $', 2)
 on conflict (nome) do nothing;
+
+-- Mese per mese: da quando si paga ogni servizio (primo giorno del mese)
+alter table costi_gestionale add column if not exists dal date not null default date_trunc('month', now())::date;
+update costi_gestionale set dal = '2026-10-01' where nome = 'Supabase' and dal = '2026-11-01';
+
+-- Spesa di Claude per giorno (ora di Roma), senza le prove dei modelli
+create or replace view cervello_costo_giorni with (security_invoker = true) as
+  select (at at time zone 'Europe/Rome')::date as giorno, sum(costo_usd) as usd, count(*) as chiamate
+  from cervello_consumi where not prova group by 1;

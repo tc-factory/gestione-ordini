@@ -4436,23 +4436,27 @@ function renderControlAttivazioni() {
 }
 
 
-// ── Costi: i servizi a pagamento del gestionale. Claude dai consumi veri del mese, gli altri fissi (sql/costi-gestionale.sql) ──
-const CtrlCosti = { righe: null, claude: 0, error: null };
+// ── Costi: i servizi a pagamento del gestionale, mese per mese (sql/costi-gestionale.sql) ──
+// Claude dai consumi veri (vista cervello_costo_giorni), gli altri fissi dal mese in cui si pagano.
+// Previsione: speso finora + ritmo per giorno lavorativo × giorni lavorativi che mancano; il ritmo
+// mescola quello del mese e quello del mese prima, pesati su quanto mese è passato.
+const CtrlCosti = { righe: null, giorni: [], error: null };
 
 async function loadControlCosti() {
-  const inizio = new Date(); inizio.setDate(1); inizio.setHours(0, 0, 0, 0);
   const [fissi, claude] = await Promise.all([
     supabaseClient.from('costi_gestionale').select('*').order('ordine').order('created_at'),
-    supabaseClient.from('cervello_consumi').select('costo_usd').eq('prova', false).gte('at', inizio.toISOString()).limit(50000),
+    supabaseClient.from('cervello_costo_giorni').select('giorno, usd').order('giorno').limit(5000),
   ]);
-  CtrlCosti.error = fissi.error || null;
+  CtrlCosti.error = fissi.error || claude.error || null;
   CtrlCosti.righe = fissi.data || [];
-  CtrlCosti.claude = (claude.data || []).reduce((t, c) => t + Number(c.costo_usd || 0), 0);
+  CtrlCosti.giorni = (claude.data || []).map(g => ({ giorno: g.giorno, usd: Number(g.usd || 0) }));
   refreshControlPage();
 }
 
 async function salvaCosto(id, campo, valore) {
-  const v = campo === 'importo' ? Math.max(0, Number(String(valore).replace(',', '.')) || 0) : String(valore).trim();
+  let v = String(valore).trim();
+  if (campo === 'importo') v = Math.max(0, Number(v.replace(',', '.')) || 0);
+  if (campo === 'dal') { if (!/^\d{4}-\d{2}$/.test(v)) return; v += '-01'; }
   if (campo === 'nome' && !v) return showToast('Il nome non può essere vuoto', 'error');
   const { error } = await supabaseClient.from('costi_gestionale').update({ [campo]: v }).eq('id', id);
   if (error) return showToast(error.message, 'error');
@@ -4465,44 +4469,103 @@ async function aggiungiCosto() {
   const nome = (await uiPrompt('Nome del servizio', { placeholder: 'es. Customily', ok: 'Aggiungi' }))?.trim();
   if (!nome) return;
   const ordine = Math.max(0, ...CtrlCosti.righe.map(r => r.ordine)) + 1;
-  const { error } = await supabaseClient.from('costi_gestionale').insert({ nome, ordine });
+  const { error } = await supabaseClient.from('costi_gestionale').insert({ nome, ordine, dal: ctrlOggi().slice(0, 8) + '01' });
   if (error) return showToast(error.message, 'error');
   loadControlCosti();
 }
 
 async function eliminaCosto(id, nome) {
-  if (!(await uiConfirm(`Togliere ${nome} dai costi?`, { ok: 'Togli', danger: true }))) return;
+  if (!(await uiConfirm(`Togliere ${nome} dai costi? Sparisce anche dai mesi passati.`, { ok: 'Togli', danger: true }))) return;
   const { error } = await supabaseClient.from('costi_gestionale').delete().eq('id', id);
   if (error) return showToast(error.message, 'error');
   loadControlCosti();
 }
 
+// Mesi dal primo costo a oggi, ognuno con effettivo e previsione (Claude + fissi)
+function costiMesi() {
+  const oggi = ctrlOggi(), meseOggi = oggi.slice(0, 7);
+  const primoDato = CtrlCosti.giorni[0]?.giorno || null;
+  const fissoMese = (m) => CtrlCosti.righe.filter(r => String(r.dal).slice(0, 7) <= m)
+    .reduce((t, r) => t + (r.periodo === 'anno' ? Number(r.importo) / 12 : Number(r.importo)), 0);
+  // Giorni lavorativi di un mese da un giorno a un altro (compresi)
+  const lav = (da, a) => { let n = 0; for (let d = da; d <= a; d = ctrlAddDays(d, 1)) if (ctrlLavorativo(d)) n++; return n; };
+  const fineMese = (m) => ctrlAddDays(ctrlAddDays(m + '-01', 32).slice(0, 8) + '01', -1);
+  const meseDopo = (m) => ctrlAddDays(m + '-01', 32).slice(0, 7);
+  const claude = (m) => CtrlCosti.giorni.filter(g => g.giorno.startsWith(m) && g.giorno <= oggi).reduce((t, g) => t + g.usd, 0);
+  // Ritmo per giorno lavorativo di un mese, contando solo i giorni da quando ci sono dati
+  const ritmo = (m, finoA) => {
+    if (!primoDato || primoDato > finoA) return null;
+    const da = primoDato > m + '-01' ? primoDato : m + '-01';
+    const n = lav(da, finoA);
+    return n ? claude(m) / n : null;
+  };
+
+  const inizi = [...CtrlCosti.righe.map(r => String(r.dal).slice(0, 7)), primoDato?.slice(0, 7)].filter(Boolean);
+  if (!inizi.length) return [];
+  const mesi = [];
+  for (let m = inizi.sort()[0]; m <= meseOggi; m = meseDopo(m)) {
+    const prima = ctrlAddDays(m + '-01', -1).slice(0, 7);
+    const rPrima = ritmo(prima, fineMese(prima));
+    const totLav = lav(m + '-01', fineMese(m));
+    const corrente = m === meseOggi;
+    const speso = claude(m);
+    let prevClaude = null;
+    if (corrente) {
+      // Quanto mese è passato, contando da quando ci sono dati; i giorni che mancano si stimano col ritmo
+      const da = primoDato && primoDato > m + '-01' ? primoDato : m + '-01';
+      const quota = da > oggi ? 0 : lav(da, oggi) / Math.max(1, lav(da, fineMese(m)));
+      const rOra = ritmo(m, oggi);
+      const r = rOra == null ? rPrima : rPrima == null ? rOra : quota * rOra + (1 - quota) * rPrima;
+      prevClaude = r == null ? null : speso + r * lav(ctrlAddDays(oggi, 1), fineMese(m));
+    } else if (rPrima != null) prevClaude = rPrima * totLav;
+    const fisso = fissoMese(m);
+    mesi.push({ mese: m, corrente, totLav, speso, fisso,
+      effettivo: speso + fisso,
+      previsione: prevClaude == null && !fisso ? null : (prevClaude ?? 0) + fisso,
+      prevClaude });
+  }
+  return mesi.reverse();
+}
+
 function renderControlCosti() {
   if (CtrlCosti.error) return `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(CtrlCosti.error.message)}</div></div>`;
   if (!CtrlCosti.righe) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
-  const usd = (v) => `${v.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
-  const oggi = new Date();
-  const giorniMese = new Date(oggi.getFullYear(), oggi.getMonth() + 1, 0).getDate();
-  const giorniPassati = Math.max(1, (oggi - new Date(oggi.getFullYear(), oggi.getMonth(), 1)) / 86400e3);
-  const claudeMese = CtrlCosti.claude / giorniPassati * giorniMese;
+  const usd = (v) => v == null ? '—' : `${v.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
   const alMese = (r) => r.periodo === 'anno' ? Number(r.importo) / 12 : Number(r.importo);
-  const totale = claudeMese + CtrlCosti.righe.reduce((t, r) => t + alMese(r), 0);
   const q = (s) => escapeHtml(s).replace(/'/g, '&#39;');
+  const mesi = costiMesi();
+  const ora = mesi.find(m => m.corrente);
+  const nomeMese = (m) => { const t = new Date(m + '-15T12:00:00Z').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }); return t.charAt(0).toUpperCase() + t.slice(1); };
 
   return `
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>Costi del gestionale</h2>
-        <span class="ctrl-group-hint">Solo i servizi a pagamento. Importi in dollari</span>
+      <div class="page-card-head"><h2>Mese per mese</h2>
+        <span class="ctrl-group-hint">Previsione sui giorni lavorativi, col ritmo di questo mese e del mese prima</span></div>
+      ${mesi.length ? `<div class="table-scroll"><table class="data-table costi-table">
+        <thead><tr><th>Mese</th><th>Previsione</th><th>Effettivo</th><th>Di cui Claude</th><th>Giorni lavorativi</th></tr></thead>
+        <tbody>${mesi.map(m => `<tr>
+          <td><strong>${nomeMese(m.mese)}</strong>${m.corrente ? ' <span class="ctrl-cell-sub">in corso</span>' : ''}</td>
+          <td>${usd(m.previsione)}</td>
+          <td><strong>${usd(m.effettivo)}</strong>${m.corrente ? ' <span class="ctrl-cell-sub">finora</span>' : ''}</td>
+          <td>${usd(m.speso)}${m.corrente && m.prevClaude != null ? ` <span class="ctrl-cell-sub">→ ${usd(m.prevClaude)}</span>` : ''}</td>
+          <td>${m.totLav}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>` : '<div class="empty-list">Nessun costo ancora.</div>'}
+    </section>
+
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Servizi</h2>
+        <span class="ctrl-group-hint">Solo quelli a pagamento. Importi in dollari</span>
         <button type="button" class="ctrl-btn" onclick="aggiungiCosto()">+ Aggiungi costo</button></div>
       <div class="table-scroll"><table class="data-table costi-table">
-        <thead><tr><th>Servizio</th><th>Costo</th><th>Ogni</th><th>Al mese</th><th>Nota</th><th></th></tr></thead>
+        <thead><tr><th>Servizio</th><th>Costo</th><th>Ogni</th><th>Dal</th><th>Al mese</th><th>Nota</th><th></th></tr></thead>
         <tbody>
           <tr>
             <td><strong>API Claude</strong></td>
-            <td>${usd(CtrlCosti.claude)}</td>
             <td class="ctrl-cell-sub">a consumo</td>
-            <td><strong>${usd(claudeMese)}</strong></td>
-            <td class="ctrl-cell-sub">Il cervello: ${usd(CtrlCosti.claude)} spesi da inizio mese, a questo ritmo circa ${usd(claudeMese)} a fine mese</td>
+            <td></td><td></td>
+            <td><strong>${usd(ora?.prevClaude ?? null)}</strong></td>
+            <td class="ctrl-cell-sub">Il cervello: previsione di questo mese</td>
             <td></td>
           </tr>
           ${CtrlCosti.righe.map(r => `<tr>
@@ -4511,12 +4574,12 @@ function renderControlCosti() {
             <td><select class="filter-pill" aria-label="Ogni" onchange="salvaCosto('${r.id}', 'periodo', this.value)">
               <option value="mese" ${r.periodo === 'mese' ? 'selected' : ''}>mese</option>
               <option value="anno" ${r.periodo === 'anno' ? 'selected' : ''}>anno</option></select></td>
+            <td><input type="month" class="form-input costi-dal" value="${String(r.dal).slice(0, 7)}" aria-label="Si paga dal mese" onchange="salvaCosto('${r.id}', 'dal', this.value)"></td>
             <td><strong>${usd(alMese(r))}</strong></td>
             <td><input class="form-input costi-nota" value="${escapeHtml(r.nota)}" aria-label="Nota" placeholder="Nota" onchange="salvaCosto('${r.id}', 'nota', this.value)"></td>
             <td class="att-azioni"><button type="button" class="ctrl-btn" onclick="eliminaCosto('${r.id}', '${q(r.nome)}')">Togli</button></td>
           </tr>`).join('')}
         </tbody>
-        <tfoot><tr><td colspan="3"><strong>Totale al mese</strong></td><td><strong>${usd(totale)}</strong></td><td colspan="2"></td></tr></tfoot>
       </table></div>
     </section>`;
 }
