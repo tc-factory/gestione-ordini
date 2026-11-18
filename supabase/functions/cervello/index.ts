@@ -367,14 +367,9 @@ const macroareaCasella = (casella: Row | null) =>
 
 async function creaTask(db: SupabaseClient, evento: Row, mail: Row, storeId: string | null, tipi: Map<string, Row>, dati: Row) {
   const tipo = tipi.get(dati.tipo);
-  // Subito alla persona responsabile della competenza nell'area del tipo, se fissa, o nel negozio (claude escluso: lì decide il piano)
-  const area = tipo?.area || storeId;
-  const { data: resp } = area && tipo?.competenza
-    ? await db.from('competenze_responsabili').select('primario').eq('voce', `${area}:${tipo.competenza}`).maybeSingle()
-    : { data: null };
+  // Il task resta libero: il database gli dà il designato (responsabile della competenza) e lo prende chi risponde
   const { data, error } = await db.from('tasks').insert({
     tipo_id: tipo?.id || null,
-    ...(resp?.primario && resp.primario !== 'claude' ? { assegnato_a: resp.primario } : {}),
     titolo: dati.titolo.slice(0, 200),
     descrizione: dati.descrizione.slice(0, 5000),
     priorita: dati.priorita,
