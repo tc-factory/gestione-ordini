@@ -1199,3 +1199,11 @@ button.team-info:hover .team-nome { text-decoration: underline; }
 .costi-table td { white-space: nowrap; }
 .costi-table td:has(.costi-nota) { white-space: normal; width: 100%; }
 .costi-table .costi-dal { width: 150px; }
+.costi-mese { cursor: pointer; }
+.costi-mese:hover td { background: var(--fill-hover); }
+.costi-freccia { display: inline-block; width: 12px; color: var(--text-secondary); transition: transform .15s; }
+.costi-mese.is-open .costi-freccia { transform: rotate(90deg); }
+.costi-dett > td { padding: 4px 16px 14px 40px; }
+.costi-dett-table { width: auto; min-width: 420px; border-collapse: collapse; font-size: 0.88rem; }
+.costi-dett-table th { text-align: left; font-weight: 600; color: var(--text-secondary); font-size: 0.78rem; padding: 6px 24px 6px 0; }
+.costi-dett-table td { padding: 6px 24px 6px 0; border-top: 1px solid var(--border, rgba(0,0,0,.06)); }
