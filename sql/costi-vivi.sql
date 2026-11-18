@@ -5,7 +5,6 @@
 --   • Manodopera: app_settings.costo_ora, uguale per tutti
 --   • DTF: materiali di Impostazioni → DTF (supporto, inchiostri, colla) → € al metro
 --   • Lavorazioni interne ed esterne: € a pezzo (costi_vivi, voce "lav:<id>")
---   • Categorie dei prodotti Shopify: costo dei materiali a capo (tempi_categorie.costo_capo)
 --   • Merce degli ordini del gestionale: products.costo dalla riga collegata al prodotto
 -- Quello che ha un costo di produzione ma non ha ancora un valore si segnala come "da impostare".
 --
@@ -27,7 +26,8 @@ create policy "Admin gestisce costi vivi" on costi_vivi for all to authenticated
 revoke all on costi_vivi from anon, authenticated;
 grant select, insert, update, delete on costi_vivi to authenticated;
 
-alter table tempi_categorie add column if not exists costo_capo numeric(10,4) check (costo_capo is null or costo_capo >= 0);
+-- Ogni prodotto ha il suo costo: niente costo a capo per categoria
+alter table tempi_categorie drop column if exists costo_capo;
 
 -- € al metro del DTF interno dai materiali (come DtfMisure.costoAlMetro), altrimenti il vecchio €/metro fisso
 create or replace function _tc_dtf_costo_m()
@@ -122,29 +122,21 @@ end;
 $$;
 revoke execute on function _tc_ordine_costo(text) from public, anon, authenticated;
 
--- Costo di un ordine Shopify: la sua parte dei lotti fatti (manodopera stimata) + materiali a capo per categoria
+-- Costo di un ordine Shopify: la sua parte dei lotti fatti (manodopera stimata).
+-- La merce no: le righe Shopify non sono collegate ai prodotti dell'anagrafica (nessun codice)
 create or replace function _tc_shopify_costo(p_ordine uuid)
 returns jsonb stable security definer set search_path = public language plpgsql as $$
-declare
-  s shopify_orders%rowtype; v_def numeric := coalesce((select (value->>'valore')::numeric from app_settings where key = 'costo_ora'), 11.31);
-  v_man numeric; v_min numeric; v_mat numeric; v_senza_cat text; v_senza_costo text; v_manca text[] := '{}';
+declare v_def numeric := coalesce((select (value->>'valore')::numeric from app_settings where key = 'costo_ora'), 11.31);
+        v_man numeric; v_min numeric;
 begin
-  select * into s from shopify_orders where id = p_ordine;
-  if not found then return null; end if;
-  select coalesce(sum(coalesce(k.minuti_stimati, 0) / n.n), 0), coalesce(sum(coalesce(k.minuti_stimati, 0) / n.n), 0) / 60.0 * v_def
-    into v_min, v_man
+  if not exists (select 1 from shopify_orders where id = p_ordine) then return null; end if;
+  select coalesce(sum(coalesce(k.minuti_stimati, 0) / n.n), 0) into v_min
     from task_lotti_ordini l join tasks k on k.id = l.task_id
     join lateral (select count(*) n from task_lotti_ordini x where x.task_id = k.id) n on true
    where l.ordine_id = p_ordine and k.stato = 'completato' and k.assegnato_a is distinct from 'claude';
-  select coalesce(sum(greatest(1, coalesce((r->>'qnt')::int, 1)) * c.costo_capo) filter (where c.costo_capo is not null), 0),
-         string_agg(distinct r->>'titolo', ', ') filter (where c.id is null),
-         string_agg(distinct c.nome, ', ') filter (where c.id is not null and c.costo_capo is null)
-    into v_mat, v_senza_cat, v_senza_costo
-    from jsonb_array_elements(coalesce(s.righe, '[]')) r left join lateral _tc_categoria_tempo(r->>'titolo') c on true;
-  if v_senza_cat is not null then v_manca := v_manca || ('Senza categoria: ' || v_senza_cat); end if;
-  if v_senza_costo is not null then v_manca := v_manca || ('Categoria ' || v_senza_costo || ': costo a capo'); end if;
-  return jsonb_build_object('minuti', round(v_min), 'manodopera', round(v_man, 2), 'dtf', 0, 'lavorazioni', 0, 'merce', round(v_mat, 2),
-    'totale', round(v_man + v_mat, 2), 'mancano', to_jsonb(v_manca));
+  v_man := v_min / 60.0 * v_def;
+  return jsonb_build_object('minuti', round(v_min), 'manodopera', round(v_man, 2), 'dtf', 0, 'lavorazioni', 0, 'merce', 0,
+    'totale', round(v_man, 2), 'mancano', jsonb_build_array('Merce: righe Shopify non collegate ai prodotti'));
 end;
 $$;
 revoke execute on function _tc_shopify_costo(uuid) from public, anon, authenticated;
@@ -209,7 +201,6 @@ begin
               union all select 'esterna', value from app_settings where key = 'lavorazioni_esterne') q,
              jsonb_array_elements(q.v) x
        where x->>'id' <> 'li-dtf'), '[]'::jsonb),
-    'categorie', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'nome', nome, 'costo_capo', costo_capo) order by ordine, id) from tempi_categorie), '[]'::jsonb),
     'prodotti_senza_costo', coalesce((
       select jsonb_agg(x order by x.righe desc) from (
         select p.id, coalesce(nullif(p.descrizione, ''), p.codice) nome, p.codice, count(*) righe
