@@ -2248,6 +2248,26 @@ function renderTaskCustomer(t) {
     </section>`;
 }
 
+// Pacco rimandato indietro da GLS: i passi da fare, con i bottoni per farli da qui
+function renderTaskRientro(t) {
+  const c = t.analisi?.cliente;
+  if (!/Rientro al mittente/i.test(t.titolo) || !c) return '';
+  const tel = c.telefono ? String(c.telefono).replace(/[^\d+]/g, '') : '';
+  return `
+    <section class="td-box td-azioni">
+      <h3>Azioni</h3>
+      <ol class="td-passi">
+        <li><strong>Avvisa il cliente</strong> e chiedi se vuole il pacco rispedito (con indirizzo e telefono giusti) o il rimborso.
+          <div class="td-contacts">
+            ${c.email ? `<button type="button" class="ctrl-btn is-primary" onclick="taskScriviMail('${t.id}')">${Icons.reply(14)} Manda la mail (già pronta)</button>` : ''}
+            ${tel ? `<a class="ctrl-btn" href="tel:${escapeHtml(tel)}">Chiama ${escapeHtml(c.telefono)}</a>` : ''}
+          </div></li>
+        <li><strong>Quando risponde:</strong> rispedisci con i dati nuovi, oppure fai il rimborso su Shopify.</li>
+        <li><strong>Pacco rispedito o rimborso fatto:</strong> segna il task Completato.</li>
+      </ol>
+    </section>`;
+}
+
 // Testo pronto per i problemi di consegna che chiedono di scrivere al cliente (mai segnaposto)
 function taskTestoCliente(t, ordine) {
   const nome = String(t.analisi?.cliente?.nome || '').trim().split(/\s+/)[0];
@@ -2373,6 +2393,7 @@ function renderTaskDetail(id, storico) {
         ${t.analisi?.note ? `<p class="td-todo is-note"><strong>Note:</strong> ${escapeHtml(t.analisi.note)}</p>` : ''}
         ${renderTaskSvincolo(t, can)}
         ${t.riferimento ? `<div>${MsgRef.chip(t.riferimento, `closeModal('${CTRL_MODAL}');MsgRef.open(Ctrl.get('${t.id}').riferimento)`)}</div>` : ''}
+        ${renderTaskRientro(t)}
         ${renderTaskCustomer(t)}
         ${mail ? sped + mail.ricevuta : ''}
         <div class="td-facts">
