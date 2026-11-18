@@ -448,6 +448,7 @@ function loadControlExtras() {
   if (Ctrl.view === 'report') loadControlReport();
   if (Ctrl.view === 'automazioni') loadControlAutomations();
   if (Ctrl.view === 'attivazioni') loadControlAttivazioni();
+  if (Ctrl.view === 'costi') loadControlCosti();
 }
 
 async function setControlDay(iso) {
@@ -473,7 +474,7 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = inTasks ? [] : [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report'], ['attivazioni', 'Attivazioni']];
+  const tabs = inTasks ? [] : [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report'], ['attivazioni', 'Attivazioni'], ['costi', 'Costi']];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
@@ -483,6 +484,7 @@ function renderControlPage() {
     : Ctrl.view === 'competenze' ? renderControlSkills()
     : Ctrl.view === 'report' ? renderControlReport()
     : Ctrl.view === 'attivazioni' ? renderControlAttivazioni()
+    : Ctrl.view === 'costi' ? renderControlCosti()
     : renderControlMyDay();
 
   root.innerHTML = `
@@ -4433,3 +4435,88 @@ function renderControlAttivazioni() {
     </section>`;
 }
 
+
+// ── Costi: i servizi a pagamento del gestionale. Claude dai consumi veri del mese, gli altri fissi (sql/costi-gestionale.sql) ──
+const CtrlCosti = { righe: null, claude: 0, error: null };
+
+async function loadControlCosti() {
+  const inizio = new Date(); inizio.setDate(1); inizio.setHours(0, 0, 0, 0);
+  const [fissi, claude] = await Promise.all([
+    supabaseClient.from('costi_gestionale').select('*').order('ordine').order('created_at'),
+    supabaseClient.from('cervello_consumi').select('costo_usd').eq('prova', false).gte('at', inizio.toISOString()).limit(50000),
+  ]);
+  CtrlCosti.error = fissi.error || null;
+  CtrlCosti.righe = fissi.data || [];
+  CtrlCosti.claude = (claude.data || []).reduce((t, c) => t + Number(c.costo_usd || 0), 0);
+  refreshControlPage();
+}
+
+async function salvaCosto(id, campo, valore) {
+  const v = campo === 'importo' ? Math.max(0, Number(String(valore).replace(',', '.')) || 0) : String(valore).trim();
+  if (campo === 'nome' && !v) return showToast('Il nome non può essere vuoto', 'error');
+  const { error } = await supabaseClient.from('costi_gestionale').update({ [campo]: v }).eq('id', id);
+  if (error) return showToast(error.message, 'error');
+  const r = CtrlCosti.righe.find(x => x.id === id);
+  if (r) r[campo] = v;
+  refreshControlPage();
+}
+
+async function aggiungiCosto() {
+  const nome = (await uiPrompt('Nome del servizio', { placeholder: 'es. Customily', ok: 'Aggiungi' }))?.trim();
+  if (!nome) return;
+  const ordine = Math.max(0, ...CtrlCosti.righe.map(r => r.ordine)) + 1;
+  const { error } = await supabaseClient.from('costi_gestionale').insert({ nome, ordine });
+  if (error) return showToast(error.message, 'error');
+  loadControlCosti();
+}
+
+async function eliminaCosto(id, nome) {
+  if (!(await uiConfirm(`Togliere ${nome} dai costi?`, { ok: 'Togli', danger: true }))) return;
+  const { error } = await supabaseClient.from('costi_gestionale').delete().eq('id', id);
+  if (error) return showToast(error.message, 'error');
+  loadControlCosti();
+}
+
+function renderControlCosti() {
+  if (CtrlCosti.error) return `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(CtrlCosti.error.message)}</div></div>`;
+  if (!CtrlCosti.righe) return `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
+  const usd = (v) => `${v.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+  const oggi = new Date();
+  const giorniMese = new Date(oggi.getFullYear(), oggi.getMonth() + 1, 0).getDate();
+  const giorniPassati = Math.max(1, (oggi - new Date(oggi.getFullYear(), oggi.getMonth(), 1)) / 86400e3);
+  const claudeMese = CtrlCosti.claude / giorniPassati * giorniMese;
+  const alMese = (r) => r.periodo === 'anno' ? Number(r.importo) / 12 : Number(r.importo);
+  const totale = claudeMese + CtrlCosti.righe.reduce((t, r) => t + alMese(r), 0);
+  const q = (s) => escapeHtml(s).replace(/'/g, '&#39;');
+
+  return `
+    <section class="glass-card page-card ctrl-group">
+      <div class="page-card-head"><h2>Costi del gestionale</h2>
+        <span class="ctrl-group-hint">Solo i servizi a pagamento. Importi in dollari</span>
+        <button type="button" class="ctrl-btn" onclick="aggiungiCosto()">+ Aggiungi costo</button></div>
+      <div class="table-scroll"><table class="data-table costi-table">
+        <thead><tr><th>Servizio</th><th>Costo</th><th>Ogni</th><th>Al mese</th><th>Nota</th><th></th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>API Claude</strong></td>
+            <td>${usd(CtrlCosti.claude)}</td>
+            <td class="ctrl-cell-sub">a consumo</td>
+            <td><strong>${usd(claudeMese)}</strong></td>
+            <td class="ctrl-cell-sub">Il cervello: ${usd(CtrlCosti.claude)} spesi da inizio mese, a questo ritmo circa ${usd(claudeMese)} a fine mese</td>
+            <td></td>
+          </tr>
+          ${CtrlCosti.righe.map(r => `<tr>
+            <td><input class="form-input costi-nome" value="${escapeHtml(r.nome)}" aria-label="Servizio" onchange="salvaCosto('${r.id}', 'nome', this.value)"></td>
+            <td><input class="form-input costi-num" inputmode="decimal" value="${Number(r.importo).toLocaleString('it-IT', { minimumFractionDigits: 2 })}" aria-label="Costo in dollari" onchange="salvaCosto('${r.id}', 'importo', this.value)"></td>
+            <td><select class="filter-pill" aria-label="Ogni" onchange="salvaCosto('${r.id}', 'periodo', this.value)">
+              <option value="mese" ${r.periodo === 'mese' ? 'selected' : ''}>mese</option>
+              <option value="anno" ${r.periodo === 'anno' ? 'selected' : ''}>anno</option></select></td>
+            <td><strong>${usd(alMese(r))}</strong></td>
+            <td><input class="form-input costi-nota" value="${escapeHtml(r.nota)}" aria-label="Nota" placeholder="Nota" onchange="salvaCosto('${r.id}', 'nota', this.value)"></td>
+            <td class="att-azioni"><button type="button" class="ctrl-btn" onclick="eliminaCosto('${r.id}', '${q(r.nome)}')">Togli</button></td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr><td colspan="3"><strong>Totale al mese</strong></td><td><strong>${usd(totale)}</strong></td><td colspan="2"></td></tr></tfoot>
+      </table></div>
+    </section>`;
+}
