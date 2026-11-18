@@ -153,6 +153,8 @@ async function fmApri(btn) {
     if (error) throw error;
     if (w) { w.opener = null; w.location.href = data.signedUrl; }
     else window.location.assign(data.signedUrl);
+    // Aperto per stamparlo: conta come stampa (la prima diventa un task fatto da chi stampa)
+    fmSegna(btn.dataset.percorso).catch(e => console.warn('Stampa non segnata', e));
   } catch (e) {
     w?.close();
     uiAlert(`Il PDF non si apre: ${e.message || e}`);
