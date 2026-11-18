@@ -1405,11 +1405,11 @@ async function loadConsuntivo() {
 }
 function setConsPeriodo(p) { CtrlCons.periodo = p; CtrlCons.dati = null; loadConsuntivo(); refreshControlPage(); }
 async function cambiaCostoOra() {
-  const v = await uiPrompt('Costo orario medio (€ lordi all\'ora)', { value: String(CtrlCons.dati?.costo_ora ?? 11.31).replace('.', ','), ok: 'Salva' });
+  const v = await uiPrompt('Manodopera (€ lordi all\'ora)', { value: String(CtrlCons.dati?.costo_ora ?? 11.31).replace('.', ','), ok: 'Salva' });
   if (v === null) return;
   const n = parseFloat(String(v).replace(',', '.'));
   if (!(n >= 0)) { showToast('Scrivi un numero', 'error'); return; }
-  try { await Ctrl._rpc('tc_costo_ora_imposta', { p_valore: n }); showToast('Costo orario salvato'); loadConsuntivo(); }
+  try { await Ctrl._rpc('tc_costo_ora_imposta', { p_valore: n }); showToast('Manodopera salvata'); loadConsuntivo(); }
   catch (e) { showToast(e.message, 'error'); }
 }
 
@@ -1430,11 +1430,11 @@ function renderConsuntivo() {
         ${c.sviluppo?.task ? `<div><span>Sviluppo con Claude, a parte</span><strong>${c.sviluppo.task} sessioni</strong></div>` : ''}
       </div>
       <div class="table-scroll"><table class="data-table tempi-table">
-        <thead><tr><th>Persona</th><th>Task fatti</th><th>Tempo stimato</th><th>€ all'ora</th><th>Costo</th></tr></thead>
+        <thead><tr><th>Persona</th><th>Task fatti</th><th>Tempo stimato</th><th>Costo</th></tr></thead>
         <tbody>${c.persone.map(p => `
           <tr><td><strong>${escapeHtml(p.chi)}</strong>${p.chi === 'tcfactory' ? '<div class="ctrl-cell-sub">account condiviso</div>' : ''}</td>
             <td>${p.task}</td><td>${ctrlFmtMin(p.minuti)}</td>
-            <td>${consEuro(p.costo_ora)}</td><td><strong>${consEuro(p.costo)}</strong></td></tr>`).join('')}</tbody>
+            <td><strong>${consEuro(p.costo)}</strong></td></tr>`).join('')}</tbody>
       </table></div>
       ${c.ordini.length ? `
         <h3 class="tempi-h3">Costo degli ordini lavorati <span class="ctrl-cell-sub">· manodopera delle fasi fatte, DTF, lavorazioni e merce · i lotti Shopify divisi tra i loro ordini</span></h3>
@@ -1453,7 +1453,7 @@ function renderConsuntivo() {
   return `
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Consuntivo</h2>
-        <span class="ctrl-group-hint">${periodoTesto} · costo medio ${consEuro(c?.costo_ora ?? 11.31)}/h
+        <span class="ctrl-group-hint">${periodoTesto} · manodopera ${consEuro(c?.costo_ora ?? 11.31)}/h
           <button type="button" class="ctrl-btn" onclick="cambiaCostoOra()">Cambia</button></span></div>
       <div class="ctrl-skill-people" role="group" aria-label="Periodo">${chip('giorno', 'Giorno')}${chip('settimana', '7 giorni')}${chip('mese', 'Mese')}</div>
       ${corpo}
@@ -1488,10 +1488,6 @@ const cvSalvaCategoria = (id, v) => cvSalva(async () => {
   const { error } = await supabaseClient.from('tempi_categorie').update({ costo_capo: cvNum(v) }).eq('id', id);
   if (error) throw Ctrl._fail(error);
 });
-const cvSalvaPersona = (nick, v) => cvSalva(async () => {
-  const { error } = await supabaseClient.from('task_operatori').update({ costo_ora: cvNum(v) }).eq('nickname', nick);
-  if (error) throw Ctrl._fail(error);
-});
 const cvSalvaOra = (v) => cvSalva(() => Ctrl._rpc('tc_costo_ora_imposta', { p_valore: cvNum(v) ?? 0 }));
 const cvSalvaDtf = (key, v) => cvSalva(() => TCFactory.setSetting(key, cvNum(v) ?? 0));
 
@@ -1512,20 +1508,15 @@ function renderCostiVivi() {
   return `
     <div class="tempi-totale">
       <div><span>Costi da impostare</span><strong class="${daFare ? 'task-late' : ''}">${daFare}</strong></div>
-      <div><span>Manodopera media</span><strong>${consEuro(ora)}/h</strong></div>
+      <div><span>Manodopera</span><strong>${consEuro(ora)}/h</strong></div>
       <div><span>DTF</span><strong>${Number(d.dtf_costo_m) > 0 ? `${consEuro(d.dtf_costo_m)}/m` : 'Da impostare'}</strong></div>
     </div>
 
-    ${sez('Manodopera', 0, 'Costo lordo all\'ora: il tempo dei task (stimato) per il costo di chi li fa', `
+    ${sez('Manodopera', 0, 'Costo lordo all\'ora × il tempo stimato dei task', `
       <div class="table-scroll"><table class="data-table tempi-table">
-        <thead><tr><th>Voce</th><th>€ all'ora</th><th></th></tr></thead>
-        <tbody>
-          <tr><td><strong>Costo medio</strong>${d.costo_ora?.nota ? `<div class="ctrl-cell-sub">${escapeHtml(d.costo_ora.nota)}</div>` : ''}</td>
-            <td>${input(ora, 'cvSalvaOra(this.value)', 'Costo medio all\'ora')}</td><td></td></tr>
-          ${d.operatori.map(o => `<tr><td>${escapeHtml(o.nickname)}</td>
-            <td>${input(o.costo_ora, `cvSalvaPersona('${escapeHtml(o.nickname)}', this.value)`, `Costo all'ora di ${o.nickname}`, `placeholder="${cvVal(ora)}"`)}</td>
-            <td class="ctrl-cell-sub">${o.costo_ora == null ? 'vale il medio' : ''}</td></tr>`).join('')}
-        </tbody>
+        <thead><tr><th>Voce</th><th>€ all'ora</th></tr></thead>
+        <tbody><tr><td><strong>Manodopera</strong>${d.costo_ora?.nota ? `<div class="ctrl-cell-sub">${escapeHtml(d.costo_ora.nota)}</div>` : ''}</td>
+          <td>${input(ora, 'cvSalvaOra(this.value)', 'Manodopera all\'ora')}</td></tr></tbody>
       </table></div>`)}
 
     ${sez('DTF', 0, `Materiali del rotolo: ${Number(d.dtf_costo_m) > 0 ? `<strong>${consEuro(d.dtf_costo_m)} al metro</strong>` : cvDaImpostare} · nel costo dell'ordine × i metri dei suoi DTF`, `
@@ -4131,11 +4122,6 @@ function openMemberForm(nick) {
         <input id="mb-minuti" type="number" class="form-input" min="30" max="720" value="${o.minuti_giorno || 420}">
       </div>
       <div class="form-group">
-        <label class="form-label" for="mb-costo">Costo orario (€ lordi)</label>
-        <input id="mb-costo" type="number" class="form-input" min="0" max="500" step="0.01" value="${o.costo_ora ?? ''}" placeholder="Medio: ${String(CtrlCons.dati?.costo_ora ?? 11.31).replace('.', ',')}">
-        <small class="ctrl-cell-sub">Vuoto: vale il costo medio.</small>
-      </div>
-      <div class="form-group">
         <label class="form-label" for="mb-entrata">Orario di entrata</label>
         <input id="mb-entrata" type="time" class="form-input" value="${o.ora_inizio ? o.ora_inizio.slice(0, 5) : ''}">
         <small class="ctrl-cell-sub">Vuoto: non deve confermare la presenza. Dopo 30 minuti senza conferma si apre il popup.</small>
@@ -4158,8 +4144,6 @@ async function submitMemberForm(nick) {
   if (minuti) {
     row.ora_inizio = document.getElementById('mb-entrata').value || null;
     row.addetto_presenze = document.getElementById('mb-addetto').checked;
-    const costo = document.getElementById('mb-costo').value.trim();
-    row.costo_ora = costo === '' ? null : Math.min(500, Math.max(0, parseFloat(costo.replace(',', '.')) || 0));
   }
   const btn = document.getElementById('mb-save');
   btn.disabled = true;

@@ -2,7 +2,7 @@
 -- T&C Factory — Costi vivi e costo degli ordini (2026-11-18)
 --
 -- Centro di controllo → Costi vivi: tutti i costi diretti di produzione in un posto.
---   • Manodopera: app_settings.costo_ora (medio) o task_operatori.costo_ora (persona)
+--   • Manodopera: app_settings.costo_ora, uguale per tutti
 --   • DTF: materiali di Impostazioni → DTF (supporto, inchiostri, colla) → € al metro
 --   • Lavorazioni interne ed esterne: € a pezzo (costi_vivi, voce "lav:<id>")
 --   • Categorie dei prodotti Shopify: costo dei materiali a capo (tempi_categorie.costo_capo)
@@ -72,9 +72,9 @@ begin
   if not found then return null; end if;
 
   -- Manodopera: minuti stimati delle fasi fatte, al costo orario di chi le ha fatte
-  select coalesce(sum(coalesce(k.minuti_stimati, 0)), 0), coalesce(sum(coalesce(k.minuti_stimati, 0) / 60.0 * coalesce(t.costo_ora, v_def)), 0)
+  select coalesce(sum(coalesce(k.minuti_stimati, 0)), 0), coalesce(sum(coalesce(k.minuti_stimati, 0)), 0) / 60.0 * v_def
     into v_min, v_man
-    from tasks k left join task_operatori t on t.nickname = k.assegnato_a
+    from tasks k
    where k.fonte = 'gestionale' and k.fonte_rif->>'evento_id' like 'prod:' || o.id || ':%' and k.stato = 'completato';
 
   -- DTF: metri di tutti i file × € al metro
@@ -131,10 +131,9 @@ declare
 begin
   select * into s from shopify_orders where id = p_ordine;
   if not found then return null; end if;
-  select coalesce(sum(coalesce(k.minuti_stimati, 0) / n.n), 0), coalesce(sum(coalesce(k.minuti_stimati, 0) / 60.0 * coalesce(t.costo_ora, v_def) / n.n), 0)
+  select coalesce(sum(coalesce(k.minuti_stimati, 0) / n.n), 0), coalesce(sum(coalesce(k.minuti_stimati, 0) / n.n), 0) / 60.0 * v_def
     into v_min, v_man
     from task_lotti_ordini l join tasks k on k.id = l.task_id
-    left join task_operatori t on t.nickname = k.assegnato_a
     join lateral (select count(*) n from task_lotti_ordini x where x.task_id = k.id) n on true
    where l.ordine_id = p_ordine and k.stato = 'completato' and k.assegnato_a is distinct from 'claude';
   select coalesce(sum(greatest(1, coalesce((r->>'qnt')::int, 1)) * c.costo_capo) filter (where c.costo_capo is not null), 0),
@@ -160,14 +159,14 @@ begin
   if not app_is_admin() then return jsonb_build_object('success', false, 'error', 'Solo gli admin'); end if;
   return (
     with fatti as (
-      select k.id, k.assegnato_a chi, k.fonte, k.fonte_rif, coalesce(k.minuti_stimati, 0) minuti, coalesce(o.costo_ora, v_def) costo_ora
-        from tasks k left join task_operatori o on o.nickname = k.assegnato_a
+      select k.id, k.assegnato_a chi, k.fonte, k.fonte_rif, coalesce(k.minuti_stimati, 0) minuti, v_def costo_ora
+        from tasks k
        where k.stato = 'completato' and k.assegnato_a is not null and k.assegnato_a <> 'claude'
          and k.fonte not in ('claude_code', 'github')
          and k.completato_at >= v_da and k.completato_at < v_a
     ),
     persone as (
-      select chi, count(*) task, round(sum(minuti)) minuti, round(sum(minuti / 60.0 * costo_ora), 2) costo, max(costo_ora) costo_ora
+      select chi, count(*) task, round(sum(minuti)) minuti, round(sum(minuti / 60.0 * costo_ora), 2) costo
         from fatti group by chi
     ),
     ordini as (
@@ -198,8 +197,6 @@ begin
   if not app_is_admin() then return jsonb_build_object('success', false, 'error', 'Solo gli admin'); end if;
   return jsonb_build_object('success', true,
     'costo_ora', (select value from app_settings where key = 'costo_ora'),
-    'operatori', coalesce((select jsonb_agg(jsonb_build_object('nickname', nickname, 'costo_ora', costo_ora) order by nickname)
-                             from task_operatori where attivo and nickname not in ('claude', 'tcfactory')), '[]'::jsonb),
     'dtf_costo_m', round(_tc_dtf_costo_m(), 4),
     'lavorazioni', coalesce((
       select jsonb_agg(jsonb_build_object('voce', 'lav:' || (x->>'id'), 'id', x->>'id', 'nome', x->>'nome', 'tipo', q.tipo,
@@ -227,3 +224,6 @@ end;
 $$;
 revoke execute on function tc_costi_vivi() from public, anon;
 grant execute on function tc_costi_vivi() to authenticated;
+
+-- Manodopera unica: niente costo orario per persona
+update task_operatori set costo_ora = null where costo_ora is not null;
