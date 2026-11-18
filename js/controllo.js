@@ -293,7 +293,7 @@ const Ctrl = {
     try {
       const aperti = TASK_APERTI.join(',');
       const ini = new Date(`${d}T00:00:00`), fin = new Date(ini.getTime() + 86400000);
-      const [tasks, tipi, users, prova, fatti] = await Promise.all([
+      const [tasks, tipi, users, prova, fatti, chiusi] = await Promise.all([
         supabaseClient.from('tasks').select('*')
           .or(`giorno.eq.${d},and(giorno.lt.${d},stato.in.(${aperti}))`)
           .order('created_at'),
@@ -303,8 +303,13 @@ const Ctrl = {
         // Task chiusi dall'utente nel giorno, anche se erano in lista da prima
         supabaseClient.from('tasks').select('*').eq('stato', 'completato').eq('assegnato_a', this._me())
           .gte('completato_at', ini.toISOString()).lt('completato_at', fin.toISOString()).order('completato_at', { ascending: false }),
+        // Task chiusi nel giorno da tutti: per il team (fatti e ore) e il lavoro di Claude
+        supabaseClient.from('tasks').select('assegnato_a, fonte, lavorato_sec, minuti_stimati').eq('stato', 'completato')
+          .gte('completato_at', ini.toISOString()).lt('completato_at', fin.toISOString()),
       ]);
       this.mieiFatti = fatti?.data || [];
+      this.chiusiOggi = chiusi?.data || [];
+      this.claudeFatti = this.chiusiOggi.filter(t => t.assegnato_a === 'claude' || ['github', 'claude_code'].includes(t.fonte));
       const imp = Object.fromEntries((prova?.data || []).map(r => [r.key, r.value]));
       this.tempiTest = imp.tempi_test || {};
       this.teamOrdine = Array.isArray(imp.team_ordine) ? imp.team_ordine : [];
@@ -316,9 +321,7 @@ const Ctrl = {
       if (users) this.users = users.filter(u => !TASK_ESCLUSI.has(u.nickname)).map(u => u.nickname);
 
       if (TCAuth.isAdmin()) {
-        // Lavoro di Claude nel giorno: task suoi e commit/sessioni di Claude Code chiusi quel giorno
-        const inizio = new Date(`${d}T00:00:00`), fine = new Date(inizio.getTime() + 86400000);
-        const [oggi, sette, tempi, operatori, problemi, responsabili, calendario, reti, claude] = await Promise.all([
+        const [oggi, sette, tempi, operatori, problemi, responsabili, calendario, reti] = await Promise.all([
           this._rpc('tc_task_punteggi', { p_dal: d, p_al: d }),
           this._rpc('tc_task_punteggi', { p_dal: ctrlAddDays(d, -6), p_al: d }),
           this._rpc('tc_task_tempi_reali'),
@@ -327,11 +330,7 @@ const Ctrl = {
           supabaseClient.from('competenze_responsabili').select('*'),
           supabaseClient.from('calendar_events').select('user_ids').lte('date_from', d).gte('date_to', d).in('event_type', ['ferie', 'impegno']),
           supabaseClient.from('presenze_reti').select('*').order('aggiunta_at'),
-          supabaseClient.from('tasks').select('lavorato_sec, minuti_stimati, completato_at').eq('stato', 'completato')
-            .gte('completato_at', inizio.toISOString()).lt('completato_at', fine.toISOString())
-            .or('assegnato_a.eq.claude,fonte.in.(github,claude_code)'),
         ]);
-        this.claudeFatti = claude.data || [];
         this.reti = reti.data || [];
         this.assenti = new Set((calendario.data || []).flatMap(e => e.user_ids || []));
         this.responsabili = Object.fromEntries((responsabili.data || []).map(r => [r.voce, r]));
@@ -754,8 +753,9 @@ const taskInListaTesto = (t) => {
   return `in lista dal ${taskDataBreve(t.giorno)}`;
 };
 // Carico di una persona: task aperti non bloccati, minuti stimati, ore della giornata se impostate nel piano
+// Aperti: presi dalla persona o liberi col suo nome come designato
 function taskCarico(nick, extra = 0) {
-  const suoi = Ctrl.tasks.filter(t => t.assegnato_a === nick && !taskChiuso(t) && t.stato !== 'bloccato');
+  const suoi = Ctrl.tasks.filter(t => taskMio(t, nick) && !taskChiuso(t) && t.stato !== 'bloccato');
   const min = suoi.reduce((n, t) => n + (t.minuti_stimati || 0), 0) + extra;
   const cap = Ctrl.operatori.find(o => o.nickname === nick)?.minuti_giorno || null;
   return { n: suoi.length, min, cap, pct: cap ? Math.round(min / cap * 100) : null };
@@ -931,7 +931,6 @@ function renderPresenzeOggi() {
   const pres = Object.fromEntries((oggi && s?.addetto ? s.tutti || [] : []).map(p => [p.nickname, p]));
   const persone = teamOrdinato(admin ? Ctrl.users : Object.keys(pres), pres);
   if (!persone.length) return '';
-  const tono = (p) => p >= 90 ? '#ef4444' : p >= 75 ? '#f97316' : p >= 50 ? '#f59e0b' : '#22c55e';
   const statoDi = (p) => !p ? null : p.stato === 'presente' ? 'presente' : p.stato === 'assente' || p.assente ? 'assente' : 'attesa';
   const dettaglio = (p) => p.assente && !p.stato ? 'Assente nel Planner'
     : p.stato ? `${TEAM_STATO[p.stato].label} · ${ctrlFmtOra(p.confermato_at)}${p.confermato_da !== p.nickname ? ` · ${p.confermato_da}` : ''}`
@@ -939,6 +938,9 @@ function renderPresenzeOggi() {
 
   const item = (nick) => {
     const p = pres[nick], st = statoDi(p), c = taskCarico(nick), def = st && TEAM_STATO[st];
+    // Fatti nel giorno: quanti e le ore stimate, sulle ore della persona
+    const fatti = (Ctrl.chiusiOggi || []).filter(t => t.assegnato_a === nick);
+    const f = { n: fatti.length, min: fatti.reduce((n, t) => n + (t.minuti_stimati || 0), 0) };
     const icona = def ? `<i class="team-stato ${def.cls}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">${def.icon}</svg></i>`
                       : '<i class="team-stato is-none"></i>';
     // Claude non ha un tempo massimo: task chiusi e minuti lavorati nel giorno
@@ -947,8 +949,8 @@ function renderPresenzeOggi() {
       <span class="team-nome">${escapeHtml(nick)}</span>
       <span class="team-meta">${fattiClaude.length} chiusi · ${ctrlFmtMin(fattiClaude.reduce((n, t) => n + (t.lavorato_sec ? t.lavorato_sec / 60 : t.minuti_stimati || 0), 0))} lavorati</span>` : `
       <span class="team-nome">${escapeHtml(nick)}</span>
-      <span class="team-meta">${c.n} task · ${c.min ? ctrlFmtMin(c.min) : '0′'}${c.cap ? `<span class="team-cap">/${ctrlFmtMin(c.cap)}</span>` : ''}</span>
-      <span class="team-bar"><span style="width:${c.cap ? Math.min(100, c.pct) : 0}%;--t:${tono(c.pct || 0)};"></span></span>`;
+      <span class="team-meta" title="${f.n} fatti oggi (${ctrlFmtMin(f.min)} stimati) · ${c.n} da fare (${ctrlFmtMin(c.min)})">${f.n} fatti · ${c.n} da fare · ${f.min ? ctrlFmtMin(f.min) : '0′'}${c.cap ? `<span class="team-cap">/${ctrlFmtMin(c.cap)}</span>` : ''}</span>
+      <span class="team-bar"><span style="width:${c.cap ? Math.min(100, Math.round(f.min / c.cap * 100)) : 0}%;--t:#22c55e;"></span></span>`;
     return `
       <li class="team-item ${st === 'assente' ? 'is-off' : ''} ${TaskView.chi === nick && TaskView.tab === 'tutti' ? 'is-on' : ''}"
         data-nick="${escapeHtml(nick)}" ${admin ? 'draggable="true" ondragstart="teamDragStart(event)" ondragover="teamDragOver(event)" ondrop="teamDrop(event)" ondragend="teamDragEnd()"' : ''}>
