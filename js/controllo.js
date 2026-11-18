@@ -1275,7 +1275,6 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
   const meta = [
     showStore && taskMacro(t.macroarea) ? `<span class="ctrl-macro-tag" style="--m:${taskMacro(t.macroarea).color};">${taskMacro(t.macroarea).label}</span>` : '',
     showOwner ? `<strong>${t.assegnato_a ? escapeHtml(t.assegnato_a) : 'Coda comune'}</strong>` : '',
-    !t.assegnato_a && (t.designato || t.suggerito) ? `<span class="task-suggerito">designato: ${escapeHtml(t.designato || t.suggerito)}</span>` : '',
     showAuto && t.automazione_errore ? '<span class="task-late">automazione non riuscita</span>' : '',
     t.delega?.da ? `delegato da ${escapeHtml(t.delega.da)}` : '',
     // Il tipo solo se il titolo non lo dice già
@@ -1302,15 +1301,15 @@ function renderTaskRow(t, { showOwner = false, showStore = true, showAuto = true
       </button>
       <div class="task-badges">${badges}</div>
       <span class="task-time">${t.minuti_stimati ? `${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)}` : ''}${taskMisurato(t) ? `<span class="task-timer ${t.stato === 'in_lavorazione' ? 'is-on' : ''}" data-task-timer="${t.id}" title="Tempo misurato">${ctrlFmtDur(taskLavoratoSec(t))}</span>` : ''}</span>
-      <div class="task-actions">${Ctrl.canAct(t) ? taskQuickActions(t) : ''}
-        <button class="btn-icon" onclick="openTaskDetail('${t.id}')" aria-label="Altre azioni">${CtrlIcons.more()}</button>
+      <div class="task-actions">${Ctrl.canAct(t) ? taskQuickActions(t, { assegna: false }) : ''}
+        <button type="button" class="ctrl-btn" onclick="openTaskDetail('${t.id}')" aria-label="Apri ${escapeHtml(t.titolo)}">Apri</button>
       </div>
     </article>`;
 }
 
-function taskQuickActions(t, { fatto = true } = {}) {
+function taskQuickActions(t, { fatto = true, assegna = true } = {}) {
   if (TCAuth.isAdmin() && t.assegnato_a !== Ctrl._me()) {
-    if (['completato', 'non_completato'].includes(t.stato)) return '';
+    if (!assegna || ['completato', 'non_completato'].includes(t.stato)) return '';
     return `<select class="ctrl-assign" aria-label="Assegna il task" onchange="taskAssign('${t.id}', this.value)">
       <option value="">${t.assegnato_a ? 'Coda comune' : 'Assegna a…'}</option>
       ${Ctrl.users.map(u => `<option value="${escapeHtml(u)}" ${t.assegnato_a === u ? 'selected' : ''}>${escapeHtml(u)}${!t.assegnato_a && t.designato === u ? ' (designato)' : ''}</option>`).join('')}
