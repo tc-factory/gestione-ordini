@@ -40,3 +40,6 @@ update costi_gestionale set importo = 45,
 update costi_gestionale set
   nota = 'Piano Hobby: Creative System (mattino e sito), Live Printing e Kamon. Consumo compreso fino a 5 $'
   where nome = 'Railway' and nota like 'Piano Hobby: server del mattino%';
+
+-- I costi partono da novembre 2026: ottobre non si conta
+update costi_gestionale set dal = '2026-11-01' where nome = 'Supabase' and dal = '2026-10-01';
