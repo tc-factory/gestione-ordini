@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════
--- T&C Factory — Costi del gestionale (Centro di controllo → Costi)
+-- T&C Factory — Costi di Creative System, Live Printing e Kamon (Centro di controllo → Costi)
 --
 -- Solo i servizi che costano davvero. Claude (API) non sta qui: il costo arriva
 -- da cervello_consumi. Importi in dollari, come li fatturano i servizi.
@@ -32,3 +32,11 @@ update costi_gestionale set dal = '2026-10-01' where nome = 'Supabase' and dal =
 create or replace view cervello_costo_giorni with (security_invoker = true) as
   select (at at time zone 'Europe/Rome')::date as giorno, sum(costo_usd) as usd, count(*) as chiamate
   from cervello_consumi where not prova group by 1;
+
+-- Dal 2026-11-18 i costi sono quelli di tutti e tre i software: Creative System, Live Printing e Kamon
+update costi_gestionale set importo = 45,
+  nota = 'Piano Pro 25 $ + server dei 3 progetti (circa 10 $ l''uno) − 10 $ di crediti compresi'
+  where nome = 'Supabase' and importo = 25;
+update costi_gestionale set
+  nota = 'Piano Hobby: Creative System (mattino e sito), Live Printing e Kamon. Consumo compreso fino a 5 $'
+  where nome = 'Railway' and nota like 'Piano Hobby: server del mattino%';
