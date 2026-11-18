@@ -898,7 +898,6 @@ function renderControlAdminTasks() {
           <strong>${cap ? `${p}%` : '—'}</strong>
           <span>Carico team</span>
           <small class="tk-stat-sub">${ctrlFmtMin(min)} su ${ctrlFmtMin(cap)} · ${presenti.length} ${presenti.length === 1 ? 'persona' : 'persone'}</small>
-          <span class="ctrl-progress tk-bar"><span style="width:${Math.min(p, 100)}%;background:${tono};"></span></span>
         </span>
       </div>`;
   };
