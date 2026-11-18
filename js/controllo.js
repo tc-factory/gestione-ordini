@@ -4481,7 +4481,12 @@ function renderControlAttivazioni() {
 // Claude dai consumi veri (vista cervello_costo_giorni), gli altri fissi dal mese in cui si pagano.
 // Previsione: speso finora + ritmo per giorno lavorativo × giorni lavorativi che mancano; il ritmo
 // mescola quello del mese e quello del mese prima, pesati su quanto mese è passato.
-const CtrlCosti = { righe: null, giorni: [], error: null };
+const CtrlCosti = { righe: null, giorni: [], error: null, aperto: null };
+
+function apriMeseCosti(m) {
+  CtrlCosti.aperto = CtrlCosti.aperto === m ? null : m;
+  refreshControlPage();
+}
 
 async function loadControlCosti() {
   const [fissi, claude] = await Promise.all([
@@ -4526,8 +4531,8 @@ async function eliminaCosto(id, nome) {
 function costiMesi() {
   const oggi = ctrlOggi(), meseOggi = oggi.slice(0, 7);
   const primoDato = CtrlCosti.giorni[0]?.giorno || null;
-  const fissoMese = (m) => CtrlCosti.righe.filter(r => String(r.dal).slice(0, 7) <= m)
-    .reduce((t, r) => t + (r.periodo === 'anno' ? Number(r.importo) / 12 : Number(r.importo)), 0);
+  const fissiMese = (m) => CtrlCosti.righe.filter(r => String(r.dal).slice(0, 7) <= m)
+    .map(r => ({ nome: r.nome, usd: r.periodo === 'anno' ? Number(r.importo) / 12 : Number(r.importo) }));
   // Giorni lavorativi di un mese da un giorno a un altro (compresi)
   const lav = (da, a) => { let n = 0; for (let d = da; d <= a; d = ctrlAddDays(d, 1)) if (ctrlLavorativo(d)) n++; return n; };
   const fineMese = (m) => ctrlAddDays(ctrlAddDays(m + '-01', 32).slice(0, 8) + '01', -1);
@@ -4559,8 +4564,9 @@ function costiMesi() {
       const r = rOra == null ? rPrima : rPrima == null ? rOra : quota * rOra + (1 - quota) * rPrima;
       prevClaude = r == null ? null : speso + r * lav(ctrlAddDays(oggi, 1), fineMese(m));
     } else if (rPrima != null) prevClaude = rPrima * totLav;
-    const fisso = fissoMese(m);
-    mesi.push({ mese: m, corrente, totLav, speso, fisso,
+    const fissi = fissiMese(m);
+    const fisso = fissi.reduce((t, f) => t + f.usd, 0);
+    mesi.push({ mese: m, corrente, totLav, speso, fisso, fissi,
       effettivo: speso + fisso,
       previsione: prevClaude == null && !fisso ? null : (prevClaude ?? 0) + fisso,
       prevClaude });
@@ -4584,13 +4590,26 @@ function renderControlCosti() {
         <span class="ctrl-group-hint">Previsione sui giorni lavorativi, col ritmo di questo mese e del mese prima</span></div>
       ${mesi.length ? `<div class="table-scroll"><table class="data-table costi-table">
         <thead><tr><th>Mese</th><th>Previsione</th><th>Effettivo</th><th>Di cui Claude</th><th>Giorni lavorativi</th></tr></thead>
-        <tbody>${mesi.map(m => `<tr>
-          <td><strong>${nomeMese(m.mese)}</strong>${m.corrente ? ' <span class="ctrl-cell-sub">in corso</span>' : ''}</td>
-          <td>${usd(m.previsione)}</td>
-          <td><strong>${usd(m.effettivo)}</strong>${m.corrente ? ' <span class="ctrl-cell-sub">finora</span>' : ''}</td>
-          <td>${usd(m.speso)}${m.corrente && m.prevClaude != null ? ` <span class="ctrl-cell-sub">→ ${usd(m.prevClaude)}</span>` : ''}</td>
-          <td>${m.totLav}</td>
-        </tr>`).join('')}</tbody>
+        <tbody>${mesi.map(m => {
+          const aperto = CtrlCosti.aperto === m.mese;
+          return `<tr class="costi-mese ${aperto ? 'is-open' : ''}" tabindex="0" role="button" aria-expanded="${aperto}"
+              onclick="apriMeseCosti('${m.mese}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();apriMeseCosti('${m.mese}')}">
+            <td><span class="costi-freccia" aria-hidden="true">›</span> <strong>${nomeMese(m.mese)}</strong>${m.corrente ? ' <span class="ctrl-cell-sub">in corso</span>' : ''}</td>
+            <td>${usd(m.previsione)}</td>
+            <td><strong>${usd(m.effettivo)}</strong>${m.corrente ? ' <span class="ctrl-cell-sub">finora</span>' : ''}</td>
+            <td>${usd(m.speso)}${m.corrente && m.prevClaude != null ? ` <span class="ctrl-cell-sub">→ ${usd(m.prevClaude)}</span>` : ''}</td>
+            <td>${m.totLav}</td>
+          </tr>${aperto ? `<tr class="costi-dett"><td colspan="5"><table class="costi-dett-table">
+            <thead><tr><th>Servizio</th><th>Previsione</th><th>Effettivo</th></tr></thead>
+            <tbody>
+              <tr><td>API Claude</td><td>${usd(m.prevClaude)}</td><td>${usd(m.speso)}${m.corrente ? ' <span class="ctrl-cell-sub">finora</span>' : ''}</td></tr>
+              ${m.fissi.map(f => `<tr><td>${escapeHtml(f.nome)}</td><td>${usd(f.usd)}</td><td>${usd(f.usd)}</td></tr>`).join('')}
+            </tbody></table></td></tr>` : ''}`;
+        }).join('')}</tbody>
+        <tfoot><tr><td><strong>Totale dall'inizio</strong></td>
+          <td>${usd(mesi.reduce((t, m) => t + (m.previsione ?? 0), 0))}</td>
+          <td><strong>${usd(mesi.reduce((t, m) => t + m.effettivo, 0))}</strong></td>
+          <td>${usd(mesi.reduce((t, m) => t + m.speso, 0))}</td><td></td></tr></tfoot>
       </table></div>` : '<div class="empty-list">Nessun costo ancora.</div>'}
     </section>
 
