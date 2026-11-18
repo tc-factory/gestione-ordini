@@ -43,8 +43,11 @@ MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 
 TAG_AUTOMAZIONE = 'auto-stampato'
 TAG_GIA_STAMPATI = {'stampato', TAG_AUTOMAZIONE}
 # Negozi con il PDF dei file di stampa (uno per negozio, "<nome> - 6373-6425.pdf").
-# Tutti e due usano Customily con file 23x43. Gli altri arriveranno dopo averli studiati
-NEGOZI_FILE_STAMPA = {'ciucciamilcalzino': 'Ciucciami', 'boxfactorylab': 'Box Factory Lab'}
+# Tutti usano Customily con file 23x43. Asteroidi arriverà dopo averlo studiato
+NEGOZI_FILE_STAMPA = {'ciucciamilcalzino': 'Ciucciami', 'boxfactorylab': 'Box Factory Lab', 'bienjugado': 'Bienjugado'}
+# Bienjugado vende anche t-shirt, felpe e calzini non stampati: tra le "righe senza file" vanno solo
+# i calzini da stampare (es. i Fun, non ancora su Customily)
+SENZA_FILE_SOLO = {'bienjugado': 'Calzini Padel'}
 # Negozi con i fogli DTF delle t-shirt (grafica, nome, bandiera), fatti da dtf.py con la libreria nella cartella condivisa
 NEGOZI_DTF = {'boxfactorylab': 'Box Factory Lab'}
 # Cartella della libreria DTF dentro "Creative System": la pulizia della domenica non la tocca mai
@@ -915,7 +918,7 @@ def giro(args, applica, reg):
                 url = url_file_stampa(l)
                 if url:
                     voci_stampa.append((n['id'], o['name'], l['title'], url, l['unfulfilledQuantity']))
-                else:
+                elif l['title'].startswith(SENZA_FILE_SOLO.get(n['id'], '')):
                     senza_file[n['id']].append(f"{o['name']}: {l['title']}")
 
     # Un PDF per negozio: (negozio, ordine) dei file non riusciti, pdf_stampa[negozio] = (file, pagine, copie per pagina)
