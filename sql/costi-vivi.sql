@@ -202,15 +202,9 @@ begin
              jsonb_array_elements(q.v) x
        where x->>'id' <> 'li-dtf'), '[]'::jsonb),
     'prodotti_senza_costo', coalesce((
-      select jsonb_agg(x order by x.righe desc) from (
-        select p.id, coalesce(nullif(p.descrizione, ''), p.codice) nome, p.codice, count(*) righe
-          from orders o, jsonb_array_elements(coalesce(o.order_module->'rows', '[]')) r
-          join products p on p.id::text = r->>'productId'
-         where o.deleted_at is null and o.created_at > now() - interval '90 days' and coalesce(p.costo, 0) = 0
-         group by p.id order by 4 desc limit 50) x), '[]'::jsonb),
-    'righe_senza_prodotto', (select count(*) from orders o, jsonb_array_elements(coalesce(o.order_module->'rows', '[]')) r
-                              where o.deleted_at is null and o.created_at > now() - interval '90 days'
-                                and coalesce(r->>'productId', '') = '' and _tc_num(r->>'qnt') > 0));
+      select jsonb_agg(jsonb_build_object('nome', coalesce(nullif(p.descrizione, ''), p.codice), 'codice', p.codice)
+                       order by coalesce(nullif(p.descrizione, ''), p.codice))
+        from products p where coalesce(p.attivo, true) and coalesce(p.costo, 0) = 0), '[]'::jsonb));
 end;
 $$;
 revoke execute on function tc_costi_vivi() from public, anon;
