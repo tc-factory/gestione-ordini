@@ -873,33 +873,22 @@ def giro(args, applica, reg):
             errori += [f"{n['nome']} {x}" for x in problemi[n['id']]]
             errori_negozio[n['id']] = errori[-1]
 
-    # 3. Richieste di modifica collegate ai DDT
+    # 3. Richieste di modifica collegate ai DDT. Il riepilogo riporta solo quelle sugli ordini di questo PDF:
+    # le richieste su ordini già stampati o senza numero d'ordine restano nei task del Centro di controllo
     in_stampa = {(n['id'], o['name']) for n, _, _, _, ordini in per_negozio for o in ordini + non_pagati[n['id']]}
     richieste = {}
     modificare = {}   # righe della checklist: una per richiesta, anche se cita più ordini
-    # Chiave None: richieste con un negozio che non è tra quelli letti, finiscono in "Generale"
-    altrove = {n['id']: [] for n in negozi}
-    senza_ordine = {n['id']: [] for n in negozi}
     nomi = {n['id']: n['nome'] for n in negozi}
     for m in dati['modifiche']:
         testo = (m.get('descrizione') or m.get('titolo') or '').strip()
-        chi = m.get('negozio') if m.get('negozio') in nomi else None
-        prefisso = '' if chi else f"{m.get('negozio') or 'Negozio non indicato'}: "
-        if not m['ordini']:
-            senza_ordine.setdefault(chi, []).append(f'{prefisso}{m.get("titolo") or testo}')
-        # Una richiesta che cita più ordini va scritta una volta sola: sotto il primo ordine da
-        # stampare (gli altri citati tra parentesi), oppure in un'unica riga "Controllare"
         dentro = [num for num in m['ordini'] if (m.get('negozio'), num) in in_stampa]
-        fuori = [num for num in m['ordini'] if num not in dentro]
+        if not dentro:
+            continue
         for num in dentro:
             richieste.setdefault((m['negozio'], num), []).append(testo)   # timbro su ogni DDT
-        if dentro:
-            altri = f" (vale anche per {', '.join(dentro[1:] + fuori)})" if len(m['ordini']) > 1 else ''
-            modificare.setdefault(chi, []).append(f"Modificare {dentro[0]}: {testo}{altri}")
-        elif fuori:
-            voce = f"{prefisso}{', '.join(fuori)}: {testo}"
-            if voce not in altrove.setdefault(chi, []):
-                altrove[chi].append(voce)
+        # Una richiesta che cita più ordini va scritta una volta sola, sotto il primo ordine del PDF
+        altri = ', '.join(num for num in m['ordini'] if num != dentro[0])
+        modificare.setdefault(m['negozio'], []).append(f"Modificare {dentro[0]}: {testo}" + (f" (vale anche per {altri})" if altri else ''))
 
     # 4. File di stampa: esclusi gli ordini da modificare, per non stampare un file sbagliato
     voci_stampa = []
@@ -982,8 +971,6 @@ def giro(args, applica, reg):
 
     # 5. PDF dei DDT, con il riepilogo in prima pagina: una checklist per negozio
     generale = [(f'Controllare la posta, potrebbero mancare richieste di modifica: {x}', True) for x in avvisi_mail]
-    generale += [(f"Controllare la richiesta su {x} (ordine non in questo PDF)", True) for x in altrove.get(None, [])]
-    generale += [(f"Controllare la richiesta senza numero d'ordine: {x}", True) for x in senza_ordine.get(None, [])]
     ordini_di = {n['id']: ordini for n, _, _, _, ordini in per_negozio}
     blocchi = []
     for n in negozi:
@@ -993,8 +980,6 @@ def giro(args, applica, reg):
         fare += [(f'Fare a mano: {x}', True) for x in dtf_a_mano[i]]
         fare += [(x, True) for x in modificare.get(i, [])]
         fare += [(f'Stampare a mano il file di {x} dopo la modifica (escluso dal PDF di stampa)', True) for x in esclusi[i]]
-        fare += [(f'Controllare la richiesta su {x} (già stampato, evaso o rimandato)', True) for x in altrove[i]]
-        fare += [(f"Controllare la richiesta senza numero d'ordine: {x}", True) for x in senza_ordine[i]]
         # Le note del cliente: le stesse sono sul DDT e nei task del Centro di controllo
         for o in sorted((ordini or []) + non_pagati[i], key=lambda o: o['createdAt']):
             if nota(o):
@@ -1078,7 +1063,7 @@ def giro(args, applica, reg):
                + ''.join(f" ({nomi[i]}: {x[1]})" for i, x in sorted(pdf_stampa.items())))
     conta = lambda d: sum(len(v) for v in d.values())
     reg.scrivi(f"Non pagati (solo DDT): {conta(non_pagati)}, rimandati a domani: {conta(rimandati)}")
-    reg.scrivi(f"Da modificare: {len(richieste)}, altre richieste da controllare: {conta(altrove) + conta(senza_ordine)}, righe senza file: {conta(senza_file)}")
+    reg.scrivi(f"Da modificare: {len(richieste)}, righe senza file: {conta(senza_file)}")
     reg.scrivi(f"Tag messi: {taggati}, non messi: {len(saltati)}, tempo: {time.time() - inizio:.0f} s")
     for x in errori + [x for v in avvisi_stampa.values() for x in v] + avvisi_mail + bloccati:
         reg.scrivi(f'ATTENZIONE: {x}')
