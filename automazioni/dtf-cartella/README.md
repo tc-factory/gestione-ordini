@@ -27,3 +27,16 @@ Prova senza scrivere né rinominare: `python3 dtf_cartella.py --prova`
 3. `~/Library/Application Support/TC DTF/config.json`:
    `{"url": "...", "anon": "...", "chiave": "<chiave automazioni dal Vault>"}`
 4. `zsh installa.zsh`. Registro: `~/Library/Application Support/TC DTF/dtf-cartella.log`.
+
+## Conto terzi da Google Drive
+
+- Ogni cliente in **DTF Conto terzi** può avere una *Cartella Google Drive* e i *giorni di stampa*
+  (di solito martedì e giovedì).
+- La cartella va condivisa come Visualizzatore con `dtf-lettore@tc-dtf.iam.gserviceaccount.com`
+  (progetto Google Cloud `tc-dtf`, solo Drive API). La chiave JSON dell'account va in
+  `~/Library/Application Support/TC DTF/google.json` (600), mai nel repository.
+- Lo script legge solo le intestazioni dei file (richieste Range), calcola misure e metri e li salva
+  in `dtf_ct_files` (`sql/dtf-ct-drive.sql`). Un file sostituito dopo la stampa torna da stampare.
+- Nel gestionale i file non stampati sono la riga *Conto terzi* in DTF interno e nella coda DTF:
+  in cima nei giorni di stampa, in fondo negli altri. **Stampato** scrive metri, nomi e file nel
+  calendario del conto terzi di quel giorno (`dtf_ct_segna_stampato`).
