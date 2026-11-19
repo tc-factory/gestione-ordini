@@ -2,17 +2,18 @@
  * T&C Factory — DTF interno: cartella dei file da stampare sul NAS
  * (DATI/DTF/1. Stampa/1. Stampare).
  * Si collega una volta da Chrome: il browser ricorda la cartella e la rilegge
- * aprendo DTF interno e ogni 2 minuti mentre la scheda è aperta.
+ * all'avvio del gestionale e ogni 5 minuti, su qualsiasi pagina.
  * Ogni sottocartella viene abbinata a un ordine da stampare per nome
  * ("cf pavia" → CROSSFIT PAVIA); i file nuovi entrano nei file DTF dell'ordine
  * con misure e metri (DtfMisure). Le cartelle "Stampato" sono escluse.
  * I file restano sul NAS: si leggono solo le intestazioni, niente viene caricato.
- * "Numera le cartelle" mette davanti alle cartelle il numero dell'ordine nella lista
- * Da stampare ("01 - cf pavia"); il numero non conta per l'abbinamento.
+ * Numerazione: davanti alle cartelle il numero dell'ordine nella lista Da stampare
+ * ("01 - cf pavia"), da sola quando arriva un DTF nuovo (serve il permesso di modifica)
+ * o col bottone "Numera ora"; il numero non conta per l'abbinamento.
  */
 
 const DTF_CARTELLA_IDB = 'tcf-dtf';
-const DTF_CARTELLA_EVERY = 2 * 60 * 1000;
+const DTF_CARTELLA_EVERY = 5 * 60 * 1000;
 const DTF_CARTELLA_EXT = /\.(tiff?|pdf|png|jpe?g)$/i;
 const DTF_CARTELLA_SKIP = /stampato/i;          // cartelle già stampate, a qualsiasi livello
 const DTF_CARTELLA_NUM = /^\d{1,3}\s*-\s*/;      // numero davanti messo da "Numera le cartelle"
@@ -25,6 +26,9 @@ const DtfCartella = {
   timer: null,
   _avviata: false,
   numerando: false,
+  scrivibile: false,      // permesso di rinominare le cartelle
+  _visti: null,           // percorsi dei file all'ultima lettura (per riconoscere i DTF nuovi)
+  numerate: null,         // { at, fatte, errori } ultima numerazione
 
   supported: () => typeof window.showDirectoryPicker === 'function',
 
@@ -50,7 +54,7 @@ const DtfCartella = {
     } catch {}
   },
 
-  // Aprendo DTF interno: riprende la cartella e la rilegge
+  // All'avvio del gestionale: riprende la cartella e la controlla ogni 5 minuti, su qualsiasi pagina
   async avvia() {
     if (!this.supported()) { this.stato = 'unsupported'; return; }
     if (!this._avviata) {
@@ -58,38 +62,47 @@ const DtfCartella = {
       this.handle = await this._get();
       this.stato = this.handle ? 'prompt' : 'none';
       clearInterval(this.timer);
-      this.timer = setInterval(() => { if (this._visibile()) this.leggi(); }, DTF_CARTELLA_EVERY);
+      this.timer = setInterval(() => this.leggi(), DTF_CARTELLA_EVERY);
     }
     if (this.handle && await this._permesso(false)) this.leggi();
     else this._ridisegna();
   },
 
-  _visibile() {
-    return document.visibilityState === 'visible' && typeof Nav !== 'undefined' && Nav.current === 'dtf' &&
-      !document.getElementById('dtf-interno-root')?.hidden;
-  },
-
+  // Lettura (obbligatoria) e modifica (per numerare da soli); chiedi = dopo un clic
   async _permesso(chiedi) {
     try {
-      let p = await this.handle.queryPermission({ mode: 'read' });
-      if (p !== 'granted' && chiedi) p = await this.handle.requestPermission({ mode: 'read' });
-      if (p !== 'granted') { this.stato = 'prompt'; return false; }
-      return true;
-    } catch { this.stato = 'prompt'; return false; }
+      let w = await this.handle.queryPermission({ mode: 'readwrite' });
+      if (w !== 'granted' && chiedi) w = await this.handle.requestPermission({ mode: 'readwrite' });
+      this.scrivibile = w === 'granted';
+      if (this.scrivibile) return true;
+      if (await this.handle.queryPermission({ mode: 'read' }) === 'granted') return true;
+    } catch {}
+    this.scrivibile = false;
+    this.stato = 'prompt';
+    return false;
   },
 
-  async collega() {
+  async collega(poiNumera = false) {
     try {
-      this.handle = await window.showDirectoryPicker({ id: 'dtf-stampare', mode: 'read' });
+      this.handle = await window.showDirectoryPicker({ id: 'dtf-stampare', mode: 'readwrite' });
     } catch (e) { if (e?.name !== 'AbortError') showToast('Cartella non collegata: riprova', 'error'); return; }
     await this._put(this.handle);
     this.esito = null;
-    this.leggi();
+    this._visti = null;
+    this.scrivibile = true;
+    if (poiNumera) await this.numera(); else this.leggi();
   },
 
-  async riattiva() {
-    if (this.handle && await this._permesso(true)) this.leggi();
-    else this._ridisegna();
+  async riattiva(poiNumera = false) {
+    if (!this.handle || !await this._permesso(true)) { this._ridisegna(); return; }
+    if (poiNumera) await this.numera(); else this.leggi();
+  },
+
+  // Bottone "Numera ora": collega o riattiva la cartella se serve
+  async numeraOra() {
+    if (!this.handle) return this.collega(true);
+    if (!this.scrivibile || this.stato === 'prompt') return this.riattiva(true);
+    return this.numera();
   },
 
   _ridisegna() { if (typeof renderDtfInterno === 'function') renderDtfInterno(); },
@@ -128,8 +141,8 @@ const DtfCartella = {
     return gruppi;
   },
 
-  async leggi() {
-    if (!this.handle || this.stato === 'scanning') return;
+  async leggi({ numera = true } = {}) {
+    if (!this.handle || this.stato === 'scanning' || this.numerando) return;
     if (!await this._permesso(false)) { this._ridisegna(); return; }
     this.stato = 'scanning';
     this._ridisegna();
@@ -151,6 +164,12 @@ const DtfCartella = {
       this.esito = { at: new Date(), abbinate: perOrdine.size, aggiunti, senzaOrdine, ambigue };
       this.stato = 'ok';
       this.errore = '';
+
+      // DTF nuovi (o cartella appena collegata / gestionale appena aperto): numera da solo
+      const percorsi = gruppi.flatMap(g => g.files.map(f => this._chiave(f.path)));
+      const nuovi = !this._visti || percorsi.some(x => !this._visti.has(x));
+      this._visti = new Set(percorsi);
+      if (numera && nuovi && this.scrivibile) { this._ridisegna(); await this.numera({ auto: true }); return; }
     } catch (e) {
       console.error('[dtf cartella]', e);
       this.stato = e?.name === 'NotAllowedError' ? 'prompt' : 'error';
@@ -191,13 +210,9 @@ const DtfCartella = {
 
   // ── Numerazione: cartelle nell'ordine della lista Da stampare ──
   // Le cartelle senza ordine perdono il numero e finiscono in fondo nel Finder.
-  async numera() {
+  async numera({ auto = false } = {}) {
     if (!this.handle || this.numerando) return;
-    try {
-      if (await this.handle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
-        showToast('Serve il permesso di modifica sulla cartella', 'error'); return;
-      }
-    } catch { showToast('Permesso non concesso', 'error'); return; }
+    if (!this.scrivibile) { if (!auto) showToast('Serve il permesso di modifica sulla cartella', 'error'); return; }
     this.numerando = true;
     this._ridisegna();
     let fatte = 0, errori = 0;
@@ -222,9 +237,12 @@ const DtfCartella = {
       }
     } catch (e) { console.error('[dtf numera]', e); errori++; }
     this.numerando = false;
-    if (errori) showToast(`${errori} ${errori === 1 ? 'cartella non rinominata' : 'cartelle non rinominate'}: un file potrebbe essere aperto`, 'error');
-    else showToast(fatte ? `Cartelle numerate: ${fatte} rinominate` : 'Le cartelle erano già in ordine', 'success');
-    await this.leggi();
+    this.numerate = { at: new Date(), fatte, errori };
+    if (!auto) {
+      if (errori) showToast(`${errori} ${errori === 1 ? 'cartella non rinominata' : 'cartelle non rinominate'}: un file potrebbe essere aperto`, 'error');
+      else showToast(fatte ? `Cartelle numerate: ${fatte} rinominate` : 'Le cartelle erano già in ordine', 'success');
+    }
+    await this.leggi({ numera: false });
   },
 
   // ── Abbinamento cartella → ordine ──
@@ -252,25 +270,45 @@ const DtfCartella = {
     return pari ? 'ambiguo' : best;
   },
 
-  // ── Riga di stato in DTF interno ──
+  // ── Riga della cartella in DTF interno: sempre visibile, col bottone Numera ora ──
   html() {
-    const nome = escapeHtml(this.handle?.name || '');
+    if (this.stato === 'unsupported') return '<p class="dtf-note">Per leggere e numerare da solo la cartella dei file da stampare serve Chrome.</p>';
+    const nome = escapeHtml(this.handle?.name || '1. Stampare');
+    const ora = (d) => d ? d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
     const elenco = (arr) => arr.map(escapeHtml).join(', ');
-    switch (this.stato) {
-      case 'unsupported': return '<p class="dtf-note">Per leggere da solo la cartella dei file da stampare serve Chrome.</p>';
-      case 'none': return `<p class="dtf-note dtf-cartella">${Icons.paperclip(13)} <button type="button" class="link-btn" onclick="DtfCartella.collega()">Collega la cartella «1. Stampare»</button> per segnare da soli file e metri degli ordini.</p>`;
-      case 'prompt': return `<p class="dtf-note dtf-cartella">${Icons.paperclip(13)} <button type="button" class="link-btn" onclick="DtfCartella.riattiva()">Riattiva la cartella «${nome}»</button> per aggiornare file e metri. In Chrome scegli «Consenti a ogni visita» per non doverlo rifare.</p>`;
-      case 'scanning': return `<p class="dtf-note dtf-cartella">${Icons.paperclip(13)} Leggo la cartella «${nome}»…</p>`;
-      case 'error': return `<p class="dtf-note dtf-cartella dtf-cartella-err">Cartella «${nome}» non letta: ${escapeHtml(this.errore)} · <button type="button" class="link-btn" onclick="DtfCartella.riattiva()">Riprova</button> · <button type="button" class="link-btn" onclick="DtfCartella.collega()">Cambia cartella</button></p>`;
-      case 'ok': {
-        const e = this.esito || {};
-        const ora = e.at ? e.at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
-        return `<p class="dtf-note dtf-cartella">${Icons.paperclip(13)} Cartella «${nome}» letta alle ${ora} · ${e.abbinate || 0} ${e.abbinate === 1 ? 'ordine abbinato' : 'ordini abbinati'}${e.aggiunti ? ` · ${e.aggiunti} file nuovi` : ''} · <button type="button" class="link-btn" onclick="DtfCartella.leggi()">Aggiorna</button> · ${this.numerando ? 'Numero le cartelle…' : '<button type="button" class="link-btn" onclick="DtfCartella.numera()" title="Mette davanti a ogni cartella il numero dell\'ordine nella lista qui sotto">Numera le cartelle</button>'}</p>
-          ${e.senzaOrdine?.length ? `<p class="dtf-note">Senza ordine da stampare: ${elenco(e.senzaOrdine)}</p>` : ''}
-          ${e.ambigue?.length ? `<p class="dtf-note">Più ordini con lo stesso nome, file da aggiungere a mano: ${elenco(e.ambigue)}</p>` : ''}`;
-      }
-      default: return '';
+    const btn = (fn, testo, title = '') => `<button type="button" class="btn btn-secondary btn-sm" onclick="DtfCartella.${fn}"${title ? ` title="${title}"` : ''}>${testo}</button>`;
+    const e = this.esito || {}, n = this.numerate;
+    let testo, azioni = [];
+    switch (this.numerando ? 'scanning' : this.stato) {
+      case 'none':
+        testo = 'Cartella «1. Stampare» non collegata: collegala per segnare da soli file e metri e numerare le cartelle.';
+        azioni = [btn('collega()', 'Collega la cartella')];
+        break;
+      case 'prompt':
+        testo = `Cartella «${nome}» da riattivare. In Chrome scegli «Consenti a ogni visita» per non doverlo rifare.`;
+        azioni = [btn('riattiva()', 'Riattiva la cartella')];
+        break;
+      case 'scanning':
+        testo = this.numerando ? `Numero le cartelle di «${nome}»…` : `Leggo la cartella «${nome}»…`;
+        break;
+      case 'error':
+        testo = `<span class="dtf-cartella-err">Cartella «${nome}» non letta: ${escapeHtml(this.errore)}</span>`;
+        azioni = [btn('riattiva()', 'Riprova'), btn('collega()', 'Cambia cartella')];
+        break;
+      default:
+        testo = `Cartella «${nome}» letta alle ${ora(e.at)} · ${e.abbinate || 0} ${e.abbinate === 1 ? 'ordine abbinato' : 'ordini abbinati'}${e.aggiunti ? ` · ${e.aggiunti} file nuovi` : ''}`
+          + (this.scrivibile
+            ? ` · numerazione automatica ai DTF nuovi${n ? ` (ultima alle ${ora(n.at)}${n.errori ? `, <span class="dtf-cartella-err">${n.errori} non rinominate</span>` : ''})` : ''}`
+            : ' · numerazione automatica spenta: serve il permesso di modifica');
+        azioni = [btn('leggi()', 'Aggiorna')];
     }
+    if (this.stato !== 'scanning' && !this.numerando) azioni.push(btn('numeraOra()', 'Numera ora', 'Mette davanti a ogni cartella il numero dell\'ordine nella lista qui sotto'));
+    return `<div class="dtf-cartella-bar">
+        <span class="dtf-cartella-text">${Icons.paperclip(13)} ${testo}</span>
+        ${azioni.length ? `<span class="dtf-cartella-actions">${azioni.join('')}</span>` : ''}
+      </div>
+      ${this.stato === 'ok' && e.senzaOrdine?.length ? `<p class="dtf-note">Senza ordine da stampare: ${elenco(e.senzaOrdine)}</p>` : ''}
+      ${this.stato === 'ok' && e.ambigue?.length ? `<p class="dtf-note">Più ordini con lo stesso nome, file da aggiungere a mano: ${elenco(e.ambigue)}</p>` : ''}`;
   },
 };
 

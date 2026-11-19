@@ -1191,7 +1191,7 @@ async function openDtfPage() {
   if (!DtfState.clientId) DtfState.clientId = dtfLs.get(DTF_CLIENT_KEY);
 
   renderDtfInterno();
-  if (section === 'interno' && typeof DtfCartella !== 'undefined') DtfCartella.avvia();
+  if (section === 'interno' && typeof DtfCartella !== 'undefined' && !DtfCartella._avviata) DtfCartella.avvia();
   if (!DtfState.loaded) document.getElementById('dtf-terzi-root').innerHTML =
     '<div class="dtf-box-head"><div><h2>DTF Conto terzi</h2></div></div><div class="empty-list">Caricamento…</div>';
 
