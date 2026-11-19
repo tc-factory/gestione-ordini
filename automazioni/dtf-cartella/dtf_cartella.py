@@ -33,7 +33,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 CARTELLA = '/Volumes/DATI/DTF/1. Stampa/1. Stampare'
 DIR_DATI = os.path.expanduser('~/Library/Application Support/TC DTF')
@@ -388,6 +388,44 @@ def drive_id(url):
     return m.group(1) if m else (url if re.fullmatch(r'[\w-]{20,}', url or '') else None)
 
 
+def drive_figli(tok, cartella):
+    out, pagina = [], None
+    while True:
+        q = urllib.parse.urlencode({'q': f"'{cartella}' in parents and trashed=false", 'pageSize': 1000,
+                                    'fields': 'nextPageToken,files(id,name,mimeType,size,modifiedTime)',
+                                    'supportsAllDrives': 'true', 'includeItemsFromAllDrives': 'true',
+                                    **({'pageToken': pagina} if pagina else {})})
+        r = json.loads(drive_get(tok, f'{DRIVE}/files?{q}'))
+        out += r.get('files', [])
+        pagina = r.get('nextPageToken')
+        if not pagina:
+            return out
+
+
+CARTELLA_DRIVE = 'application/vnd.google-apps.folder'
+
+
+def drive_da_guardare(tok, radice):
+    """Cartelle da leggere. Se la cartella del cliente è divisa per anni (2025, 2026…) e mesi
+    ("11 - Novembre"), solo il mese corrente e il precedente: il resto è storico, backup, lavori."""
+    figli = drive_figli(tok, radice)
+    anni = {f['name'].strip(): f for f in figli if f['mimeType'] == CARTELLA_DRIVE and re.fullmatch(r'20\d\d', f['name'].strip())}
+    if not anni:
+        return [(radice, '')]
+    oggi = datetime.now()
+    prima = (oggi.replace(day=1) - timedelta(days=1))
+    out = []
+    for anno, mese in {(oggi.year, oggi.month), (prima.year, prima.month)}:
+        a = anni.get(str(anno))
+        if not a:
+            continue
+        for m in drive_figli(tok, a['id']):
+            n = re.match(r'\s*(\d{1,2})', m['name'])
+            if m['mimeType'] == CARTELLA_DRIVE and n and int(n.group(1)) == mese:
+                out.append((m['id'], f"{anno}/{m['name']}"))
+    return out
+
+
 def drive_files(tok, cartella, percorso=''):
     out, pagina = [], None
     while True:
@@ -459,13 +497,15 @@ def conto_terzi(cfg, roll, gap, prova):
     noti = dati.get('files') or {}
     tok = token_google()
     nuovi = []
+    limite = datetime.now(timezone.utc) - timedelta(days=14)
     for c in dati['clienti']:
+        prima_volta = not c.get('letti')   # alla prima lettura i file vecchi contano come già stampati
         cartella = drive_id(c.get('drive_url'))
         if not cartella:
             print(f"  conto terzi {c['nome']}: link della cartella non valido", file=sys.stderr)
             continue
         try:
-            files = drive_files(tok, cartella)
+            files = [f for cid, rel in drive_da_guardare(tok, cartella) for f in drive_files(tok, cid, rel)]
         except urllib.error.HTTPError as e:
             print(f"  conto terzi {c['nome']}: cartella non leggibile ({e.code}): è condivisa con l'account robot?", file=sys.stderr)
             continue
@@ -474,8 +514,10 @@ def conto_terzi(cfg, roll, gap, prova):
             if n and int(n.get('size') or -1) == int(f.get('size') or 0) and stessa_ora(n.get('modificato'), f['modifiedTime']):
                 continue
             item = descrivi(None, f['name'], roll, gap, misura_da(DriveFile(tok, f['id'], f.get('size')), f['name']))
+            mod = datetime.fromisoformat(f['modifiedTime'].replace('Z', '+00:00'))
             nuovi.append({'client_id': c['id'], 'drive_id': f['id'], 'nome': f['name'], 'percorso': f['percorso'],
-                          'size': int(f.get('size') or 0), 'modificato': f['modifiedTime'], 'item': item})
+                          'size': int(f.get('size') or 0), 'modificato': f['modifiedTime'], 'item': item,
+                          'storico': bool(prima_volta and mod < limite)})
             print(f"  conto terzi {c['nome']}: {f['percorso']} {item.get('w_cm')}x{item.get('h_cm')} cm, {item.get('pz')} pz, {item.get('metri')} m")
     if nuovi and not prova:
         r = rpc(cfg, 'tc_dtf_ct_salva', {'p_chiave': cfg['chiave'], 'p_files': nuovi})
