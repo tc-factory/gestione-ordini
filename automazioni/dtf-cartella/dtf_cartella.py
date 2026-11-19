@@ -24,6 +24,7 @@ import json
 import math
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -622,6 +623,104 @@ def conto_terzi(cfg, roll, gap, prova, cartella_nas, stato, forza=False):
             fatte[c['id']] = giro
 
 
+# ── Ordini nuovi con DTF: file dalla cartella del cliente a 1. Stampare ──
+
+def cartelle_clienti(dati_root):
+    """(nome, percorso) delle cartelle cliente: DATI/Clienti/<iniziale>/<cliente> e DATI/CrossFit/<box>."""
+    out = []
+    clienti = os.path.join(dati_root, 'Clienti')
+    if os.path.isdir(clienti):
+        for lettera in os.listdir(clienti):
+            pl = os.path.join(clienti, lettera)
+            if len(lettera) <= 2 and os.path.isdir(pl):
+                out += [(n, os.path.join(pl, n)) for n in os.listdir(pl) if not salta(n) and os.path.isdir(os.path.join(pl, n))]
+    box = os.path.join(dati_root, 'CrossFit')
+    if os.path.isdir(box):
+        out += [(n, os.path.join(box, n)) for n in os.listdir(box) if not salta(n) and os.path.isdir(os.path.join(box, n))]
+    return out
+
+
+def trova_cliente(o, cartelle):
+    """Cartella del cliente dell'ordine: nome uguale (cliente, poi ordine), altrimenti una sola molto simile."""
+    nomi = [n for n in (o.get('cliente'), o.get('nome')) if n]
+    for nome in nomi:
+        k = core(nome)
+        uguali = [p for n, p in cartelle if len(k) >= 3 and core(n) == k]
+        if len(uguali) == 1:
+            return uguali[0]
+    for nome in nomi:
+        k = core(nome)
+        # il più corto deve coprire almeno due terzi del più lungo ("Padel" non è "Padel Hero")
+        simili = [p for n, p in cartelle if len(k) >= 4 and len(core(n)) >= 4 and (core(n) in k or k in core(n))
+                  and min(len(k), len(core(n))) * 3 >= max(len(k), len(core(n))) * 2]
+        if len(simili) == 1:
+            return simili[0]
+    return None
+
+
+def file_dtf_cliente(cartella):
+    """File DTF del cliente: cartelle "dtf" dell'anno corrente (es. 2026/01-dtf/tiff); se la cartella
+    non è divisa per anni, i file nella cartella principale."""
+    anni = [n for n in os.listdir(cartella) if re.fullmatch(r'20\d\d', n) and os.path.isdir(os.path.join(cartella, n))]
+    if not anni:
+        return [os.path.join(cartella, n) for n in sorted(os.listdir(cartella))
+                if not salta(n) and EXT.search(n) and os.path.isfile(os.path.join(cartella, n))]
+    anno = os.path.join(cartella, str(datetime.now().year))
+    if not os.path.isdir(anno):
+        return []
+    out = []
+    for radice, dirs, files in os.walk(anno):
+        dirs[:] = [d for d in dirs if not salta(d) and not SALTA_DIR.search(d)]
+        dentro = os.path.relpath(radice, anno).split(os.sep)
+        if any(re.search(r'dtf', d, re.I) for d in dentro):
+            out += [os.path.join(radice, n) for n in sorted(files) if not salta(n) and EXT.search(n)]
+    return out
+
+
+def prepara_ordini(cfg, dati, cartella_nas, prova, stato):
+    da = dati.get('da_preparare') or []
+    if not da:
+        return
+    dati_root = os.path.normpath(os.path.join(cartella_nas, '..', '..', '..'))
+    cartelle = cartelle_clienti(dati_root)
+    avvisati = stato.setdefault('prepara_avvisi', {})
+    for o in da:
+        def fatto(esito, dest=None, sorgente=None, n=0):
+            if not prova:
+                rpc(cfg, 'tc_dtf_preparato', {'p_chiave': cfg['chiave'], 'p_order': o['id'], 'p_esito': esito,
+                                              'p_cartella': dest, 'p_sorgente': sorgente, 'p_files': n})
+        # Cartella già in 1. Stampare (messa a mano): non si tocca
+        if any(os.path.isdir(os.path.join(cartella_nas, n)) and core(base(n)) == core(o['nome']) for n in os.listdir(cartella_nas)):
+            fatto('gia_presente')
+            continue
+        cli = trova_cliente(o, cartelle)
+        files = file_dtf_cliente(cli) if cli else []
+        if not files:
+            motivo = 'cliente_non_trovato' if not cli else 'nessun_file'
+            if avvisati.get(o['id']) != motivo:   # si riprova ogni giro (il file può arrivare dopo), avviso una volta
+                print(f"  ordine {o['nome']}: {'cartella cliente non trovata' if not cli else 'nessun file DTF in ' + cli}")
+                avvisati[o['id']] = motivo
+            continue
+        dest = os.path.join(cartella_nas, o['nome'].replace('/', '-').strip())
+        capi = int(o.get('capi') or 0)
+        if prova:
+            print(f"  ordine {o['nome']}: copierei {len(files)} file da {cli} in {dest} ({capi} capi)")
+            continue
+        os.makedirs(dest, exist_ok=True)
+        for f in files:
+            nome = os.path.basename(f)
+            if capi > 0 and not parse_pz(nome)[1]:
+                radice, ext = os.path.splitext(nome)
+                nome = f'{radice}-{capi}pz{ext}'
+            fin = os.path.join(dest, nome)
+            if not os.path.exists(fin):
+                shutil.copyfile(f, fin + '.part')
+                os.replace(fin + '.part', fin)
+        print(f"  ordine {o['nome']}: {len(files)} file DTF copiati da {cli}")
+        fatto('copiato', dest, cli, len(files))
+        avvisati.pop(o['id'], None)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--prova', action='store_true')
@@ -656,6 +755,12 @@ def main():
         conto_terzi(cfg, roll, gap, a.prova, a.cartella, stato, a.conto_terzi_ora)
     except Exception as e:
         print('conto terzi:', e, file=sys.stderr)
+
+    # Ordini nuovi con DTF: file dalla cartella del cliente
+    try:
+        prepara_ordini(cfg, dati, a.cartella, a.prova, stato)
+    except Exception as e:
+        print('ordini da preparare:', e, file=sys.stderr)
 
     # La lista ha gli ordini e, al loro posto, le cartelle senza ordine ({id: 'cartella:<nome>', cartella: true})
     pos = {o['id']: i for i, o in enumerate(lista)}
