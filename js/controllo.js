@@ -1466,12 +1466,29 @@ function renderCartellaRiga(c, pos) {
 const taskPrioOrd = (t) => ({ urgente: 0, alta: 1, normale: 2, bassa: 3 })[t.priorita] ?? 2;
 
 // Task dell'automazione della cartella DTF, con l'azione giusta a portata di clic
+// Cartella "senza ordine" che è di un ordine già segnato stampato o tolto dalla lista DTF
+function dtfOrdineFuoriLista(nomeCartella) {
+  if (typeof dtfLists !== 'function' || typeof DtfCartella === 'undefined') return null;
+  const { printed, removedList } = dtfLists();
+  const o = DtfCartella.abbina(nomeCartella, [...printed, ...removedList.map(x => x.o)]);
+  if (!o || o === 'ambiguo') return null;
+  return { o, tolto: !printed.includes(o) };
+}
+
+async function dtfTaskRipristina(orderId, tolto) {
+  if (tolto) await dtfRestoreRemoved(orderId); else await dtfRestorePrinted(orderId);
+  showToast('Ordine di nuovo da stampare: il task si chiude da solo entro un minuto');
+  refreshControlPage();
+}
+
 function renderDtfTaskRiga(t) {
   const [tipo, ...resto] = String(t.fonte_rif?.dtf || '').split(':');
   const rif = resto.join(':'), pr = taskPrio(t.priorita);
+  const fuori = tipo === 'senza' ? dtfOrdineFuoriLista(rif) : null;
   const azioni = {
     proposta: `<button type="button" class="ctrl-btn" onclick="dtfPrepApri('${escapeHtml(rif)}')" title="Controlla file e pezzi, poi approva o rifiuta">${CtrlIcons.check()} <span>Controlla</span></button>`,
-    senza: `<button type="button" class="ctrl-btn" onclick="Nav.go('dtf', 'interno')" title="Apri la coda DTF interno">${CtrlIcons.check()} <span>Apri DTF interno</span></button>`,
+    senza: (fuori ? `<button type="button" class="ctrl-btn" onclick="dtfTaskRipristina('${fuori.o.id}', ${fuori.tolto})" title="Rimette ${escapeHtml(fuori.o.nome)} tra gli ordini da stampare: la cartella si riabbina">${CtrlIcons.check()} <span>Ripristina</span></button>` : '')
+      + `<button type="button" class="ctrl-btn" onclick="Nav.go('dtf', 'interno')" title="Apri la coda DTF interno">${fuori ? '' : `${CtrlIcons.check()} `}<span>Apri DTF interno</span></button>`,
     mancante: `<button type="button" class="ctrl-btn" onclick="openOrderDetail('${escapeHtml(rif)}')">Apri ordine</button>
       <button type="button" class="ctrl-btn" onclick="dtfMarkPrinted('${escapeHtml(rif)}')" title="Segna il DTF come stampato">${CtrlIcons.check()} <span>Stampato</span></button>`,
   }[tipo] || '';
@@ -1480,7 +1497,9 @@ function renderDtfTaskRiga(t) {
       <i class="task-prio" style="--p:${pr.color};" role="img" title="Priorità ${pr.label.toLowerCase()}" aria-label="Priorità ${pr.label.toLowerCase()}"></i>
       <button type="button" class="task-main" onclick="${tipo === 'proposta' ? `dtfPrepApri('${escapeHtml(rif)}')` : tipo === 'mancante' ? `openOrderDetail('${escapeHtml(rif)}')` : `Nav.go('dtf', 'interno')`}">
         <span class="task-title">${escapeHtml(t.titolo)}</span>
-        <span class="task-meta">${escapeHtml(t.descrizione || '')}</span>
+        <span class="task-meta">${fuori
+          ? `<strong>${escapeHtml(fuori.o.nome)}</strong> è già ${fuori.tolto ? 'tolto dalla lista DTF' : 'segnato stampato'}: se manca ancora qualcosa premi <strong>Ripristina</strong>, se è tutto stampato sposta la cartella in 00 - Stampato.`
+          : escapeHtml(t.descrizione || '')}</span>
       </button>
       <div class="task-badges">${t.priorita === 'urgente' ? `<span class="td-tag" style="--c:${pr.color};">Urgente</span>` : ''}</div>
       <span class="task-time"></span>
