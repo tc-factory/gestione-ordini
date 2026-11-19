@@ -18,15 +18,19 @@ tutti i PC, anche Windows, senza collegare niente nel browser.
 
 Prova senza scrivere né rinominare: `python3 dtf_cartella.py --prova`
 
-## Installazione sul Mac mini
+## Installazione sul Mac mini (utente csauto, 2026-11-19)
 
-1. Sul Synology: utente NAS dedicato (es. `dtf-auto`) con lettura/scrittura solo su
-   `DATI/DTF/1. Stampa`.
-2. Come `csauto`: montare DATI con quell'utente e salvare la password nel portachiavi
-   (la digita una persona), con riconnessione all'accesso.
-3. `~/Library/Application Support/TC DTF/config.json`:
-   `{"url": "...", "anon": "...", "chiave": "<chiave automazioni dal Vault>"}`
-4. `zsh installa.zsh`. Registro: `~/Library/Application Support/TC DTF/dtf-cartella.log`.
+- Credenziali NAS in `~/Library/Application Support/TC DTF/nas` (utente e password, 600): le ha salvate
+  Riccardo dal Terminale, non passano dalla chat. Lo script collega `//192.168.1.200/DATI` in `~/NAS/DATI`
+  (`/Volumes/DATI` è di tcfactory) e lo ricollega se cade.
+- `config.json` (600): `env` = `~/shopify-mattino/.env` (stessa chiave dello script del mattino, non copiata),
+  `cartella`, `nas`, `conto_terzi` (false = spento).
+- Chiave Google in `google.json` (600), copiata dal MacBook.
+- Avvio: crontab di csauto ogni minuto (`* * * * * cd "$HOME/Library/Application Support/TC DTF" &&
+  /usr/bin/python3 -I dtf_cartella.py >> dtf-cartella.log 2>&1`). **Serve l'Accesso completo al disco per
+  `/usr/sbin/cron`** (Impostazioni di Sistema → Privacy e sicurezza, da un amministratore): senza, macOS
+  blocca la lettura dei volumi di rete ("Operation not permitted").
+- Primo giro: registra le cartelle com'erano, senza rinominare niente; un giro alla volta (`giro.lock`).
 
 ## Conto terzi da Google Drive
 
