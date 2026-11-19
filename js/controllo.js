@@ -1361,9 +1361,12 @@ function renderTaskQueue(coda, emptyText = '') {
   const cat = Ctrl.coda || 'file';
   const isCoda = TASK_CODE.some(c => c.id === cat);
   const file = ordiniSenzaFile(), dtf = ordiniDtf();
-  const list = cat === 'file' ? [] : coda.filter(t => taskCat(t) === cat);
-  // DTF: i task (cartelle senza ordine, "Controllare se stampato") sopra la coda degli ordini
-  const dtfTask = coda.filter(t => taskCat(t) === 'dtf');
+  // DTF: sopra la coda degli ordini solo i task dell'automazione della cartella (proposte da approvare,
+  // cartelle senza ordine, "Controllare se stampato"); i task "Stampa DTF" della linea produttiva
+  // doppierebbero gli ordini già in coda, quindi lì non si mostrano.
+  const dtfAuto = (t) => t.fonte === 'automazione' && !!t.fonte_rif?.dtf;
+  const list = cat === 'file' ? [] : coda.filter(t => taskCat(t) === cat && (cat !== 'dtf' || dtfAuto(t)));
+  const dtfTask = coda.filter(t => taskCat(t) === 'dtf' && dtfAuto(t));
   // Conto terzi da Google Drive: nei giorni di stampa in cima alla coda DTF
   const ct = typeof DtfCt !== 'undefined' ? DtfCt.righe() : [];
   const n = cat === 'file' ? file.length : cat === 'dtf' ? ct.length + dtf.length + list.length : list.length;
@@ -1374,7 +1377,8 @@ function renderTaskQueue(coda, emptyText = '') {
                         : '<div class="empty-list">Tutti gli ordini hanno i file.</div>';
   } else if (cat === 'dtf') {
     // La coda della pagina DTF: stesso ordine (scadenza e priorità date a mano), si stampa dall'alto
-    corpo = (list.length ? taskSub(`Da controllare · ${list.length}`, list, opts) : '')
+    const ordinati = list.slice().sort((a, b) => taskPrioOrd(a) - taskPrioOrd(b) || String(a.created_at).localeCompare(String(b.created_at)));
+    corpo = (list.length ? `<div class="ctrl-sub">Da controllare · ${list.length}</div><div class="task-list task-stack">${ordinati.map(renderDtfTaskRiga).join('')}</div>` : '')
       + (ct.length || dtf.length ? `${list.length ? `<div class="ctrl-sub">Da stampare · ${ct.length + dtf.length}</div>` : ''}<div class="task-list task-stack">${ct.map((r, i) => renderCtRiga(r, i + 1)).join('')}${dtf.map((o, i) => renderOrdineRiga(o, { pos: ct.length + i + 1, dtf: true })).join('')}</div>`
                     : '<div class="empty-list">Niente da stampare al DTF.</div>');
   } else {
@@ -1390,6 +1394,31 @@ function renderTaskQueue(coda, emptyText = '') {
       ${list.length ? taskAutoNote(list) : ''}
       <div class="tk-split-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${corpo}</div>
     </section>`;
+}
+
+const taskPrioOrd = (t) => ({ urgente: 0, alta: 1, normale: 2, bassa: 3 })[t.priorita] ?? 2;
+
+// Task dell'automazione della cartella DTF, con l'azione giusta a portata di clic
+function renderDtfTaskRiga(t) {
+  const [tipo, ...resto] = String(t.fonte_rif?.dtf || '').split(':');
+  const rif = resto.join(':'), pr = taskPrio(t.priorita);
+  const azioni = {
+    proposta: `<button type="button" class="ctrl-btn" onclick="dtfPrepApri('${escapeHtml(rif)}')" title="Controlla file e pezzi, poi approva o rifiuta">${CtrlIcons.check()} <span>Controlla</span></button>`,
+    senza: `<button type="button" class="ctrl-btn" onclick="Nav.go('dtf', 'interno')" title="Apri la coda DTF interno">${CtrlIcons.check()} <span>Apri DTF interno</span></button>`,
+    mancante: `<button type="button" class="ctrl-btn" onclick="openOrderDetail('${escapeHtml(rif)}')">Apri ordine</button>
+      <button type="button" class="ctrl-btn" onclick="dtfMarkPrinted('${escapeHtml(rif)}')" title="Segna il DTF come stampato">${CtrlIcons.check()} <span>Stampato</span></button>`,
+  }[tipo] || '';
+  return `
+    <article class="task-row is-task">
+      <i class="task-prio" style="--p:${pr.color};" role="img" title="Priorità ${pr.label.toLowerCase()}" aria-label="Priorità ${pr.label.toLowerCase()}"></i>
+      <button type="button" class="task-main" onclick="${tipo === 'proposta' ? `dtfPrepApri('${escapeHtml(rif)}')` : tipo === 'mancante' ? `openOrderDetail('${escapeHtml(rif)}')` : `Nav.go('dtf', 'interno')`}">
+        <span class="task-title">${escapeHtml(t.titolo)}</span>
+        <span class="task-meta">${escapeHtml(t.descrizione || '')}</span>
+      </button>
+      <div class="task-badges">${t.priorita === 'urgente' ? `<span class="td-tag" style="--c:${pr.color};">Urgente</span>` : ''}</div>
+      <span class="task-time"></span>
+      <div class="task-actions">${azioni}</div>
+    </article>`;
 }
 
 // Riga del conto terzi (cartella del cliente copiata da Google Drive) in cima alla coda DTF
