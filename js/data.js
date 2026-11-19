@@ -104,8 +104,13 @@ const TCFactory = {
       const o = this._fromDb(payload.new);
       if (!this._orders.find(x => x.id === o.id)) this._orders.push(o);
     } else if (payload.eventType === 'UPDATE') {
-      const o = this._fromDb(payload.new);
-      const idx = this._orders.findIndex(x => x.id === o.id);
+      // Il realtime NON manda le colonne grandi rimaste uguali (modulo d'ordine, file…): se cambia solo
+      // dtf_items, order_module manca. Si parte dalla riga già in memoria e si sovrappone solo ciò che arriva,
+      // altrimenti il modulo diventa vuoto e il primo salvataggio lo cancellerebbe dal database.
+      const idx = this._orders.findIndex(x => x.id === payload.new.id);
+      const prev = idx >= 0 ? this._orders[idx] : null;
+      const nuovi = Object.fromEntries(Object.entries(payload.new).filter(([, v]) => v !== undefined));
+      const o = this._fromDb(prev ? { ...this._toDb(prev), created_by: prev.createdBy, created_at: prev.created_at, updated_at: prev.updated_at, ...nuovi } : payload.new);
       if (idx >= 0) this._orders[idx] = o; else this._orders.push(o);
     } else if (payload.eventType === 'DELETE') {
       this._orders = this._orders.filter(x => x.id !== payload.old.id);
@@ -343,9 +348,14 @@ const TCFactory = {
     const current = this.getOrderById(id);
     if (!current) throw new Error('Ordine non trovato');
     const merged = { ...current, ...patch };
-    let { data: row, error } = await supabaseClient.from('orders').update(this._toDb(merged)).eq('id', id).select().single();
+    // Si scrivono solo le colonne toccate dalla modifica: riscrivere tutta la riga dalla memoria del browser
+    // sovrascriveva con dati vecchi (o vuoti) ciò che altri avevano salvato nel frattempo, come il modulo d'ordine.
+    const prima = this._toDb(current), dopo = this._toDb(merged);
+    const cambi = Object.fromEntries(Object.entries(dopo).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(prima[k])));
+    if (!Object.keys(cambi).length) return current;
+    let { data: row, error } = await supabaseClient.from('orders').update(cambi).eq('id', id).select().single();
     if (error && this._isMissingColumn(error)) {
-      const payload = this._toDb(merged);
+      const payload = { ...cambi };
       // Database senza le colonne opzionali: si salva il resto
       this._OPTIONAL_COLS.forEach(col => delete payload[col]);
       ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
