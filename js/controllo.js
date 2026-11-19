@@ -2596,6 +2596,7 @@ function renderTaskDetail(id, storico) {
     </div>
     <div class="td-grid">
       <div class="td-col">
+        ${renderTaskOrdineFile(t)}
         ${t.descrizione ? `<section class="td-sec"><h3>${t.fonte === 'file' ? 'File lavorati' : 'Cosa fare'}</h3><p class="td-todo">${escapeHtml(t.descrizione)}</p></section>` : ''}
         ${taskMotivoVisibile(t.stato, t.motivo) ? `<p class="td-todo is-reason"><strong>Motivo:</strong> ${escapeHtml(t.motivo)}</p>` : ''}
         ${t.analisi?.dubbi ? `<p class="td-todo is-advice"><strong>Da controllare:</strong> ${escapeHtml(t.analisi.dubbi)}</p>` : ''}
@@ -2631,6 +2632,28 @@ function renderTaskDetail(id, storico) {
 
   if (a) setTimeout(() => document.getElementById(a === 'rimandato' ? 'tm-giorno' : a === 'delega' ? 'tm-delega' : 'tm-motivo')?.focus(), 30);
   startControlTicker();
+}
+
+// Ordine del gestionale: modulo d'ordine e allegati (bozze) subito apribili dal task
+function renderTaskOrdineFile(t) {
+  const o = taskOrdineGest(t);
+  if (!o) return '';
+  const righe = o.orderModule?.rows?.length || 0, files = o.files || [];
+  if (!righe && !files.length) return '';
+  const icona = (f) => f.type?.startsWith('image/') ? '🖼' : f.type === 'application/pdf' ? '📄' : '📎';
+  return `
+    <section class="td-sec td-ordine-file">
+      <h3>Ordine ${escapeHtml(o.nome || '')}</h3>
+      <div class="td-ordine-btns">
+        ${righe ? `<button type="button" class="td-file is-modulo" onclick="previewOrderModule('${o.id}')">📋 <span>Modulo d'ordine · ${righe} ${righe === 1 ? 'riga' : 'righe'}</span></button>` : ''}
+        ${files.map((f, i) => `<button type="button" class="td-file" onclick="taskApriAllegato('${o.id}', ${i})" title="${escapeHtml(f.name || '')}">${icona(f)} <span>${escapeHtml(f.name || 'Allegato')}</span></button>`).join('')}
+      </div>
+    </section>`;
+}
+
+function taskApriAllegato(orderId, i) {
+  const f = TCFactory.getOrderById(orderId)?.files?.[i];
+  if (f) previewFile(f);
 }
 
 async function taskDetailStato(id, stato) {
