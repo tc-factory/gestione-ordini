@@ -30,13 +30,21 @@ Prova senza scrivere né rinominare: `python3 dtf_cartella.py --prova`
 
 ## Conto terzi da Google Drive
 
-- Ogni cliente in **DTF Conto terzi** può avere una *Cartella Google Drive* e i *giorni di stampa*
-  (di solito martedì e giovedì).
-- La cartella va condivisa come Visualizzatore con `dtf-lettore@tc-dtf.iam.gserviceaccount.com`
-  (progetto Google Cloud `tc-dtf`, solo Drive API). La chiave JSON dell'account va in
+Iter (deciso 2026-11-19):
+1. Il cliente (es. K1) carica i DTF nella sua cartella Google Drive.
+2. Nei suoi **giorni di stampa** (scheda cliente, di solito mar e gio; solo giorni lavorativi)
+   **alle 5:00** lo script copia i file nuovi in `DTF/1. Stampa/1. Stampare/<cliente>` (es. `K1`).
+   La cartella sta in cima alla coda DTF interno e prende il numero 01; niente task "senza ordine".
+3. Subito dopo li conta nel calendario **DTF Conto terzi** di oggi (`tc_dtf_ct_copiati`,
+   una volta sola per file) e su Drive li sposta nella sottocartella **STAMPATO** del loro mese.
+4. Quello che arriva dopo le 5 segue lo stesso giro **ogni ora fino alle 14**; dopo le 14 aspetta il
+   prossimo giorno di stampa. A fine stampa la cartella sul NAS si sposta in Stampato come le altre.
+
+- Cartelle Drive divise per anni/mesi (`2026/11 - Novembre`): si leggono solo mese corrente e precedente,
+  esclusa STAMPATO.
+- Account robot `dtf-lettore@tc-dtf.iam.gserviceaccount.com` (progetto Google Cloud `tc-dtf`, solo Drive
+  API), **Editor** della cartella del cliente (serve per spostare in STAMPATO). Chiave JSON in
   `~/Library/Application Support/TC DTF/google.json` (600), mai nel repository.
-- Lo script legge solo le intestazioni dei file (richieste Range), calcola misure e metri e li salva
-  in `dtf_ct_files` (`sql/dtf-ct-drive.sql`). Un file sostituito dopo la stampa torna da stampare.
-- Nel gestionale i file non stampati sono la riga *Conto terzi* in DTF interno e nella coda DTF:
-  in cima nei giorni di stampa, in fondo negli altri. **Stampato** scrive metri, nomi e file nel
-  calendario del conto terzi di quel giorno (`dtf_ct_segna_stampato`).
+- Prova senza copiare/contare/spostare: `python3 dtf_cartella.py --prova --conto-terzi-ora`.
+  `--conto-terzi-ora` da solo fa il giro subito anche fuori da giorni e orari.
+- Database: `sql/dtf-ct-drive.sql`, `sql/dtf-ct-copia.sql`.

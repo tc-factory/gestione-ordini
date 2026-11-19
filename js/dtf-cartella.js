@@ -54,7 +54,7 @@ const DtfCartella = {
 
   // All'avvio del gestionale: riprende la cartella e la controlla ogni 5 minuti, su qualsiasi pagina
   async avvia() {
-    if (!this._avviata && typeof DtfCt !== 'undefined') DtfCt.load().then(() => DtfCt.ridisegna()).catch(e => console.warn('[dtf ct]', e));
+    if (!this._avviata && typeof DtfCt !== 'undefined') DtfCt.load().then(() => this._ridisegna()).catch(e => console.warn('[dtf ct]', e));
     if (!this._avviata && typeof TCFactory !== 'undefined') {
       TCFactory.onUpdate(() => this.pubblicaLista());
       this.pubblicaLista();
@@ -143,6 +143,9 @@ const DtfCartella = {
       const perOrdine = new Map();   // id ordine → [file…]
       const senzaOrdine = [], ambigue = [], cartelle = [];
       for (const g of gruppi) {
+        // Cartella di un cliente conto terzi (es. "K1", copiata da Drive dal Mac mini)
+        const ct = g.dir && typeof DtfCt !== 'undefined' ? DtfCt.cliente(g.nome) : null;
+        if (ct) { cartelle.push({ nome: g.nome, dir: g.dir, ordine: null, ct: ct.id, files: g.files.length, metri: await this._metri(g.files) }); continue; }
         const o = this.abbina(g.nome, todo);
         const ordine = o && o !== 'ambiguo' ? o.id : null;
         if (g.files.length || g.dir) cartelle.push({ nome: g.nome, dir: g.dir || null, ordine, files: g.files.length,
@@ -225,7 +228,8 @@ const DtfCartella = {
 
   // Coda Da stampare (ordini e cartelle senza ordine) in ordine, per il Mac mini
   _lista() {
-    return dtfCoda().filter(x => x.kind !== 'ct').map(x => x.kind === 'order' ? { id: x.id, nome: x.o.nome, descr: orderDesc(x.o) } : { id: x.id, nome: x.c.nome, cartella: true });
+    return dtfCoda().map(x => x.kind === 'order' ? { id: x.id, nome: x.o.nome, descr: orderDesc(x.o) }
+      : { id: x.id, nome: x.c.nome, cartella: true, ...(x.kind === 'ct' ? { ct: true } : {}) });
   },
   async _salvaLista() {
     const lista = this._lista();
@@ -243,7 +247,8 @@ const DtfCartella = {
     const dirs = (this.info()?.cartelle || []).filter(c => c.dir);
     if (!dirs.length) return 0;
     const pos = new Map(this._lista().map((x, i) => [x.id, i]));
-    const p = (c) => c.ordine ? pos.get(c.ordine) : pos.get(`cartella:${c.nome}`);
+    // come il Mac mini: la cartella conto terzi senza posizione va per prima (-1)
+    const p = (c) => c.ordine ? pos.get(c.ordine) : c.ct ? (pos.get(`ct:${c.ct}`) ?? -1) : pos.get(`cartella:${c.nome}`);
     const numerate = dirs.filter(c => p(c) != null).sort((a, b) => p(a) - p(b) || a.nome.toLowerCase().localeCompare(b.nome.toLowerCase()));
     const cifre = Math.max(2, String(numerate.length).length);
     const giusto = new Map(numerate.map((c, i) => [c, `${String(i + 1).padStart(cifre, '0')} - ${c.nome}`]));

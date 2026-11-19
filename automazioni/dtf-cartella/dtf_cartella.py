@@ -357,11 +357,11 @@ def b64url(b):
     return base64.urlsafe_b64encode(b).rstrip(b'=')
 
 
-def token_google(path=GOOGLE):
+def token_google(path=GOOGLE, scope='https://www.googleapis.com/auth/drive'):
     k = json.load(open(path))
     ora = int(time.time())
     msg = b64url(json.dumps({'alg': 'RS256', 'typ': 'JWT'}).encode()) + b'.' + b64url(json.dumps({
-        'iss': k['client_email'], 'scope': 'https://www.googleapis.com/auth/drive.readonly',
+        'iss': k['client_email'], 'scope': scope,
         'aud': k['token_uri'], 'iat': ora, 'exp': ora + 3600}).encode())
     # Firma RS256 con l'openssl di sistema: la chiave sta solo un attimo in un file 600
     with tempfile.NamedTemporaryFile('w', dir=DIR_DATI, suffix='.pem', delete=False) as t:
@@ -426,7 +426,8 @@ def drive_da_guardare(tok, radice):
     return out
 
 
-def drive_files(tok, cartella, percorso=''):
+def drive_files(tok, cartella, percorso='', mese=None):
+    mese = mese or cartella   # cartella del mese: lì dentro c'è (o si crea) STAMPATO
     out, pagina = [], None
     while True:
         q = urllib.parse.urlencode({'q': f"'{cartella}' in parents and trashed=false", 'pageSize': 1000,
@@ -438,9 +439,9 @@ def drive_files(tok, cartella, percorso=''):
             rel = f"{percorso}/{f['name']}" if percorso else f['name']
             if f['mimeType'] == 'application/vnd.google-apps.folder':
                 if not SALTA_DIR.search(f['name']):
-                    out += drive_files(tok, f['id'], rel)
+                    out += drive_files(tok, f['id'], rel, mese)
             elif EXT.search(f['name']) and not f['mimeType'].startswith('application/vnd.google-apps'):
-                out.append({**f, 'percorso': rel})
+                out.append({**f, 'percorso': rel, 'parent': cartella, 'mese': mese})
         pagina = r.get('nextPageToken')
         if not pagina:
             return out
@@ -488,47 +489,145 @@ def stessa_ora(a, b):
         return False
 
 
-def conto_terzi(cfg, roll, gap, prova):
-    if not os.path.exists(GOOGLE):
+def drive_scarica(tok, fid, dest):
+    """Scarica il file intero in dest (prima .part, poi rinomina: sul NAS non resta mai un file a metà)."""
+    tmp = dest + '.part'
+    req = urllib.request.Request(f'{DRIVE}/files/{fid}?alt=media&supportsAllDrives=true', headers={'Authorization': f'Bearer {tok}'})
+    with urllib.request.urlopen(req, timeout=600) as r, open(tmp, 'wb') as out:
+        while True:
+            pezzo = r.read(1024 * 1024)
+            if not pezzo:
+                break
+            out.write(pezzo)
+    os.replace(tmp, dest)
+
+
+def drive_stampato(tok, mese, cache):
+    """Id della cartella STAMPATO dentro la cartella del mese (la crea se manca)."""
+    if mese in cache:
+        return cache[mese]
+    for f in drive_figli(tok, mese):
+        if f['mimeType'] == CARTELLA_DRIVE and SALTA_DIR.search(f['name']):
+            cache[mese] = f['id']
+            return f['id']
+    req = urllib.request.Request(f'{DRIVE}/files?supportsAllDrives=true', method='POST',
+                                 data=json.dumps({'name': 'STAMPATO', 'mimeType': CARTELLA_DRIVE, 'parents': [mese]}).encode(),
+                                 headers={'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        cache[mese] = json.load(r)['id']
+    return cache[mese]
+
+
+def drive_sposta(tok, f, stampato):
+    req = urllib.request.Request(
+        f"{DRIVE}/files/{f['id']}?addParents={stampato}&removeParents={f['parent']}&supportsAllDrives=true&fields=id",
+        method='PATCH', data=b'{}', headers={'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=30):
+        pass
+
+
+def cartella_cliente(cartella_nas, nome):
+    """Cartella del cliente in 1. Stampare (anche col numero davanti, es. "01 - K1"); se manca la crea."""
+    for n in os.listdir(cartella_nas):
+        if os.path.isdir(os.path.join(cartella_nas, n)) and base(n).strip().lower() == nome.strip().lower():
+            return os.path.join(cartella_nas, n)
+    p = os.path.join(cartella_nas, nome.strip())
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
+def nome_libero(cartella, nome, size):
+    """Nome per la copia: se c'è già un file diverso con lo stesso nome, aggiunge (2), (3)…"""
+    radice, ext = os.path.splitext(nome)
+    p, k = os.path.join(cartella, nome), 2
+    while os.path.exists(p) and os.path.getsize(p) != size:
+        p, k = os.path.join(cartella, f'{radice} ({k}){ext}'), k + 1
+    return p
+
+
+def conto_terzi(cfg, roll, gap, prova, cartella_nas, stato, forza=False):
+    """Nei giorni di stampa del cliente, alle 5 e poi ogni ora fino alle 14: i file nuovi della sua
+    cartella Drive vanno in 1. Stampare/<cliente> sul NAS, si contano nel conto terzi di oggi e su
+    Drive passano in STAMPATO. Quello che arriva dopo le 14 aspetta il prossimo giorno di stampa."""
+    if not os.path.exists(GOOGLE) or not os.path.isdir(cartella_nas):
+        return
+    ora = datetime.now()
+    if not forza and not (5 <= ora.hour <= 14):
         return
     dati = rpc(cfg, 'tc_dtf_ct_dati', {'p_chiave': cfg['chiave']})
-    if not dati.get('success') or not dati.get('clienti'):
+    if not dati.get('success') or not dati.get('clienti') or not (dati.get('lavorativo') or forza):
         return
     noti = dati.get('files') or {}
-    tok = token_google()
-    nuovi = []
-    limite = datetime.now(timezone.utc) - timedelta(days=14)
+    fatte = stato.setdefault('ct_ore', {})
+    giro = ora.strftime('%Y-%m-%d %H')
+    tok = None
     for c in dati['clienti']:
-        prima_volta = not c.get('letti')   # alla prima lettura i file vecchi contano come già stampati
+        if not forza and (ora.isoweekday() not in (c.get('giorni') or [2, 4]) or fatte.get(c['id']) == giro):
+            continue
         cartella = drive_id(c.get('drive_url'))
         if not cartella:
             print(f"  conto terzi {c['nome']}: link della cartella non valido", file=sys.stderr)
             continue
+        tok = tok or token_google()
         try:
             files = [f for cid, rel in drive_da_guardare(tok, cartella) for f in drive_files(tok, cid, rel)]
         except urllib.error.HTTPError as e:
             print(f"  conto terzi {c['nome']}: cartella non leggibile ({e.code}): è condivisa con l'account robot?", file=sys.stderr)
             continue
-        for f in files:
+
+        # Da copiare: i file mai contati (o cambiati dopo il conteggio)
+        def contato(f):
             n = noti.get(f['id'])
-            if n and int(n.get('size') or -1) == int(f.get('size') or 0) and stessa_ora(n.get('modificato'), f['modifiedTime']):
+            return bool(n and n.get('contato') and int(n.get('size') or -1) == int(f.get('size') or 0)
+                        and stessa_ora(n.get('modificato'), f['modifiedTime']))
+        nuovi = [f for f in files if not contato(f)]
+        copiati = []
+        if nuovi:
+            dest = None if prova else cartella_cliente(cartella_nas, c['nome'])
+            for f in nuovi:
+                if prova:
+                    print(f"  conto terzi {c['nome']}: copierei {f['percorso']} in 1. Stampare/{c['nome']}")
+                    continue
+                p = nome_libero(dest, f['name'], int(f.get('size') or 0))
+                try:
+                    if not (os.path.exists(p) and os.path.getsize(p) == int(f.get('size') or 0)):
+                        drive_scarica(tok, f['id'], p)
+                except Exception as e:
+                    print(f"  conto terzi {c['nome']}: {f['percorso']} non copiato: {e}", file=sys.stderr)
+                    continue
+                item = descrivi(p, f['name'], roll, gap)
+                copiati.append({'drive_id': f['id'], 'nome': f['name'], 'percorso': f['percorso'],
+                                'size': int(f.get('size') or 0), 'modificato': f['modifiedTime'], 'item': item, '_f': f})
+                print(f"  conto terzi {c['nome']}: copiato {f['percorso']} ({item.get('metri')} m)")
+            if copiati:
+                r = rpc(cfg, 'tc_dtf_ct_copiati', {'p_chiave': cfg['chiave'], 'p_client': c['id'],
+                                                   'p_files': [{k: v for k, v in x.items() if k != '_f'} for x in copiati]})
+                if not r.get('success'):
+                    print(f"  conto terzi {c['nome']}: conteggio non salvato: {r.get('error')}", file=sys.stderr)
+                    continue   # non si sposta niente su Drive: al prossimo giro si riprova
+                print(f"  conto terzi {c['nome']}: {r.get('contati')} file, {r.get('metri')} m nel conto terzi di oggi")
+
+        # Su Drive in STAMPATO: i file appena contati e quelli contati prima ma rimasti fuori (spostamento non riuscito)
+        da_spostare = [x['_f'] for x in copiati] + [f for f in files if contato(f)]
+        cache = {}
+        for f in da_spostare:
+            if prova:
+                print(f"  conto terzi {c['nome']}: sposterei {f['percorso']} in STAMPATO")
                 continue
-            item = descrivi(None, f['name'], roll, gap, misura_da(DriveFile(tok, f['id'], f.get('size')), f['name']))
-            mod = datetime.fromisoformat(f['modifiedTime'].replace('Z', '+00:00'))
-            nuovi.append({'client_id': c['id'], 'drive_id': f['id'], 'nome': f['name'], 'percorso': f['percorso'],
-                          'size': int(f.get('size') or 0), 'modificato': f['modifiedTime'], 'item': item,
-                          'storico': bool(prima_volta and mod < limite)})
-            print(f"  conto terzi {c['nome']}: {f['percorso']} {item.get('w_cm')}x{item.get('h_cm')} cm, {item.get('pz')} pz, {item.get('metri')} m")
-    if nuovi and not prova:
-        r = rpc(cfg, 'tc_dtf_ct_salva', {'p_chiave': cfg['chiave'], 'p_files': nuovi})
-        if not r.get('success'):
-            print('conto terzi non salvato:', r.get('error'), file=sys.stderr)
+            try:
+                drive_sposta(tok, f, drive_stampato(tok, f['mese'], cache))
+            except Exception as e:
+                print(f"  conto terzi {c['nome']}: {f['percorso']} non spostato in STAMPATO: {e}", file=sys.stderr)
+        if not prova:
+            fatte[c['id']] = giro
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--prova', action='store_true')
     ap.add_argument('--cartella', default=CARTELLA)
+    ap.add_argument('--conto-terzi-ora', action='store_true',
+                    help='conto terzi subito, anche fuori dai giorni e dagli orari di stampa')
     a = ap.parse_args()
 
     with open(CONFIG) as f:
@@ -543,17 +642,8 @@ def main():
     roll = float(dati.get('roll_cm') or 57)
     gap = float(dati.get('margin_cm') if dati.get('margin_cm') is not None else 0.5)
 
-    # Conto terzi da Google Drive: va anche se il NAS non è montato
-    try:
-        conto_terzi(cfg, roll, gap, a.prova)
-    except Exception as e:
-        print('conto terzi:', e, file=sys.stderr)
-
     if not os.path.isdir(a.cartella):
         return 0   # NAS non montato: si riprova al prossimo giro
-    # La lista ha gli ordini e, al loro posto, le cartelle senza ordine ({id: 'cartella:<nome>', cartella: true})
-    pos = {o['id']: i for i, o in enumerate(lista)}
-    ordini_lista = [o for o in lista if not o.get('cartella')]
 
     try:
         with open(STATO) as f:
@@ -561,10 +651,26 @@ def main():
     except Exception:
         stato = {}
 
+    # Conto terzi: dal Drive del cliente alla sua cartella in 1. Stampare (prima di leggere la cartella)
+    try:
+        conto_terzi(cfg, roll, gap, a.prova, a.cartella, stato, a.conto_terzi_ora)
+    except Exception as e:
+        print('conto terzi:', e, file=sys.stderr)
+
+    # La lista ha gli ordini e, al loro posto, le cartelle senza ordine ({id: 'cartella:<nome>', cartella: true})
+    pos = {o['id']: i for i, o in enumerate(lista)}
+    ordini_lista = [o for o in lista if not o.get('cartella')]
+
     gruppi = gruppi_di(a.cartella)
     per_ordine, senza, ambigue = {}, [], []
     misure = stato.get('misure') or {}   # cache delle misure dei file senza ordine: percorso → [size, mtime, metri]
+    ct_clienti = dati.get('ct_clienti') or []
     for g in gruppi:
+        # Cartella di un cliente conto terzi (es. "K1", copiata da Drive): in cima, niente task
+        ct = next((c for c in ct_clienti if g.get('dir') and g['nome'].strip().lower() == c['nome'].strip().lower()), None)
+        if ct:
+            g.update({'ordine': None, 'ct': ct['id'], 'pos': pos.get('ct:' + ct['id'], -1)})
+            continue
         o = abbina(g['nome'], ordini_lista)
         g['ordine'] = o['id'] if o and o != 'ambiguo' else None
         g['pos'] = pos[o['id']] if g['ordine'] else pos.get('cartella:' + g['nome'])
@@ -640,6 +746,7 @@ def main():
     mancanti = [o['id'] for o in ordini_lista if o['id'] not in per_ordine
                 and any(x.get('cartella') for x in (items_db.get(o['id']) or []))]
     cartelle = [{'nome': g['nome'], 'dir': g.get('dir'), 'ordine': g['ordine'], 'files': len(g['files']),
+                 **({'ct': g['ct']} if g.get('ct') else {}),
                  **({'metri': g.get('metri', 0)} if not g['ordine'] else {})} for g in gruppi if g['files'] or g.get('dir')]
     esito = {'at': datetime.now(timezone.utc).isoformat(), 'abbinate': len(per_ordine), 'aggiunti': aggiunti,
              'senzaOrdine': senza, 'ambigue': ambigue, 'rinominate': len(rinominate), 'attesa': attesa,
