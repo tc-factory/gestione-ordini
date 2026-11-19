@@ -268,6 +268,19 @@ def abbina(nome, ordini):
     return 'ambiguo' if pari else best
 
 
+def proprietario(nome_cartella, ordini, items_db, preparati):
+    """Più ordini con lo stesso nome (es. due CROSSFIT MONZA): la cartella è dell'ordine per cui
+    l'ha creata l'automazione, oppure di quello che ha già i suoi file. None se non si capisce."""
+    ids = {o['id'] for o in ordini}
+    oid = (preparati or {}).get(nome_cartella)
+    if oid in ids:
+        return oid
+    k = base(nome_cartella).strip().lower()
+    con_file = [o['id'] for o in ordini if any(x.get('cartella') and base(x['cartella'].split('/')[0]).strip().lower() == k
+                                                for x in (items_db.get(o['id']) or []))]
+    return con_file[0] if len(con_file) == 1 else None
+
+
 def base(nome):
     return NUMERO.sub('', nome)
 
@@ -757,7 +770,11 @@ def prepara_ordini(cfg, dati, cartella_nas, prova, stato):
     avvisati = stato.setdefault('prepara_avvisi', {})
     for o in da:
         # Cartella già in 1. Stampare (messa a mano): non si tocca
-        if any(os.path.isdir(os.path.join(cartella_nas, n)) and core(base(n)) == core(o['nome']) for n in os.listdir(cartella_nas)):
+        def di_altri(n):
+            oid = proprietario(n, [x for x in (dati.get('lista') or []) if not x.get('cartella')], dati.get('items') or {}, dati.get('preparati'))
+            return oid is not None and oid != o['id']
+        if any(os.path.isdir(os.path.join(cartella_nas, n)) and core(base(n)) == core(o['nome']) and not di_altri(n)
+               for n in os.listdir(cartella_nas)):
             registra(o, 'gia_presente')
             continue
         cli = trova_cliente(o, cartelle)
@@ -891,6 +908,11 @@ def main():
             g.update({'ordine': None, 'ct': ct['id'], 'pos': pos.get('ct:' + ct['id'], -1)})
             continue
         o = abbina(g['nome'], ordini_lista)
+        if o == 'ambiguo':   # ordini con lo stesso nome: decide chi ha già la cartella
+            fc = core(g['nome'])
+            pari = [x for x in ordini_lista if len(core(x.get('nome'))) >= 4 and (core(x.get('nome')) in fc or fc in core(x.get('nome')))]
+            oid = proprietario(g.get('dir') or g['nome'], pari, items_db, dati.get('preparati'))
+            o = next((x for x in ordini_lista if x['id'] == oid), 'ambiguo')
         g['ordine'] = o['id'] if o and o != 'ambiguo' else None
         g['pos'] = pos[o['id']] if g['ordine'] else pos.get('cartella:' + g['nome'])
         if o == 'ambiguo':
