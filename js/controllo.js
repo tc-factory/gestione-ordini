@@ -587,6 +587,7 @@ function loadControlExtras() {
   if (Ctrl.view === 'report') loadControlReport();
   if (Ctrl.view === 'automazioni') loadControlAutomations();
   if (Ctrl.view === 'attivazioni') loadControlAttivazioni();
+  if (Ctrl.view === 'uso') loadUsoMac();
   if (Ctrl.view === 'costi') loadControlCosti();
   if (Ctrl.view === 'costivivi') loadCostiVivi();
 }
@@ -614,7 +615,7 @@ function renderControlPage() {
     return;
   }
 
-  const tabs = inTasks ? [] : [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report'], ['attivazioni', 'Attivazioni'], ['costivivi', 'Costi vivi'], ['costi', 'Costi servizi']];
+  const tabs = inTasks ? [] : [['cervello', 'Cervello'], ['collegamenti', 'Collegamenti'], ['automazioni', 'Automazioni'], ['competenze', 'Competenze'], ['squadra', 'Team'], ['report', 'Report'], ['attivazioni', 'Attivazioni'], ['uso', 'Uso dei Mac'], ['costivivi', 'Costi vivi'], ['costi', 'Costi servizi']];
   const body = !Ctrl.loaded ? `<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`
     : Ctrl.error ? `<div class="glass-card page-card"><div class="empty-list">${escapeHtml(Ctrl.error.message)}</div></div>`
     : Ctrl.view === 'squadra' ? renderControlTeam()
@@ -624,6 +625,7 @@ function renderControlPage() {
     : Ctrl.view === 'competenze' ? renderControlSkills()
     : Ctrl.view === 'report' ? renderControlReport()
     : Ctrl.view === 'attivazioni' ? renderControlAttivazioni()
+    : Ctrl.view === 'uso' ? renderUsoMac()
     : Ctrl.view === 'costi' ? renderControlCosti()
     : Ctrl.view === 'costivivi' ? renderCostiVivi()
     : renderControlMyDay();
@@ -5086,6 +5088,16 @@ async function attivaMac() {
   ctrlCopia(ATT_COMANDO(data), 'Comando copiato: incollalo nel Terminale di questo Mac');
 }
 
+async function usoMacOnOff(chiave, nome, on) {
+  if (on && !(await uiConfirm(`Accendere l'uso del Mac su ${nome}? Prima di accenderlo la persona deve aver ricevuto l'informativa `
+    + `e serve l'accordo sindacale o l'autorizzazione dell'Ispettorato del Lavoro (art. 4 Statuto dei Lavoratori). `
+    + `Al Mac arriva entro 5 minuti; il browser chiederà una volta il permesso.`, { ok: 'Accendi' }))) return;
+  const { error } = await supabaseClient.rpc('tc_lavoro_uso', { p_chiave: chiave, p_on: on });
+  if (error) return showToast(error.message, 'error');
+  showToast(on ? 'Uso del Mac acceso' : 'Uso del Mac spento');
+  loadControlAttivazioni();
+}
+
 async function rimuoviMac(chiave, nome) {
   if (!(await uiConfirm(`Scollegare ${nome}? Il tempo già registrato resta nei task; da quel Mac non arriva più niente.`, { ok: 'Scollega', danger: true }))) return;
   const { error } = await supabaseClient.rpc('tc_lavoro_rimuovi', { p_chiave: chiave });
@@ -5127,11 +5139,13 @@ function renderControlAttivazioni() {
     <section class="glass-card page-card ctrl-group">
       <div class="page-card-head"><h2>Mac collegati</h2></div>
       ${CtrlAtt.lista.length ? `<div class="table-scroll"><table class="data-table">
-        <thead><tr><th>Persona</th><th>Mac</th><th>Ultimo invio</th><th></th></tr></thead>
+        <thead><tr><th>Persona</th><th>Mac</th><th>Ultimo invio</th><th>Uso del Mac</th><th></th></tr></thead>
         <tbody>${CtrlAtt.lista.map(d => `<tr>
           <td><strong>${escapeHtml(d.utente)}</strong></td>
           <td>${escapeHtml(d.nome)}</td>
           <td>${contatto(d)}</td>
+          <td><button type="button" class="ctrl-btn ${d.uso ? 'is-primary' : ''}" aria-pressed="${!!d.uso}"
+            onclick="usoMacOnOff('${d.chiave}', '${escapeHtml(d.nome).replace(/'/g, '&#39;')}', ${!d.uso})">${d.uso ? 'Acceso' : 'Spento'}</button></td>
           <td class="att-azioni">
             <button type="button" class="ctrl-btn" onclick="ctrlCopia(ATT_COMANDO('${d.chiave}'), 'Comando copiato: incollalo nel Terminale del Mac')">Copia comando</button>
             <button type="button" class="ctrl-btn" onclick="rimuoviMac('${d.chiave}', '${escapeHtml(d.nome).replace(/'/g, '&#39;')}')">Scollega</button>
@@ -5140,6 +5154,94 @@ function renderControlAttivazioni() {
     </section>`;
 }
 
+
+// ── Uso dei Mac: minuti per categoria e per persona (sql/uso-mac.sql, raccolti da TC Lavoro dove è acceso) ──
+// Solo totali del giorno e domini dei siti: niente orari, indirizzi o ricerche.
+const USO_CAT = [
+  { id: 'lavoro',   label: 'Lavoro',          color: '#16a34a' },
+  { id: 'mail',     label: 'Mail',            color: '#6366f1' },
+  { id: 'messaggi', label: 'Messaggi',        color: '#14b8a6' },
+  { id: 'ricerche', label: 'Ricerche web',    color: '#0ea5e9' },
+  { id: 'video',    label: 'Video e musica',  color: '#ef4444' },
+  { id: 'social',   label: 'Social',          color: '#ec4899' },
+  { id: 'notizie',  label: 'Notizie e sport', color: '#f59e0b' },
+  { id: 'acquisti', label: 'Acquisti',        color: '#a855f7' },
+  { id: 'altri',    label: 'Altri siti',      color: '#94a3b8' },
+];
+const USO_SVAGO = ['video', 'social', 'notizie', 'acquisti'];
+const CtrlUso = { periodo: 'oggi', righe: null, error: null };
+
+function usoIntervallo() {
+  const oggi = ctrlOggi();
+  return { oggi: [oggi, oggi], ieri: [ctrlAddDays(oggi, -1), ctrlAddDays(oggi, -1)],
+    '7': [ctrlAddDays(oggi, -6), oggi], '30': [ctrlAddDays(oggi, -29), oggi] }[CtrlUso.periodo];
+}
+
+async function loadUsoMac() {
+  const [dal, al] = usoIntervallo();
+  const { data, error } = await supabaseClient.from('lavoro_uso').select('utente, giorno, categoria, voce, minuti')
+    .gte('giorno', dal).lte('giorno', al).limit(10000);
+  CtrlUso.righe = data || [];
+  CtrlUso.error = error || null;
+  refreshControlPage();
+}
+
+function setUsoPeriodo(p) {
+  CtrlUso.periodo = p;
+  CtrlUso.righe = null;
+  refreshControlPage();
+  loadUsoMac();
+}
+
+function renderUsoMac() {
+  const periodi = `<div class="segmented" role="radiogroup" aria-label="Periodo" style="margin-bottom:var(--space-md,16px);">
+    ${[['oggi', 'Oggi'], ['ieri', 'Ieri'], ['7', '7 giorni'], ['30', '30 giorni']].map(([p, l]) => `<button type="button" role="radio"
+      aria-checked="${CtrlUso.periodo === p}" class="${CtrlUso.periodo === p ? 'active' : ''}" onclick="setUsoPeriodo('${p}')">${l}</button>`).join('')}</div>`;
+  if (CtrlUso.error) return `${periodi}<div class="glass-card page-card"><div class="empty-list">${escapeHtml(CtrlUso.error.message)}</div></div>`;
+  if (!CtrlUso.righe) return `${periodi}<div class="glass-card page-card"><div class="empty-list">Caricamento…</div></div>`;
+
+  const persone = {};
+  for (const r of CtrlUso.righe) {
+    const p = persone[r.utente] = persone[r.utente] || { tot: 0, cat: {}, voci: {}, giorni: new Set() };
+    p.tot += r.minuti;
+    p.cat[r.categoria] = (p.cat[r.categoria] || 0) + r.minuti;
+    const k = r.categoria + '\t' + r.voce;
+    p.voci[k] = (p.voci[k] || 0) + r.minuti;
+    p.giorni.add(r.giorno);
+  }
+  const nota = `<p class="uso-nota">Solo i Mac con l'uso acceso (Attivazioni). Si contano i minuti in cui l'app o il sito è davanti
+    e la persona usa mouse o tastiera; i video anche da fermi, fino a 30 minuti. Dei siti si vede solo il nome, mai le pagine
+    o le ricerche; quelli sotto i 5 minuti al giorno sono in "Altri siti". I dati si cancellano dopo 90 giorni.</p>`;
+  const nomi = Object.keys(persone).sort((a, b) => persone[b].tot - persone[a].tot);
+  if (!nomi.length) return `${periodi}<div class="glass-card page-card"><div class="empty-list">Nessun dato in questo periodo.</div>${nota}</div>`;
+
+  const pct = (m, tot) => tot ? Math.round(m / tot * 100) : 0;
+  const card = (nick) => {
+    const p = persone[nick];
+    const svago = USO_SVAGO.reduce((s, c) => s + (p.cat[c] || 0), 0);
+    const nG = p.giorni.size;
+    const cats = USO_CAT.filter(c => p.cat[c.id]);
+    const fuori = Object.entries(p.voci).filter(([k]) => !['lavoro', 'mail'].includes(k.split('\t')[0]))
+      .sort((a, b) => b[1] - a[1]).slice(0, 10);
+    return `
+      <section class="glass-card page-card ctrl-group uso-card">
+        <div class="page-card-head"><h2>${escapeHtml(nick)}</h2>
+          <span class="ctrl-group-hint">${ctrlFmtMin(p.tot)} al Mac${nG > 1 ? ` in ${nG} giorni` : ''} ·
+            <strong class="${pct(svago, p.tot) >= 15 ? 'uso-alto' : ''}">${pct(svago, p.tot)}% svago</strong>${nG > 1 && svago ? ` (${ctrlFmtMin(svago / nG)} al giorno)` : ''}</span></div>
+        <div class="uso-body">
+          <div class="uso-barra" role="img" aria-label="${cats.map(c => `${c.label} ${pct(p.cat[c.id], p.tot)}%`).join(', ')}">
+            ${cats.map(c => `<span style="width:${p.cat[c.id] / p.tot * 100}%;background:${c.color}" title="${c.label}: ${ctrlFmtMin(p.cat[c.id])}"></span>`).join('')}
+          </div>
+          <div class="uso-legenda">${cats.map(c => `<span><i style="background:${c.color}"></i>${c.label} <strong>${ctrlFmtMin(p.cat[c.id])}</strong></span>`).join('')}</div>
+          ${fuori.length ? `<div class="uso-voci"><div class="uso-voci-tit">Fuori dalle app di lavoro</div>
+            ${fuori.map(([k, m]) => { const [c, v] = k.split('\t'); const cat = USO_CAT.find(x => x.id === c);
+              return `<div class="uso-voce"><i style="background:${cat?.color || '#94a3b8'}"></i><span>${escapeHtml(v)}</span>
+                <em>${escapeHtml(cat?.label || c)}</em><strong>${ctrlFmtMin(m)}</strong></div>`; }).join('')}</div>` : ''}
+        </div>
+      </section>`;
+  };
+  return `${periodi}${nomi.map(card).join('')}<div class="glass-card page-card">${nota}</div>`;
+}
 
 // ── Costi: i servizi a pagamento di Creative System, Live Printing e Kamon, mese per mese (sql/costi-gestionale.sql) ──
 // Claude dai consumi veri (vista cervello_costo_giorni), gli altri fissi dal mese in cui si pagano.
