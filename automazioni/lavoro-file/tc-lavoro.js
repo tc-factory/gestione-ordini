@@ -19,8 +19,6 @@ const INATTIVO_MAX = 180;    // oltre 3 minuti senza mouse/tastiera il tempo non
 const INVIO_OGNI = 300;      // secondi tra un invio e l'altro
 const SENZA_FILE_MAX = 900;  // documento non ancora salvato: vale per l'ultimo cliente se visto da meno di 15 minuti
 const ESCLUSE = ['com.apple.finder', 'com.apple.loginwindow', 'com.apple.ScreenSaver.Engine'];
-const VIDEO_MAX = 1800;      // un video si guarda senza toccare il mouse: conta fino a 30 minuti fermi
-const SITO_MIN = 5;          // minuti sotto i quali un sito "altro" parte senza nome
 
 const HOME = ObjC.unwrap($.NSHomeDirectory());
 const CARTELLA = HOME + '/Library/Application Support/TC Lavoro';
@@ -88,65 +86,47 @@ function documentoDavanti(app) {
   return null;
 }
 
-// ── Uso del Mac: categoria dell'app o del sito davanti ──
+// ── Uso del Mac: solo i tool di lavoro col loro nome, tutto il resto in "Altro" senza nome ──
+// Le app desktop contano come lavoro (col nome dell'app), tranne quelle chiaramente personali (sotto).
+// Nel browser conta come lavoro solo un sito di lavoro (lista sotto); ogni altro sito è "Altro", mai scritto.
 const BROWSER = {
   'com.google.Chrome': 'URL of active tab of front window',
   'com.brave.Browser': 'URL of active tab of front window',
   'com.microsoft.edgemac': 'URL of active tab of front window',
   'company.thebrowser.Browser': 'URL of active tab of front window',
   'com.apple.Safari': 'URL of current tab of front window',
-  'org.mozilla.firefox': null,   // Firefox non dice il sito: conta come "Altri siti"
+  'org.mozilla.firefox': null,   // Firefox non dice il sito: conta come "Altro"
 };
-const APP_CAT = {
-  'net.whatsapp.WhatsApp': 'messaggi', 'desktop.WhatsApp': 'messaggi', 'ru.keepcoder.Telegram': 'messaggi',
-  'org.telegram.desktop': 'messaggi', 'com.apple.MobileSMS': 'messaggi', 'com.facebook.archon': 'messaggi',
-  'com.apple.FaceTime': 'messaggi',
-  'com.apple.mail': 'mail', 'com.microsoft.Outlook': 'mail', 'com.readdle.smartemail-Mac': 'mail',
-  'com.spotify.client': 'video', 'com.apple.Music': 'video', 'com.apple.TV': 'video', 'com.netflix.Netflix': 'video',
+// App desktop che NON sono lavoro: finiscono in "Altro" (musica, streaming, messaggistica personale).
+const APP_NONLAVORO = {
+  'com.spotify.client': 1, 'com.apple.Music': 1, 'com.apple.TV': 1, 'com.netflix.Netflix': 1,
+  'net.whatsapp.WhatsApp': 1, 'desktop.WhatsApp': 1, 'ru.keepcoder.Telegram': 1, 'org.telegram.desktop': 1,
+  'com.apple.MobileSMS': 1, 'com.facebook.archon': 1, 'com.apple.FaceTime': 1,
 };
-// Domini → categoria (vale anche per i sottodomini). Quelli non elencati sono "altri".
-const SITI = {
-  messaggi: ['web.whatsapp.com', 'whatsapp.com', 'telegram.org', 'messenger.com'],
-  mail: ['mail.google.com', 'outlook.live.com', 'outlook.office.com', 'outlook.office365.com', 'webmail.aruba.it',
-    'webmail.pec.it', 'mail.yahoo.com', 'mail.libero.it', 'icloud.com'],
-  ricerche: ['google.com', 'google.it', 'bing.com', 'duckduckgo.com', 'ecosia.org', 'yahoo.com', 'chatgpt.com', 'perplexity.ai'],
-  video: ['youtube.com', 'youtu.be', 'netflix.com', 'primevideo.com', 'disneyplus.com', 'twitch.tv', 'raiplay.it',
-    'mediasetinfinity.mediaset.it', 'dazn.com', 'nowtv.it', 'now.tv', 'crunchyroll.com', 'spotify.com', 'paramountplus.com',
-    'tv.apple.com', 'streamingcommunity'],
-  social: ['facebook.com', 'instagram.com', 'tiktok.com', 'x.com', 'twitter.com', 'reddit.com', 'threads.net',
-    'linkedin.com', 'pinterest.com', 'pinterest.it', 'snapchat.com', 'tumblr.com', 'bsky.app'],
-  notizie: ['corriere.it', 'repubblica.it', 'gazzetta.it', 'ansa.it', 'ilpost.it', 'fanpage.it', 'sky.it', 'tgcom24.mediaset.it',
-    'corrieredellosport.it', 'tuttosport.com', 'ilsole24ore.com', 'lastampa.it', 'ilfattoquotidiano.it', 'calciomercato.com',
-    'transfermarkt.it', 'transfermarkt.com', 'tuttomercatoweb.com', 'ilmessaggero.it', 'ilgiornale.it', 'today.it', 'virgilio.it',
-    'msn.com', 'rainews.it', 'open.online', 'leggo.it', 'meteo.it', '3bmeteo.com', 'ilmeteo.it'],
-  acquisti: ['amazon.it', 'amazon.com', 'ebay.it', 'ebay.com', 'zalando.it', 'subito.it', 'vinted.it', 'aliexpress.com',
-    'temu.com', 'shein.com', 'idealo.it', 'trovaprezzi.it', 'booking.com', 'airbnb.it', 'airbnb.com'],
-  lavoro: ['pngs.it', 'shopify.com', 'myshopify.com', 'customily.com', 'supabase.com', 'github.com', 'canva.com',
-    'docs.google.com', 'drive.google.com', 'sheets.google.com', 'claude.ai', 'anthropic.com', 'gls-italy.com', 'brt.it',
-    'aruba.it', 'adobe.com', 'freepik.com', 'freepik.es', 'figma.com', 'dafont.com', 'fonts.google.com', 'railway.app',
-    'railway.com', 'ciucciamilcalzino.it', 'bienjugado.com', 'boxfactorylab.com', 'asteroidistore.com', 'liveprinting.it',
-    'stanleystella.com', 'actionwear.it', 'camac.it', 'mood.it', 'ups.com', 'dhl.com', 'poste.it', 'fattureincloud.it',
-    'agenziaentrate.gov.it', 'paypal.com', 'stripe.com', 'meta.com', 'business.facebook.com', 'whatsapp.business'],
-};
+// Siti di lavoro (vale anche per i sottodomini): gestionale, negozi, fornitori, corrieri, mail e strumenti.
+const LAVORO_SITI = [
+  'pngs.it', 'shopify.com', 'myshopify.com', 'customily.com', 'supabase.com', 'github.com', 'canva.com', 'figma.com',
+  'docs.google.com', 'drive.google.com', 'sheets.google.com', 'claude.ai', 'anthropic.com', 'adobe.com', 'freepik.com',
+  'freepik.es', 'dafont.com', 'fonts.google.com', 'railway.app', 'railway.com', 'ciucciamilcalzino.it', 'bienjugado.com',
+  'boxfactorylab.com', 'asteroidistore.com', 'liveprinting.it', 'stanleystella.com', 'actionwear.it', 'camac.it', 'mood.it',
+  'gls-italy.com', 'brt.it', 'ups.com', 'dhl.com', 'poste.it', 'fattureincloud.it', 'agenziaentrate.gov.it', 'paypal.com',
+  'stripe.com', 'business.facebook.com', 'meta.com', 'whatsapp.business',
+  'webmail.aruba.it', 'webmail.pec.it', 'mail.google.com', 'outlook.office.com', 'outlook.office365.com', 'aruba.it',
+];
 function dominio(url) {
   const m = /^https?:\/\/([^\/:?#]+)/i.exec(url || '');
   return m ? m[1].toLowerCase().replace(/^www\./, '') : null;
 }
-// Il sito come si mostra: il dominio senza sottodomini (m.youtube.com → youtube.com)
+function sitoLavoro(host) {
+  return LAVORO_SITI.some(d => host === d || host.endsWith('.' + d));
+}
+// Il sito come si mostra: il dominio senza sottodomini (admin.shopify.com → shopify.com)
 function sitoBreve(host) {
   const p = host.split('.');
   const n = p.length > 2 && /^(co|com|gov|org|net)$/.test(p[p.length - 2]) ? 3 : 2;
   return p.slice(-n).join('.');
 }
-function categoriaSito(host) {
-  // prima i più specifici (mail.google.com prima di google.com)
-  let meglio = null;
-  for (const [cat, lista] of Object.entries(SITI)) for (const d of lista) {
-    if ((host === d || host.endsWith('.' + d) || (!d.includes('.') && host.includes(d))) && (!meglio || d.length > meglio.d.length)) meglio = { cat, d };
-  }
-  return meglio ? meglio.cat : 'altri';
-}
-// { categoria, voce } di quello che c'è davanti; voce = nome dell'app o dominio del sito
+// { categoria, voce } di quello che c'è davanti. 'lavoro' col nome del tool, oppure 'altro' sempre "Altro".
 function usoDavanti(app, id, nomeApp) {
   if (id in BROWSER) {
     const src = BROWSER[id];
@@ -154,12 +134,11 @@ function usoDavanti(app, id, nomeApp) {
       tell application id "${id}" to if (count windows) > 0 then return ${src}
     end timeout`) : null;
     const host = dominio(url);
-    if (!host) return { categoria: 'altri', voce: nomeApp };
-    const cat = categoriaSito(host);
-    const voce = ['mail', 'messaggi'].includes(cat) || host.startsWith('mail.') || host.startsWith('docs.') || host.startsWith('drive.') ? host : sitoBreve(host);
-    return { categoria: cat, voce };
+    if (host && sitoLavoro(host)) return { categoria: 'lavoro', voce: sitoBreve(host) };
+    return { categoria: 'altro', voce: 'Altro' };
   }
-  return { categoria: APP_CAT[id] || 'lavoro', voce: nomeApp };
+  if (APP_NONLAVORO[id]) return { categoria: 'altro', voce: 'Altro' };
+  return { categoria: 'lavoro', voce: nomeApp };
 }
 
 // Cliente dal percorso: la cartella dopo "Clienti" (saltando la lettera), altrimenti brand o cartella del file
@@ -201,20 +180,12 @@ function campiona() {
   ultimoCampione = ora;
   if (!stato) stato = leggiJson(STATO, { giorni: {} });
 
-  const inattivo = secondiInattivo();
-  if (stato.uso === true && inattivo < VIDEO_MAX) {
-    const app = $.NSWorkspace.sharedWorkspace.frontmostApplication;
-    const id = app.isNil() ? '' : ObjC.unwrap(app.bundleIdentifier) || '';
-    if (id && !ESCLUSE.includes(id)) {
-      const u = usoDavanti(app, id, ObjC.unwrap(app.localizedName) || id);
-      if (inattivo < INATTIVO_MAX || u.categoria === 'video') aggiungiUso(u, trascorsi, ora);
-    }
-  }
-  if (inattivo < INATTIVO_MAX) {
+  if (secondiInattivo() < INATTIVO_MAX) {
     const app = $.NSWorkspace.sharedWorkspace.frontmostApplication;
     const id = app.isNil() ? '' : ObjC.unwrap(app.bundleIdentifier) || '';
     if (id && !ESCLUSE.includes(id)) {
       const nomeApp = ObjC.unwrap(app.localizedName) || id;
+      if (stato.uso === true) aggiungiUso(usoDavanti(app, id, nomeApp), trascorsi, ora);
       const percorso = documentoDavanti(app);
       let c = percorso ? clienteDi(percorso) : null;
       if (c) ultimoCliente = { ...c, at: ora };
@@ -251,16 +222,9 @@ function aggiungiUso(u, sec, ora) {
   scriviFile(STATO, JSON.stringify(stato));
 }
 
-// Le voci del giorno da mandare: i siti "altri" sotto SITO_MIN minuti diventano "Altri siti", senza nome
+// Le voci del giorno da mandare: lavoro per tool, tutto il resto in un'unica "Altro"
 function vociUso(uso) {
-  const tot = {};
-  for (const [k, sec] of Object.entries(uso || {})) {
-    let [categoria, voce] = k.split('\t');
-    if (categoria === 'altri' && sec < SITO_MIN * 60) voce = 'Altri siti';
-    const kk = categoria + '\t' + voce;
-    tot[kk] = (tot[kk] || 0) + sec;
-  }
-  return Object.entries(tot).map(([k, sec]) => {
+  return Object.entries(uso || {}).map(([k, sec]) => {
     const [categoria, voce] = k.split('\t');
     return { categoria, voce, minuti: Math.round(sec / 60) };
   }).filter(v => v.minuti >= 1);
