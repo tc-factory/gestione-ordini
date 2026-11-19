@@ -659,34 +659,44 @@ def trova_cliente(o, cartelle):
     return None
 
 
-def file_dtf_cliente(cartella, order_id=None):
-    """File DTF del cliente: cartelle "dtf" dell'anno corrente (es. 2026/01-dtf/tiff); se la cartella
-    non è divisa per anni, i file nella cartella principale. Se c'è una sottocartella col numero
-    d'ordine (es. "2026/dtf/00404 felpe"), solo i file di quella."""
-    tutti = _file_dtf_cliente(cartella)
-    if order_id:
-        num = re.compile(r'(^|\D)' + re.escape(str(order_id)) + r'(\D|$)')
-        suoi = [f for f in tutti if any(num.search(d) for d in os.path.relpath(os.path.dirname(f), cartella).split(os.sep))]
-        if suoi:
-            return suoi
-    return tutti
+def _cartella_dtf_tiff(cartella):
+    """<cartella>/dtf/tiff (va bene anche "01-dtf", "tif"); None se non c'è."""
+    for d in sorted(os.listdir(cartella)):
+        pd = os.path.join(cartella, d)
+        if os.path.isdir(pd) and re.search(r'dtf', d, re.I) and not SALTA_DIR.search(d):
+            for t in sorted(os.listdir(pd)):
+                pt = os.path.join(pd, t)
+                if os.path.isdir(pt) and re.fullmatch(r'tiff?', t.strip(), re.I):
+                    return pt
+    return None
 
 
-def _file_dtf_cliente(cartella):
-    anni = [n for n in os.listdir(cartella) if re.fullmatch(r'20\d\d', n) and os.path.isdir(os.path.join(cartella, n))]
-    if not anni:
-        return [os.path.join(cartella, n) for n in sorted(os.listdir(cartella))
-                if not salta(n) and EXT.search(n) and os.path.isfile(os.path.join(cartella, n))]
+def file_dtf_cliente(cartella, descr=None):
+    """Schema delle cartelle (deciso 2026-11-19):
+         <cliente>/<anno>/dtf/tiff/                → ordine senza descrizione
+         <cliente>/<anno>/<lavorazione>/dtf/tiff/  → ordine con descrizione = <lavorazione>
+    Anno corrente; solo i file direttamente in tiff (pronti da stampare). Se la descrizione non
+    corrisponde a nessuna sottocartella si usa <anno>/dtf/tiff. Ritorna (file, cartella usata)."""
     anno = os.path.join(cartella, str(datetime.now().year))
     if not os.path.isdir(anno):
-        return []
-    out = []
-    for radice, dirs, files in os.walk(anno):
-        dirs[:] = [d for d in dirs if not salta(d) and not SALTA_DIR.search(d)]
-        dentro = os.path.relpath(radice, anno).split(os.sep)
-        if any(re.search(r'dtf', d, re.I) for d in dentro):
-            out += [os.path.join(radice, n) for n in sorted(files) if not salta(n) and EXT.search(n)]
-    return out
+        return [], None
+    tiff = None
+    if descr and descr.strip():
+        sotto = [(d, os.path.join(anno, d)) for d in os.listdir(anno)
+                 if os.path.isdir(os.path.join(anno, d)) and not salta(d) and not re.search(r'dtf', d, re.I) and not SALTA_DIR.search(d)]
+        k = core(descr)
+        uguali = [p for d, p in sotto if core(d) == k]
+        simili = [p for d, p in sotto if len(k) >= 4 and len(core(d)) >= 4 and (core(d) in k or k in core(d))
+                  and min(len(k), len(core(d))) * 3 >= max(len(k), len(core(d))) * 2]
+        scelta = uguali if len(uguali) == 1 else simili if len(simili) == 1 else []
+        if scelta:
+            tiff = _cartella_dtf_tiff(scelta[0])
+    tiff = tiff or _cartella_dtf_tiff(anno)
+    if not tiff:
+        return [], None
+    files = [os.path.join(tiff, n) for n in sorted(os.listdir(tiff))
+             if not salta(n) and EXT.search(n) and os.path.isfile(os.path.join(tiff, n))]
+    return files, tiff
 
 
 def nome_con_pz(nome, pz):
@@ -751,11 +761,11 @@ def prepara_ordini(cfg, dati, cartella_nas, prova, stato):
             registra(o, 'gia_presente')
             continue
         cli = trova_cliente(o, cartelle)
-        files = file_dtf_cliente(cli, o['id']) if cli else []
+        files, da_dove = file_dtf_cliente(cli, o.get('descr')) if cli else ([], None)
         if not files:
             motivo = 'cliente_non_trovato' if not cli else 'nessun_file'
             if avvisati.get(o['id']) != motivo:   # si riprova ogni giro (il file può arrivare dopo), avviso una volta
-                print(f"  ordine {o['nome']}: {'cartella cliente non trovata' if not cli else 'nessun file DTF in ' + cli}")
+                print(f"  ordine {o['nome']}: {'cartella cliente non trovata' if not cli else 'nessun file in ' + os.path.relpath(cli, dati_root) + '/<anno>/…/dtf/tiff'}")
                 avvisati[o['id']] = motivo
             continue
         capi = int(o.get('capi') or 0)
@@ -764,7 +774,7 @@ def prepara_ordini(cfg, dati, cartella_nas, prova, stato):
             n, scritti = parse_pz(os.path.basename(f))
             return n if scritti else capi
         proposta = [{'src': os.path.relpath(f, dati_root), 'nome': nome_con_pz(os.path.basename(f), pz_di(f)), 'pz': pz_di(f)} for f in files]
-        sorgente = os.path.relpath(cli, dati_root)
+        sorgente = os.path.relpath(da_dove, dati_root)
         if modo == 'automatica':
             if prova:
                 print(f"  ordine {o['nome']}: copierei {len(files)} file da {sorgente}")
