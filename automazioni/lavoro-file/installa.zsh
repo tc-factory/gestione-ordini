@@ -33,7 +33,7 @@ rm -f "$JS"
 P="$APP/Contents/Info.plist"
 plutil -replace LSUIElement -bool true "$P"
 plutil -replace CFBundleIdentifier -string it.tcfactory.lavoro "$P"
-plutil -replace NSAppleEventsUsageDescription -string "TC Lavoro legge quale file è aperto in Illustrator, Photoshop e InDesign per contare il tempo di lavoro sui clienti." "$P"
+plutil -replace NSAppleEventsUsageDescription -string "TC Lavoro legge quale file è aperto in Illustrator, Photoshop e InDesign per contare il tempo di lavoro sui clienti e, se l'uso del Mac è attivo, solo il nome del sito aperto nel browser (mai l'indirizzo completo)." "$P"
 codesign --force --deep -s - "$APP" 2>/dev/null
 
 cat > "$AGENTE" <<PLIST
@@ -54,5 +54,5 @@ osascript -e 'display dialog "TC Lavoro è installato e parte da solo a ogni acc
 
 Ultimo passo: nella finestra Accessibilità che si è aperta, attiva \"TC Lavoro\" (se non c’è, premi + e scegli Applicazioni ▸ TC Lavoro nella tua cartella Inizio).
 
-Quando Illustrator, Photoshop o InDesign chiedono se TC Lavoro può controllarli, rispondi Consenti." buttons {"OK"} default button 1 with title "TC Lavoro"' >/dev/null
+Quando Illustrator, Photoshop, InDesign o il browser chiedono se TC Lavoro può controllarli, rispondi Consenti." buttons {"OK"} default button 1 with title "TC Lavoro"' >/dev/null
 echo "Fatto."
