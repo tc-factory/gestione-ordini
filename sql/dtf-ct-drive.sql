@@ -46,14 +46,16 @@ returns jsonb security definer set search_path = public language plpgsql as $$
 begin
   if not _tc_chiave_automazione_ok(p_chiave) then return jsonb_build_object('success', false, 'error', 'Chiave non valida'); end if;
   return jsonb_build_object('success', true,
-    'clienti', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'nome', c.nome, 'drive_url', c.drive_url))
+    'clienti', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'nome', c.nome, 'drive_url', c.drive_url,
+         'letti', exists (select 1 from dtf_ct_files f where f.client_id = c.id)))
        from dtf_clients c where coalesce(c.drive_url, '') <> ''), '[]'::jsonb),
     'files', coalesce((select jsonb_object_agg(f.drive_id, jsonb_build_object('size', f.size, 'modificato', f.modificato))
        from dtf_ct_files f), '{}'::jsonb));
 end;
 $$;
 
--- Mac mini: file nuovi o cambiati [{ client_id, drive_id, nome, percorso, size, modificato, item }]
+-- Mac mini: file nuovi o cambiati [{ client_id, drive_id, nome, percorso, size, modificato, item, storico }]
+-- storico = trovato alla prima lettura e vecchio: conta come già stampato (non va nel calendario)
 create or replace function tc_dtf_ct_salva(p_chiave text, p_files jsonb)
 returns jsonb security definer set search_path = public language plpgsql as $$
 declare x jsonb; n int := 0;
@@ -61,9 +63,10 @@ begin
   if not _tc_chiave_automazione_ok(p_chiave) then return jsonb_build_object('success', false, 'error', 'Chiave non valida'); end if;
   for x in select * from jsonb_array_elements(coalesce(p_files, '[]'::jsonb)) loop
     continue when not exists (select 1 from dtf_clients where id = (x->>'client_id')::uuid);
-    insert into dtf_ct_files (client_id, drive_id, nome, percorso, size, modificato, item, metri)
+    insert into dtf_ct_files (client_id, drive_id, nome, percorso, size, modificato, item, metri, stampato_giorno)
     values ((x->>'client_id')::uuid, x->>'drive_id', x->>'nome', x->>'percorso', (x->>'size')::bigint,
-            (x->>'modificato')::timestamptz, coalesce(x->'item', '{}'::jsonb), nullif(x->'item'->>'metri', '')::numeric)
+            (x->>'modificato')::timestamptz, coalesce(x->'item', '{}'::jsonb), nullif(x->'item'->>'metri', '')::numeric,
+            case when coalesce((x->>'storico')::boolean, false) then ((x->>'modificato')::timestamptz)::date end)
     on conflict (drive_id) do update set nome = excluded.nome, percorso = excluded.percorso, size = excluded.size,
       modificato = excluded.modificato, item = excluded.item, metri = excluded.metri, visto_at = now(),
       -- file sostituito dopo la stampa: si ristampa
