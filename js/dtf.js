@@ -166,7 +166,7 @@ function renderDtfInterno() {
     const client = TCFactory.getClient(o.clientId);
     const st = stats[i];
     return `
-      <li class="dtf-item ${isUrgentOrder(o) ? 'dtf-urgent' : ''}" draggable="true" data-id="${o.id}"
+      <li class="dtf-item ${isUrgentOrder(o) ? 'dtf-urgent' : ''} ${st.files ? '' : 'dtf-missing'}" draggable="true" data-id="${o.id}"
           ondragstart="dtfDragStart(event,'${o.id}')" ondragend="dtfDragEnd()" ondragover="dtfDragOver(event)" ondrop="dtfDrop(event)">
         <span class="dtf-pos" aria-hidden="true">${i + 1}</span>
         <div class="dtf-when ${dl && dl.date < today ? 'late' : ''}" title="Scadenza">
@@ -183,8 +183,8 @@ function renderDtfInterno() {
           ${costoAttivo ? `<span class="dtf-col"><strong>${st.files ? euro(st.costo) : '—'}</strong><small>costo</small></span>` : ''}
         </div>
         <button type="button" class="dtf-files-btn ${st.files ? '' : 'empty'}" onclick="dtfOpenOrderFiles('${o.id}')"
-          title="${st.files ? 'Vedi e modifica i file' : 'Aggiungi i file da stampare'}">
-          ${Icons.paperclip(14)}<span>${st.files ? `<strong>${st.files} file</strong>${st.senzaMisura ? `<small>${st.senzaMisura} senza misura</small>` : ''}` : '<strong>Aggiungi file</strong>'}</span>
+          title="${st.files ? 'Vedi e modifica i file' : 'Manca il DTF: aggiungi i file da stampare'}">
+          ${Icons.paperclip(14)}<span>${st.files ? `<strong>${st.files} file</strong>${st.senzaMisura ? `<small>${st.senzaMisura} senza misura</small>` : ''}` : '<strong>Manca il DTF</strong><small>Aggiungi file</small>'}</span>
         </button>
         <button type="button" class="btn btn-sm dtf-done-btn" onclick="dtfMarkPrinted('${o.id}')">${Icons.checkCircle('currentColor', 15)} Stampato</button>
         <button type="button" class="btn-icon dtf-remove" onclick="dtfRemove('${o.id}')" aria-label="Togli ${escapeHtml(o.nome)} dalla lista DTF" title="Non serve il DTF: togli dalla lista">${Icons.x(14)}</button>
@@ -220,7 +220,8 @@ function renderDtfInterno() {
         ? `<div class="dtf-kpi dtf-kpi-total"><span>Costo</span><strong>${euro(tot.costo)}</strong></div>`
         : `<button type="button" class="dtf-kpi dtf-kpi-hint" onclick="Nav.go('impostazioni')"><span>Costo</span><strong>Imposta i costi</strong></button>`}
     </div>
-    ${senzaFile ? `<p class="dtf-note">${senzaFile} ${senzaFile === 1 ? 'ordine non ha' : 'ordini non hanno'} ancora file: metri e tempo li contano solo quando ci sono.</p>` : ''}
+    ${typeof DtfCartella !== 'undefined' ? DtfCartella.html() : ''}
+    ${senzaFile ? `<p class="dtf-note dtf-missing-note">${senzaFile} ${senzaFile === 1 ? 'ordine senza DTF' : 'ordini senza DTF'} (in rosso): metri e tempo li contano solo quando ci sono i file.</p>` : ''}
     ${todo.length
       ? `<ol class="dtf-timeline" aria-label="Ordini da stampare">${todo.map(card).join('')}</ol>`
       : `<div class="empty-list">${q ? `Nessun ordine da stampare trovato per "${escapeHtml(DtfState.qInterno.trim())}".` : DtfState.tag ? `Nessun ordine "${escapeHtml(DtfState.tag)}" da stampare.` : 'Nessun ordine da stampare. 🎉'}</div>`}`;
@@ -1190,6 +1191,7 @@ async function openDtfPage() {
   if (!DtfState.clientId) DtfState.clientId = dtfLs.get(DTF_CLIENT_KEY);
 
   renderDtfInterno();
+  if (section === 'interno' && typeof DtfCartella !== 'undefined') DtfCartella.avvia();
   if (!DtfState.loaded) document.getElementById('dtf-terzi-root').innerHTML =
     '<div class="dtf-box-head"><div><h2>DTF Conto terzi</h2></div></div><div class="empty-list">Caricamento…</div>';
 
