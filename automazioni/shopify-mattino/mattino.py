@@ -34,6 +34,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
+import bello
+
 API = '2026-10'
 ROMA = ZoneInfo('Europe/Rome')
 QUI = Path(__file__).parent
@@ -630,12 +632,17 @@ def crea_pdf_stampa(destinazione, voci, problemi, profilo=None):
     uniche = {}   # impronta del PNG → [file, copie], nell'ordine in cui compaiono
     trasformazioni = {}
     with tempfile.TemporaryDirectory() as tmp:
-        for i, (ordine, titolo, url, pezzi) in enumerate(voci):
+        for i, (ordine, titolo, url, pezzi, *resto) in enumerate(voci):
+            ritocco = resto[0] if resto else None
             try:
                 r = requests.get(url, timeout=120)
                 r.raise_for_status()
+                dati = r.content
+                if ritocco:   # scritta "BELLO <testo> MA LA FIGA!?" sopra lo sfondo di Customily
+                    dati, _, avvisi = bello.componi(dati, ritocco[1], ritocco[0])
+                    problemi.extend(f'{ordine}, {titolo}: {a}' for a in avvisi)
                 f = Path(tmp) / f'{i}.png'
-                f.write_bytes(r.content)
+                f.write_bytes(dati)
                 # Impronta sui pixel, non sui byte: Customily rigenera il PNG a ogni ordine (metadati e
                 # compressione diversi), ma la stessa grafica ha gli stessi pixel
                 with Image.open(f) as im:
@@ -906,7 +913,10 @@ def giro(args, applica, reg):
                     continue   # le t-shirt vanno nei fogli DTF
                 url = url_file_stampa(l)
                 if url:
-                    voci_stampa.append((n['id'], o['name'], l['title'], url, l['unfulfilledQuantity']))
+                    # "Personalizzato Bello ... ma la figa/il c***o": Customily dà solo lo sfondo, la scritta si aggiunge qui
+                    finale = bello.finale_da_titolo(l['title']) if n['id'] == 'ciucciamilcalzino' else None
+                    ritocco = (finale, bello.testo_cliente(l['customAttributes'])) if finale else None
+                    voci_stampa.append((n['id'], o['name'], l['title'], url, l['unfulfilledQuantity'], ritocco))
                 elif l['title'].startswith(SENZA_FILE_SOLO.get(n['id'], '')):
                     senza_file[n['id']].append(f"{o['name']}: {l['title']}")
 
