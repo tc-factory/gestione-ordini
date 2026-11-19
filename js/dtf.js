@@ -186,8 +186,15 @@ function renderDtfInterno() {
   const costoAttivo = DtfMisure.costInterno() > 0;
 
   // Cartella senza ordine: si trascina come gli ordini; sparisce quando c'è l'ordine (o la cartella va via)
+  // Ordine già stampato o tolto con lo stesso nome della cartella: la cartella è rimasta in 1. Stampare
+  const fuoriLista = [...printed, ...removedList.map(x => x.o)];
   const cardCartella = (c, i) => {
     const st = stats[i], id = `cartella:${c.nome}`, idJs = escapeHtml(JSON.stringify(id));
+    const gia = typeof DtfCartella !== 'undefined' ? DtfCartella.abbina(c.nome, fuoriLista) : null;
+    const giaO = gia && gia !== 'ambiguo' ? gia : null;
+    const nota = giaO
+      ? `${escapeHtml(giaO.nome)} è già ${printed.includes(giaO) ? 'segnato stampato' : 'tolto dalla lista'}: sposta la cartella in Stampato o ripristina l'ordine`
+      : 'Cartella senza ordine: crea l\'ordine o rinomina la cartella col nome dell\'ordine';
     return `
       <li class="dtf-item dtf-cartella-row" draggable="true" data-id="${escapeHtml(id)}"
           ondragstart="dtfDragStart(event,${idJs})" ondragend="dtfDragEnd()" ondragover="dtfDragOver(event)" ondrop="dtfDrop(event)">
@@ -195,7 +202,7 @@ function renderDtfInterno() {
         <div class="dtf-when" title="Cartella senza ordine"><strong>${Icons.paperclip(14)}</strong><span>cartella</span></div>
         <div class="dtf-main dtf-main-static">
           <strong>${escapeHtml(c.nome)}</strong>
-          <span>Cartella senza ordine: crea l'ordine o rinomina la cartella col nome dell'ordine</span>
+          <span>${nota}</span>
         </div>
         <div class="dtf-cols" role="group" aria-label="Lunghezza, tempo e costo">
           <span class="dtf-col"><strong>${dtfMetri(st.metri)} m</strong><small>lunghezza</small></span>

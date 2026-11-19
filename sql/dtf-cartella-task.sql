@@ -25,8 +25,8 @@ begin
       values (v_tipo, left('Cartella DTF senza ordine: ' || v_nome, 200),
         'In DTF/1. Stampa/1. Stampare c''è «' || v_nome || '»'
           || coalesce(' (' || (c->>'files') || ' file, ' || replace(c->>'metri', '.', ',') || ' m)', '')
-          || ' ma nessun ordine da stampare con questo nome. Crea l''ordine (o rinomina la cartella col nome dell''ordine); '
-          || 'intanto è in DTF interno, dove puoi darle una priorità.',
+          || ' ma nessun ordine da stampare con questo nome. Crea l''ordine o rinomina la cartella col nome dell''ordine; '
+          || 'se l''ordine è già stampato sposta la cartella in 00 - Stampato. Intanto è in DTF interno, dove puoi darle una priorità.',
         'urgente', 'automazione', jsonb_build_object('dtf', 'senza:' || v_nome), 5, 'automazione');
     end if;
   end loop;
