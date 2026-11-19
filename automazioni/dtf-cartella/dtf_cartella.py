@@ -351,7 +351,9 @@ def main():
     items_db = dati.get('items') or {}
     roll = float(dati.get('roll_cm') or 57)
     gap = float(dati.get('margin_cm') if dati.get('margin_cm') is not None else 0.5)
+    # La lista ha gli ordini e, al loro posto, le cartelle senza ordine ({id: 'cartella:<nome>', cartella: true})
     pos = {o['id']: i for i, o in enumerate(lista)}
+    ordini_lista = [o for o in lista if not o.get('cartella')]
 
     try:
         with open(STATO) as f:
@@ -361,11 +363,11 @@ def main():
 
     gruppi = gruppi_di(a.cartella)
     per_ordine, senza, ambigue = {}, [], []
+    misure = stato.get('misure') or {}   # cache delle misure dei file senza ordine: percorso → [size, mtime, metri]
     for g in gruppi:
-        if not g['files'] and g.get('sciolto'):
-            continue
-        o = abbina(g['nome'], lista)
-        g['pos'] = pos[o['id']] if o and o != 'ambiguo' else None
+        o = abbina(g['nome'], ordini_lista)
+        g['ordine'] = o['id'] if o and o != 'ambiguo' else None
+        g['pos'] = pos[o['id']] if g['ordine'] else pos.get('cartella:' + g['nome'])
         if o == 'ambiguo':
             ambigue.append(g['nome'])
         elif not o:
@@ -373,6 +375,22 @@ def main():
                 senza.append(g['nome'])
         elif g['files']:
             per_ordine.setdefault(o['id'], []).extend(g['files'])
+
+    # Metri delle cartelle senza ordine (per la coda DTF), riletti solo se il file cambia
+    nuove_misure = {}
+    for g in gruppi:
+        if g['ordine'] or not g['files']:
+            continue
+        tot = 0
+        for fl in g['files']:
+            st = os.stat(fl['abs'])
+            k, firma = chiave(fl['path']), [st.st_size, int(st.st_mtime * 1000)]
+            m = misure.get(k)
+            metri = m[2] if m and m[:2] == firma else descrivi(fl['abs'], fl['name'], roll, gap).get('metri')
+            nuove_misure[k] = firma + [metri]
+            tot += metri or 0
+        g['metri'] = round(tot, 2)
+    stato['misure'] = nuove_misure
 
     # File e metri sugli ordini
     ordini, aggiunti = [], 0
@@ -418,9 +436,14 @@ def main():
                     x['cartella'] = d['dir'] + '/' + x['cartella'].split('/', 1)[1]
 
     attesa = sum(1 for d in dirs if d['target'] != d['dir'])
+    # Ordini che avevano la cartella (file con 'cartella') e ora non ce l'hanno più: controllare se stampati
+    mancanti = [o['id'] for o in ordini_lista if o['id'] not in per_ordine
+                and any(x.get('cartella') for x in (items_db.get(o['id']) or []))]
+    cartelle = [{'nome': g['nome'], 'dir': g.get('dir'), 'ordine': g['ordine'], 'files': len(g['files']),
+                 **({'metri': g.get('metri', 0)} if not g['ordine'] else {})} for g in gruppi if g['files'] or g.get('dir')]
     esito = {'at': datetime.now(timezone.utc).isoformat(), 'abbinate': len(per_ordine), 'aggiunti': aggiunti,
              'senzaOrdine': senza, 'ambigue': ambigue, 'rinominate': len(rinominate), 'attesa': attesa,
-             'errori': errori}
+             'errori': errori, 'cartelle': cartelle, 'mancanti': mancanti}
     for r in rinominate:
         print('  rinomina', r)
     for e in errori:

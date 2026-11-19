@@ -140,10 +140,13 @@ const DtfCartella = {
       const gruppi = await this._gruppi();
       const { todo } = dtfLists();
       const perOrdine = new Map();   // id ordine → [file…]
-      const senzaOrdine = [], ambigue = [];
+      const senzaOrdine = [], ambigue = [], cartelle = [];
       for (const g of gruppi) {
-        if (!g.files.length) continue;
         const o = this.abbina(g.nome, todo);
+        const ordine = o && o !== 'ambiguo' ? o.id : null;
+        if (g.files.length || g.dir) cartelle.push({ nome: g.nome, dir: g.dir || null, ordine, files: g.files.length,
+          ...(ordine ? {} : { metri: await this._metri(g.files) }) });
+        if (!g.files.length) continue;
         if (o === 'ambiguo') { ambigue.push(g.nome); continue; }
         if (!o) { senzaOrdine.push(g.nome); continue; }
         perOrdine.set(o.id, [...(perOrdine.get(o.id) || []), ...g.files]);
@@ -151,7 +154,9 @@ const DtfCartella = {
 
       let aggiunti = 0;
       for (const [id, files] of perOrdine) aggiunti += await this._aggiorna(id, files);
-      this.esito = { at: new Date(), abbinate: perOrdine.size, aggiunti, senzaOrdine, ambigue };
+      // Ordini che avevano la cartella e ora non ce l'hanno più: controllare se stampati
+      const mancanti = todo.filter(o => !perOrdine.has(o.id) && (o.dtfItems || []).some(f => f?.cartella)).map(o => o.id);
+      this.esito = { at: new Date(), abbinate: perOrdine.size, aggiunti, senzaOrdine, ambigue, cartelle, mancanti };
       this.stato = 'ok';
       this.errore = '';
 
@@ -161,6 +166,19 @@ const DtfCartella = {
       this.errore = e?.name === 'NotFoundError' ? 'cartella non trovata: il NAS è collegato?' : (e?.message || 'errore');
     }
     this._ridisegna();
+  },
+
+  // Metri dei file di una cartella senza ordine (misure ricordate finché il file non cambia)
+  _misure: new Map(),
+  async _metri(entries) {
+    let tot = 0;
+    for (const { h, path } of entries) {
+      const file = await h.getFile(), k = this._chiave(path), m = this._misure.get(k);
+      const metri = m && m.size === file.size && m.mtime === file.lastModified ? m.metri : (await DtfMisure.describe(file)).metri;
+      this._misure.set(k, { size: file.size, mtime: file.lastModified, metri });
+      tot += metri || 0;
+    }
+    return Math.round(tot * 100) / 100;
   },
 
   // Aggiunge all'ordine i file nuovi della cartella e rilegge quelli cambiati.
@@ -201,24 +219,42 @@ const DtfCartella = {
     return s?.at && Date.now() - new Date(s.at).getTime() < 15 * 60 * 1000 ? s : null;
   },
 
-  // Lista Da stampare in ordine, per il Mac mini (si salva solo quando cambia)
+  // Ultima lettura della cartella: dal Mac mini, altrimenti da questo Chrome
+  info() { return this.server() || (this.stato === 'ok' || this.stato === 'scanning' ? this.esito : null); },
+
+  // Coda Da stampare (ordini e cartelle senza ordine) in ordine, per il Mac mini
+  _lista() {
+    return dtfCoda().map(x => x.kind === 'order' ? { id: x.id, nome: x.o.nome, descr: orderDesc(x.o) } : { id: x.id, nome: x.c.nome, cartella: true });
+  },
+  async _salvaLista() {
+    const lista = this._lista();
+    if (JSON.stringify(lista) !== JSON.stringify(TCFactory._settings.dtf_lista || [])) await TCFactory.setSetting('dtf_lista', lista);
+  },
   _listaTimer: null,
   pubblicaLista() {
     clearTimeout(this._listaTimer);
-    this._listaTimer = setTimeout(async () => {
-      try {
-        const lista = dtfLists().todo.map(o => ({ id: o.id, nome: o.nome, descr: orderDesc(o) }));
-        if (JSON.stringify(lista) !== JSON.stringify(TCFactory._settings.dtf_lista || [])) await TCFactory.setSetting('dtf_lista', lista);
-      } catch (e) { console.warn('[dtf lista]', e); }
-    }, 3000);
+    this._listaTimer = setTimeout(() => this._salvaLista().catch(e => console.warn('[dtf lista]', e)), 3000);
   },
 
-  // "Numera ora": richiesta al Mac mini, da qualsiasi PC
+  // Cartelle col nome diverso da quello giusto: senza numero, numero vecchio (priorità cambiata)
+  // o rinominate a mano. Stesse regole del Mac mini (numera in dtf_cartella.py).
+  attesa() {
+    const dirs = (this.info()?.cartelle || []).filter(c => c.dir);
+    if (!dirs.length) return 0;
+    const pos = new Map(this._lista().map((x, i) => [x.id, i]));
+    const p = (c) => c.ordine ? pos.get(c.ordine) : pos.get(`cartella:${c.nome}`);
+    const numerate = dirs.filter(c => p(c) != null).sort((a, b) => p(a) - p(b) || a.nome.toLowerCase().localeCompare(b.nome.toLowerCase()));
+    const cifre = Math.max(2, String(numerate.length).length);
+    const giusto = new Map(numerate.map((c, i) => [c, `${String(i + 1).padStart(cifre, '0')} - ${c.nome}`]));
+    return dirs.filter(c => (giusto.get(c) || c.nome) !== c.dir).length;
+  },
+
+  // "Numera le cartelle": richiesta al Mac mini, da qualsiasi PC
   async numeraOra() {
+    if (!this.attesa()) return;
     try {
       clearTimeout(this._listaTimer);
-      const lista = dtfLists().todo.map(o => ({ id: o.id, nome: o.nome, descr: orderDesc(o) }));
-      if (JSON.stringify(lista) !== JSON.stringify(TCFactory._settings.dtf_lista || [])) await TCFactory.setSetting('dtf_lista', lista);
+      await this._salvaLista();
       await TCFactory.setSetting('dtf_numera_richiesta', { at: new Date().toISOString() });
       showToast(this.server() ? 'Il Mac mini numera le cartelle entro un minuto' : 'Richiesta salvata: la numerazione parte quando il Mac mini è attivo', this.server() ? 'success' : 'error');
     } catch (e) { console.error('[dtf numera]', e); showToast('Richiesta non salvata: riprova', 'error'); }
@@ -254,18 +290,20 @@ const DtfCartella = {
     const ora = (d) => d ? new Date(d).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
     const elenco = (arr) => arr.map(escapeHtml).join(', ');
     const btn = (fn, testo, title = '') => `<button type="button" class="btn btn-secondary btn-sm" onclick="DtfCartella.${fn}"${title ? ` title="${title}"` : ''}>${testo}</button>`;
-    const numBtn = btn('numeraOra()', 'Numera ora', 'Mette davanti a ogni cartella il numero dell\'ordine nella lista qui sotto');
+    const da = this.attesa();
+    const numBtn = `<button type="button" class="btn btn-primary btn-sm dtf-numera-btn" onclick="DtfCartella.numeraOra()" ${da ? '' : 'disabled'}
+      title="${da ? `Mette davanti a ${da === 1 ? 'una cartella' : `${da} cartelle`} il numero della lista qui sotto` : 'Le cartelle sono già numerate nell\'ordine della lista'}">Numera le cartelle${da ? ` · ${da}` : ''}</button>`;
     const bar = (testo, azioni) => `<div class="dtf-cartella-bar">
         <span class="dtf-cartella-text">${Icons.paperclip(13)} ${testo}</span>
         ${azioni.length ? `<span class="dtf-cartella-actions">${azioni.join('')}</span>` : ''}
       </div>`;
-    const extra = (e) => `${e.senzaOrdine?.length ? `<p class="dtf-note">Senza ordine da stampare: ${elenco(e.senzaOrdine)}</p>` : ''}
+    const extra = (e) => `${e.senzaOrdine?.length ? `<p class="dtf-note dtf-missing-note">${e.senzaOrdine.length === 1 ? 'Una cartella senza ordine' : `${e.senzaOrdine.length} cartelle senza ordine`} (${elenco(e.senzaOrdine)}): sono nella lista qui sotto, da trascinare alla loro priorità, e nei task urgenti.</p>` : ''}
       ${e.ambigue?.length ? `<p class="dtf-note">Più ordini con lo stesso nome, file da aggiungere a mano: ${elenco(e.ambigue)}</p>` : ''}`;
 
     const sv = this.server();
     if (sv) {
       const testo = `Cartella «1. Stampare» letta dal Mac mini alle ${ora(sv.at)} · ${sv.abbinate || 0} ${sv.abbinate === 1 ? 'ordine abbinato' : 'ordini abbinati'}`
-        + (sv.attesa ? ` · ${sv.attesa} ${sv.attesa === 1 ? 'cartella da numerare' : 'cartelle da numerare'}` : ' · cartelle numerate')
+        + (da ? ` · ${da} ${da === 1 ? 'cartella da numerare' : 'cartelle da numerare'}` : ' · cartelle numerate')
         + (sv.errori?.length ? ` · <span class="dtf-cartella-err">${sv.errori.length} non rinominate (file aperto?)</span>` : '');
       return bar(testo, [numBtn]) + extra(sv);
     }

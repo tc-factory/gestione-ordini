@@ -672,6 +672,20 @@ html.dark { --urgent-bg: #3A1F22; --urgent-bg-hover: #452428; }
 }
 .dtf-cartella-text { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .dtf-cartella-actions { display: inline-flex; gap: 6px; flex-shrink: 0; }
+.dtf-numera-btn:disabled, html.dark .dtf-numera-btn:disabled { background: var(--bg-card); background-image: none; color: var(--text-muted); box-shadow: none; opacity: 1; }
+/* Ordine la cui cartella è sparita da 1. Stampare: controllare se stampato */
+.dtf-item.dtf-mancante { box-shadow: inset 0 0 0 2px #EAB308; }
+.dtf-mancante-note { font-style: normal; font-weight: 600; color: #A16207; }
+html.dark .dtf-item.dtf-mancante { box-shadow: inset 0 0 0 2px #FACC15; }
+html.dark .dtf-mancante-note { color: #FACC15; }
+/* Cartella senza ordine nella coda */
+.dtf-item.dtf-cartella-row { box-shadow: inset 0 0 0 2px #DC2626; background: color-mix(in srgb, #DC2626 6%, var(--bg-primary)); }
+.dtf-item.dtf-cartella-row .dtf-main strong { color: #DC2626; }
+.dtf-main-static { cursor: default; }
+.dtf-main-static:hover strong { text-decoration: none; }
+.dtf-files-static { cursor: default; }
+html.dark .dtf-item.dtf-cartella-row { box-shadow: inset 0 0 0 2px #F87171; }
+html.dark .dtf-item.dtf-cartella-row .dtf-main strong { color: #F87171; }
 html.dark .dtf-item.dtf-missing { box-shadow: inset 0 0 0 2px #F87171; }
 html.dark .dtf-item.dtf-missing .dtf-main strong, html.dark .dtf-item.dtf-missing .dtf-files-btn strong, html.dark .dtf-missing-note, html.dark .dtf-cartella-err { color: #F87171; }
 .dtf-item.drop-before::before,
