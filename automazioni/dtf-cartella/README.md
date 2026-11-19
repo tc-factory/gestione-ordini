@@ -63,3 +63,14 @@ lavorazione **DTF** (cioè nella lista Da stampare), lo script:
 Ogni ordine si prepara una volta (`dtf_preparati`, `sql/dtf-prepara-ordini.sql`). Se la cartella dell'ordine
 c'è già in 1. Stampare non si tocca; se il cliente non si trova o non ha file si riprova ai giri dopo
 (l'ordine resta rosso "Manca il DTF").
+
+### Modalità prova (dal 2026-11-19)
+
+`app_settings.dtf_prepara_modo` = `prova` (default) o `automatica`. **Si cambia solo a mano, quando lo
+dice Riccardo** (niente passaggio automatico, neanche con precisione al 100%).
+In prova lo script non copia: salva una **proposta** (cartella cliente, file, pezzi) in `dtf_preparati`.
+In DTF interno l'ordine mostra "DTF proposto": la si approva (togliendo file o correggendo i pezzi) o la si
+rifiuta (`dtf_prepara_riscontro`); lo script copia solo le approvate. Riscontro: giusto / corretto / sbagliato;
+la pagina mostra la precisione sugli ultimi 10. Pezzi proposti: quelli scritti nel nome del file, altrimenti il
+totale capi. Una sottocartella col numero d'ordine (es. `2026/dtf/00404 felpe`) ha la precedenza sul resto.
+`sql/dtf-prepara-prova.sql`.

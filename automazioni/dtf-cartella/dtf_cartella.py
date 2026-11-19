@@ -658,9 +658,20 @@ def trova_cliente(o, cartelle):
     return None
 
 
-def file_dtf_cliente(cartella):
+def file_dtf_cliente(cartella, order_id=None):
     """File DTF del cliente: cartelle "dtf" dell'anno corrente (es. 2026/01-dtf/tiff); se la cartella
-    non è divisa per anni, i file nella cartella principale."""
+    non è divisa per anni, i file nella cartella principale. Se c'è una sottocartella col numero
+    d'ordine (es. "2026/dtf/00404 felpe"), solo i file di quella."""
+    tutti = _file_dtf_cliente(cartella)
+    if order_id:
+        num = re.compile(r'(^|\D)' + re.escape(str(order_id)) + r'(\D|$)')
+        suoi = [f for f in tutti if any(num.search(d) for d in os.path.relpath(os.path.dirname(f), cartella).split(os.sep))]
+        if suoi:
+            return suoi
+    return tutti
+
+
+def _file_dtf_cliente(cartella):
     anni = [n for n in os.listdir(cartella) if re.fullmatch(r'20\d\d', n) and os.path.isdir(os.path.join(cartella, n))]
     if not anni:
         return [os.path.join(cartella, n) for n in sorted(os.listdir(cartella))
@@ -677,47 +688,92 @@ def file_dtf_cliente(cartella):
     return out
 
 
+def nome_con_pz(nome, pz):
+    """Nome del file in 1. Stampare: "<nome>-<pz>pz"; se il nome ha già i pezzi, li sostituisce."""
+    if not pz or pz < 1:
+        return nome
+    if parse_pz(nome)[1]:
+        return re.sub(r'(\d+)(\s*pz)', lambda m: f'{pz}{m.group(2)}', nome, count=1, flags=re.I)
+    radice, ext = os.path.splitext(nome)
+    return f'{radice}-{pz}pz{ext}'
+
+
+def copia_ordine(cartella_nas, dati_root, nome_ordine, files):
+    """files: [{src (relativo a DATI), pz}] → 1. Stampare/<NOME ORDINE>. Ritorna la cartella."""
+    dest = os.path.join(cartella_nas, nome_ordine.replace('/', '-').strip())
+    os.makedirs(dest, exist_ok=True)
+    for f in files:
+        src = os.path.normpath(os.path.join(dati_root, f['src']))
+        if not src.startswith(dati_root + os.sep):   # solo file dentro DATI
+            raise ValueError(f"percorso non valido: {f['src']}")
+        fin = os.path.join(dest, nome_con_pz(os.path.basename(src), int(f.get('pz') or 0)))
+        if not os.path.exists(fin):
+            shutil.copyfile(src, fin + '.part')
+            os.replace(fin + '.part', fin)
+    return dest
+
+
 def prepara_ordini(cfg, dati, cartella_nas, prova, stato):
-    da = dati.get('da_preparare') or []
-    if not da:
+    """Ordini nuovi con DTF. In modalità 'prova' (default) salva solo una PROPOSTA da riscontrare
+    in DTF interno e copia le proposte approvate; in 'automatica' copia subito.
+    Il modo lo cambia una persona (app_settings dtf_prepara_modo), mai lo script."""
+    modo = dati.get('prepara_modo') or 'prova'
+    da, approvati = dati.get('da_preparare') or [], dati.get('approvati') or []
+    if not da and not approvati:
         return
     dati_root = os.path.normpath(os.path.join(cartella_nas, '..', '..', '..'))
+
+    def registra(o, esito, dest=None, sorgente=None, n=0, proposta=None):
+        if not prova:
+            rpc(cfg, 'tc_dtf_preparato', {'p_chiave': cfg['chiave'], 'p_order': o['id'], 'p_esito': esito, 'p_cartella': dest,
+                                          'p_sorgente': sorgente, 'p_files': n, 'p_proposta': proposta})
+
+    # Proposte approvate in DTF interno: si copiano i file scelti (con i pezzi corretti)
+    for o in approvati:
+        if prova:
+            print(f"  ordine {o['nome']}: copierei i {len(o['files'] or [])} file approvati")
+            continue
+        try:
+            dest = copia_ordine(cartella_nas, dati_root, o['nome'], o['files'] or [])
+            registra(o, 'copiato', dest, None, len(o['files'] or []))
+            print(f"  ordine {o['nome']}: {len(o['files'] or [])} file approvati copiati")
+        except Exception as e:
+            print(f"  ordine {o['nome']}: file approvati non copiati: {e}", file=sys.stderr)
+
+    if not da:
+        return
     cartelle = cartelle_clienti(dati_root)
     avvisati = stato.setdefault('prepara_avvisi', {})
     for o in da:
-        def fatto(esito, dest=None, sorgente=None, n=0):
-            if not prova:
-                rpc(cfg, 'tc_dtf_preparato', {'p_chiave': cfg['chiave'], 'p_order': o['id'], 'p_esito': esito,
-                                              'p_cartella': dest, 'p_sorgente': sorgente, 'p_files': n})
         # Cartella già in 1. Stampare (messa a mano): non si tocca
         if any(os.path.isdir(os.path.join(cartella_nas, n)) and core(base(n)) == core(o['nome']) for n in os.listdir(cartella_nas)):
-            fatto('gia_presente')
+            registra(o, 'gia_presente')
             continue
         cli = trova_cliente(o, cartelle)
-        files = file_dtf_cliente(cli) if cli else []
+        files = file_dtf_cliente(cli, o['id']) if cli else []
         if not files:
             motivo = 'cliente_non_trovato' if not cli else 'nessun_file'
             if avvisati.get(o['id']) != motivo:   # si riprova ogni giro (il file può arrivare dopo), avviso una volta
                 print(f"  ordine {o['nome']}: {'cartella cliente non trovata' if not cli else 'nessun file DTF in ' + cli}")
                 avvisati[o['id']] = motivo
             continue
-        dest = os.path.join(cartella_nas, o['nome'].replace('/', '-').strip())
         capi = int(o.get('capi') or 0)
-        if prova:
-            print(f"  ordine {o['nome']}: copierei {len(files)} file da {cli} in {dest} ({capi} capi)")
-            continue
-        os.makedirs(dest, exist_ok=True)
-        for f in files:
-            nome = os.path.basename(f)
-            if capi > 0 and not parse_pz(nome)[1]:
-                radice, ext = os.path.splitext(nome)
-                nome = f'{radice}-{capi}pz{ext}'
-            fin = os.path.join(dest, nome)
-            if not os.path.exists(fin):
-                shutil.copyfile(f, fin + '.part')
-                os.replace(fin + '.part', fin)
-        print(f"  ordine {o['nome']}: {len(files)} file DTF copiati da {cli}")
-        fatto('copiato', dest, cli, len(files))
+        # pezzi: quelli scritti nel nome del file dal grafico, altrimenti il totale capi dell'ordine
+        def pz_di(f):
+            n, scritti = parse_pz(os.path.basename(f))
+            return n if scritti else capi
+        proposta = [{'src': os.path.relpath(f, dati_root), 'nome': nome_con_pz(os.path.basename(f), pz_di(f)), 'pz': pz_di(f)} for f in files]
+        sorgente = os.path.relpath(cli, dati_root)
+        if modo == 'automatica':
+            if prova:
+                print(f"  ordine {o['nome']}: copierei {len(files)} file da {sorgente}")
+                continue
+            dest = copia_ordine(cartella_nas, dati_root, o['nome'], proposta)
+            registra(o, 'copiato', dest, sorgente, len(files), proposta)
+            print(f"  ordine {o['nome']}: {len(files)} file DTF copiati da {sorgente}")
+        else:
+            registra(o, 'proposta', None, sorgente, len(files), proposta)
+            print(f"  ordine {o['nome']}: proposta di {len(files)} file da {sorgente}, da approvare in DTF interno")
         avvisati.pop(o['id'], None)
 
 
