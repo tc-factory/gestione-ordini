@@ -8,8 +8,10 @@
  * con misure e metri (DtfMisure). Le cartelle "Stampato" sono escluse.
  * I file restano sul NAS: si leggono solo le intestazioni, niente viene caricato.
  * Numerazione: davanti alle cartelle il numero dell'ordine nella lista Da stampare
- * ("01 - cf pavia"), da sola quando arriva un DTF nuovo (serve il permesso di modifica)
- * o col bottone "Numera ora"; il numero non conta per l'abbinamento.
+ * ("01 - cf pavia"), quando arriva un DTF nuovo o col bottone "Numera ora".
+ * Chrome non può rinominare su un disco di rete: qui si salvano i nomi
+ * (app_settings 'dtf_cartelle_numeri') e li applica il Mac col NAS
+ * (automazioni/dtf-cartelle, ogni minuto). Il numero non conta per l'abbinamento.
  */
 
 const DTF_CARTELLA_IDB = 'tcf-dtf';
@@ -26,9 +28,8 @@ const DtfCartella = {
   timer: null,
   _avviata: false,
   numerando: false,
-  scrivibile: false,      // permesso di rinominare le cartelle
   _visti: null,           // percorsi dei file all'ultima lettura (per riconoscere i DTF nuovi)
-  numerate: null,         // { at, fatte, errori } ultima numerazione
+  attesa: 0,              // cartelle col nome nuovo non ancora applicato dal Mac
 
   supported: () => typeof window.showDirectoryPicker === 'function',
 
@@ -68,28 +69,23 @@ const DtfCartella = {
     else this._ridisegna();
   },
 
-  // Lettura (obbligatoria) e modifica (per numerare da soli); chiedi = dopo un clic
   async _permesso(chiedi) {
     try {
-      let w = await this.handle.queryPermission({ mode: 'readwrite' });
-      if (w !== 'granted' && chiedi) w = await this.handle.requestPermission({ mode: 'readwrite' });
-      this.scrivibile = w === 'granted';
-      if (this.scrivibile) return true;
-      if (await this.handle.queryPermission({ mode: 'read' }) === 'granted') return true;
+      let p = await this.handle.queryPermission({ mode: 'read' });
+      if (p !== 'granted' && chiedi) p = await this.handle.requestPermission({ mode: 'read' });
+      if (p === 'granted') return true;
     } catch {}
-    this.scrivibile = false;
     this.stato = 'prompt';
     return false;
   },
 
   async collega(poiNumera = false) {
     try {
-      this.handle = await window.showDirectoryPicker({ id: 'dtf-stampare', mode: 'readwrite' });
+      this.handle = await window.showDirectoryPicker({ id: 'dtf-stampare', mode: 'read' });
     } catch (e) { if (e?.name !== 'AbortError') showToast('Cartella non collegata: riprova', 'error'); return; }
     await this._put(this.handle);
     this.esito = null;
     this._visti = null;
-    this.scrivibile = true;
     if (poiNumera) await this.numera(); else this.leggi();
   },
 
@@ -101,7 +97,7 @@ const DtfCartella = {
   // Bottone "Numera ora": collega o riattiva la cartella se serve
   async numeraOra() {
     if (!this.handle) return this.collega(true);
-    if (!this.scrivibile || this.stato === 'prompt') return this.riattiva(true);
+    if (this.stato === 'prompt') return this.riattiva(true);
     return this.numera();
   },
 
@@ -169,7 +165,8 @@ const DtfCartella = {
       const percorsi = gruppi.flatMap(g => g.files.map(f => this._chiave(f.path)));
       const nuovi = !this._visti || percorsi.some(x => !this._visti.has(x));
       this._visti = new Set(percorsi);
-      if (numera && nuovi && this.scrivibile) { this._ridisegna(); await this.numera({ auto: true }); return; }
+      if (numera && nuovi) await this.numera({ auto: true, gruppi, todo });
+      else this._attesa(gruppi);
     } catch (e) {
       console.error('[dtf cartella]', e);
       this.stato = e?.name === 'NotAllowedError' ? 'prompt' : 'error';
@@ -208,41 +205,44 @@ const DtfCartella = {
     return aggiunti;
   },
 
-  // ── Numerazione: cartelle nell'ordine della lista Da stampare ──
+  // ── Numerazione: nomi delle cartelle nell'ordine della lista Da stampare ──
   // Le cartelle senza ordine perdono il numero e finiscono in fondo nel Finder.
-  async numera({ auto = false } = {}) {
+  // Si salvano i nomi; li applica il Mac col NAS (automazioni/dtf-cartelle).
+  async numera({ auto = false, gruppi = null, todo = null } = {}) {
     if (!this.handle || this.numerando) return;
-    if (!this.scrivibile) { if (!auto) showToast('Serve il permesso di modifica sulla cartella', 'error'); return; }
     this.numerando = true;
-    this._ridisegna();
-    let fatte = 0, errori = 0;
     try {
-      const { todo } = dtfLists();
+      gruppi = gruppi || await this._gruppi(false);
+      todo = todo || dtfLists().todo;
       const pos = new Map(todo.map((o, i) => [o.id, i]));
-      const dirs = (await this._gruppi(false)).filter(g => !g.sciolto).map(g => {
+      const dirs = gruppi.filter(g => !g.sciolto).map(g => {
         const o = this.abbina(g.nome, todo);
         return { ...g, p: o && o !== 'ambiguo' ? pos.get(o.id) : null };
       });
-      const numerate = dirs.filter(d => d.p != null)
-        .sort((a, b) => a.p - b.p || a.nome.localeCompare(b.nome, 'it'));
+      const numerate = dirs.filter(d => d.p != null).sort((a, b) => a.p - b.p || a.nome.localeCompare(b.nome, 'it'));
       const cifre = Math.max(2, String(numerate.length).length);
-      const nuovi = new Map([
-        ...numerate.map((d, i) => [d, `${String(i + 1).padStart(cifre, '0')} - ${d.nome}`]),
-        ...dirs.filter(d => d.p == null).map(d => [d, d.nome]),
+      const cartelle = Object.fromEntries([
+        ...dirs.filter(d => d.p == null).map(d => [d.nome, d.nome]),
+        ...numerate.map((d, i) => [d.nome, `${String(i + 1).padStart(cifre, '0')} - ${d.nome}`]),
       ]);
-      for (const [d, nome] of nuovi) {
-        if (d.dir === nome) continue;
-        try { await d.h.move(nome); fatte++; }
-        catch (e) { console.error('[dtf numera]', d.dir, '→', nome, e); errori++; }
+      const prima = TCFactory._settings.dtf_cartelle_numeri?.cartelle || {};
+      if (JSON.stringify(prima) !== JSON.stringify(cartelle)) {
+        await TCFactory.setSetting('dtf_cartelle_numeri', { at: new Date().toISOString(), cartelle });
       }
-    } catch (e) { console.error('[dtf numera]', e); errori++; }
-    this.numerando = false;
-    this.numerate = { at: new Date(), fatte, errori };
-    if (!auto) {
-      if (errori) showToast(`${errori} ${errori === 1 ? 'cartella non rinominata' : 'cartelle non rinominate'}: un file potrebbe essere aperto`, 'error');
-      else showToast(fatte ? `Cartelle numerate: ${fatte} rinominate` : 'Le cartelle erano già in ordine', 'success');
+      this._attesa(gruppi);
+      if (!auto) showToast(this.attesa ? `Numeri salvati: ${this.attesa} ${this.attesa === 1 ? 'cartella sarà rinominata' : 'cartelle saranno rinominate'} dal Mac entro un minuto` : 'Le cartelle sono già in ordine', 'success');
+    } catch (e) {
+      console.error('[dtf numera]', e);
+      if (!auto) showToast('Numeri non salvati: riprova', 'error');
     }
-    await this.leggi({ numera: false });
+    this.numerando = false;
+    this._ridisegna();
+  },
+
+  // Quante cartelle hanno ancora un nome diverso da quello salvato
+  _attesa(gruppi) {
+    const piano = TCFactory._settings.dtf_cartelle_numeri?.cartelle || {};
+    this.attesa = gruppi.filter(g => !g.sciolto && piano[g.nome] && piano[g.nome] !== g.dir).length;
   },
 
   // ── Abbinamento cartella → ordine ──
@@ -277,7 +277,7 @@ const DtfCartella = {
     const ora = (d) => d ? d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
     const elenco = (arr) => arr.map(escapeHtml).join(', ');
     const btn = (fn, testo, title = '') => `<button type="button" class="btn btn-secondary btn-sm" onclick="DtfCartella.${fn}"${title ? ` title="${title}"` : ''}>${testo}</button>`;
-    const e = this.esito || {}, n = this.numerate;
+    const e = this.esito || {};
     let testo, azioni = [];
     switch (this.numerando ? 'scanning' : this.stato) {
       case 'none':
@@ -297,9 +297,7 @@ const DtfCartella = {
         break;
       default:
         testo = `Cartella «${nome}» letta alle ${ora(e.at)} · ${e.abbinate || 0} ${e.abbinate === 1 ? 'ordine abbinato' : 'ordini abbinati'}${e.aggiunti ? ` · ${e.aggiunti} file nuovi` : ''}`
-          + (this.scrivibile
-            ? ` · numerazione automatica ai DTF nuovi${n ? ` (ultima alle ${ora(n.at)}${n.errori ? `, <span class="dtf-cartella-err">${n.errori} non rinominate</span>` : ''})` : ''}`
-            : ' · numerazione automatica spenta: serve il permesso di modifica');
+          + (this.attesa ? ` · ${this.attesa} ${this.attesa === 1 ? 'cartella da rinominare' : 'cartelle da rinominare'}: lo fa il Mac col NAS ogni minuto` : ' · cartelle numerate');
         azioni = [btn('leggi()', 'Aggiorna')];
     }
     if (this.stato !== 'scanning' && !this.numerando) azioni.push(btn('numeraOra()', 'Numera ora', 'Mette davanti a ogni cartella il numero dell\'ordine nella lista qui sotto'));
