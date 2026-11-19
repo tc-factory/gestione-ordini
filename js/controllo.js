@@ -756,19 +756,36 @@ function renderTaskDuo(me, persona = null) {
     </div>`;
 }
 
+// Tempo reale del giorno, in minuti: dall'orario di ingresso (o dalla prima operazione, se viene prima)
+// fino a adesso; per i giorni passati fino all'ultimo task chiuso
+function tempoRealeGiorno(list, d) {
+  const oggi = d === ctrlOggi();
+  const ms = (x) => x ? new Date(x).getTime() : NaN;
+  const inizi = list.map(t => ms(t.completato_at) - (t.lavorato_sec || 0) * 1000);
+  const ora = Presenze.stato?.me?.ora_inizio;
+  if (ora) inizi.push(new Date(`${d}T${ora}:00`).getTime());
+  if (oggi) inizi.push(ms(Presenze.stato?.me?.confermato_at));
+  const inizio = Math.min(...inizi.filter(Number.isFinite));
+  const fine = oggi ? Date.now() : Math.max(...list.map(t => ms(t.completato_at)).filter(Number.isFinite));
+  if (!Number.isFinite(inizio) || !Number.isFinite(fine) || fine <= inizio) return 0;
+  return Math.round((fine - inizio) / 60000);
+}
+
 // Pannello a destra: i task chiusi dall'utente nel giorno, con il resoconto
 function renderTaskFatti() {
   const list = Ctrl.mieiFatti || [];
   const d = Ctrl.giorno;
   const stimati = list.reduce((n, t) => n + (t.minuti_stimati || 0), 0);
-  const lavoratiSec = list.reduce((n, t) => n + (t.lavorato_sec || 0), 0);
+  const reale = tempoRealeGiorno(list, d);
+  const oper = reale && stimati ? Math.round(stimati / reale * 100) : null;
   return `
     <aside class="glass-card page-card ctrl-group tk-fatti">
       <div class="page-card-head"><h2>Fatti da me</h2><span class="table-count">${list.length}</span></div>
       <div class="tk-fatti-sum">
-        <div><strong>${list.length}</strong><span>task chiusi ${d === ctrlOggi() ? 'oggi' : ctrlFmtGiorno(d).toLowerCase()}</span></div>
+        ${reale ? `<div><strong>${ctrlFmtMin(reale)}</strong><span>tempo reale</span></div>` : ''}
         <div><strong>${ctrlFmtMin(stimati)}</strong><span>tempo stimato</span></div>
-        ${lavoratiSec ? `<div><strong>${ctrlFmtDur(lavoratiSec)}</strong><span>cronometrato</span></div>` : ''}
+        ${oper != null ? `<div><strong>${oper}%</strong><span>operatività</span></div>` : ''}
+        <div><strong>${list.length}</strong><span>task chiusi</span></div>
       </div>
       ${list.length ? `<ul class="tk-fatti-list">${list.map(t => {
         const macro = taskBrand(t) === '_' ? null : taskCatInfo(taskBrand(t));
