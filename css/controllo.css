@@ -1176,10 +1176,19 @@ button.team-info:hover .team-nome { text-decoration: underline; }
 .tk-split .tk-split-list { max-height: 70vh; overflow-y: auto; scrollbar-width: thin; }
 .tk-split.is-coda { grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); }
 .tk-fatti { position: sticky; top: 16px; }
-.tk-fatti-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; padding: 0 20px 12px; }
-.tk-fatti-sum > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--bg-secondary, rgba(0,0,0,.04)); }
-.tk-fatti-sum strong { font-size: 20px; font-weight: 700; color: var(--text-primary); line-height: 1.1; }
-.tk-fatti-sum span { font-size: 12px; color: var(--text-secondary); }
+.tk-fatti-sum { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 0 16px 12px; }
+.tk-fatti-sum > div { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 9px 10px; border-radius: 12px; background: var(--bg-secondary, rgba(0,0,0,.04)); }
+.tk-fatti-sum strong { font-size: 16px; font-weight: 700; color: var(--text-primary); line-height: 1.1; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tk-fatti-sum span { font-size: 11px; line-height: 1.25; color: var(--text-secondary); }
+/* Operatività: colore e barra seguono la percentuale (piena dal 100%) */
+.tk-oper { --c: var(--text-secondary); background: color-mix(in srgb, var(--c) 12%, transparent) !important; transition: background .4s; }
+.tk-oper.is-low { --c: #ef4444; } .tk-oper.is-mid { --c: #f59e0b; } .tk-oper.is-ok { --c: #22c55e; } .tk-oper.is-top { --c: #16a34a; }
+.tk-fatti-sum .tk-oper strong { color: var(--c); }
+.tk-oper-bar { display: block; height: 4px; margin-top: 3px; border-radius: 4px; background: color-mix(in srgb, var(--c) 18%, transparent); overflow: hidden; }
+.tk-oper-bar b { display: block; height: 100%; width: var(--p); border-radius: inherit; background: var(--c); animation: tk-oper-in .8s cubic-bezier(.2,.8,.2,1); }
+.tk-oper.is-top .tk-oper-bar b { background: linear-gradient(90deg, #22c55e, #16a34a, #4ade80, #22c55e); background-size: 200% 100%; animation: tk-oper-in .8s cubic-bezier(.2,.8,.2,1), tk-oper-shine 2.5s linear infinite; }
+@keyframes tk-oper-in { from { width: 0; } }
+@keyframes tk-oper-shine { to { background-position: -200% 0; } }
 .tk-fatti-list { list-style: none; margin: 0; padding: 0 12px 12px; max-height: 60vh; overflow-y: auto; scrollbar-width: thin; }
 .tk-fatti-list li + li { border-top: 1px solid var(--border-light); }
 .tk-fatti-list button { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 10px 8px; border: 0; background: none; text-align: left; cursor: pointer; border-radius: 10px; color: inherit; font: inherit; }
