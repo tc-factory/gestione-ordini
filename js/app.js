@@ -3316,6 +3316,7 @@ async function startApp() {
   Presenze.start();
   MailBox.start();
   Salvaschermo.start();
+  if (typeof DtfCartella !== 'undefined') DtfCartella.avvia();   // cartella DTF: controllo ogni 5 minuti
 }
 
 async function doLogout() {
