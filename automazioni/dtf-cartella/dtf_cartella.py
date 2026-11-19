@@ -20,6 +20,7 @@ Config (fuori dal repository, il repo è pubblico):
 """
 import argparse
 import base64
+import fcntl
 import json
 import math
 import os
@@ -777,6 +778,40 @@ def prepara_ordini(cfg, dati, cartella_nas, prova, stato):
         avvisati.pop(o['id'], None)
 
 
+def leggi_config():
+    """config.json: url/anon/chiave, oppure "env" = file .env con CS_SUPABASE_URL, CS_ANON_KEY,
+    CS_AUTOMAZIONE_KEY (sul Mac mini quello dello script del mattino: la chiave non si copia).
+    Facoltativi: "cartella" (1. Stampare), "nas" (collegamento), "conto_terzi" (false = spento)."""
+    with open(CONFIG) as f:
+        cfg = json.load(f)
+    if cfg.get('env'):
+        env = {}
+        with open(os.path.expanduser(cfg['env'])) as f:
+            for riga in f:
+                if '=' in riga and not riga.lstrip().startswith('#'):
+                    k, v = riga.split('=', 1)
+                    env[k.strip()] = v.strip().strip('"').strip("'")
+        cfg.setdefault('url', env.get('CS_SUPABASE_URL'))
+        cfg.setdefault('anon', env.get('CS_ANON_KEY'))
+        cfg.setdefault('chiave', env.get('CS_AUTOMAZIONE_KEY'))
+    return cfg
+
+
+def monta_nas(nas):
+    """Collega la condivisione del NAS per questo utente (es. ~/NAS/DATI) se non è già collegata.
+    nas: { server, share, mount, credenziali } — credenziali = file con utente e password (600)."""
+    mount = os.path.expanduser(nas['mount'])
+    if os.path.ismount(mount):
+        return
+    os.makedirs(mount, exist_ok=True)
+    with open(os.path.expanduser(nas['credenziali'])) as f:
+        utente, _, password = f.read().partition('\n')
+    url = f"//{urllib.parse.quote(utente.strip(), safe='')}:{urllib.parse.quote(password.strip(), safe='')}@{nas['server']}/{nas['share']}"
+    r = subprocess.run(['/sbin/mount_smbfs', '-N', url, mount], capture_output=True, text=True)
+    if r.returncode != 0:
+        print('NAS non collegato:', (r.stderr or '').replace(password.strip(), '***').strip(), file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--prova', action='store_true')
@@ -785,8 +820,20 @@ def main():
                     help='conto terzi subito, anche fuori dai giorni e dagli orari di stampa')
     a = ap.parse_args()
 
-    with open(CONFIG) as f:
-        cfg = json.load(f)
+    cfg = leggi_config()
+
+    # Un giro alla volta: se il precedente sta ancora copiando, questo salta
+    os.makedirs(DIR_DATI, exist_ok=True)
+    blocco = open(os.path.join(DIR_DATI, 'giro.lock'), 'w')
+    try:
+        fcntl.flock(blocco, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return 0
+
+    if cfg.get('nas'):
+        monta_nas(cfg['nas'])
+    if cfg.get('cartella') and a.cartella == CARTELLA:
+        a.cartella = cfg['cartella']
 
     dati = rpc(cfg, 'tc_dtf_cartella_dati', {'p_chiave': cfg['chiave']})
     if not dati.get('success'):
@@ -808,7 +855,8 @@ def main():
 
     # Conto terzi: dal Drive del cliente alla sua cartella in 1. Stampare (prima di leggere la cartella)
     try:
-        conto_terzi(cfg, roll, gap, a.prova, a.cartella, stato, a.conto_terzi_ora)
+        if cfg.get('conto_terzi', True) or a.conto_terzi_ora:
+            conto_terzi(cfg, roll, gap, a.prova, a.cartella, stato, a.conto_terzi_ora)
     except Exception as e:
         print('conto terzi:', e, file=sys.stderr)
 
@@ -872,9 +920,10 @@ def main():
 
     # Numeri davanti alle cartelle: DTF nuovi o richiesta dal gestionale
     percorsi = sorted(chiave(fl['path']) for g in gruppi for fl in g['files'])
-    nuovi = set(percorsi) - set(stato.get('visti') or [])
     richiesta = (dati.get('richiesta') or {}).get('at')
-    chiesta = bool(richiesta) and richiesta != stato.get('richiesta')
+    primo_giro = 'visti' not in stato   # prima lettura: si registra com'è, senza rinominare niente
+    nuovi = set() if primo_giro else set(percorsi) - set(stato.get('visti') or [])
+    chiesta = bool(richiesta) and richiesta != stato.get('richiesta') and not primo_giro
     dirs = [g for g in gruppi if not g.get('sciolto')]
     numera(dirs)
     da_rinominare = [(d, d['target']) for d in dirs if d['target'] != d['dir']]
