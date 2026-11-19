@@ -40,6 +40,55 @@ const DtfCt = {
   },
 };
 
+const DtfState = {
+  clients: [],
+  entries: {},          // 'YYYY-MM-DD' → { metri, dettaglio }
+  clientId: null,
+  month: null,          // Date al primo del mese visualizzato
+  loaded: false,
+  error: null,
+  saveTimers: {},
+  orderTimers: {},      // salvataggio file degli ordini (interno)
+  detail: null,         // finestra file: { kind: 'day'|'order', key, title }
+  saving: 0,
+  lastSaved: null,
+  detailDate: null,
+  channel: null,
+  dragId: null,
+  clientDragId: null,
+  clientOrderSeen: '',  // ordine clienti già applicato (per gli aggiornamenti in diretta)
+  tag: null,            // filtro tipologia dell'Interno
+  qInterno: '',         // ricerca dell'Interno (ordine, cliente, tipologia, file)
+  qTerzi: '',           // ricerca del Conto terzi (file e clienti, in tutti i mesi)
+  terziResults: null,   // risultati della ricerca Conto terzi: null = nessuna ricerca
+  terziTimer: null,
+};
+
+// Testo cercato in un campo: senza maiuscole/minuscole
+const dtfHas = (text, q) => String(text || '').toLowerCase().includes(q);
+
+// Campo cerca che resta attivo mentre la sezione si ridisegna
+function dtfSearchBox(id, value, placeholder, oninput) {
+  return `<div class="search-box dtf-search">
+    ${Icons.search()}
+    <input id="${id}" type="search" placeholder="${placeholder}" aria-label="${placeholder}" value="${escapeHtml(value)}" oninput="${oninput}">
+  </div>`;
+}
+// Ricerca dell'Interno: nome/codice ordine, descrizione, cliente, tipologie, nomi dei file
+function dtfMatchInterno(o, q) {
+  return !q || [o.nome, TCFactory.orderCode(o), orderDesc(o), TCFactory.clientName(TCFactory.getClient(o.clientId)), ...o.tags,
+    ...(Array.isArray(o.dtfItems) ? o.dtfItems.map(f => f?.name) : [])].some(t => dtfHas(t, q));
+}
+function dtfRefocus(id) {
+  const el = document.getElementById(id);
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+
+const dtfLs = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+
 // ═══════════════════════════════════════════════
 // INTERNO
 // ═══════════════════════════════════════════════
