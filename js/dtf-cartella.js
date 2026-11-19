@@ -232,19 +232,16 @@ const DtfCartella = {
     return dtfCoda().map(x => x.kind === 'order' ? { id: x.id, nome: x.o.nome, descr: orderDesc(x.o) }
       : { id: x.id, nome: x.c.nome, cartella: true, ...(x.kind === 'ct' ? { ct: true } : {}) });
   },
-  async _salvaLista() {
-    const lista = this._lista();
-    if (JSON.stringify(lista) !== JSON.stringify(TCFactory._settings.dtf_lista || [])) await TCFactory.setSetting('dtf_lista', lista);
-  },
-  _listaTimer: null,
-  pubblicaLista() {
-    clearTimeout(this._listaTimer);
-    this._listaTimer = setTimeout(() => this._salvaLista().catch(e => console.warn('[dtf lista]', e)), 3000);
-  },
+  // La lista per il Mac mini la calcola il database (_tc_dtf_lista, sql/dtf-lista.sql): un browser con
+  // dati vecchi non può più falsarla. Qui non si scrive più niente.
+  pubblicaLista() {},
 
   // Cartelle col nome diverso da quello giusto: senza numero, numero vecchio (priorità cambiata)
   // o rinominate a mano. Stesse regole del Mac mini (numera in dtf_cartella.py).
   attesa() {
+    // Col Mac mini attivo vale il suo conteggio (fatto sulla lista del database, ogni minuto)
+    const sv = this.server();
+    if (sv && typeof sv.attesa === 'number') return sv.attesa;
     const dirs = (this.info()?.cartelle || []).filter(c => c.dir);
     if (!dirs.length) return 0;
     const pos = new Map(this._lista().map((x, i) => [x.id, i]));
@@ -260,8 +257,6 @@ const DtfCartella = {
   async numeraOra() {
     if (!this.attesa()) return;
     try {
-      clearTimeout(this._listaTimer);
-      await this._salvaLista();
       await TCFactory.setSetting('dtf_numera_richiesta', { at: new Date().toISOString() });
       showToast(this.server() ? 'Il Mac mini numera le cartelle entro un minuto' : 'Richiesta salvata: la numerazione parte quando il Mac mini è attivo', this.server() ? 'success' : 'error');
     } catch (e) { console.error('[dtf numera]', e); showToast('Richiesta non salvata: riprova', 'error'); }
