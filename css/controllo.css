@@ -1245,3 +1245,9 @@ html .ctrl-btn.task-open:hover:not(:disabled) { background: linear-gradient(180d
 .td-azioni h3 { margin: 0 0 8px; }
 .td-passi { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 0.88rem; }
 .td-passi .td-contacts { margin-top: 8px; }
+
+/* Filtro per tag nelle code DTF-FILE, STAMPA e ALTRE LAVORAZIONI (come nella lista ordini) */
+.ctrl-tag-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--border-light, var(--border)); }
+.ctrl-tag-label { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); flex-shrink: 0; }
+.ctrl-tag-bar .chip-btn { cursor: pointer; }
+.ctrl-tag-clear { font-size: 0.72rem; }
