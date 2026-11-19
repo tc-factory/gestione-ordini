@@ -13,6 +13,114 @@ const DTF_CLIENT_ORDER_KEY = 'dtf_clienti_ordine'; // [id…] ordine dei clienti
 const DTF_TAG_KEY      = 'tcf_dtf_tag';        // filtro tipologia dell'Interno (per browser)
 const DTF_SAVE_DELAY   = 700;
 const DTF_STAMPATI_DAYS = 90;                  // in "Stampati" gli ultimi 90 giorni
+const DTF_CT_ROBOT = 'dtf-lettore@tc-dtf.iam.gserviceaccount.com';   // account Google che legge le cartelle Drive
+const DTF_GIORNI = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+
+// Conto terzi da Google Drive. Nei giorni di stampa il Mac mini copia i file nuovi in
+// 1. Stampare/<cliente> (es. "K1"), li conta nel calendario e su Drive li sposta in STAMPATO
+// (automazioni/dtf-cartella). Qui serve solo l'elenco dei clienti per riconoscere la loro cartella.
+const DtfCt = {
+  clients: [],
+  async load() {
+    const { data, error } = await supabaseClient.from('dtf_clients').select('id, nome, giorni, drive_url');
+    if (!error) this.clients = data || [];
+  },
+  // Cliente conto terzi con cartella Drive che ha questo nome di cartella
+  cliente(nome) {
+    const n = String(nome || '').trim().toLowerCase();
+    return this.clients.find(c => c.drive_url && c.nome.trim().toLowerCase() === n) || null;
+  },
+  giorni(c) { return (c?.giorni?.length ? c.giorni : [2, 4]).map(g => DTF_GIORNI[g - 1].toLowerCase()).join(' e '); },
+  // Righe della coda: le cartelle dei clienti conto terzi presenti in 1. Stampare
+  righe() {
+    const info = typeof DtfCartella !== 'undefined' ? DtfCartella.info() : null;
+    return (info?.cartelle || []).filter(c => c.ct && c.files > 0).map(c => ({
+      kind: 'ct', id: `ct:${c.ct}`, c, cliente: this.clients.find(x => x.id === c.ct) || { id: c.ct, nome: c.nome },
+    }));
+  },
+};
+
+// DTF degli ordini nuovi preparati dal Mac mini (dtf_preparati). In modalità PROVA ogni proposta
+// (cartella cliente, file, pezzi) va riscontrata qui: approvata (anche corretta) o rifiutata.
+// La precisione si misura sugli ultimi 10 riscontri; il passaggio ad automatica è solo manuale.
+const DtfPrep = {
+  righe: new Map(), channel: null,
+  async load() {
+    const { data, error } = await supabaseClient.from('dtf_preparati')
+      .select('order_id, at, esito, sorgente, files, proposta, approvati, riscontro, riscontro_at').order('at', { ascending: false }).limit(300);
+    if (error) return;
+    this.righe = new Map((data || []).map(r => [r.order_id, r]));
+    if (!this.channel) {
+      let t = null;
+      this.channel = supabaseClient.channel('dtf-preparati')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'dtf_preparati' }, () => {
+          clearTimeout(t); t = setTimeout(async () => { await this.load(); renderDtfInterno(); }, 800);
+        }).subscribe();
+    }
+  },
+  get(id) { return this.righe.get(id) || null; },
+  modo() { return TCFactory._settings.dtf_prepara_modo === 'automatica' ? 'automatica' : 'prova'; },
+  daControllare() { return [...this.righe.values()].filter(r => r.esito === 'proposta'); },
+  // Ultimi 10 riscontri: quanti giusti (approvati senza modifiche)
+  precisione() {
+    const ult = [...this.righe.values()].filter(r => r.riscontro).sort((a, b) => String(b.riscontro_at).localeCompare(String(a.riscontro_at))).slice(0, 10);
+    return { giusti: ult.filter(r => r.riscontro === 'giusto').length, totale: ult.length };
+  },
+};
+
+function dtfPrepApri(orderId) {
+  const o = TCFactory.getOrderById(orderId), r = DtfPrep.get(orderId);
+  if (!o || !r?.proposta) return;
+  const modal = document.getElementById('dtf-prep-modal');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:720px;" role="dialog" aria-modal="true" aria-labelledby="dtf-p-title">
+      <div class="modal-header">
+        <h2 id="dtf-p-title">${escapeHtml(o.nome)} · DTF proposto</h2>
+        <button class="btn-icon" onclick="closeModal('dtf-prep-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:12px;">
+        <p class="dtf-note" style="margin:0;">Trovati nella cartella <strong>DATI/${escapeHtml(r.sorgente || '')}</strong>. Togli i file che non c'entrano e correggi i pezzi: con <strong>Approva</strong> il Mac mini li copia in 1. Stampare/${escapeHtml(o.nome)} entro un minuto.</p>
+        <ul class="dtf-prep-list">
+          ${r.proposta.map((f, i) => `
+            <li>
+              <label class="dtf-prep-file"><input type="checkbox" data-i="${i}" checked>
+                <span><strong>${escapeHtml(f.src.split('/').pop())}</strong><small>${escapeHtml(f.src)}</small></span></label>
+              <label class="dtf-prep-pz">pezzi <input type="number" min="1" inputmode="numeric" class="form-input" data-pz="${i}" value="${Number(f.pz) || 1}"></label>
+            </li>`).join('')}
+        </ul>
+        <div class="dtf-prep-actions">
+          <button type="button" class="btn btn-secondary" onclick="dtfPrepRifiuta('${o.id}')">Rifiuta</button>
+          <button type="button" class="btn btn-primary" onclick="dtfPrepApprova('${o.id}')">Approva e copia</button>
+        </div>
+      </div>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('dtf-prep-modal'); };
+}
+
+async function dtfPrepRiscontro(orderId, files, nota) {
+  try {
+    const { data, error } = await supabaseClient.rpc('dtf_prepara_riscontro', { p_order: orderId, p_files: files, p_nota: nota || null });
+    if (error || !data?.success) throw error || new Error(data?.error);
+    closeModal('dtf-prep-modal');
+    showToast({ giusto: 'Approvato così com\'era ✓ il Mac mini copia i file', corretto: 'Approvato con correzioni: il Mac mini copia i file', sbagliato: 'Proposta rifiutata: il DTF va messo a mano' }[data.riscontro] || 'Fatto');
+    await DtfPrep.load(); renderDtfInterno();
+  } catch (e) { console.error('[dtf prep]', e); showToast('Riscontro non salvato: riprova', 'error'); }
+}
+
+function dtfPrepApprova(orderId) {
+  const r = DtfPrep.get(orderId);
+  const files = r.proposta.filter((f, i) => document.querySelector(`#dtf-prep-modal input[data-i="${i}"]`)?.checked)
+    .map(f => ({ src: f.src, pz: Math.max(1, parseInt(document.querySelector(`#dtf-prep-modal input[data-pz="${r.proposta.indexOf(f)}"]`)?.value, 10) || 1) }));
+  if (!files.length) { showToast('Nessun file scelto: per scartare la proposta usa Rifiuta', 'error'); return; }
+  dtfPrepRiscontro(orderId, files);
+}
+
+async function dtfPrepRifiuta(orderId) {
+  const nota = await uiPrompt('Cosa non andava? (facoltativo, aiuta a migliorare la ricerca)', { ok: 'Rifiuta' });
+  if (nota === null) return;
+  dtfPrepRiscontro(orderId, null, nota);
+}
 
 const DtfState = {
   clients: [],
@@ -127,6 +235,31 @@ function dtfOrderStats(o) {
   };
 }
 
+// Metri, tempo e costo di una cartella senza ordine (misurata dal Mac mini o da Chrome)
+function dtfCartellaStats(c) {
+  const metri = Math.round((c.metri || 0) * 100) / 100, speed = DtfMisure.speedMh(), costo = DtfMisure.costInterno();
+  return { files: c.files || 0, senzaMisura: 0, metri, ore: speed > 0 ? metri / speed : null, costo: costo > 0 ? metri * costo : null };
+}
+
+// Coda di stampa: ordini da stampare più le cartelle di 1. Stampare senza ordine.
+// Le cartelle senza priorità data a mano vanno in cima (sono urgenti: hanno un task urgente).
+function dtfCoda() {
+  const { order, removed } = dtfSettings();
+  const rank = (id) => { const i = order.indexOf(id); return i < 0 ? Infinity : i; };
+  const tolte = new Set(removed.map(r => r.id));
+  const info = typeof DtfCartella !== 'undefined' ? DtfCartella.info() : null;
+  const cartelle = (info?.cartelle || []).filter(c => !c.ordine && !c.ct && c.files > 0 && !tolte.has(`cartella:${c.nome}`))
+    .map(c => ({ kind: 'cartella', id: `cartella:${c.nome}`, c }));
+  const ordini = dtfLists().todo.map(o => ({ kind: 'order', id: o.id, o }));
+  // Conto terzi (cartella del cliente copiata da Drive): in cima a tutto
+  const ct = DtfCt.righe();
+  const key = (x) => {
+    if (x.kind === 'ct') return -2;
+    const r = rank(x.id); return r < Infinity ? r : x.kind === 'cartella' ? -1 : Number.MAX_SAFE_INTEGER;
+  };
+  return [...ct, ...cartelle, ...ordini].map((x, i) => ({ x, i })).sort((a, b) => key(a.x) - key(b.x) || a.i - b.i).map(({ x }) => x);
+}
+
 function dtfFmtTime(ore) {
   if (ore == null) return '—';
   const min = Math.round(ore * 60);
@@ -156,17 +289,72 @@ function renderDtfInterno() {
   const altrove = q ? printed.filter(matches).length + removedList.filter(x => matches(x.o)).length : 0;
   const today = localISODate(new Date());
   const fmt = (d) => TCFactory.formatDate(d, { day: '2-digit', month: '2-digit' });
-  const stats = todo.map(dtfOrderStats);
+  // Coda: ordini e cartelle senza ordine (dalla cartella 1. Stampare), nell'ordine di stampa
+  const visibili = new Set(todo.map(o => o.id));
+  const coda = dtfCoda().filter(x => x.kind === 'order' ? visibili.has(x.id)
+    : !DtfState.tag && (!q || dtfHas(x.c.nome, q)));
+  const mancanti = new Set(typeof DtfCartella !== 'undefined' ? DtfCartella.info()?.mancanti || [] : []);
+  const stats = coda.map(x => x.kind === 'order' ? dtfOrderStats(x.o) : dtfCartellaStats(x.c));
   const tot = stats.reduce((t, x) => ({ metri: t.metri + x.metri, ore: t.ore + (x.ore || 0), costo: t.costo + (x.costo || 0) }), { metri: 0, ore: 0, costo: 0 });
-  const senzaFile = stats.filter(x => !x.files).length;
+  const senzaFile = coda.filter((x, i) => x.kind === 'order' && !stats[i].files).length;
   const costoAttivo = DtfMisure.costInterno() > 0;
 
-  const card = (o, i) => {
+  // Cartella senza ordine: si trascina come gli ordini; sparisce quando c'è l'ordine (o la cartella va via)
+  // Ordine già stampato o tolto con lo stesso nome della cartella: la cartella è rimasta in 1. Stampare
+  const fuoriLista = [...printed, ...removedList.map(x => x.o)];
+  const cardCartella = (c, i) => {
+    const st = stats[i], id = `cartella:${c.nome}`, idJs = escapeHtml(JSON.stringify(id));
+    const gia = typeof DtfCartella !== 'undefined' ? DtfCartella.abbina(c.nome, fuoriLista) : null;
+    const giaO = gia && gia !== 'ambiguo' ? gia : null;
+    const nota = giaO
+      ? `${escapeHtml(giaO.nome)} è già ${printed.includes(giaO) ? 'segnato stampato' : 'tolto dalla lista'}: sposta la cartella in Stampato o ripristina l'ordine`
+      : 'Cartella senza ordine: crea l\'ordine o rinomina la cartella col nome dell\'ordine';
+    return `
+      <li class="dtf-item dtf-cartella-row" draggable="true" data-id="${escapeHtml(id)}"
+          ondragstart="dtfDragStart(event,${idJs})" ondragend="dtfDragEnd()" ondragover="dtfDragOver(event)" ondrop="dtfDrop(event)">
+        <span class="dtf-pos" aria-hidden="true">${i + 1}</span>
+        <div class="dtf-when" title="Cartella senza ordine"><strong>${Icons.paperclip(14)}</strong><span>cartella</span></div>
+        <div class="dtf-main dtf-main-static">
+          <strong>${escapeHtml(c.nome)}</strong>
+          <span>${nota}</span>
+        </div>
+        <div class="dtf-cols" role="group" aria-label="Lunghezza, tempo e costo">
+          <span class="dtf-col"><strong>${dtfMetri(st.metri)} m</strong><small>lunghezza</small></span>
+          <span class="dtf-col"><strong>${dtfFmtTime(st.ore)}</strong><small>tempo</small></span>
+          ${costoAttivo ? `<span class="dtf-col"><strong>${euro(st.costo)}</strong><small>costo</small></span>` : ''}
+        </div>
+        <span class="dtf-files-btn dtf-files-static">${Icons.paperclip(14)}<span><strong>${st.files} file</strong><small>senza ordine</small></span></span>
+      </li>`;
+  };
+
+  // Conto terzi (cartella copiata da Google Drive): non si trascina, sta in cima; i metri sono già contati
+  const cardCt = (x, i) => {
+    const st = stats[i], cl = x.cliente;
+    return `
+      <li class="dtf-item dtf-ct-row dtf-ct-oggi" data-id="${escapeHtml(x.id)}">
+        <span class="dtf-pos" aria-hidden="true">${i + 1}</span>
+        <div class="dtf-when" title="Conto terzi"><strong>${Icons.paperclip(14)}</strong><span>conto terzi</span></div>
+        <div class="dtf-main dtf-main-static">
+          <strong>Conto terzi · ${escapeHtml(cl.nome)}</strong>
+          <span>Cartella «${escapeHtml(x.c.dir || x.c.nome)}» copiata da Google Drive · metri già nel conto terzi · si stampa ${DtfCt.giorni(cl)}</span>
+        </div>
+        <div class="dtf-cols" role="group" aria-label="Lunghezza, tempo e costo">
+          <span class="dtf-col"><strong>${dtfMetri(st.metri)} m</strong><small>lunghezza</small></span>
+          <span class="dtf-col"><strong>${dtfFmtTime(st.ore)}</strong><small>tempo</small></span>
+          ${costoAttivo ? `<span class="dtf-col"><strong>${euro(st.costo)}</strong><small>costo</small></span>` : ''}
+        </div>
+        <span class="dtf-files-btn dtf-files-static">${Icons.paperclip(14)}<span><strong>${st.files} file</strong><small>sposta in Stampato a fine stampa</small></span></span>
+      </li>`;
+  };
+
+  const card = (x, i) => x.kind === 'order' ? cardOrdine(x.o, i) : x.kind === 'ct' ? cardCt(x, i) : cardCartella(x.c, i);
+  const cardOrdine = (o, i) => {
     const dl = TCFactory.getEffectiveDeadline(o);
+    const prep = DtfPrep.get(o.id);
     const client = TCFactory.getClient(o.clientId);
     const st = stats[i];
     return `
-      <li class="dtf-item ${isUrgentOrder(o) ? 'dtf-urgent' : ''}" draggable="true" data-id="${o.id}"
+      <li class="dtf-item ${isUrgentOrder(o) ? 'dtf-urgent' : ''} ${st.files ? '' : 'dtf-missing'} ${mancanti.has(o.id) ? 'dtf-mancante' : ''}" draggable="true" data-id="${o.id}"
           ondragstart="dtfDragStart(event,'${o.id}')" ondragend="dtfDragEnd()" ondragover="dtfDragOver(event)" ondrop="dtfDrop(event)">
         <span class="dtf-pos" aria-hidden="true">${i + 1}</span>
         <div class="dtf-when ${dl && dl.date < today ? 'late' : ''}" title="Scadenza">
@@ -175,17 +363,22 @@ function renderDtfInterno() {
         </div>
         <button type="button" class="dtf-main" onclick="openOrderDetail('${o.id}')">
           <strong>${escapeHtml(o.nome)}</strong>
-          <span>${[orderDesc(o) ? escapeHtml(orderDesc(o)) : '', client && TCFactory.clientName(client) !== o.nome ? escapeHtml(TCFactory.clientName(client)) : '', o.tags.map(escapeHtml).join(', ')].filter(Boolean).join(' · ')}</span>
+          <span>${[mancanti.has(o.id) ? '<em class="dtf-mancante-note">Cartella non più in 1. Stampare: controllare se stampato</em>' : '', orderDesc(o) ? escapeHtml(orderDesc(o)) : '', client && TCFactory.clientName(client) !== o.nome ? escapeHtml(TCFactory.clientName(client)) : '', o.tags.map(escapeHtml).join(', ')].filter(Boolean).join(' · ')}</span>
         </button>
         <div class="dtf-cols ${st.files ? '' : 'empty'}" role="group" aria-label="Lunghezza, tempo e costo">
           <span class="dtf-col"><strong>${st.files ? `${dtfMetri(st.metri)} m` : '—'}</strong><small>lunghezza</small></span>
           <span class="dtf-col"><strong>${st.files ? dtfFmtTime(st.ore) : '—'}</strong><small>tempo</small></span>
           ${costoAttivo ? `<span class="dtf-col"><strong>${st.files ? euro(st.costo) : '—'}</strong><small>costo</small></span>` : ''}
         </div>
+        ${prep?.esito === 'proposta' && !st.files ? `
+        <button type="button" class="dtf-files-btn dtf-prep-btn" onclick="dtfPrepApri('${o.id}')" title="Il Mac mini ha trovato i file del cliente: controlla e approva">
+          ${Icons.paperclip(14)}<span><strong>DTF proposto</strong><small>${prep.files} file · da controllare</small></span>
+        </button>` : prep?.esito === 'approvato' && !st.files ? `
+        <span class="dtf-files-btn dtf-files-static" title="Approvato: il Mac mini sta copiando i file">${Icons.paperclip(14)}<span><strong>Approvato</strong><small>copia in corso…</small></span></span>` : `
         <button type="button" class="dtf-files-btn ${st.files ? '' : 'empty'}" onclick="dtfOpenOrderFiles('${o.id}')"
-          title="${st.files ? 'Vedi e modifica i file' : 'Aggiungi i file da stampare'}">
-          ${Icons.paperclip(14)}<span>${st.files ? `<strong>${st.files} file</strong>${st.senzaMisura ? `<small>${st.senzaMisura} senza misura</small>` : ''}` : '<strong>Aggiungi file</strong>'}</span>
-        </button>
+          title="${st.files ? 'Vedi e modifica i file' : 'Manca il DTF: aggiungi i file da stampare'}">
+          ${Icons.paperclip(14)}<span>${st.files ? `<strong>${st.files} file</strong>${st.senzaMisura ? `<small>${st.senzaMisura} senza misura</small>` : ''}` : '<strong>Manca il DTF</strong><small>Aggiungi file</small>'}</span>
+        </button>`}
         <button type="button" class="btn btn-sm dtf-done-btn" onclick="dtfMarkPrinted('${o.id}')">${Icons.checkCircle('currentColor', 15)} Stampato</button>
         <button type="button" class="btn-icon dtf-remove" onclick="dtfRemove('${o.id}')" aria-label="Togli ${escapeHtml(o.nome)} dalla lista DTF" title="Non serve il DTF: togli dalla lista">${Icons.x(14)}</button>
       </li>`;
@@ -205,7 +398,7 @@ function renderDtfInterno() {
 
   root.innerHTML = `
     <div class="dtf-box-head">
-      <div><h2>Da stampare</h2><p>${todo.length}${DtfState.tag || q ? ` di ${all.length}` : ''} ${todo.length === 1 ? 'ordine' : 'ordini'} · per scadenza, trascina per dare priorità</p></div>
+      <div><h2>Da stampare</h2><p>${todo.length}${DtfState.tag || q ? ` di ${all.length}` : ''} ${todo.length === 1 ? 'ordine' : 'ordini'}${coda.length > todo.length ? ` e ${coda.length - todo.length} ${coda.length - todo.length === 1 ? 'cartella' : 'cartelle'} senza ordine` : ''} · per scadenza, trascina per dare priorità</p></div>
       <div class="dtf-head-actions">
         ${dtfSearchBox('dtf-q-interno', DtfState.qInterno, 'Cerca ordine, cliente, file…', 'dtfSearchInterno(this.value)')}
         <button type="button" class="btn btn-secondary btn-sm" onclick="dtfOpenHistory()">Stampati e rimossi · ${printed.length + removedList.length}</button>
@@ -220,9 +413,15 @@ function renderDtfInterno() {
         ? `<div class="dtf-kpi dtf-kpi-total"><span>Costo</span><strong>${euro(tot.costo)}</strong></div>`
         : `<button type="button" class="dtf-kpi dtf-kpi-hint" onclick="Nav.go('impostazioni')"><span>Costo</span><strong>Imposta i costi</strong></button>`}
     </div>
-    ${senzaFile ? `<p class="dtf-note">${senzaFile} ${senzaFile === 1 ? 'ordine non ha' : 'ordini non hanno'} ancora file: metri e tempo li contano solo quando ci sono.</p>` : ''}
-    ${todo.length
-      ? `<ol class="dtf-timeline" aria-label="Ordini da stampare">${todo.map(card).join('')}</ol>`
+    ${typeof DtfCartella !== 'undefined' ? DtfCartella.html() : ''}
+    ${(() => {
+      const pr = DtfPrep.precisione(), da = DtfPrep.daControllare().length;
+      if (DtfPrep.modo() === 'automatica') return '';
+      return `<p class="dtf-note dtf-prep-note">DTF degli ordini nuovi <strong>in prova</strong>: ogni proposta va approvata qui${da ? ` · <strong>${da} da controllare</strong>` : ''} · precisione ultimi ${pr.totale || 10} riscontri: <strong>${pr.totale ? `${pr.giusti}/${pr.totale}` : '—'}</strong>${pr.totale === 10 && pr.giusti === 10 ? ' · 100%: si può passare all\'automatico (lo decide Riccardo)' : ''}</p>`;
+    })()}
+    ${senzaFile ? `<p class="dtf-note dtf-missing-note">${senzaFile} ${senzaFile === 1 ? 'ordine senza DTF' : 'ordini senza DTF'} (in rosso): metri e tempo li contano solo quando ci sono i file.</p>` : ''}
+    ${coda.length
+      ? `<ol class="dtf-timeline" aria-label="Ordini da stampare">${coda.map(card).join('')}</ol>`
       : `<div class="empty-list">${q ? `Nessun ordine da stampare trovato per "${escapeHtml(DtfState.qInterno.trim())}".` : DtfState.tag ? `Nessun ordine "${escapeHtml(DtfState.tag)}" da stampare.` : 'Nessun ordine da stampare. 🎉'}</div>`}`;
 }
 
@@ -353,7 +552,7 @@ async function dtfDrop(e) {
   dtfDragEnd();
 
   // Si riordina l'elenco completo: con un filtro attivo gli ordini nascosti restano al loro posto
-  const ids = dtfLists().todo.map(o => o.id).filter(x => x !== id);
+  const ids = dtfCoda().filter(x => x.kind !== 'ct').map(x => x.id).filter(x => x !== id);
   ids.splice(ids.indexOf(target.dataset.id) + (before ? 0 : 1), 0, id);
   try {
     await dtfSaveSettings({ order: ids });
@@ -1043,6 +1242,15 @@ function dtfOpenClientForm(id = null) {
           <input id="dtf-c-costo" class="form-input" inputmode="decimal" required value="${c ? String(c.costo_metro).replace('.', ',') : ''}" placeholder="es. 6,50"></div>
         <div class="form-group"><label class="form-label" for="dtf-c-note">Note</label>
           <textarea id="dtf-c-note" class="form-textarea" rows="3">${escapeHtml(c?.note || '')}</textarea></div>
+        <div class="form-group"><label class="form-label" for="dtf-c-drive">Cartella Google Drive</label>
+          <input id="dtf-c-drive" class="form-input" value="${escapeHtml(c?.drive_url || '')}" placeholder="Link della cartella dove il cliente carica i file">
+          <span class="settings-section-hint" style="margin:4px 0 0;">Condividila come Visualizzatore con <strong>${DTF_CT_ROBOT}</strong>: il Mac mini legge i file e calcola i metri.</span></div>
+        <div class="form-group"><span class="form-label">Giorni di stampa</span>
+          <div class="dtf-giorni" role="group" aria-label="Giorni di stampa">
+            ${DTF_GIORNI.map((g, i) => `<button type="button" class="dtf-giorno" data-g="${i + 1}" aria-pressed="${(c?.giorni || [2, 4]).includes(i + 1)}"
+              onclick="this.setAttribute('aria-pressed', this.getAttribute('aria-pressed') !== 'true')">${g}</button>`).join('')}
+          </div>
+          <span class="settings-section-hint" style="margin:4px 0 0;">In questi giorni i suoi file vanno in cima alla coda DTF interno.</span></div>
         <div class="dtf-access">
           <div class="form-group"><label class="form-label" for="dtf-c-pwd">Password per il cliente</label>
             <input id="dtf-c-pwd" type="password" class="form-input" autocomplete="new-password" minlength="8"
@@ -1136,7 +1344,9 @@ async function dtfSubmitClient(id) {
   const btn = document.getElementById('dtf-c-save');
   btn.disabled = true;
   try {
-    const payload = { nome, costo_metro: Math.round(costo * 100) / 100, note };
+    const drive_url = document.getElementById('dtf-c-drive').value.trim() || null;
+    const giorni = [...document.querySelectorAll('.dtf-giorno[aria-pressed="true"]')].map(b => Number(b.dataset.g));
+    const payload = { nome, costo_metro: Math.round(costo * 100) / 100, note, drive_url, giorni };
     const res = id
       ? await supabaseClient.from('dtf_clients').update(payload).eq('id', id).select().single()
       : await supabaseClient.from('dtf_clients').insert(payload).select().single();
@@ -1190,6 +1400,7 @@ async function openDtfPage() {
   if (!DtfState.clientId) DtfState.clientId = dtfLs.get(DTF_CLIENT_KEY);
 
   renderDtfInterno();
+  if (section === 'interno' && typeof DtfCartella !== 'undefined' && !DtfCartella._avviata) DtfCartella.avvia();
   if (!DtfState.loaded) document.getElementById('dtf-terzi-root').innerHTML =
     '<div class="dtf-box-head"><div><h2>DTF Conto terzi</h2></div></div><div class="empty-list">Caricamento…</div>';
 

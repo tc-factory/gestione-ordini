@@ -659,6 +659,61 @@ html.dark { --urgent-bg: #3A1F22; --urgent-bg-hover: #452428; }
 .dtf-item:active { cursor: grabbing; }
 .dtf-item.dragging { opacity: 0.35; }
 .dtf-item.dtf-urgent { background: var(--urgent-bg); }
+.dtf-item.dtf-missing { box-shadow: inset 0 0 0 2px #DC2626; }
+.dtf-item.dtf-missing .dtf-main strong, .dtf-item.dtf-missing .dtf-files-btn strong { color: #DC2626; }
+.dtf-item.dtf-missing .dtf-files-btn small { color: var(--text-muted); }
+.dtf-missing-note { color: #DC2626; }
+.dtf-cartella { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dtf-cartella-err { color: #DC2626; }
+.dtf-cartella-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 8px 10px 8px 12px; margin: 0 0 10px; border-radius: 14px;
+  background: var(--bg-primary); font-size: 0.78rem; color: var(--text-muted);
+}
+.dtf-cartella-text { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.dtf-cartella-actions { display: inline-flex; gap: 6px; flex-shrink: 0; }
+.dtf-numera-btn:disabled, html.dark .dtf-numera-btn:disabled { background: var(--bg-card); background-image: none; color: var(--text-muted); box-shadow: none; opacity: 1; }
+/* Ordine la cui cartella è sparita da 1. Stampare: controllare se stampato */
+.dtf-item.dtf-mancante { box-shadow: inset 0 0 0 2px #EAB308; }
+.dtf-mancante-note { font-style: normal; font-weight: 600; color: #A16207; }
+html.dark .dtf-item.dtf-mancante { box-shadow: inset 0 0 0 2px #FACC15; }
+html.dark .dtf-mancante-note { color: #FACC15; }
+/* Cartella senza ordine nella coda */
+.dtf-item.dtf-cartella-row { box-shadow: inset 0 0 0 2px #DC2626; background: color-mix(in srgb, #DC2626 6%, var(--bg-primary)); }
+.dtf-item.dtf-cartella-row .dtf-main strong { color: #DC2626; }
+.dtf-main-static { cursor: default; }
+.dtf-main-static:hover strong { text-decoration: none; }
+.dtf-files-static { cursor: default; }
+/* DTF proposto dal Mac mini (ordini nuovi, modalità prova) */
+.dtf-files-btn.dtf-prep-btn { box-shadow: inset 0 0 0 2px #EAB308; }
+.dtf-files-btn.dtf-prep-btn strong { color: #A16207; }
+html.dark .dtf-files-btn.dtf-prep-btn strong { color: #FACC15; }
+.dtf-prep-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
+.dtf-prep-list li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 12px; background: var(--bg-primary); }
+.dtf-prep-file { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.dtf-prep-file span { display: flex; flex-direction: column; min-width: 0; }
+.dtf-prep-file strong { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtf-prep-file small { font-size: 0.7rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtf-prep-pz { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-muted); }
+.dtf-prep-pz input { width: 72px; }
+.dtf-prep-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* Conto terzi da Google Drive nella coda */
+.dtf-item.dtf-ct-row { cursor: default; box-shadow: inset 0 0 0 2px #0EA5E9; }
+.dtf-item.dtf-ct-row.dtf-ct-oggi { background: color-mix(in srgb, #0EA5E9 8%, var(--bg-primary)); }
+.dtf-item.dtf-ct-row .dtf-main strong { color: #0369A1; }
+.dtf-item.dtf-ct-row:not(.dtf-ct-oggi) { opacity: 0.75; }
+html.dark .dtf-item.dtf-ct-row .dtf-main strong { color: #7DD3FC; }
+/* Giorni di stampa nella scheda cliente */
+.dtf-giorni { display: flex; gap: 6px; flex-wrap: wrap; }
+.dtf-giorno {
+  min-width: 46px; padding: 7px 10px; border-radius: 999px; border: 1px solid var(--border-color, rgba(0,0,0,.12));
+  background: var(--bg-primary); color: var(--text-secondary); font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+}
+.dtf-giorno[aria-pressed="true"] { background: var(--text-primary); border-color: var(--text-primary); color: var(--bg-primary); }
+html.dark .dtf-item.dtf-cartella-row { box-shadow: inset 0 0 0 2px #F87171; }
+html.dark .dtf-item.dtf-cartella-row .dtf-main strong { color: #F87171; }
+html.dark .dtf-item.dtf-missing { box-shadow: inset 0 0 0 2px #F87171; }
+html.dark .dtf-item.dtf-missing .dtf-main strong, html.dark .dtf-item.dtf-missing .dtf-files-btn strong, html.dark .dtf-missing-note, html.dark .dtf-cartella-err { color: #F87171; }
 .dtf-item.drop-before::before,
 .dtf-item.drop-after::after {
   content: ''; position: absolute; left: 10px; right: 10px; height: 3px; border-radius: 3px;
