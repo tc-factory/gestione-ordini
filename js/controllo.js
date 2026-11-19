@@ -490,12 +490,18 @@ const Ctrl = {
 window.Ctrl = Ctrl;
 
 // Ordine dentro un gruppo: in corso, poi priorità, poi scadenza, poi arrivo
+// Ordine dei task (deciso da Riccardo il 2026-11-19): prima la scadenza, a parità la data di creazione.
+// Per i task di un ordine del gestionale contano la consegna attuale dell'ordine e la sua data,
+// non i valori copiati nel task quando è nato. Priorità e "in lavorazione" non contano più.
+function taskScadVera(t) {
+  const o = taskOrdineGest(t);
+  if (o) return ordineScad(o);
+  return t.scadenza ? ctrlGiornoDi(t.scadenza) : '9';
+}
+const taskCreato = (t) => taskOrdineGest(t)?.dataOrdine || String(t.created_at || '');
+const taskCmp = (a, b) => taskScadVera(a).localeCompare(taskScadVera(b)) || taskCreato(a).localeCompare(taskCreato(b));
 function sortTasks(list) {
-  return list.slice().sort((a, b) =>
-    (b.stato === 'in_lavorazione') - (a.stato === 'in_lavorazione')
-    || taskPrioRank(a.priorita) - taskPrioRank(b.priorita)
-    || (a.scadenza || '9').localeCompare(b.scadenza || '9')
-    || a.created_at.localeCompare(b.created_at));
+  return list.slice().sort(taskCmp);
 }
 
 // ─────────────────────────────────────────────
@@ -1429,7 +1435,7 @@ function renderTaskQueue(coda, emptyText = '') {
     righe.file = righe.file.filter(codaTagOk);
   }
   const opts = { showStore: true, showAuto: false };
-  const ordinati = (l) => l.slice().sort((a, b) => taskPrioOrd(a) - taskPrioOrd(b) || String(a.created_at).localeCompare(String(b.created_at)));
+  const ordinati = sortTasks;
   const sub = (titolo, html) => `<div class="ctrl-sub">${titolo}</div><div class="task-list task-stack">${html}</div>`;
   let corpo, n;
   if (cat === 'dtffile') {
@@ -1526,7 +1532,6 @@ function renderCartellaRiga(c, pos) {
     </article>`;
 }
 
-const taskPrioOrd = (t) => ({ urgente: 0, alta: 1, normale: 2, bassa: 3 })[t.priorita] ?? 2;
 
 // Task dell'automazione della cartella DTF, con l'azione giusta a portata di clic
 // Cartella "senza ordine" che è di un ordine già segnato stampato o tolto dalla lista DTF
@@ -1641,11 +1646,15 @@ function setControlCoda(id) {
 }
 
 // Un task è in ritardo se la scadenza è passata o se arriva dai giorni prima
-const taskInRitardo = (t) => (t.scadenza && new Date(t.scadenza) < new Date()) || t.giorno < Ctrl.giorno;
+const taskInRitardo = (t) => {
+  const o = taskOrdineGest(t);
+  if (o) { const d = ordineScad(o); return d !== '9' && d < ctrlOggi(); }
+  return (t.scadenza && new Date(t.scadenza) < new Date()) || t.giorno < Ctrl.giorno;
+};
 
 // La coda divisa per urgenza; i task dello stesso ordine restano insieme, nella sezione del più importante
 function taskSections(list) {
-  const livello = (t) => t.priorita === 'urgente' ? 0 : taskInRitardo(t) ? 1 : 2;
+  const livello = (t) => taskInRitardo(t) ? 1 : 2;
   const chiave = (t) => taskGruppo(t) || t.id;
   const min = new Map();
   list.forEach(t => { const k = chiave(t); min.set(k, Math.min(min.get(k) ?? 9, livello(t))); });
