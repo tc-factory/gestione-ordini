@@ -1188,6 +1188,33 @@ button.team-info:hover .team-nome { text-decoration: underline; }
 .tk-oper-bar b { display: block; height: 100%; width: var(--p); border-radius: inherit; background: var(--c); animation: tk-oper-in .8s cubic-bezier(.2,.8,.2,1); }
 .tk-oper.is-top .tk-oper-bar b { background: linear-gradient(90deg, #22c55e, #16a34a, #4ade80, #22c55e); background-size: 200% 100%; animation: tk-oper-in .8s cubic-bezier(.2,.8,.2,1), tk-oper-shine 2.5s linear infinite; }
 @keyframes tk-oper-in { from { width: 0; } }
+/* Oltre il 100%: una scintilla in fondo alla barra, come se volesse uscire.
+   --s va da 0 (101%) a 1 (200% e oltre): più sale, più è veloce, luminosa e continua */
+.tk-oper:has(.tk-oper-spark) { overflow: visible !important; }
+.tk-oper-track { position: relative; display: block; }
+.tk-oper-spark { --d: calc(2.6s - 1.9s * var(--s)); position: absolute; right: 0; top: 50%; width: 0; height: 0; pointer-events: none; }
+.tk-oper-spark::before { content: ''; position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 25%, #fbbf24 50%, rgba(245,158,11,0) 75%);
+  box-shadow: 0 0 calc(5px + 12px * var(--s)) calc(1px + 4px * var(--s)) rgba(245,158,11,.7);
+  animation: tk-spark-core var(--d) ease-in-out infinite; }
+.tk-oper-spark s { position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: #f59e0b;
+  box-shadow: 0 0 5px #fbbf24; opacity: 0; animation: tk-spark-fly var(--d) ease-out infinite; }
+.tk-oper-spark s:nth-child(1) { --x: 9px;  --y: -8px; }
+.tk-oper-spark s:nth-child(2) { --x: 12px; --y: 1px;  animation-delay: calc(var(--d) * -.25); }
+.tk-oper-spark s:nth-child(3) { --x: 8px;  --y: 8px;  animation-delay: calc(var(--d) * -.5); }
+.tk-oper-spark s:nth-child(4) { --x: 5px;  --y: -11px; animation-delay: calc(var(--d) * -.75); }
+@keyframes tk-spark-core {
+  0%, 100% { opacity: calc(.15 + .85 * var(--s)); transform: scale(calc(.6 + .3 * var(--s))); }
+  45% { opacity: 1; transform: scale(calc(1.1 + .5 * var(--s))); }
+  60% { opacity: calc(.3 + .7 * var(--s)); transform: scale(.9); }
+}
+@keyframes tk-spark-fly {
+  0% { opacity: 0; transform: translate(0, 0) scale(1); }
+  10% { opacity: 1; }
+  70% { opacity: calc(.2 + .8 * var(--s)); }
+  100% { opacity: 0; transform: translate(calc(var(--x) * (1 + var(--s))), calc(var(--y) * (1 + var(--s)))) scale(.3); }
+}
+@media (prefers-reduced-motion: reduce) { .tk-oper-spark::before, .tk-oper-spark s { animation: none; } }
 @keyframes tk-oper-shine { to { background-position: -200% 0; } }
 .tk-fatti-list { list-style: none; margin: 0; padding: 0 12px 12px; max-height: 60vh; overflow-y: auto; scrollbar-width: thin; }
 .tk-fatti-list li + li { border-top: 1px solid var(--border-light); }
