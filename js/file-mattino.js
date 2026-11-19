@@ -112,7 +112,7 @@ function fmRigaFile(f) {
   const stampa = fmDaStampare(f.nome);
   const s = FileMattino.stampe[f.percorso];
   const azione = stampa ? 'Stampa' : 'Scarica';
-  const fatto = s ? `${stampa ? 'Stampato' : 'Scaricato'} ${fmQuando(s.stampato_at)}${s.stampato_da ? ` da ${s.stampato_da}` : ''}` : '';
+  const fatto = s ? `${stampa ? 'Stampato' : 'Scaricato'} ${fmQuando(s.stampato_at)}${s.stampato_da ? ` da ${s.stampato_da}` : ''}${fmPrimo(s)}` : '';
   const stato = s ? fatto : fmPeso(f.peso);
   const apri = !fmCalzini(f) ? '' : `
       <button type="button" class="btn btn-secondary fm-scarica" data-percorso="${escapeHtml(f.percorso)}" onclick="fmApri(this)"
@@ -134,7 +134,7 @@ function fmRigaFile(f) {
 async function fmConferma(percorso, stampa) {
   const s = FileMattino.stampe[percorso];
   if (!s) return true;
-  return uiConfirm(`Già ${stampa ? 'stampato' : 'scaricato'} ${fmQuando(s.stampato_at)}${s.stampato_da ? ` da ${s.stampato_da}` : ''}. ${stampa ? 'Stampare' : 'Scaricare'} di nuovo?`,
+  return uiConfirm(`Già ${stampa ? 'stampato' : 'scaricato'} ${fmQuando(s.stampato_at)}${s.stampato_da ? ` da ${s.stampato_da}` : ''}${fmPrimo(s)}. ${stampa ? 'Stampare' : 'Scaricare'} di nuovo?`,
     { title: 'Attenzione', ok: 'Sì', cancel: 'No' });
 }
 
@@ -201,6 +201,12 @@ async function fmScarica(btn) {
     uiAlert(`Download non riuscito: ${e.message || e}`);
     btn.disabled = false;
   }
+}
+
+// Se il file è stato ricliccato, anche la prima volta (ora e chi): il nuovo clic non la cancella
+function fmPrimo(s) {
+  if (!s.primo_at || s.primo_at === s.stampato_at) return '';
+  return ` (la prima volta ${fmQuando(s.primo_at)}${s.primo_da && s.primo_da !== s.stampato_da ? ` da ${s.primo_da}` : ''})`;
 }
 
 function fmQuando(iso) {
