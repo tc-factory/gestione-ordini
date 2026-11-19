@@ -788,10 +788,12 @@ function renderTaskFatti() {
     <aside class="glass-card page-card ctrl-group tk-fatti">
       <div class="page-card-head"><h2>Fatti da me</h2><span class="table-count">${list.length}</span></div>
       <div class="tk-fatti-sum">
-        ${reale ? `<div><strong>${ctrlFmtMin(reale)}</strong><span>tempo reale</span></div>` : ''}
-        <div><strong>${ctrlFmtMin(stimati)}</strong><span>tempo stimato</span></div>
-        ${oper != null ? `<div><strong>${oper}%</strong><span>operatività</span></div>` : ''}
         <div><strong>${list.length}</strong><span>task chiusi</span></div>
+        <div><strong>${reale ? ctrlFmtMin(reale) : '—'}</strong><span>tempo reale</span></div>
+        <div><strong>${ctrlFmtMin(stimati)}</strong><span>tempo stimato</span></div>
+        <div class="tk-oper ${oper == null ? '' : oper >= 100 ? 'is-top' : oper >= 75 ? 'is-ok' : oper >= 50 ? 'is-mid' : 'is-low'}" style="--p:${Math.min(oper || 0, 100)}%;">
+          <strong>${oper == null ? '—' : `${oper}%`}</strong><span>operatività</span>
+          <i class="tk-oper-bar"><b></b></i></div>
       </div>
       ${list.length ? `<ul class="tk-fatti-list">${list.map(t => {
         const macro = taskBrand(t) === '_' ? null : taskCatInfo(taskBrand(t));
