@@ -10,6 +10,9 @@
 // categoria (lavoro, mail, messaggi, ricerche, video, social, notizie, acquisti, altri siti).
 // Dei siti si tiene solo il dominio (youtube.com), mai l'indirizzo completo né cosa si cerca;
 // i siti sotto i 5 minuti nel giorno partono come "Altri siti", senza nome.
+//
+// Presenza (sql/presenze-mac.sql): appena la persona usa il Mac, finché la presenza del giorno non c'è,
+// chiede a tc_lavoro_presenza di segnarla; il server la segna solo se il Mac è sulla rete del lavoro.
 
 ObjC.import('AppKit');
 ObjC.import('Foundation');
@@ -25,7 +28,9 @@ const CARTELLA = HOME + '/Library/Application Support/TC Lavoro';
 const CONFIG = CARTELLA + '/config.json';
 const STATO = CARTELLA + '/stato.json';
 
-let ultimoCampione = 0, ultimoInvio = 0, ultimoCliente = null, stato = null;
+const PRESENZA_OGNI = 60;    // secondi tra un tentativo di presenza e l'altro (Mac fuori dalla rete del lavoro)
+
+let ultimoCampione = 0, ultimoInvio = 0, ultimoCliente = null, stato = null, ultimaPresenza = 0;
 
 function leggiFile(p) {
   const s = $.NSString.stringWithContentsOfFileEncodingError(p, $.NSUTF8StringEncoding, null);
@@ -180,7 +185,9 @@ function campiona() {
   ultimoCampione = ora;
   if (!stato) stato = leggiJson(STATO, { giorni: {} });
 
-  if (secondiInattivo() < INATTIVO_MAX) {
+  const attivo = secondiInattivo() < INATTIVO_MAX;
+  if (attivo) try { presenza(ora) } catch (e) {}
+  if (attivo) try {
     const app = $.NSWorkspace.sharedWorkspace.frontmostApplication;
     const id = app.isNil() ? '' : ObjC.unwrap(app.bundleIdentifier) || '';
     if (id && !ESCLUSE.includes(id)) {
@@ -193,8 +200,22 @@ function campiona() {
         c = { ...ultimoCliente, file: '(documento non salvato)' };
       if (c) aggiungi(c, nomeApp, trascorsi, ora);
     }
-  }
+  } catch (e) { /* un errore su un campione non ferma gli invii */ }
   if (ora - ultimoInvio >= INVIO_OGNI * 1000) invia();
+}
+
+// Entrata: la prima volta del giorno che il Mac è usato sulla rete del lavoro
+function presenza(ora) {
+  const oggi = giornoDi(new Date(ora));
+  if (stato.presenza === oggi || ora - ultimaPresenza < PRESENZA_OGNI * 1000) return;
+  ultimaPresenza = ora;
+  const conf = leggiJson(CONFIG, null);
+  if (!conf) return;
+  const [codice, risposta] = rpc(conf, 'tc_lavoro_presenza', { p_chiave: conf.chiave }, 8);
+  if (codice === '200' && JSON.parse(risposta).presente === true) {
+    stato.presenza = oggi;
+    scriviFile(STATO, JSON.stringify(stato));
+  }
 }
 
 function aggiungi(c, nomeApp, sec, ora) {
@@ -232,10 +253,10 @@ function vociUso(uso) {
 
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 // Chiama una funzione del database: [codice HTTP, risposta]
-function rpc(conf, nome, corpo) {
+function rpc(conf, nome, corpo, secondi = 20) {
   const tmp = CARTELLA + '/invio.json';
   scriviFile(tmp, JSON.stringify(corpo));
-  const out = shell(`/usr/bin/curl -s -m 20 -w '|%{http_code}' -X POST ${q(conf.url + '/rest/v1/rpc/' + nome)} ` +
+  const out = shell(`/usr/bin/curl -s -m ${secondi} -w '|%{http_code}' -X POST ${q(conf.url + '/rest/v1/rpc/' + nome)} ` +
     `-H ${q('apikey: ' + conf.anon)} -H 'Content-Type: application/json' --data-binary @${q(tmp)}`);
   const i = out.lastIndexOf('|');
   return [out.slice(i + 1).trim(), out.slice(0, i).trim()];
