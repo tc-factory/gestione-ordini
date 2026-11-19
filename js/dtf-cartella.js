@@ -55,6 +55,7 @@ const DtfCartella = {
   // All'avvio del gestionale: riprende la cartella e la controlla ogni 5 minuti, su qualsiasi pagina
   async avvia() {
     if (!this._avviata && typeof DtfCt !== 'undefined') DtfCt.load().then(() => this._ridisegna()).catch(e => console.warn('[dtf ct]', e));
+    if (!this._avviata && typeof DtfPrep !== 'undefined') DtfPrep.load().then(() => this._ridisegna()).catch(e => console.warn('[dtf prep]', e));
     if (!this._avviata && typeof TCFactory !== 'undefined') {
       TCFactory.onUpdate(() => this.pubblicaLista());
       this.pubblicaLista();

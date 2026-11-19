@@ -40,6 +40,88 @@ const DtfCt = {
   },
 };
 
+// DTF degli ordini nuovi preparati dal Mac mini (dtf_preparati). In modalità PROVA ogni proposta
+// (cartella cliente, file, pezzi) va riscontrata qui: approvata (anche corretta) o rifiutata.
+// La precisione si misura sugli ultimi 10 riscontri; il passaggio ad automatica è solo manuale.
+const DtfPrep = {
+  righe: new Map(), channel: null,
+  async load() {
+    const { data, error } = await supabaseClient.from('dtf_preparati')
+      .select('order_id, at, esito, sorgente, files, proposta, approvati, riscontro, riscontro_at').order('at', { ascending: false }).limit(300);
+    if (error) return;
+    this.righe = new Map((data || []).map(r => [r.order_id, r]));
+    if (!this.channel) {
+      let t = null;
+      this.channel = supabaseClient.channel('dtf-preparati')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'dtf_preparati' }, () => {
+          clearTimeout(t); t = setTimeout(async () => { await this.load(); renderDtfInterno(); }, 800);
+        }).subscribe();
+    }
+  },
+  get(id) { return this.righe.get(id) || null; },
+  modo() { return TCFactory._settings.dtf_prepara_modo === 'automatica' ? 'automatica' : 'prova'; },
+  daControllare() { return [...this.righe.values()].filter(r => r.esito === 'proposta'); },
+  // Ultimi 10 riscontri: quanti giusti (approvati senza modifiche)
+  precisione() {
+    const ult = [...this.righe.values()].filter(r => r.riscontro).sort((a, b) => String(b.riscontro_at).localeCompare(String(a.riscontro_at))).slice(0, 10);
+    return { giusti: ult.filter(r => r.riscontro === 'giusto').length, totale: ult.length };
+  },
+};
+
+function dtfPrepApri(orderId) {
+  const o = TCFactory.getOrderById(orderId), r = DtfPrep.get(orderId);
+  if (!o || !r?.proposta) return;
+  const modal = document.getElementById('dtf-prep-modal');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:720px;" role="dialog" aria-modal="true" aria-labelledby="dtf-p-title">
+      <div class="modal-header">
+        <h2 id="dtf-p-title">${escapeHtml(o.nome)} · DTF proposto</h2>
+        <button class="btn-icon" onclick="closeModal('dtf-prep-modal')" aria-label="Chiudi">${Icons.x()}</button>
+      </div>
+      <div class="modal-body" style="gap:12px;">
+        <p class="dtf-note" style="margin:0;">Trovati nella cartella <strong>DATI/${escapeHtml(r.sorgente || '')}</strong>. Togli i file che non c'entrano e correggi i pezzi: con <strong>Approva</strong> il Mac mini li copia in 1. Stampare/${escapeHtml(o.nome)} entro un minuto.</p>
+        <ul class="dtf-prep-list">
+          ${r.proposta.map((f, i) => `
+            <li>
+              <label class="dtf-prep-file"><input type="checkbox" data-i="${i}" checked>
+                <span><strong>${escapeHtml(f.src.split('/').pop())}</strong><small>${escapeHtml(f.src)}</small></span></label>
+              <label class="dtf-prep-pz">pezzi <input type="number" min="1" inputmode="numeric" class="form-input" data-pz="${i}" value="${Number(f.pz) || 1}"></label>
+            </li>`).join('')}
+        </ul>
+        <div class="dtf-prep-actions">
+          <button type="button" class="btn btn-secondary" onclick="dtfPrepRifiuta('${o.id}')">Rifiuta</button>
+          <button type="button" class="btn btn-primary" onclick="dtfPrepApprova('${o.id}')">Approva e copia</button>
+        </div>
+      </div>
+    </div>`;
+  modal.classList.add('active');
+  modal.onclick = (e) => { if (e.target === modal) closeModal('dtf-prep-modal'); };
+}
+
+async function dtfPrepRiscontro(orderId, files, nota) {
+  try {
+    const { data, error } = await supabaseClient.rpc('dtf_prepara_riscontro', { p_order: orderId, p_files: files, p_nota: nota || null });
+    if (error || !data?.success) throw error || new Error(data?.error);
+    closeModal('dtf-prep-modal');
+    showToast({ giusto: 'Approvato così com\'era ✓ il Mac mini copia i file', corretto: 'Approvato con correzioni: il Mac mini copia i file', sbagliato: 'Proposta rifiutata: il DTF va messo a mano' }[data.riscontro] || 'Fatto');
+    await DtfPrep.load(); renderDtfInterno();
+  } catch (e) { console.error('[dtf prep]', e); showToast('Riscontro non salvato: riprova', 'error'); }
+}
+
+function dtfPrepApprova(orderId) {
+  const r = DtfPrep.get(orderId);
+  const files = r.proposta.filter((f, i) => document.querySelector(`#dtf-prep-modal input[data-i="${i}"]`)?.checked)
+    .map(f => ({ src: f.src, pz: Math.max(1, parseInt(document.querySelector(`#dtf-prep-modal input[data-pz="${r.proposta.indexOf(f)}"]`)?.value, 10) || 1) }));
+  if (!files.length) { showToast('Nessun file scelto: per scartare la proposta usa Rifiuta', 'error'); return; }
+  dtfPrepRiscontro(orderId, files);
+}
+
+async function dtfPrepRifiuta(orderId) {
+  const nota = await uiPrompt('Cosa non andava? (facoltativo, aiuta a migliorare la ricerca)', { ok: 'Rifiuta' });
+  if (nota === null) return;
+  dtfPrepRiscontro(orderId, null, nota);
+}
+
 const DtfState = {
   clients: [],
   entries: {},          // 'YYYY-MM-DD' → { metri, dettaglio }
@@ -268,6 +350,7 @@ function renderDtfInterno() {
   const card = (x, i) => x.kind === 'order' ? cardOrdine(x.o, i) : x.kind === 'ct' ? cardCt(x, i) : cardCartella(x.c, i);
   const cardOrdine = (o, i) => {
     const dl = TCFactory.getEffectiveDeadline(o);
+    const prep = DtfPrep.get(o.id);
     const client = TCFactory.getClient(o.clientId);
     const st = stats[i];
     return `
@@ -287,10 +370,15 @@ function renderDtfInterno() {
           <span class="dtf-col"><strong>${st.files ? dtfFmtTime(st.ore) : '—'}</strong><small>tempo</small></span>
           ${costoAttivo ? `<span class="dtf-col"><strong>${st.files ? euro(st.costo) : '—'}</strong><small>costo</small></span>` : ''}
         </div>
+        ${prep?.esito === 'proposta' && !st.files ? `
+        <button type="button" class="dtf-files-btn dtf-prep-btn" onclick="dtfPrepApri('${o.id}')" title="Il Mac mini ha trovato i file del cliente: controlla e approva">
+          ${Icons.paperclip(14)}<span><strong>DTF proposto</strong><small>${prep.files} file · da controllare</small></span>
+        </button>` : prep?.esito === 'approvato' && !st.files ? `
+        <span class="dtf-files-btn dtf-files-static" title="Approvato: il Mac mini sta copiando i file">${Icons.paperclip(14)}<span><strong>Approvato</strong><small>copia in corso…</small></span></span>` : `
         <button type="button" class="dtf-files-btn ${st.files ? '' : 'empty'}" onclick="dtfOpenOrderFiles('${o.id}')"
           title="${st.files ? 'Vedi e modifica i file' : 'Manca il DTF: aggiungi i file da stampare'}">
           ${Icons.paperclip(14)}<span>${st.files ? `<strong>${st.files} file</strong>${st.senzaMisura ? `<small>${st.senzaMisura} senza misura</small>` : ''}` : '<strong>Manca il DTF</strong><small>Aggiungi file</small>'}</span>
-        </button>
+        </button>`}
         <button type="button" class="btn btn-sm dtf-done-btn" onclick="dtfMarkPrinted('${o.id}')">${Icons.checkCircle('currentColor', 15)} Stampato</button>
         <button type="button" class="btn-icon dtf-remove" onclick="dtfRemove('${o.id}')" aria-label="Togli ${escapeHtml(o.nome)} dalla lista DTF" title="Non serve il DTF: togli dalla lista">${Icons.x(14)}</button>
       </li>`;
@@ -326,6 +414,11 @@ function renderDtfInterno() {
         : `<button type="button" class="dtf-kpi dtf-kpi-hint" onclick="Nav.go('impostazioni')"><span>Costo</span><strong>Imposta i costi</strong></button>`}
     </div>
     ${typeof DtfCartella !== 'undefined' ? DtfCartella.html() : ''}
+    ${(() => {
+      const pr = DtfPrep.precisione(), da = DtfPrep.daControllare().length;
+      if (DtfPrep.modo() === 'automatica') return '';
+      return `<p class="dtf-note dtf-prep-note">DTF degli ordini nuovi <strong>in prova</strong>: ogni proposta va approvata qui${da ? ` · <strong>${da} da controllare</strong>` : ''} · precisione ultimi ${pr.totale || 10} riscontri: <strong>${pr.totale ? `${pr.giusti}/${pr.totale}` : '—'}</strong>${pr.totale === 10 && pr.giusti === 10 ? ' · 100%: si può passare all\'automatico (lo decide Riccardo)' : ''}</p>`;
+    })()}
     ${senzaFile ? `<p class="dtf-note dtf-missing-note">${senzaFile} ${senzaFile === 1 ? 'ordine senza DTF' : 'ordini senza DTF'} (in rosso): metri e tempo li contano solo quando ci sono i file.</p>` : ''}
     ${coda.length
       ? `<ol class="dtf-timeline" aria-label="Ordini da stampare">${coda.map(card).join('')}</ol>`

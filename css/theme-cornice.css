@@ -684,6 +684,19 @@ html.dark .dtf-mancante-note { color: #FACC15; }
 .dtf-main-static { cursor: default; }
 .dtf-main-static:hover strong { text-decoration: none; }
 .dtf-files-static { cursor: default; }
+/* DTF proposto dal Mac mini (ordini nuovi, modalità prova) */
+.dtf-files-btn.dtf-prep-btn { box-shadow: inset 0 0 0 2px #EAB308; }
+.dtf-files-btn.dtf-prep-btn strong { color: #A16207; }
+html.dark .dtf-files-btn.dtf-prep-btn strong { color: #FACC15; }
+.dtf-prep-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
+.dtf-prep-list li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 12px; background: var(--bg-primary); }
+.dtf-prep-file { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.dtf-prep-file span { display: flex; flex-direction: column; min-width: 0; }
+.dtf-prep-file strong { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtf-prep-file small { font-size: 0.7rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtf-prep-pz { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-muted); }
+.dtf-prep-pz input { width: 72px; }
+.dtf-prep-actions { display: flex; justify-content: flex-end; gap: 8px; }
 /* Conto terzi da Google Drive nella coda */
 .dtf-item.dtf-ct-row { cursor: default; box-shadow: inset 0 0 0 2px #0EA5E9; }
 .dtf-item.dtf-ct-row.dtf-ct-oggi { background: color-mix(in srgb, #0EA5E9 8%, var(--bg-primary)); }
