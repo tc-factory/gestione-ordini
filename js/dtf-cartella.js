@@ -54,6 +54,7 @@ const DtfCartella = {
 
   // All'avvio del gestionale: riprende la cartella e la controlla ogni 5 minuti, su qualsiasi pagina
   async avvia() {
+    if (!this._avviata && typeof DtfCt !== 'undefined') DtfCt.load().then(() => DtfCt.ridisegna()).catch(e => console.warn('[dtf ct]', e));
     if (!this._avviata && typeof TCFactory !== 'undefined') {
       TCFactory.onUpdate(() => this.pubblicaLista());
       this.pubblicaLista();
@@ -224,7 +225,7 @@ const DtfCartella = {
 
   // Coda Da stampare (ordini e cartelle senza ordine) in ordine, per il Mac mini
   _lista() {
-    return dtfCoda().map(x => x.kind === 'order' ? { id: x.id, nome: x.o.nome, descr: orderDesc(x.o) } : { id: x.id, nome: x.c.nome, cartella: true });
+    return dtfCoda().filter(x => x.kind !== 'ct').map(x => x.kind === 'order' ? { id: x.id, nome: x.o.nome, descr: orderDesc(x.o) } : { id: x.id, nome: x.c.nome, cartella: true });
   },
   async _salvaLista() {
     const lista = this._lista();

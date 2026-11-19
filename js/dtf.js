@@ -13,6 +13,71 @@ const DTF_CLIENT_ORDER_KEY = 'dtf_clienti_ordine'; // [id…] ordine dei clienti
 const DTF_TAG_KEY      = 'tcf_dtf_tag';        // filtro tipologia dell'Interno (per browser)
 const DTF_SAVE_DELAY   = 700;
 const DTF_STAMPATI_DAYS = 90;                  // in "Stampati" gli ultimi 90 giorni
+const DTF_CT_ROBOT = 'dtf-lettore@tc-dtf.iam.gserviceaccount.com';   // account Google che legge le cartelle Drive
+const DTF_GIORNI = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+
+// Conto terzi da Google Drive: file letti dal Mac mini (dtf_ct_files) non ancora stampati
+const DtfCt = {
+  files: [], clients: [], channel: null,
+  async load() {
+    const [f, c] = await Promise.all([
+      supabaseClient.from('dtf_ct_files').select('id, client_id, nome, percorso, metri, item, created_at').is('stampato_giorno', null).order('percorso'),
+      supabaseClient.from('dtf_clients').select('id, nome, giorni, drive_url'),
+    ]);
+    if (!f.error) this.files = f.data || [];
+    if (!c.error) this.clients = c.data || [];
+    if (!this.channel) {
+      let t = null;
+      this.channel = supabaseClient.channel('dtf-ct-files')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'dtf_ct_files' }, () => {
+          clearTimeout(t);
+          t = setTimeout(async () => { await this.load(); this.ridisegna(); }, 1500);
+        }).subscribe();
+    }
+  },
+  ridisegna() {
+    if (typeof renderDtfInterno === 'function') renderDtfInterno();
+    if (typeof Nav !== 'undefined' && Nav.current === 'controllo' && typeof renderApp === 'function') renderApp();
+  },
+  // Oggi si stampa per questo cliente? (giorni ISO: 1 = lunedì)
+  oggi(c) { const d = new Date().getDay() || 7; return (c?.giorni || [2, 4]).includes(d); },
+  prossimo(c) {
+    const g = c?.giorni?.length ? c.giorni : [2, 4];
+    for (let k = 1; k <= 7; k++) {
+      const d = new Date(Date.now() + k * 86400000);
+      if (g.includes(d.getDay() || 7)) return d;
+    }
+    return null;
+  },
+  // Una riga per cliente con file da stampare
+  righe() {
+    const per = new Map();
+    for (const f of this.files) per.set(f.client_id, [...(per.get(f.client_id) || []), f]);
+    return [...per].map(([id, files]) => {
+      const c = this.clients.find(x => x.id === id) || { id, nome: 'Conto terzi' };
+      return { kind: 'ct', id: `ct:${id}`, c, files, metri: Math.round(files.reduce((s, f) => s + (Number(f.metri) || 0), 0) * 100) / 100, oggi: this.oggi(c) };
+    });
+  },
+};
+
+async function dtfCtStampato(clientId) {
+  const r = DtfCt.righe().find(x => x.c.id === clientId);
+  if (!r) return;
+  try {
+    const { data, error } = await supabaseClient.rpc('dtf_ct_segna_stampato', { p_client: clientId, p_ids: r.files.map(f => f.id) });
+    if (error || !data?.success) throw error || new Error(data?.error);
+    showToast(`${r.c.nome}: ${dtfMetri(data.metri)} m segnati nel conto terzi di oggi ✓`);
+    await DtfCt.load();
+    if (DtfState.loaded) { await dtfLoadEntries(); renderDtfTerzi(); }
+    DtfCt.ridisegna();
+  } catch (e) { console.error('[dtf ct]', e); showToast('Non segnato: riprova', 'error'); }
+}
+
+function dtfCtFiles(clientId) {
+  const r = DtfCt.righe().find(x => x.c.id === clientId);
+  if (!r) return;
+  uiAlert(`${r.c.nome} · ${r.files.length} file da stampare\n\n${r.files.map(f => `${f.percorso || f.nome} · ${f.item?.pz || 1} pz · ${f.metri != null ? `${dtfMetri(Number(f.metri))} m` : 'misura mancante'}`).join('\n')}`);
+}
 
 const DtfState = {
   clients: [],
@@ -143,8 +208,13 @@ function dtfCoda() {
   const cartelle = (info?.cartelle || []).filter(c => !c.ordine && c.files > 0 && !tolte.has(`cartella:${c.nome}`))
     .map(c => ({ kind: 'cartella', id: `cartella:${c.nome}`, c }));
   const ordini = dtfLists().todo.map(o => ({ kind: 'order', id: o.id, o }));
-  const key = (x) => { const r = rank(x.id); return r < Infinity ? r : x.kind === 'cartella' ? -1 : Number.MAX_SAFE_INTEGER; };
-  return [...cartelle, ...ordini].map((x, i) => ({ x, i })).sort((a, b) => key(a.x) - key(b.x) || a.i - b.i).map(({ x }) => x);
+  // Conto terzi: nei suoi giorni di stampa in cima a tutto, negli altri giorni in fondo
+  const ct = DtfCt.righe();
+  const key = (x) => {
+    if (x.kind === 'ct') return x.oggi ? -2 : Number.MAX_SAFE_INTEGER + 1;
+    const r = rank(x.id); return r < Infinity ? r : x.kind === 'cartella' ? -1 : Number.MAX_SAFE_INTEGER;
+  };
+  return [...ct, ...cartelle, ...ordini].map((x, i) => ({ x, i })).sort((a, b) => key(a.x) - key(b.x) || a.i - b.i).map(({ x }) => x);
 }
 
 function dtfFmtTime(ore) {
@@ -178,9 +248,10 @@ function renderDtfInterno() {
   const fmt = (d) => TCFactory.formatDate(d, { day: '2-digit', month: '2-digit' });
   // Coda: ordini e cartelle senza ordine (dalla cartella 1. Stampare), nell'ordine di stampa
   const visibili = new Set(todo.map(o => o.id));
-  const coda = dtfCoda().filter(x => x.kind === 'order' ? visibili.has(x.id) : !DtfState.tag && (!q || dtfHas(x.c.nome, q)));
+  const coda = dtfCoda().filter(x => x.kind === 'order' ? visibili.has(x.id)
+    : !DtfState.tag && (!q || dtfHas(x.c.nome, q) || (x.kind === 'ct' && x.files.some(f => dtfHas(f.nome, q)))));
   const mancanti = new Set(typeof DtfCartella !== 'undefined' ? DtfCartella.info()?.mancanti || [] : []);
-  const stats = coda.map(x => x.kind === 'order' ? dtfOrderStats(x.o) : dtfCartellaStats(x.c));
+  const stats = coda.map(x => x.kind === 'order' ? dtfOrderStats(x.o) : x.kind === 'ct' ? dtfCartellaStats({ files: x.files.length, metri: x.metri }) : dtfCartellaStats(x.c));
   const tot = stats.reduce((t, x) => ({ metri: t.metri + x.metri, ore: t.ore + (x.ore || 0), costo: t.costo + (x.costo || 0) }), { metri: 0, ore: 0, costo: 0 });
   const senzaFile = coda.filter((x, i) => x.kind === 'order' && !stats[i].files).length;
   const costoAttivo = DtfMisure.costInterno() > 0;
@@ -213,7 +284,34 @@ function renderDtfInterno() {
       </li>`;
   };
 
-  const card = (x, i) => x.kind === 'order' ? cardOrdine(x.o, i) : cardCartella(x.c, i);
+  // Conto terzi (Google Drive): non si trascina, sta in cima nei giorni di stampa
+  const cardCt = (x, i) => {
+    const st = stats[i], c = x.c, pross = x.oggi ? null : DtfCt.prossimo(c);
+    const giorni = (c.giorni?.length ? c.giorni : [2, 4]).map(g => DTF_GIORNI[g - 1].toLowerCase()).join(' e ');
+    return `
+      <li class="dtf-item dtf-ct-row ${x.oggi ? 'dtf-ct-oggi' : ''}" data-id="${escapeHtml(x.id)}">
+        <span class="dtf-pos" aria-hidden="true">${i + 1}</span>
+        <div class="dtf-when" title="${x.oggi ? 'Oggi si stampa il conto terzi' : 'Prossimo giorno di stampa'}">
+          <strong>${x.oggi ? 'Oggi' : pross ? fmt(localISODate(pross)) : '—'}</strong>
+          <span>${x.oggi ? 'stampa' : pross ? pross.toLocaleDateString('it-IT', { weekday: 'short' }) : ''}</span>
+        </div>
+        <div class="dtf-main dtf-main-static">
+          <strong>Conto terzi · ${escapeHtml(c.nome)}</strong>
+          <span>File dalla cartella Google Drive · si stampa ${giorni}</span>
+        </div>
+        <div class="dtf-cols" role="group" aria-label="Lunghezza, tempo e costo">
+          <span class="dtf-col"><strong>${dtfMetri(st.metri)} m</strong><small>lunghezza</small></span>
+          <span class="dtf-col"><strong>${dtfFmtTime(st.ore)}</strong><small>tempo</small></span>
+          ${costoAttivo ? `<span class="dtf-col"><strong>${euro(st.costo)}</strong><small>costo</small></span>` : ''}
+        </div>
+        <button type="button" class="dtf-files-btn" onclick="dtfCtFiles('${c.id}')" title="Vedi i file">
+          ${Icons.paperclip(14)}<span><strong>${st.files} file</strong><small>Google Drive</small></span>
+        </button>
+        <button type="button" class="btn btn-sm dtf-done-btn" onclick="dtfCtStampato('${c.id}')" title="Segna stampati e scrive i metri nel conto terzi di oggi">${Icons.checkCircle('currentColor', 15)} Stampato</button>
+      </li>`;
+  };
+
+  const card = (x, i) => x.kind === 'order' ? cardOrdine(x.o, i) : x.kind === 'ct' ? cardCt(x, i) : cardCartella(x.c, i);
   const cardOrdine = (o, i) => {
     const dl = TCFactory.getEffectiveDeadline(o);
     const client = TCFactory.getClient(o.clientId);
@@ -407,7 +505,7 @@ async function dtfDrop(e) {
   dtfDragEnd();
 
   // Si riordina l'elenco completo: con un filtro attivo gli ordini nascosti restano al loro posto
-  const ids = dtfCoda().map(x => x.id).filter(x => x !== id);
+  const ids = dtfCoda().filter(x => x.kind !== 'ct').map(x => x.id).filter(x => x !== id);
   ids.splice(ids.indexOf(target.dataset.id) + (before ? 0 : 1), 0, id);
   try {
     await dtfSaveSettings({ order: ids });
@@ -1097,6 +1195,15 @@ function dtfOpenClientForm(id = null) {
           <input id="dtf-c-costo" class="form-input" inputmode="decimal" required value="${c ? String(c.costo_metro).replace('.', ',') : ''}" placeholder="es. 6,50"></div>
         <div class="form-group"><label class="form-label" for="dtf-c-note">Note</label>
           <textarea id="dtf-c-note" class="form-textarea" rows="3">${escapeHtml(c?.note || '')}</textarea></div>
+        <div class="form-group"><label class="form-label" for="dtf-c-drive">Cartella Google Drive</label>
+          <input id="dtf-c-drive" class="form-input" value="${escapeHtml(c?.drive_url || '')}" placeholder="Link della cartella dove il cliente carica i file">
+          <span class="settings-section-hint" style="margin:4px 0 0;">Condividila come Visualizzatore con <strong>${DTF_CT_ROBOT}</strong>: il Mac mini legge i file e calcola i metri.</span></div>
+        <div class="form-group"><span class="form-label">Giorni di stampa</span>
+          <div class="dtf-giorni" role="group" aria-label="Giorni di stampa">
+            ${DTF_GIORNI.map((g, i) => `<button type="button" class="dtf-giorno" data-g="${i + 1}" aria-pressed="${(c?.giorni || [2, 4]).includes(i + 1)}"
+              onclick="this.setAttribute('aria-pressed', this.getAttribute('aria-pressed') !== 'true')">${g}</button>`).join('')}
+          </div>
+          <span class="settings-section-hint" style="margin:4px 0 0;">In questi giorni i suoi file vanno in cima alla coda DTF interno.</span></div>
         <div class="dtf-access">
           <div class="form-group"><label class="form-label" for="dtf-c-pwd">Password per il cliente</label>
             <input id="dtf-c-pwd" type="password" class="form-input" autocomplete="new-password" minlength="8"
@@ -1190,7 +1297,9 @@ async function dtfSubmitClient(id) {
   const btn = document.getElementById('dtf-c-save');
   btn.disabled = true;
   try {
-    const payload = { nome, costo_metro: Math.round(costo * 100) / 100, note };
+    const drive_url = document.getElementById('dtf-c-drive').value.trim() || null;
+    const giorni = [...document.querySelectorAll('.dtf-giorno[aria-pressed="true"]')].map(b => Number(b.dataset.g));
+    const payload = { nome, costo_metro: Math.round(costo * 100) / 100, note, drive_url, giorni };
     const res = id
       ? await supabaseClient.from('dtf_clients').update(payload).eq('id', id).select().single()
       : await supabaseClient.from('dtf_clients').insert(payload).select().single();

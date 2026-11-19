@@ -1364,7 +1364,9 @@ function renderTaskQueue(coda, emptyText = '') {
   const list = cat === 'file' ? [] : coda.filter(t => taskCat(t) === cat);
   // DTF: i task (cartelle senza ordine, "Controllare se stampato") sopra la coda degli ordini
   const dtfTask = coda.filter(t => taskCat(t) === 'dtf');
-  const n = cat === 'file' ? file.length : cat === 'dtf' ? dtf.length + list.length : list.length;
+  // Conto terzi da Google Drive: nei giorni di stampa in cima alla coda DTF
+  const ct = typeof DtfCt !== 'undefined' ? DtfCt.righe().filter(r => r.oggi) : [];
+  const n = cat === 'file' ? file.length : cat === 'dtf' ? ct.length + dtf.length + list.length : list.length;
   const opts = { showStore: isCoda, showAuto: false };
   let corpo;
   if (cat === 'file') {
@@ -1373,7 +1375,7 @@ function renderTaskQueue(coda, emptyText = '') {
   } else if (cat === 'dtf') {
     // La coda della pagina DTF: stesso ordine (scadenza e priorità date a mano), si stampa dall'alto
     corpo = (list.length ? taskSub(`Da controllare · ${list.length}`, list, opts) : '')
-      + (dtf.length ? `${list.length ? `<div class="ctrl-sub">Da stampare · ${dtf.length}</div>` : ''}<div class="task-list task-stack">${dtf.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true })).join('')}</div>`
+      + (ct.length || dtf.length ? `${list.length ? `<div class="ctrl-sub">Da stampare · ${ct.length + dtf.length}</div>` : ''}<div class="task-list task-stack">${ct.map((r, i) => renderCtRiga(r, i + 1)).join('')}${dtf.map((o, i) => renderOrdineRiga(o, { pos: ct.length + i + 1, dtf: true })).join('')}</div>`
                     : '<div class="empty-list">Niente da stampare al DTF.</div>');
   } else {
     corpo = list.length ? taskSections(list).map(([titolo, righe]) => taskSub(`${titolo} · ${righe.length}`, righe, opts)).join('')
@@ -1384,10 +1386,25 @@ function renderTaskQueue(coda, emptyText = '') {
       <div class="page-card-head"><h2>${escapeHtml(taskCatInfo(cat)?.label || 'Coda comune')}</h2><span class="table-count">${n}</span>
         <span class="ctrl-group-hint">${{ file: 'Ordini attivi senza file allegati', dtf: 'Da stampare al macchinario, in ordine di priorità',
           stampa: 'DTF stampati e merce pronta', lavorazione: 'Tutto il resto da produrre' }[cat] || 'Mail, messaggi, indirizzi, giacenze'}</span></div>
-      ${taskCodaBar(coda, { file: file.length, dtf: dtf.length + dtfTask.length })}
+      ${taskCodaBar(coda, { file: file.length, dtf: ct.length + dtf.length + dtfTask.length })}
       ${list.length ? taskAutoNote(list) : ''}
       <div class="tk-split-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${corpo}</div>
     </section>`;
+}
+
+// Riga del conto terzi (Google Drive) nella coda DTF, nei giorni di stampa
+function renderCtRiga(r, pos) {
+  return `
+    <article class="task-row is-task">
+      <span class="task-pos" aria-label="Posizione ${pos}">${pos}</span>
+      <button type="button" class="task-main" onclick="dtfCtFiles('${r.c.id}')" aria-label="Conto terzi ${escapeHtml(r.c.nome)}: vedi i file">
+        <span class="task-title">Conto terzi · ${escapeHtml(r.c.nome)}</span>
+        <span class="task-meta">oggi si stampa<span aria-hidden="true"> · </span>${r.files.length} file · ${dtfMetri(r.metri)} m da Google Drive</span>
+      </button>
+      <div class="task-badges"><span class="td-tag" style="--c:#0ea5e9;">Conto terzi</span></div>
+      <span class="task-time"></span>
+      <div class="task-actions"><button type="button" class="ctrl-btn" onclick="dtfCtStampato('${r.c.id}')" title="Segna stampati e scrive i metri nel conto terzi di oggi">${CtrlIcons.check()} <span>Fatto</span></button></div>
+    </article>`;
 }
 
 // Riga di un ordine (code File e DTF): si apre l'ordine

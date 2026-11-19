@@ -19,13 +19,19 @@ Config (fuori dal repository, il repo è pubblico):
   ~/Library/Application Support/TC DTF/config.json  { "url", "anon", "chiave" }
 """
 import argparse
+import base64
 import json
 import math
 import os
 import re
 import struct
+import subprocess
 import sys
+import tempfile
+import time
 import unicodedata
+import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -195,27 +201,35 @@ def leggi_pdf(f):
     return {'w_cm': cm(x1 - x0), 'h_cm': cm(y1 - y0), 'fonte': 'pdf'}
 
 
-def leggi_misura(path):
-    name = path.lower()
+def misura_da(f, name):
+    name = name.lower()
     try:
-        with open(path, 'rb') as f:
-            if name.endswith('.pdf'):
-                return leggi_pdf(f)
-            if re.search(r'\.tiff?$', name):
-                return leggi_tif(f)
-            if name.endswith('.png'):
-                return leggi_png(f)
-            if re.search(r'\.jpe?g$', name):
-                return leggi_jpg(f)
+        if name.endswith('.pdf'):
+            return leggi_pdf(f)
+        if re.search(r'\.tiff?$', name):
+            return leggi_tif(f)
+        if name.endswith('.png'):
+            return leggi_png(f)
+        if re.search(r'\.jpe?g$', name):
+            return leggi_jpg(f)
     except Exception as e:
-        print(f'  illeggibile {path}: {e}', file=sys.stderr)
+        print(f'  illeggibile {name}: {e}', file=sys.stderr)
         return {'fonte': 'illeggibile'}
     return {'fonte': 'formato'}
 
 
-def descrivi(path, name, roll, gap):
+def leggi_misura(path):
+    try:
+        with open(path, 'rb') as f:
+            return misura_da(f, path)
+    except OSError as e:
+        print(f'  illeggibile {path}: {e}', file=sys.stderr)
+        return {'fonte': 'illeggibile'}
+
+
+def descrivi(path, name, roll, gap, misura=None):
     pz, trovati = parse_pz(name)
-    f = {'name': name, 'pz': pz, 'pz_trovati': trovati, **leggi_misura(path)}
+    f = {'name': name, 'pz': pz, 'pz_trovati': trovati, **(misura if misura is not None else leggi_misura(path))}
     r = layout(f.get('w_cm'), f.get('h_cm'), pz, roll, gap)
     f.update({'metri': None if 'error' in r else r['metri'], 'errore': r.get('error'),
               'per_riga': r.get('perRow'), 'ruotato': bool(r.get('rotated'))})
@@ -333,16 +347,151 @@ def numera(dirs):
         d['target'] = f"{str(i + 1).zfill(cifre)} - {d['nome']}"
 
 
+# ── Conto terzi: cartelle Google Drive dei clienti (account robot, sola lettura) ──
+
+GOOGLE = os.path.join(DIR_DATI, 'google.json')
+DRIVE = 'https://www.googleapis.com/drive/v3'
+
+
+def b64url(b):
+    return base64.urlsafe_b64encode(b).rstrip(b'=')
+
+
+def token_google(path=GOOGLE):
+    k = json.load(open(path))
+    ora = int(time.time())
+    msg = b64url(json.dumps({'alg': 'RS256', 'typ': 'JWT'}).encode()) + b'.' + b64url(json.dumps({
+        'iss': k['client_email'], 'scope': 'https://www.googleapis.com/auth/drive.readonly',
+        'aud': k['token_uri'], 'iat': ora, 'exp': ora + 3600}).encode())
+    # Firma RS256 con l'openssl di sistema: la chiave sta solo un attimo in un file 600
+    with tempfile.NamedTemporaryFile('w', dir=DIR_DATI, suffix='.pem', delete=False) as t:
+        t.write(k['private_key'])
+    try:
+        firma = subprocess.run(['/usr/bin/openssl', 'dgst', '-sha256', '-sign', t.name],
+                               input=msg, capture_output=True, check=True).stdout
+    finally:
+        os.unlink(t.name)
+    dati = urllib.parse.urlencode({'grant_type': 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                                   'assertion': (msg + b'.' + b64url(firma)).decode()}).encode()
+    with urllib.request.urlopen(urllib.request.Request(k['token_uri'], data=dati), timeout=20) as r:
+        return json.load(r)['access_token']
+
+
+def drive_get(tok, url, headers=None):
+    req = urllib.request.Request(url, headers={'Authorization': f'Bearer {tok}', **(headers or {})})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read()
+
+
+def drive_id(url):
+    m = re.search(r'/folders/([\w-]+)', url or '') or re.search(r'[?&]id=([\w-]+)', url or '')
+    return m.group(1) if m else (url if re.fullmatch(r'[\w-]{20,}', url or '') else None)
+
+
+def drive_files(tok, cartella, percorso=''):
+    out, pagina = [], None
+    while True:
+        q = urllib.parse.urlencode({'q': f"'{cartella}' in parents and trashed=false", 'pageSize': 1000,
+                                    'fields': 'nextPageToken,files(id,name,mimeType,size,modifiedTime)',
+                                    'supportsAllDrives': 'true', 'includeItemsFromAllDrives': 'true',
+                                    **({'pageToken': pagina} if pagina else {})})
+        r = json.loads(drive_get(tok, f'{DRIVE}/files?{q}'))
+        for f in r.get('files', []):
+            rel = f"{percorso}/{f['name']}" if percorso else f['name']
+            if f['mimeType'] == 'application/vnd.google-apps.folder':
+                if not SALTA_DIR.search(f['name']):
+                    out += drive_files(tok, f['id'], rel)
+            elif EXT.search(f['name']) and not f['mimeType'].startswith('application/vnd.google-apps'):
+                out.append({**f, 'percorso': rel})
+        pagina = r.get('nextPageToken')
+        if not pagina:
+            return out
+
+
+class DriveFile:
+    """File di Drive letto a pezzi (Range): per le intestazioni bastano pochi KB."""
+    BLOCCO = 256 * 1024
+
+    def __init__(self, tok, fid, size):
+        self.tok, self.fid, self.size, self.pos, self.blocchi = tok, fid, int(size or 0), 0, {}
+
+    def seek(self, p):
+        self.pos = p
+
+    def tell(self):
+        return self.pos
+
+    def _blocco(self, i):
+        if i not in self.blocchi:
+            da = i * self.BLOCCO
+            a = min(da + self.BLOCCO, self.size) - 1
+            self.blocchi[i] = drive_get(self.tok, f'{DRIVE}/files/{self.fid}?alt=media&supportsAllDrives=true',
+                                        {'Range': f'bytes={da}-{a}'}) if a >= da else b''
+        return self.blocchi[i]
+
+    def read(self, n=-1):
+        fine = self.size if n is None or n < 0 else min(self.size, self.pos + n)
+        out = b''
+        while self.pos < fine:
+            i, off = divmod(self.pos, self.BLOCCO)
+            pezzo = self._blocco(i)[off:off + fine - self.pos]
+            if not pezzo:
+                break
+            out += pezzo
+            self.pos += len(pezzo)
+        return out
+
+
+def stessa_ora(a, b):
+    try:
+        p = lambda x: datetime.fromisoformat(str(x).replace('Z', '+00:00')).timestamp()
+        return abs(p(a) - p(b)) < 1
+    except Exception:
+        return False
+
+
+def conto_terzi(cfg, roll, gap, prova):
+    if not os.path.exists(GOOGLE):
+        return
+    dati = rpc(cfg, 'tc_dtf_ct_dati', {'p_chiave': cfg['chiave']})
+    if not dati.get('success') or not dati.get('clienti'):
+        return
+    noti = dati.get('files') or {}
+    tok = token_google()
+    nuovi = []
+    for c in dati['clienti']:
+        cartella = drive_id(c.get('drive_url'))
+        if not cartella:
+            print(f"  conto terzi {c['nome']}: link della cartella non valido", file=sys.stderr)
+            continue
+        try:
+            files = drive_files(tok, cartella)
+        except urllib.error.HTTPError as e:
+            print(f"  conto terzi {c['nome']}: cartella non leggibile ({e.code}): è condivisa con l'account robot?", file=sys.stderr)
+            continue
+        for f in files:
+            n = noti.get(f['id'])
+            if n and int(n.get('size') or -1) == int(f.get('size') or 0) and stessa_ora(n.get('modificato'), f['modifiedTime']):
+                continue
+            item = descrivi(None, f['name'], roll, gap, misura_da(DriveFile(tok, f['id'], f.get('size')), f['name']))
+            nuovi.append({'client_id': c['id'], 'drive_id': f['id'], 'nome': f['name'], 'percorso': f['percorso'],
+                          'size': int(f.get('size') or 0), 'modificato': f['modifiedTime'], 'item': item})
+            print(f"  conto terzi {c['nome']}: {f['percorso']} {item.get('w_cm')}x{item.get('h_cm')} cm, {item.get('pz')} pz, {item.get('metri')} m")
+    if nuovi and not prova:
+        r = rpc(cfg, 'tc_dtf_ct_salva', {'p_chiave': cfg['chiave'], 'p_files': nuovi})
+        if not r.get('success'):
+            print('conto terzi non salvato:', r.get('error'), file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--prova', action='store_true')
     ap.add_argument('--cartella', default=CARTELLA)
     a = ap.parse_args()
 
-    if not os.path.isdir(a.cartella):
-        return 0   # NAS non montato: si riprova al prossimo giro
     with open(CONFIG) as f:
         cfg = json.load(f)
+
     dati = rpc(cfg, 'tc_dtf_cartella_dati', {'p_chiave': cfg['chiave']})
     if not dati.get('success'):
         print('dati non letti:', dati.get('error'), file=sys.stderr)
@@ -351,6 +500,15 @@ def main():
     items_db = dati.get('items') or {}
     roll = float(dati.get('roll_cm') or 57)
     gap = float(dati.get('margin_cm') if dati.get('margin_cm') is not None else 0.5)
+
+    # Conto terzi da Google Drive: va anche se il NAS non è montato
+    try:
+        conto_terzi(cfg, roll, gap, a.prova)
+    except Exception as e:
+        print('conto terzi:', e, file=sys.stderr)
+
+    if not os.path.isdir(a.cartella):
+        return 0   # NAS non montato: si riprova al prossimo giro
     # La lista ha gli ordini e, al loro posto, le cartelle senza ordine ({id: 'cartella:<nome>', cartella: true})
     pos = {o['id']: i for i, o in enumerate(lista)}
     ordini_lista = [o for o in lista if not o.get('cartella')]
