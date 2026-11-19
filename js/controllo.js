@@ -67,9 +67,9 @@ const TASK_CODE = [
 const TASK_CODE_Q = [
   { id: 'dtffile',   label: 'DTF-FILE',          color: '#a855f7', hint: 'Ordini con DTF senza file nella cartella 1. Stampare, e proposte da approvare' },
   { id: 'dtfstampa', label: 'DTF-STAMPA',        color: '#0ea5e9', hint: 'Coda di stampa al macchinario, nello stesso ordine di DTF interno' },
-  { id: 'stampa',    label: 'Stampa',            color: '#16a34a', hint: 'DTF stampati e merce pronta: si applica' },
-  { id: 'altre',     label: 'Altre lavorazioni', color: '#334155', hint: 'Tutto il resto, tranne i negozi online' },
-  { id: 'negozi',    label: 'Negozi',            color: '#ec4899', hint: 'Ordini, mail e spedizioni dei negozi online' },
+  { id: 'stampa',    label: 'STAMPA',            color: '#16a34a', hint: 'DTF stampati e merce pronta: si applica' },
+  { id: 'altre',     label: 'ALTRE LAVORAZIONI', color: '#334155', hint: 'Tutto il resto, tranne i negozi online' },
+  { id: 'negozi',    label: 'NEGOZI',            color: '#ec4899', hint: 'Ordini, mail e spedizioni dei negozi online' },
 ];
 const TASK_CODE_VECCHIE = { file: 'dtffile', dtf: 'dtfstampa', lavorazione: 'altre' };
 const codaAttiva = () => { const c = TASK_CODE_VECCHIE[Ctrl.coda] || Ctrl.coda; return TASK_CODE_Q.some(x => x.id === c) ? c : 'dtffile'; };
@@ -1404,15 +1404,22 @@ function renderTaskQueue(coda, emptyText = '') {
   const negozio = cat === 'negozi' && Ctrl.codaNegozio && list.some(t => taskCat(t) === Ctrl.codaNegozio) ? Ctrl.codaNegozio : null;
   const tuttiNegozi = list;
   if (negozio) list = list.filter(t => taskCat(t) === negozio);
+  // DTF-FILE, STAMPA e ALTRE LAVORAZIONI: filtro per tag (come nella lista ordini)
+  const conTag = ['dtffile', 'stampa', 'altre'].includes(cat);
+  const tagRow = conTag ? codaTagBar(cat === 'dtffile' ? [...list, ...righe.file] : list) : '';
+  if (conTag && codaTagAttivi().length) {
+    list = list.filter(codaTagOk);
+    righe.file = righe.file.filter(codaTagOk);
+  }
   const opts = { showStore: true, showAuto: false };
   const ordinati = (l) => l.slice().sort((a, b) => taskPrioOrd(a) - taskPrioOrd(b) || String(a.created_at).localeCompare(String(b.created_at)));
   const sub = (titolo, html) => `<div class="ctrl-sub">${titolo}</div><div class="task-list task-stack">${html}</div>`;
   let corpo, n;
   if (cat === 'dtffile') {
     n = list.length + righe.file.length;
-    corpo = (list.length ? sub(`Proposte da approvare · ${list.length}`, ordinati(list).map(renderDtfTaskRiga).join('')) : '')
+    corpo = tagRow + ((list.length ? sub(`Proposte da approvare · ${list.length}`, ordinati(list).map(renderDtfTaskRiga).join('')) : '')
       + (righe.file.length ? sub(`Manca il DTF · ${righe.file.length}`, righe.file.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true, azione: 'file' })).join('')) : '')
-      || '<div class="empty-list">Tutti gli ordini DTF hanno i file.</div>';
+      || `<div class="empty-list">${codaTagAttivi().length ? 'Nessun ordine con questi tag.' : 'Tutti gli ordini DTF hanno i file.'}</div>`);
   } else if (cat === 'dtfstampa') {
     n = list.length + righe.stampa.length;
     const riga = (x, i) => x.kind === 'ct' ? renderCtRiga(x, i + 1) : x.kind === 'cartella' ? renderCartellaRiga(x.c, i + 1) : renderOrdineRiga(x.o, { pos: i + 1, dtf: true });
@@ -1429,7 +1436,7 @@ function renderTaskQueue(coda, emptyText = '') {
           ${cats.map(c => ctrlFilter(negozio === c.id, c.label, conta[c.id], c.color, `setCodaNegozio('${c.id}')`)).join('')}
         </div>` : '';
     })() : '';
-    corpo = chips + (list.length ? taskSections(list).map(([titolo, r]) => taskSub(`${titolo} · ${r.length}`, r, opts)).join('')
+    corpo = chips + tagRow + (list.length ? taskSections(list).map(([titolo, r]) => taskSub(`${titolo} · ${r.length}`, r, opts)).join('')
                                  : `<div class="empty-list">${emptyText && !coda.length ? emptyText : 'Nessun task in questa coda.'}</div>`);
   }
   return `
@@ -1440,6 +1447,45 @@ function renderTaskQueue(coda, emptyText = '') {
       ${list.length && !['dtffile', 'dtfstampa'].includes(cat) ? taskAutoNote(list) : ''}
       <div class="tk-split-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${corpo}</div>
     </section>`;
+}
+
+// Tag di una riga della coda: un ordine ha i suoi tag; un task quelli del suo ordine, o il suo brand
+function codaTagDi(x) {
+  if (!('titolo' in x)) return (x.tags || []).map(taskSlug);
+  const [tipo, ...resto] = String(x.fonte_rif?.dtf || '').split(':');
+  const o = taskOrdineGest(x) || (['proposta', 'mancante'].includes(tipo) && typeof TCFactory !== 'undefined' ? TCFactory.getOrderById(resto.join(':')) : null);
+  if (o) return (o.tags || []).map(taskSlug);
+  return [taskBrand(x)];
+}
+const codaTagAttivi = () => {
+  const ok = new Set(TCFactory.getTags().map(t => taskSlug(t.name)));
+  return (Ctrl.codaTags || []).filter(id => ok.has(id));
+};
+const codaTagOk = (x) => { const sel = codaTagAttivi(); return !sel.length || codaTagDi(x).some(id => sel.includes(id)); };
+function codaTagBar(righe) {
+  const tags = TCFactory.getTags().filter(t => !TASK_TAG_ESCLUSI.has(taskSlug(t.name)));
+  if (!tags.length) return '';
+  const sel = codaTagAttivi();
+  const conta = {};
+  righe.forEach(x => new Set(codaTagDi(x)).forEach(id => { conta[id] = (conta[id] || 0) + 1; }));
+  const visibili = tags.filter(t => conta[taskSlug(t.name)] || sel.includes(taskSlug(t.name)));
+  if (!visibili.length) return '';
+  return `
+    <div class="ctrl-tag-bar" role="group" aria-label="Filtra per tag">
+      <span class="ctrl-tag-label">Tag:</span>
+      ${visibili.map(t => {
+        const id = taskSlug(t.name), on = sel.includes(id);
+        return `<button type="button" class="chip chip-btn" aria-pressed="${on}" onclick="toggleCodaTag('${id}')"
+          style="background:${on ? t.color : `color-mix(in srgb, ${t.color} 12%, transparent)`};color:${on ? '#fff' : t.color};">
+          <span class="chip-dot" style="background:${on ? '#fff' : t.color};"></span>${escapeHtml(t.name)}</button>`;
+      }).join('')}
+      ${sel.length ? `<button type="button" class="btn btn-ghost btn-sm ctrl-tag-clear" onclick="toggleCodaTag(null)">× rimuovi filtri</button>` : ''}
+    </div>`;
+}
+function toggleCodaTag(id) {
+  const sel = codaTagAttivi();
+  Ctrl.codaTags = id == null ? [] : sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id];
+  refreshControlPage();
 }
 
 function setCodaNegozio(id) {

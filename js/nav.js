@@ -13,7 +13,7 @@
 const NAV_ITEMS = [
   // Solo admin: non compare agli altri e non è tra le schede da dare negli account
   { id: 'controllo',    label: 'Centro di controllo', subtitle: 'Cervello, collegamenti, automazioni e team', icon: () => Icons.zap(19), allowed: () => TCAuth.isAdmin(), soloAdmin: true },
-  { id: 'tasks',        label: 'Tasks',         subtitle: 'Task del giorno', icon: () => Icons.checkCircle('currentColor', 19) },
+  { id: 'tasks',        label: 'Task',          subtitle: 'Task del giorno', icon: () => Icons.checkCircle('currentColor', 19) },
   { id: 'comunicazione', label: 'Brand', subtitle: 'Mail, social, WhatsApp, Shopify e spedizioni di ogni brand', icon: () => Icons.messageCircle(19) },
   { id: 'file',         label: 'Stampe del giorno', subtitle: 'DDT, file di stampa e fogli DTF di ogni mattina', icon: () => Icons.download(19) },
   { id: 'contenuti',    label: 'Content Studio', subtitle: 'Brand kit e contenuti social dei brand', icon: () => Icons.magic(19) },
