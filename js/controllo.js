@@ -1365,7 +1365,7 @@ function renderTaskQueue(coda, emptyText = '') {
   // DTF: i task (cartelle senza ordine, "Controllare se stampato") sopra la coda degli ordini
   const dtfTask = coda.filter(t => taskCat(t) === 'dtf');
   // Conto terzi da Google Drive: nei giorni di stampa in cima alla coda DTF
-  const ct = typeof DtfCt !== 'undefined' ? DtfCt.righe().filter(r => r.oggi) : [];
+  const ct = typeof DtfCt !== 'undefined' ? DtfCt.righe() : [];
   const n = cat === 'file' ? file.length : cat === 'dtf' ? ct.length + dtf.length + list.length : list.length;
   const opts = { showStore: isCoda, showAuto: false };
   let corpo;
@@ -1392,18 +1392,18 @@ function renderTaskQueue(coda, emptyText = '') {
     </section>`;
 }
 
-// Riga del conto terzi (Google Drive) nella coda DTF, nei giorni di stampa
+// Riga del conto terzi (cartella del cliente copiata da Google Drive) in cima alla coda DTF
 function renderCtRiga(r, pos) {
+  const st = dtfCartellaStats(r.c);
   return `
     <article class="task-row is-task">
       <span class="task-pos" aria-label="Posizione ${pos}">${pos}</span>
-      <button type="button" class="task-main" onclick="dtfCtFiles('${r.c.id}')" aria-label="Conto terzi ${escapeHtml(r.c.nome)}: vedi i file">
-        <span class="task-title">Conto terzi · ${escapeHtml(r.c.nome)}</span>
-        <span class="task-meta">oggi si stampa<span aria-hidden="true"> · </span>${r.files.length} file · ${dtfMetri(r.metri)} m da Google Drive</span>
+      <button type="button" class="task-main" onclick="Nav.go('dtf', 'interno')" aria-label="Conto terzi ${escapeHtml(r.cliente.nome)}: apri DTF interno">
+        <span class="task-title">Conto terzi · ${escapeHtml(r.cliente.nome)}</span>
+        <span class="task-meta">cartella «${escapeHtml(r.c.dir || r.c.nome)}» in 1. Stampare<span aria-hidden="true"> · </span>${st.files} file · ${dtfMetri(st.metri)} m · metri già nel conto terzi</span>
       </button>
       <div class="task-badges"><span class="td-tag" style="--c:#0ea5e9;">Conto terzi</span></div>
       <span class="task-time"></span>
-      <div class="task-actions"><button type="button" class="ctrl-btn" onclick="dtfCtStampato('${r.c.id}')" title="Segna stampati e scrive i metri nel conto terzi di oggi">${CtrlIcons.check()} <span>Fatto</span></button></div>
     </article>`;
 }
 
