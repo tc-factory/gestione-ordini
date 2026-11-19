@@ -680,8 +680,8 @@ function previewOrderModule(orderId) {
     const bg  = i % 2 === 0 ? 'var(--bg-card)' : 'var(--bg-secondary)';
     const idx = rows.indexOf(r);
     const c   = checks[idx] || {};
-    return `<tr class="mod-preview-row ${MOD_CHECK_CLASS[c.s] || ''} ${isPrevRow(r) ? 'is-prev' : ''}" style="background:${bg};" onclick="toggleModPreviewRow('${order.id}',${idx},this)">
-      <td style="padding:7px 4px 7px 12px;text-align:center;"><button type="button" class="mod-preview-check" aria-label="Evidenzia riga (due volte: rossa con nota)" onclick="event.stopPropagation();toggleModPreviewRow('${order.id}',${idx},this.closest('tr'))"></button></td>
+    return `<tr class="mod-preview-row ${c.s ? 'is-checked' : ''} ${isPrevRow(r) ? 'is-prev' : ''}" style="background:${bg};" onclick="toggleModPreviewRow('${order.id}',${idx},this)">
+      <td style="padding:7px 4px 7px 12px;text-align:center;white-space:nowrap;"><button type="button" class="mod-preview-check" aria-label="Evidenzia riga in giallo" title="Evidenzia in giallo" onclick="event.stopPropagation();toggleModPreviewRow('${order.id}',${idx},this.closest('tr'))"></button><button type="button" class="mod-preview-notebtn ${c.n ? 'has-note' : ''}" aria-label="Nota sulla riga" title="Nota sulla riga" onclick="event.stopPropagation();toggleModPreviewNote('${order.id}',${idx},this.closest('tr'))">${Icons.edit(12)}</button></td>
       <td style="padding:7px 10px;font-weight:600;">${escapeHtml(r.catalogo||'')}</td>
       <td style="padding:7px 10px;">${escapeHtml(r.codice||'')}</td>
       <td style="padding:7px 10px;">${escapeHtml(r.descrizione||'')}</td>
@@ -692,7 +692,7 @@ function previewOrderModule(orderId) {
       <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
       <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${isPrevRow(r) ? '<span class="mod-prev-no" title="Preventivo: non ordinare">—</span>' : r.ordinato ? '✓' : ''}</td>
       <td style="padding:7px 10px;font-weight:600;">${escapeHtml(modRowLav(r))}</td>
-    </tr>${c.s === 2 ? modPreviewNoteRow(order.id, idx, c.n) : ''}`;
+    </tr>${c.n ? modPreviewNoteRow(order.id, idx, c.n) : ''}`;
   };
   const integHeaderRow = (label) => `<tr><td colspan="11" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(label)}</td></tr>`;
   // Preventivo: intestazione ambra con il totale e il pulsante per approvarlo
@@ -765,10 +765,9 @@ function previewOrderModule(orderId) {
 
 // Righe evidenziate con la spunta nella preview del modulo: salvate nell'ordine su Supabase, dentro
 // la riga stessa (rows[i].spunta = { s: 1|2, n: nota }), così si vedono da ogni dispositivo e restano
-// attaccate all'articolo anche se le righe si spostano. Primo clic gialla (✓), secondo rossa con una
-// nota sotto la riga, terzo toglie la spunta; la nota resta anche togliendo il rosso.
+// attaccate all'articolo anche se le righe si spostano. La spunta accende/spegne il giallo; il
+// tastino a fianco apre la nota sotto la riga (la riga resta del suo colore). Il vecchio s: 2 (rosso) vale giallo.
 const MOD_CHECKS_KEY = 'tc-mod-checks-';   // versione vecchia: solo su questo dispositivo, per indice
-const MOD_CHECK_CLASS = { 1: 'is-checked', 2: 'is-red' };
 function modPreviewChecks(orderId) {
   const rows = TCFactory.getOrderById(orderId)?.orderModule?.rows || [];
   return Object.fromEntries(rows.map((r, i) => [i, r.spunta || {}]));
@@ -817,20 +816,23 @@ function modPreviewNoteRow(orderId, idx, nota) {
 }
 function toggleModPreviewRow(orderId, idx, tr) {
   const c = { ...(modPreviewChecks(orderId)[idx] || {}) };
-  c.s = ((c.s || 0) + 1) % 3;
+  c.s = c.s ? 0 : 1;
   saveModPreviewCheck(orderId, idx, c);
-  tr.classList.remove('is-checked', 'is-red');
-  if (MOD_CHECK_CLASS[c.s]) tr.classList.add(MOD_CHECK_CLASS[c.s]);
+  tr.classList.toggle('is-checked', !!c.s);
+}
+// Tastino nota: apre il campo sotto la riga, riclicco lo chiude (la nota scritta resta salvata)
+function toggleModPreviewNote(orderId, idx, tr) {
   const next = tr.nextElementSibling;
-  if (next?.classList.contains('mod-preview-note')) next.remove();
-  if (c.s === 2) {
-    tr.insertAdjacentHTML('afterend', modPreviewNoteRow(orderId, idx, c.n));
-    tr.nextElementSibling.querySelector('input')?.focus();
-  }
+  if (next?.classList.contains('mod-preview-note')) { next.remove(); return; }
+  const c = modPreviewChecks(orderId)[idx] || {};
+  tr.insertAdjacentHTML('afterend', modPreviewNoteRow(orderId, idx, c.n));
+  tr.nextElementSibling.querySelector('input')?.focus();
 }
 function setModPreviewNote(orderId, idx, value) {
   const c = { ...(modPreviewChecks(orderId)[idx] || {}), n: value };
   saveModPreviewCheck(orderId, idx, c, 700);
+  const btn = document.activeElement?.closest('tr')?.previousElementSibling?.querySelector('.mod-preview-notebtn');
+  btn?.classList.toggle('has-note', !!value.trim());
 }
 
 // Riga "Lavorazione" del modulo stampato: al posto delle colonne Lav. int. / Lav. est.
