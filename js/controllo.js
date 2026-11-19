@@ -1361,8 +1361,10 @@ function renderTaskQueue(coda, emptyText = '') {
   const cat = Ctrl.coda || 'file';
   const isCoda = TASK_CODE.some(c => c.id === cat);
   const file = ordiniSenzaFile(), dtf = ordiniDtf();
-  const list = ['file', 'dtf'].includes(cat) ? [] : coda.filter(t => taskCat(t) === cat);
-  const n = cat === 'file' ? file.length : cat === 'dtf' ? dtf.length : list.length;
+  const list = cat === 'file' ? [] : coda.filter(t => taskCat(t) === cat);
+  // DTF: i task (cartelle senza ordine, "Controllare se stampato") sopra la coda degli ordini
+  const dtfTask = coda.filter(t => taskCat(t) === 'dtf');
+  const n = cat === 'file' ? file.length : cat === 'dtf' ? dtf.length + list.length : list.length;
   const opts = { showStore: isCoda, showAuto: false };
   let corpo;
   if (cat === 'file') {
@@ -1370,8 +1372,9 @@ function renderTaskQueue(coda, emptyText = '') {
                         : '<div class="empty-list">Tutti gli ordini hanno i file.</div>';
   } else if (cat === 'dtf') {
     // La coda della pagina DTF: stesso ordine (scadenza e priorità date a mano), si stampa dall'alto
-    corpo = dtf.length ? `<div class="task-list task-stack">${dtf.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true })).join('')}</div>`
-                       : '<div class="empty-list">Niente da stampare al DTF.</div>';
+    corpo = (list.length ? taskSub(`Da controllare · ${list.length}`, list, opts) : '')
+      + (dtf.length ? `${list.length ? `<div class="ctrl-sub">Da stampare · ${dtf.length}</div>` : ''}<div class="task-list task-stack">${dtf.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true })).join('')}</div>`
+                    : '<div class="empty-list">Niente da stampare al DTF.</div>');
   } else {
     corpo = list.length ? taskSections(list).map(([titolo, righe]) => taskSub(`${titolo} · ${righe.length}`, righe, opts)).join('')
                         : `<div class="empty-list">${emptyText && !coda.length ? emptyText : 'Nessun task in questa categoria.'}</div>`;
@@ -1381,7 +1384,7 @@ function renderTaskQueue(coda, emptyText = '') {
       <div class="page-card-head"><h2>${escapeHtml(taskCatInfo(cat)?.label || 'Coda comune')}</h2><span class="table-count">${n}</span>
         <span class="ctrl-group-hint">${{ file: 'Ordini attivi senza file allegati', dtf: 'Da stampare al macchinario, in ordine di priorità',
           stampa: 'DTF stampati e merce pronta', lavorazione: 'Tutto il resto da produrre' }[cat] || 'Mail, messaggi, indirizzi, giacenze'}</span></div>
-      ${taskCodaBar(coda, { file: file.length, dtf: dtf.length })}
+      ${taskCodaBar(coda, { file: file.length, dtf: dtf.length + dtfTask.length })}
       ${list.length ? taskAutoNote(list) : ''}
       <div class="tk-split-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${corpo}</div>
     </section>`;

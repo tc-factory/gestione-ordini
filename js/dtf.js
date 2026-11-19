@@ -127,6 +127,26 @@ function dtfOrderStats(o) {
   };
 }
 
+// Metri, tempo e costo di una cartella senza ordine (misurata dal Mac mini o da Chrome)
+function dtfCartellaStats(c) {
+  const metri = Math.round((c.metri || 0) * 100) / 100, speed = DtfMisure.speedMh(), costo = DtfMisure.costInterno();
+  return { files: c.files || 0, senzaMisura: 0, metri, ore: speed > 0 ? metri / speed : null, costo: costo > 0 ? metri * costo : null };
+}
+
+// Coda di stampa: ordini da stampare più le cartelle di 1. Stampare senza ordine.
+// Le cartelle senza priorità data a mano vanno in cima (sono urgenti: hanno un task urgente).
+function dtfCoda() {
+  const { order, removed } = dtfSettings();
+  const rank = (id) => { const i = order.indexOf(id); return i < 0 ? Infinity : i; };
+  const tolte = new Set(removed.map(r => r.id));
+  const info = typeof DtfCartella !== 'undefined' ? DtfCartella.info() : null;
+  const cartelle = (info?.cartelle || []).filter(c => !c.ordine && c.files > 0 && !tolte.has(`cartella:${c.nome}`))
+    .map(c => ({ kind: 'cartella', id: `cartella:${c.nome}`, c }));
+  const ordini = dtfLists().todo.map(o => ({ kind: 'order', id: o.id, o }));
+  const key = (x) => { const r = rank(x.id); return r < Infinity ? r : x.kind === 'cartella' ? -1 : Number.MAX_SAFE_INTEGER; };
+  return [...cartelle, ...ordini].map((x, i) => ({ x, i })).sort((a, b) => key(a.x) - key(b.x) || a.i - b.i).map(({ x }) => x);
+}
+
 function dtfFmtTime(ore) {
   if (ore == null) return '—';
   const min = Math.round(ore * 60);
@@ -156,17 +176,43 @@ function renderDtfInterno() {
   const altrove = q ? printed.filter(matches).length + removedList.filter(x => matches(x.o)).length : 0;
   const today = localISODate(new Date());
   const fmt = (d) => TCFactory.formatDate(d, { day: '2-digit', month: '2-digit' });
-  const stats = todo.map(dtfOrderStats);
+  // Coda: ordini e cartelle senza ordine (dalla cartella 1. Stampare), nell'ordine di stampa
+  const visibili = new Set(todo.map(o => o.id));
+  const coda = dtfCoda().filter(x => x.kind === 'order' ? visibili.has(x.id) : !DtfState.tag && (!q || dtfHas(x.c.nome, q)));
+  const mancanti = new Set(typeof DtfCartella !== 'undefined' ? DtfCartella.info()?.mancanti || [] : []);
+  const stats = coda.map(x => x.kind === 'order' ? dtfOrderStats(x.o) : dtfCartellaStats(x.c));
   const tot = stats.reduce((t, x) => ({ metri: t.metri + x.metri, ore: t.ore + (x.ore || 0), costo: t.costo + (x.costo || 0) }), { metri: 0, ore: 0, costo: 0 });
-  const senzaFile = stats.filter(x => !x.files).length;
+  const senzaFile = coda.filter((x, i) => x.kind === 'order' && !stats[i].files).length;
   const costoAttivo = DtfMisure.costInterno() > 0;
 
-  const card = (o, i) => {
+  // Cartella senza ordine: si trascina come gli ordini; sparisce quando c'è l'ordine (o la cartella va via)
+  const cardCartella = (c, i) => {
+    const st = stats[i], id = `cartella:${c.nome}`, idJs = escapeHtml(JSON.stringify(id));
+    return `
+      <li class="dtf-item dtf-cartella-row" draggable="true" data-id="${escapeHtml(id)}"
+          ondragstart="dtfDragStart(event,${idJs})" ondragend="dtfDragEnd()" ondragover="dtfDragOver(event)" ondrop="dtfDrop(event)">
+        <span class="dtf-pos" aria-hidden="true">${i + 1}</span>
+        <div class="dtf-when" title="Cartella senza ordine"><strong>${Icons.paperclip(14)}</strong><span>cartella</span></div>
+        <div class="dtf-main dtf-main-static">
+          <strong>${escapeHtml(c.nome)}</strong>
+          <span>Cartella senza ordine: crea l'ordine o rinomina la cartella col nome dell'ordine</span>
+        </div>
+        <div class="dtf-cols" role="group" aria-label="Lunghezza, tempo e costo">
+          <span class="dtf-col"><strong>${dtfMetri(st.metri)} m</strong><small>lunghezza</small></span>
+          <span class="dtf-col"><strong>${dtfFmtTime(st.ore)}</strong><small>tempo</small></span>
+          ${costoAttivo ? `<span class="dtf-col"><strong>${euro(st.costo)}</strong><small>costo</small></span>` : ''}
+        </div>
+        <span class="dtf-files-btn dtf-files-static">${Icons.paperclip(14)}<span><strong>${st.files} file</strong><small>senza ordine</small></span></span>
+      </li>`;
+  };
+
+  const card = (x, i) => x.kind === 'order' ? cardOrdine(x.o, i) : cardCartella(x.c, i);
+  const cardOrdine = (o, i) => {
     const dl = TCFactory.getEffectiveDeadline(o);
     const client = TCFactory.getClient(o.clientId);
     const st = stats[i];
     return `
-      <li class="dtf-item ${isUrgentOrder(o) ? 'dtf-urgent' : ''} ${st.files ? '' : 'dtf-missing'}" draggable="true" data-id="${o.id}"
+      <li class="dtf-item ${isUrgentOrder(o) ? 'dtf-urgent' : ''} ${st.files ? '' : 'dtf-missing'} ${mancanti.has(o.id) ? 'dtf-mancante' : ''}" draggable="true" data-id="${o.id}"
           ondragstart="dtfDragStart(event,'${o.id}')" ondragend="dtfDragEnd()" ondragover="dtfDragOver(event)" ondrop="dtfDrop(event)">
         <span class="dtf-pos" aria-hidden="true">${i + 1}</span>
         <div class="dtf-when ${dl && dl.date < today ? 'late' : ''}" title="Scadenza">
@@ -175,7 +221,7 @@ function renderDtfInterno() {
         </div>
         <button type="button" class="dtf-main" onclick="openOrderDetail('${o.id}')">
           <strong>${escapeHtml(o.nome)}</strong>
-          <span>${[orderDesc(o) ? escapeHtml(orderDesc(o)) : '', client && TCFactory.clientName(client) !== o.nome ? escapeHtml(TCFactory.clientName(client)) : '', o.tags.map(escapeHtml).join(', ')].filter(Boolean).join(' · ')}</span>
+          <span>${[mancanti.has(o.id) ? '<em class="dtf-mancante-note">Cartella non più in 1. Stampare: controllare se stampato</em>' : '', orderDesc(o) ? escapeHtml(orderDesc(o)) : '', client && TCFactory.clientName(client) !== o.nome ? escapeHtml(TCFactory.clientName(client)) : '', o.tags.map(escapeHtml).join(', ')].filter(Boolean).join(' · ')}</span>
         </button>
         <div class="dtf-cols ${st.files ? '' : 'empty'}" role="group" aria-label="Lunghezza, tempo e costo">
           <span class="dtf-col"><strong>${st.files ? `${dtfMetri(st.metri)} m` : '—'}</strong><small>lunghezza</small></span>
@@ -205,7 +251,7 @@ function renderDtfInterno() {
 
   root.innerHTML = `
     <div class="dtf-box-head">
-      <div><h2>Da stampare</h2><p>${todo.length}${DtfState.tag || q ? ` di ${all.length}` : ''} ${todo.length === 1 ? 'ordine' : 'ordini'} · per scadenza, trascina per dare priorità</p></div>
+      <div><h2>Da stampare</h2><p>${todo.length}${DtfState.tag || q ? ` di ${all.length}` : ''} ${todo.length === 1 ? 'ordine' : 'ordini'}${coda.length > todo.length ? ` e ${coda.length - todo.length} ${coda.length - todo.length === 1 ? 'cartella' : 'cartelle'} senza ordine` : ''} · per scadenza, trascina per dare priorità</p></div>
       <div class="dtf-head-actions">
         ${dtfSearchBox('dtf-q-interno', DtfState.qInterno, 'Cerca ordine, cliente, file…', 'dtfSearchInterno(this.value)')}
         <button type="button" class="btn btn-secondary btn-sm" onclick="dtfOpenHistory()">Stampati e rimossi · ${printed.length + removedList.length}</button>
@@ -222,8 +268,8 @@ function renderDtfInterno() {
     </div>
     ${typeof DtfCartella !== 'undefined' ? DtfCartella.html() : ''}
     ${senzaFile ? `<p class="dtf-note dtf-missing-note">${senzaFile} ${senzaFile === 1 ? 'ordine senza DTF' : 'ordini senza DTF'} (in rosso): metri e tempo li contano solo quando ci sono i file.</p>` : ''}
-    ${todo.length
-      ? `<ol class="dtf-timeline" aria-label="Ordini da stampare">${todo.map(card).join('')}</ol>`
+    ${coda.length
+      ? `<ol class="dtf-timeline" aria-label="Ordini da stampare">${coda.map(card).join('')}</ol>`
       : `<div class="empty-list">${q ? `Nessun ordine da stampare trovato per "${escapeHtml(DtfState.qInterno.trim())}".` : DtfState.tag ? `Nessun ordine "${escapeHtml(DtfState.tag)}" da stampare.` : 'Nessun ordine da stampare. 🎉'}</div>`}`;
 }
 
@@ -354,7 +400,7 @@ async function dtfDrop(e) {
   dtfDragEnd();
 
   // Si riordina l'elenco completo: con un filtro attivo gli ordini nascosti restano al loro posto
-  const ids = dtfLists().todo.map(o => o.id).filter(x => x !== id);
+  const ids = dtfCoda().map(x => x.id).filter(x => x !== id);
   ids.splice(ids.indexOf(target.dataset.id) + (before ? 0 : 1), 0, id);
   try {
     await dtfSaveSettings({ order: ids });
