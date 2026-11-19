@@ -52,11 +52,48 @@ const taskSlug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
 //   Stampa: DTF stampati e merce pronta, si applica
 //   Coda lavorazione: tutto il resto da produrre
 const TASK_CODE = [
-  { id: 'file',        label: 'File',             color: '#a855f7' },
-  { id: 'dtf',         label: 'DTF',              color: '#0ea5e9' },
-  { id: 'stampa',      label: 'Stampa',           color: '#16a34a' },
-  { id: 'lavorazione', label: 'Coda lavorazione', color: '#334155' },
+  { id: 'file',        label: 'DTF-FILE',          color: '#a855f7' },
+  { id: 'dtf',         label: 'DTF-STAMPA',        color: '#0ea5e9' },
+  { id: 'stampa',      label: 'Stampa',            color: '#16a34a' },
+  { id: 'lavorazione', label: 'Altre lavorazioni', color: '#334155' },
 ];
+// Le code del Centro di controllo (deciso da Riccardo il 2026-11-19):
+//   DTF-FILE: ordini della lista DTF senza file caricati + proposte DTF da approvare
+//   DTF-STAMPA: la coda di stampa di DTF interno con solo ciò che ha i file (conto terzi, cartelle, ordini)
+//               + "Cartella senza ordine" e "Controllare se stampato"
+//   STAMPA: DTF stampati e merce pronta, si applica
+//   ALTRE LAVORAZIONI: tutto il resto che non riguarda i negozi online
+//   NEGOZI: tutto quello dei negozi online (produzione Shopify, mail, indirizzi, giacenze), filtrabile per negozio
+const TASK_CODE_Q = [
+  { id: 'dtffile',   label: 'DTF-FILE',          color: '#a855f7', hint: 'Ordini con DTF senza file nella cartella 1. Stampare, e proposte da approvare' },
+  { id: 'dtfstampa', label: 'DTF-STAMPA',        color: '#0ea5e9', hint: 'Coda di stampa al macchinario, nello stesso ordine di DTF interno' },
+  { id: 'stampa',    label: 'Stampa',            color: '#16a34a', hint: 'DTF stampati e merce pronta: si applica' },
+  { id: 'altre',     label: 'Altre lavorazioni', color: '#334155', hint: 'Tutto il resto, tranne i negozi online' },
+  { id: 'negozi',    label: 'Negozi',            color: '#ec4899', hint: 'Ordini, mail e spedizioni dei negozi online' },
+];
+const TASK_CODE_VECCHIE = { file: 'dtffile', dtf: 'dtfstampa', lavorazione: 'altre' };
+const codaAttiva = () => { const c = TASK_CODE_VECCHIE[Ctrl.coda] || Ctrl.coda; return TASK_CODE_Q.some(x => x.id === c) ? c : 'dtffile'; };
+// Task dei negozi online: arrivano da Shopify o hanno come brand un negozio (o Live Printing)
+const taskNegozio = (t) => t.fonte === 'shopify' || t.fonte === 'shopify_admin' || TASK_BRAND.some(m => m.id === t.macroarea);
+// Coda di un task. null = non si mostra ("Stampa DTF" della linea produttiva: c'è già l'ordine in DTF-STAMPA)
+function taskCoda(t) {
+  if (t.fonte === 'automazione' && t.fonte_rif?.dtf) return String(t.fonte_rif.dtf).startsWith('proposta:') ? 'dtffile' : 'dtfstampa';
+  const c = taskCat(t);
+  if (c === 'dtf') return null;
+  if (c === 'stampa') return 'stampa';
+  return taskNegozio(t) ? 'negozi' : 'altre';
+}
+// Righe della coda DTF interno divise tra DTF-FILE (ordini senza file, tranne quelli con una proposta da
+// approvare: c'è già il task) e DTF-STAMPA (conto terzi, cartelle e ordini con i file)
+function codaDtfRighe() {
+  const coda = typeof dtfCoda === 'function' ? dtfCoda() : [];
+  const senzaFile = (x) => x.kind === 'order' && !dtfOrderStats(x.o).files;
+  const proposta = (x) => typeof DtfPrep !== 'undefined' && ['proposta', 'approvato'].includes(DtfPrep.get(x.id)?.esito);
+  return {
+    file: coda.filter(x => senzaFile(x) && !proposta(x)).map(x => x.o),
+    stampa: coda.filter(x => !senzaFile(x)),
+  };
+}
 const TASK_TAG_ESCLUSI = new Set(['test']);
 function taskTagCategorie() {
   return (typeof TCFactory !== 'undefined' ? TCFactory.getTags() : [])
@@ -1355,45 +1392,75 @@ function ctrlFilter(attivo, label, n, color, onclick) {
     ${color ? '<i aria-hidden="true"></i>' : ''}<span>${escapeHtml(label)}</span>${n != null ? `<b>${n}</b>` : ''}</button>`;
 }
 
-// Coda comune: le code di produzione (File, DTF, Stampa, Coda lavorazione) e i brand
+// Coda comune: DTF-FILE, DTF-STAMPA, Stampa, Altre lavorazioni, Negozi
 function renderTaskQueue(coda, emptyText = '') {
   if (!coda.length && !emptyText) return '';
-  const cat = Ctrl.coda || 'file';
-  const isCoda = TASK_CODE.some(c => c.id === cat);
-  const file = ordiniSenzaFile(), dtf = ordiniDtf();
-  // DTF: sopra la coda degli ordini solo i task dell'automazione della cartella (proposte da approvare,
-  // cartelle senza ordine, "Controllare se stampato"); i task "Stampa DTF" della linea produttiva
-  // doppierebbero gli ordini già in coda, quindi lì non si mostrano.
-  const dtfAuto = (t) => t.fonte === 'automazione' && !!t.fonte_rif?.dtf;
-  const list = cat === 'file' ? [] : coda.filter(t => taskCat(t) === cat && (cat !== 'dtf' || dtfAuto(t)));
-  const dtfTask = coda.filter(t => taskCat(t) === 'dtf' && dtfAuto(t));
-  // Conto terzi da Google Drive: nei giorni di stampa in cima alla coda DTF
-  const ct = typeof DtfCt !== 'undefined' ? DtfCt.righe() : [];
-  const n = cat === 'file' ? file.length : cat === 'dtf' ? ct.length + dtf.length + list.length : list.length;
-  const opts = { showStore: isCoda, showAuto: false };
-  let corpo;
-  if (cat === 'file') {
-    corpo = file.length ? `<div class="task-list task-stack">${file.map(o => renderOrdineRiga(o)).join('')}</div>`
-                        : '<div class="empty-list">Tutti gli ordini hanno i file.</div>';
-  } else if (cat === 'dtf') {
-    // La coda della pagina DTF: stesso ordine (scadenza e priorità date a mano), si stampa dall'alto
-    const ordinati = list.slice().sort((a, b) => taskPrioOrd(a) - taskPrioOrd(b) || String(a.created_at).localeCompare(String(b.created_at)));
-    corpo = (list.length ? `<div class="ctrl-sub">Da controllare · ${list.length}</div><div class="task-list task-stack">${ordinati.map(renderDtfTaskRiga).join('')}</div>` : '')
-      + (ct.length || dtf.length ? `${list.length ? `<div class="ctrl-sub">Da stampare · ${ct.length + dtf.length}</div>` : ''}<div class="task-list task-stack">${ct.map((r, i) => renderCtRiga(r, i + 1)).join('')}${dtf.map((o, i) => renderOrdineRiga(o, { pos: ct.length + i + 1, dtf: true })).join('')}</div>`
-                    : '<div class="empty-list">Niente da stampare al DTF.</div>');
+  const cat = codaAttiva();
+  const info = TASK_CODE_Q.find(c => c.id === cat);
+  const righe = codaDtfRighe();
+  const perCoda = (id) => coda.filter(t => taskCoda(t) === id);
+  let list = perCoda(cat);
+  // Negozi: filtro per negozio
+  const negozio = cat === 'negozi' && Ctrl.codaNegozio && list.some(t => taskCat(t) === Ctrl.codaNegozio) ? Ctrl.codaNegozio : null;
+  const tuttiNegozi = list;
+  if (negozio) list = list.filter(t => taskCat(t) === negozio);
+  const opts = { showStore: true, showAuto: false };
+  const ordinati = (l) => l.slice().sort((a, b) => taskPrioOrd(a) - taskPrioOrd(b) || String(a.created_at).localeCompare(String(b.created_at)));
+  const sub = (titolo, html) => `<div class="ctrl-sub">${titolo}</div><div class="task-list task-stack">${html}</div>`;
+  let corpo, n;
+  if (cat === 'dtffile') {
+    n = list.length + righe.file.length;
+    corpo = (list.length ? sub(`Proposte da approvare · ${list.length}`, ordinati(list).map(renderDtfTaskRiga).join('')) : '')
+      + (righe.file.length ? sub(`Manca il DTF · ${righe.file.length}`, righe.file.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true, azione: 'file' })).join('')) : '')
+      || '<div class="empty-list">Tutti gli ordini DTF hanno i file.</div>';
+  } else if (cat === 'dtfstampa') {
+    n = list.length + righe.stampa.length;
+    const riga = (x, i) => x.kind === 'ct' ? renderCtRiga(x, i + 1) : x.kind === 'cartella' ? renderCartellaRiga(x.c, i + 1) : renderOrdineRiga(x.o, { pos: i + 1, dtf: true });
+    corpo = (list.length ? sub(`Da controllare · ${list.length}`, ordinati(list).map(renderDtfTaskRiga).join('')) : '')
+      + (righe.stampa.length ? sub(`Da stampare · ${righe.stampa.length}`, righe.stampa.map(riga).join('')) : '<div class="empty-list">Niente da stampare al DTF.</div>');
   } else {
-    corpo = list.length ? taskSections(list).map(([titolo, righe]) => taskSub(`${titolo} · ${righe.length}`, righe, opts)).join('')
-                        : `<div class="empty-list">${emptyText && !coda.length ? emptyText : 'Nessun task in questa categoria.'}</div>`;
+    n = list.length;
+    const chips = cat === 'negozi' ? (() => {
+      const conta = {};
+      tuttiNegozi.forEach(t => { const c = taskCat(t); conta[c] = (conta[c] || 0) + 1; });
+      const cats = [...TASK_BRAND, ...taskTagCategorie(), TASK_SENZA_CAT].filter(c => conta[c.id]);
+      return cats.length > 1 ? `<div class="ctrl-macro-bar" role="group" aria-label="Filtra per negozio">
+          ${ctrlFilter(!negozio, 'Tutti', tuttiNegozi.length, null, 'setCodaNegozio(null)')}
+          ${cats.map(c => ctrlFilter(negozio === c.id, c.label, conta[c.id], c.color, `setCodaNegozio('${c.id}')`)).join('')}
+        </div>` : '';
+    })() : '';
+    corpo = chips + (list.length ? taskSections(list).map(([titolo, r]) => taskSub(`${titolo} · ${r.length}`, r, opts)).join('')
+                                 : `<div class="empty-list">${emptyText && !coda.length ? emptyText : 'Nessun task in questa coda.'}</div>`);
   }
   return `
     <section class="glass-card page-card ctrl-group">
-      <div class="page-card-head"><h2>${escapeHtml(taskCatInfo(cat)?.label || 'Coda comune')}</h2><span class="table-count">${n}</span>
-        <span class="ctrl-group-hint">${{ file: 'Ordini attivi senza file allegati', dtf: 'Da stampare al macchinario, in ordine di priorità',
-          stampa: 'DTF stampati e merce pronta', lavorazione: 'Tutto il resto da produrre' }[cat] || 'Mail, messaggi, indirizzi, giacenze'}</span></div>
-      ${taskCodaBar(coda, { file: file.length, dtf: ct.length + dtf.length + dtfTask.length })}
-      ${list.length ? taskAutoNote(list) : ''}
+      <div class="page-card-head"><h2>${escapeHtml(info.label)}</h2><span class="table-count">${n}</span>
+        <span class="ctrl-group-hint">${escapeHtml(info.hint)}</span></div>
+      ${taskCodaBar(coda, righe)}
+      ${list.length && !['dtffile', 'dtfstampa'].includes(cat) ? taskAutoNote(list) : ''}
       <div class="tk-split-list ${CtrlAnim.filtro ? 'ctrl-fade' : ''}">${corpo}</div>
     </section>`;
+}
+
+function setCodaNegozio(id) {
+  Ctrl.codaNegozio = id;
+  refreshControlPage();
+}
+
+// Cartella di 1. Stampare senza ordine nella coda DTF-STAMPA
+function renderCartellaRiga(c, pos) {
+  const st = typeof dtfCartellaStats === 'function' ? dtfCartellaStats(c) : { files: c.files, metri: c.metri || 0 };
+  return `
+    <article class="task-row is-task">
+      <span class="task-pos" aria-label="Posizione ${pos}">${pos}</span>
+      <button type="button" class="task-main" onclick="Nav.go('dtf', 'interno')" aria-label="Cartella ${escapeHtml(c.nome)}: apri DTF interno">
+        <span class="task-title">${escapeHtml(c.nome)}</span>
+        <span class="task-meta"><span class="task-late">cartella senza ordine</span><span aria-hidden="true"> · </span>${st.files} file · ${dtfMetri(st.metri)} m</span>
+      </button>
+      <div class="task-badges"><span class="td-tag" style="--c:#dc2626;">Senza ordine</span></div>
+      <span class="task-time"></span>
+      <div class="task-actions"><button type="button" class="ctrl-btn" onclick="Nav.go('dtf', 'interno')">Apri DTF interno</button></div>
+    </article>`;
 }
 
 const taskPrioOrd = (t) => ({ urgente: 0, alta: 1, normale: 2, bassa: 3 })[t.priorita] ?? 2;
@@ -1437,7 +1504,7 @@ function renderCtRiga(r, pos) {
 }
 
 // Riga di un ordine (code File e DTF): si apre l'ordine
-function renderOrdineRiga(o, { pos = null, dtf = false } = {}) {
+function renderOrdineRiga(o, { pos = null, dtf = false, azione = null } = {}) {
   const urg = typeof isUrgentOrder === 'function' ? isUrgentOrder(o) : o.priorityId === 'urgente';
   const fmt = (d) => new Date(d + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
   const dl = TCFactory.getEffectiveDeadline?.(o)?.date || o.deadline;
@@ -1462,7 +1529,9 @@ function renderOrdineRiga(o, { pos = null, dtf = false } = {}) {
       </button>
       <div class="task-badges">${urg ? `<span class="td-tag" style="--c:${pr.color};">Urgente</span>` : ''}${dtf ? '' : '<span class="td-tag" style="--c:#a855f7;">Senza file</span>'}</div>
       <span class="task-time"></span>
-      <div class="task-actions"><button type="button" class="ctrl-btn" onclick="${dtf ? 'codaDtfFatto' : 'codaFileFatto'}('${o.id}')" title="${dtf ? 'Segna il DTF come stampato' : 'Togli l\'ordine dalla coda File'}">${CtrlIcons.check()} <span>Fatto</span></button>
+      <div class="task-actions">${azione === 'file'
+        ? `<button type="button" class="ctrl-btn" onclick="dtfOpenOrderFiles('${o.id}')" title="Aggiungi i file DTF dell'ordine">${CtrlIcons.check()} <span>Aggiungi file</span></button>`
+        : `<button type="button" class="ctrl-btn" onclick="${dtf ? 'codaDtfFatto' : 'codaFileFatto'}('${o.id}')" title="${dtf ? 'Segna il DTF come stampato' : 'Togli l\'ordine dalla coda File'}">${CtrlIcons.check()} <span>Fatto</span></button>`}
         <button type="button" class="ctrl-btn task-open" onclick="openOrderDetail('${o.id}')" aria-label="Apri l'ordine ${escapeHtml(o.nome)}">Apri</button></div>
     </article>`;
 }
@@ -1474,15 +1543,13 @@ async function codaDtfFatto(id) {
 }
 
 // Filtro della coda comune: prima le code di produzione (sempre), poi i brand con almeno un task
-function taskCodaBar(list, ordini) {
-  const conta = {};
-  list.forEach(t => { const c = taskCat(t); if (c !== 'dtf') conta[c] = (conta[c] || 0) + 1; });
-  Object.assign(conta, ordini);
-  const att = Ctrl.coda || 'file';
-  const cat = [...TASK_CODE, ...[...TASK_BRAND, ...taskTagCategorie(), TASK_SENZA_CAT].filter(c => conta[c.id] || att === c.id)];
+function taskCodaBar(list, righe) {
+  const conta = { dtffile: righe.file.length, dtfstampa: righe.stampa.length };
+  list.forEach(t => { const c = taskCoda(t); if (c) conta[c] = (conta[c] || 0) + 1; });
+  const att = codaAttiva();
   return `
-    <div class="ctrl-macro-bar" role="group" aria-label="Code e brand">
-      ${cat.map((c, i) => `${i === TASK_CODE.length ? '<span class="tk-bar-sep" aria-hidden="true"></span>' : ''}${ctrlFilter(att === c.id, c.label, conta[c.id] || 0, c.color, `setControlCoda('${c.id}')`)}`).join('')}
+    <div class="ctrl-macro-bar" role="group" aria-label="Code">
+      ${TASK_CODE_Q.map(c => ctrlFilter(att === c.id, c.label, conta[c.id] || 0, c.color, `setControlCoda('${c.id}')`)).join('')}
     </div>`;
 }
 
