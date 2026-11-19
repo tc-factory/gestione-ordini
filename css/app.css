@@ -2302,8 +2302,7 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .modal.modal-fullscreen .modal-body { flex: 1; overflow-y: auto; padding-bottom: env(safe-area-inset-bottom) !important; }
 .mod-preview-row { cursor: pointer; }
 .mod-preview-row.is-checked { background: color-mix(in srgb, #facc15 38%, var(--bg-card)) !important; }
-.mod-preview-row.is-red,
-.mod-preview-row.is-red + .mod-preview-note { background: color-mix(in srgb, #ef4444 30%, var(--bg-card)) !important; }
+.mod-preview-row.is-checked + .mod-preview-note { background: color-mix(in srgb, #facc15 38%, var(--bg-card)) !important; }
 .mod-preview-note .form-input { width: 100%; }
 .mod-preview-check {
   width: 22px; height: 22px; padding: 0; border: 2px solid var(--border); border-radius: 5px;
@@ -2312,8 +2311,12 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 }
 .is-checked .mod-preview-check { background: #1e40af; border-color: #1e40af; }
 .is-checked .mod-preview-check::after { content: '✓'; }
-.is-red .mod-preview-check { background: #dc2626; border-color: #dc2626; }
-.is-red .mod-preview-check::after { content: '!'; }
+.mod-preview-notebtn {
+  width: 22px; height: 22px; padding: 0; margin-left: 4px; border: 2px solid var(--border); border-radius: 5px;
+  background: var(--bg-card); color: var(--text-muted); cursor: pointer; vertical-align: middle;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.mod-preview-notebtn.has-note { background: #1e40af; border-color: #1e40af; color: #fff; }
 
 /* ── App clienti: accessi e catalogo nella scheda cliente ── */
 .catalog-users { display: flex; flex-direction: column; }
