@@ -86,6 +86,8 @@ begin
        from dtf_clients c where coalesce(c.drive_url, '') <> ''), '[]'::jsonb),
     'prepara_modo', coalesce((select value #>> '{}' from app_settings where key = 'dtf_prepara_modo'), 'prova'),
     'da_preparare', _tc_dtf_da_preparare(),
+    'preparati', coalesce((select jsonb_object_agg(regexp_replace(p.cartella, '^.*/', ''), p.order_id)
+       from dtf_preparati p where p.esito = 'copiato' and p.cartella is not null), '{}'::jsonb),
     'approvati', coalesce((select jsonb_agg(jsonb_build_object('id', p.order_id, 'nome', o.nome, 'files', p.approvati))
        from dtf_preparati p join orders o on o.id = p.order_id where p.esito = 'approvato' and o.deleted_at is null), '[]'::jsonb),
     'items', coalesce((select jsonb_object_agg(o.id, coalesce(o.dtf_items, '[]'::jsonb))
