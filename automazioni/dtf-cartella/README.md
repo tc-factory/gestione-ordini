@@ -55,18 +55,19 @@ Iter (deciso 2026-11-19):
 
 ## Ordini nuovi: file DTF preparati da soli
 
-Per ogni ordine **creato da quando l'automazione è attiva** (`app_settings.dtf_prepara_dal`) e con la
-lavorazione **DTF** (cioè nella lista Da stampare), lo script:
-1. cerca la cartella del cliente sul NAS: `DATI/Clienti/<iniziale>/<cliente>` o `DATI/CrossFit/<box>`,
-   per nome del cliente e poi dell'ordine (uguale, oppure una sola molto simile: il nome più corto deve
-   coprire almeno 2/3 del più lungo, così "Padel" non diventa "Padel Hero");
-2. prende i file della cartella **dtf dell'anno corrente** (es. `2026/01-dtf/tiff`); se la cartella non è
-   divisa per anni, quelli nella cartella principale;
-3. li copia in `1. Stampare/<NOME ORDINE>` aggiungendo il **totale capi** dell'ordine (`-10pz`).
+Schema delle cartelle cliente (deciso da Riccardo il 2026-11-19), in `DATI/Clienti/<iniziale>/` o `DATI/CrossFit/`:
 
-Ogni ordine si prepara una volta (`dtf_preparati`, `sql/dtf-prepara-ordini.sql`). Se la cartella dell'ordine
-c'è già in 1. Stampare non si tocca; se il cliente non si trova o non ha file si riprova ai giri dopo
-(l'ordine resta rosso "Manca il DTF").
+```
+<cliente>/<anno>/dtf/tiff/                     ordine senza descrizione
+<cliente>/<anno>/<lavorazione>/dtf/tiff/       ordine con descrizione = <lavorazione> (es. "Torino Challenge")
+```
+
+- `<cliente>` = nome del cliente nel gestionale; anno corrente.
+- In `tiff` solo file pronti da stampare (niente bozze, PDF, vecchie versioni), nomi chiari **senza quantità**:
+  i pezzi proposti sono il totale capi dell'ordine, da correggere al riscontro se un file va su meno capi.
+- Si prendono solo i file direttamente in `tiff`. Descrizione senza sottocartella corrispondente → `<anno>/dtf/tiff`.
+- Copia in `1. Stampare/<NOME ORDINE>` con `-<pezzi>pz` nel nome; una volta per ordine (`dtf_preparati`).
+- Cliente cercato per nome (uguale, o una sola cartella molto simile: il più corto copre almeno 2/3 del più lungo).
 
 ### Modalità prova (dal 2026-11-19)
 
