@@ -791,9 +791,9 @@ function renderTaskFatti() {
         <div><strong>${list.length}</strong><span>task chiusi</span></div>
         <div><strong>${reale ? ctrlFmtMin(reale) : '—'}</strong><span>tempo reale</span></div>
         <div><strong>${ctrlFmtMin(stimati)}</strong><span>tempo stimato</span></div>
-        <div class="tk-oper ${oper == null ? '' : oper >= 100 ? 'is-top' : oper >= 75 ? 'is-ok' : oper >= 50 ? 'is-mid' : 'is-low'}" style="--p:${Math.min(oper || 0, 100)}%;">
+        <div class="tk-oper ${oper == null ? '' : oper >= 100 ? 'is-top' : oper >= 75 ? 'is-ok' : oper >= 50 ? 'is-mid' : 'is-low'}" style="--p:${Math.min(oper || 0, 100)}%;--s:${oper > 100 ? Math.min((oper - 100) / 100, 1).toFixed(2) : 0};">
           <strong>${oper == null ? '—' : `${oper}%`}</strong><span>operatività</span>
-          <i class="tk-oper-bar"><b></b></i></div>
+          <i class="tk-oper-track"><i class="tk-oper-bar"><b></b></i>${oper > 100 ? '<i class="tk-oper-spark" aria-hidden="true"><s></s><s></s><s></s><s></s></i>' : ''}</i></div>
       </div>
       ${list.length ? `<ul class="tk-fatti-list">${list.map(t => {
         const macro = taskBrand(t) === '_' ? null : taskCatInfo(taskBrand(t));
