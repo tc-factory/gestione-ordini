@@ -1457,7 +1457,7 @@ function renderTaskQueue(coda, emptyText = '') {
       + cat3(3, 'Rinominare file', nomi.length, ordinati(nomi).map(renderDtfTaskRiga).join(''));
   } else if (cat === 'dtfstampa') {
     n = list.length + righe.stampa.length;
-    const riga = (x, i) => x.kind === 'ct' ? renderCtRiga(x, i + 1) : x.kind === 'cartella' ? renderCartellaRiga(x.c, i + 1) : renderOrdineRiga(x.o, { pos: i + 1, dtf: true });
+    const riga = (x, i) => x.kind === 'ct' ? renderCtRiga(x, i + 1) : x.kind === 'negozio' ? renderNegozioRiga(x, i + 1) : x.kind === 'cartella' ? renderCartellaRiga(x.c, i + 1) : renderOrdineRiga(x.o, { pos: i + 1, dtf: true });
     corpo = (list.length ? sub(`Da controllare · ${list.length}`, ordinati(list).map(renderDtfTaskRiga).join('')) : '')
       + (righe.stampa.length ? sub(`Da stampare · ${righe.stampa.length}`, righe.stampa.map(riga).join('')) : '<div class="empty-list">Niente da stampare al DTF.</div>');
   } else {
@@ -1661,6 +1661,21 @@ function renderCtRiga(r, pos) {
         <span class="task-meta">cartella «${escapeHtml(r.c.dir || r.c.nome)}» in 1. Stampare<span aria-hidden="true"> · </span>${st.files} file · ${dtfMetri(st.metri)} m · metri già nel conto terzi</span>
       </button>
       <div class="task-badges"><span class="td-tag" style="--c:#0ea5e9;">Conto terzi</span></div>
+      <span class="task-time"></span>
+    </article>`;
+}
+
+// Lavorazione per i negozi in 1. Stampare ("ordine-bienjugado", "ordini-sito"…): prima di tutto
+function renderNegozioRiga(r, pos) {
+  const st = dtfCartellaStats(r.c);
+  return `
+    <article class="task-row is-task">
+      <span class="task-pos" aria-label="Posizione ${pos}">${pos}</span>
+      <button type="button" class="task-main" onclick="Nav.go('dtf', 'interno')" aria-label="Negozi ${escapeHtml(r.c.negozio)}: apri DTF interno">
+        <span class="task-title">Negozi · ${escapeHtml(r.c.negozio)}</span>
+        <span class="task-meta">${r.c.dir ? 'cartella' : 'file'} «${escapeHtml(r.c.dir || r.c.nome)}» in 1. Stampare<span aria-hidden="true"> · </span>${st.files} file · ${dtfMetri(st.metri)} m</span>
+      </button>
+      <div class="task-badges"><span class="td-tag" style="--c:#ef4444;">Priorità negozi</span></div>
       <span class="task-time"></span>
     </article>`;
 }

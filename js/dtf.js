@@ -248,16 +248,19 @@ function dtfCoda() {
   const rank = (id) => { const i = order.indexOf(id); return i < 0 ? Infinity : i; };
   const tolte = new Set(removed.map(r => r.id));
   const info = typeof DtfCartella !== 'undefined' ? DtfCartella.info() : null;
-  const cartelle = (info?.cartelle || []).filter(c => !c.ordine && !c.ct && c.files > 0 && !tolte.has(`cartella:${c.nome}`))
+  const cartelle = (info?.cartelle || []).filter(c => !c.ordine && !c.ct && !c.negozio && c.files > 0 && !tolte.has(`cartella:${c.nome}`))
     .map(c => ({ kind: 'cartella', id: `cartella:${c.nome}`, c }));
   const ordini = dtfLists().todo.map(o => ({ kind: 'order', id: o.id, o }));
-  // Conto terzi (cartella del cliente copiata da Drive): in cima a tutto
+  // Lavorazioni per i negozi ("ordine-bienjugado", "ordini-sito"…): prima di tutto; poi il conto terzi
+  const negozi = (info?.cartelle || []).filter(c => c.negozio && c.files > 0)
+    .map(c => ({ kind: 'negozio', id: `negozio:${c.nome}`, c }));
   const ct = DtfCt.righe();
   const key = (x) => {
+    if (x.kind === 'negozio') return -3;
     if (x.kind === 'ct') return -2;
     const r = rank(x.id); return r < Infinity ? r : x.kind === 'cartella' ? -1 : Number.MAX_SAFE_INTEGER;
   };
-  return [...ct, ...cartelle, ...ordini].map((x, i) => ({ x, i })).sort((a, b) => key(a.x) - key(b.x) || a.i - b.i).map(({ x }) => x);
+  return [...negozi, ...ct, ...cartelle, ...ordini].map((x, i) => ({ x, i })).sort((a, b) => key(a.x) - key(b.x) || a.i - b.i).map(({ x }) => x);
 }
 
 function dtfFmtTime(ore) {
@@ -351,7 +354,28 @@ function renderDtfInterno() {
       </li>`;
   };
 
-  const card = (x, i) => x.kind === 'order' ? cardOrdine(x.o, i) : x.kind === 'ct' ? cardCt(x, i) : cardCartella(x.c, i);
+  // Negozi: non si trascina, sta in cima a tutto
+  const cardNegozio = (x, i) => {
+    const st = stats[i];
+    return `
+      <li class="dtf-item dtf-ct-row dtf-ct-oggi" data-id="${escapeHtml(x.id)}">
+        <span class="dtf-pos" aria-hidden="true">${i + 1}</span>
+        <div class="dtf-when" title="Negozi"><strong>${Icons.paperclip(14)}</strong><span>negozi</span></div>
+        <div class="dtf-main dtf-main-static">
+          <strong>Negozi · ${escapeHtml(x.c.negozio)}</strong>
+          <span>${x.c.dir ? 'Cartella' : 'File'} «${escapeHtml(x.c.dir || x.c.nome)}» in 1. Stampare · priorità su tutto</span>
+        </div>
+        <div class="dtf-cols" role="group" aria-label="Lunghezza, tempo e costo">
+          <span class="dtf-col"><strong>${dtfMetri(st.metri)} m</strong><small>lunghezza</small></span>
+          <span class="dtf-col"><strong>${dtfFmtTime(st.ore)}</strong><small>tempo</small></span>
+          ${costoAttivo ? `<span class="dtf-col"><strong>${euro(st.costo)}</strong><small>costo</small></span>` : ''}
+        </div>
+        <span class="dtf-files-btn dtf-files-static">${Icons.paperclip(14)}<span><strong>${st.files} file</strong><small>sposta in Stampato a fine stampa</small></span></span>
+      </li>`;
+  };
+
+  const card = (x, i) => x.kind === 'order' ? cardOrdine(x.o, i) : x.kind === 'ct' ? cardCt(x, i)
+    : x.kind === 'negozio' ? cardNegozio(x, i) : cardCartella(x.c, i);
   const cardOrdine = (o, i) => {
     const dl = TCFactory.getEffectiveDeadline(o);
     const prep = DtfPrep.get(o.id);
@@ -556,7 +580,7 @@ async function dtfDrop(e) {
   dtfDragEnd();
 
   // Si riordina l'elenco completo: con un filtro attivo gli ordini nascosti restano al loro posto
-  const ids = dtfCoda().filter(x => x.kind !== 'ct').map(x => x.id).filter(x => x !== id);
+  const ids = dtfCoda().filter(x => x.kind !== 'ct' && x.kind !== 'negozio').map(x => x.id).filter(x => x !== id);
   ids.splice(ids.indexOf(target.dataset.id) + (before ? 0 : 1), 0, id);
   try {
     await dtfSaveSettings({ order: ids });

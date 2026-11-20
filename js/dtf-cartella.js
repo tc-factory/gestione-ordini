@@ -230,7 +230,7 @@ const DtfCartella = {
   // Coda Da stampare (ordini e cartelle senza ordine) in ordine, per il Mac mini
   _lista() {
     return dtfCoda().map(x => x.kind === 'order' ? { id: x.id, nome: x.o.nome, descr: orderDesc(x.o) }
-      : { id: x.id, nome: x.c.nome, cartella: true, ...(x.kind === 'ct' ? { ct: true } : {}) });
+      : { id: x.id, nome: x.c.nome, cartella: true, ...(x.kind === 'ct' ? { ct: true } : {}), ...(x.kind === 'negozio' ? { negozio: x.c.negozio } : {}) });
   },
   // La lista per il Mac mini la calcola il database (_tc_dtf_lista, sql/dtf-lista.sql): un browser con
   // dati vecchi non può più falsarla. Qui non si scrive più niente.
