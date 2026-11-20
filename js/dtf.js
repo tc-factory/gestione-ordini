@@ -295,7 +295,11 @@ function renderDtfInterno() {
     : !DtfState.tag && (!q || dtfHas(x.c.nome, q)));
   const mancanti = new Set(typeof DtfCartella !== 'undefined' ? DtfCartella.info()?.mancanti || [] : []);
   const stats = coda.map(x => x.kind === 'order' ? dtfOrderStats(x.o) : dtfCartellaStats(x.c));
-  const tot = stats.reduce((t, x) => ({ metri: t.metri + x.metri, ore: t.ore + (x.ore || 0), costo: t.costo + (x.costo || 0) }), { metri: 0, ore: 0, costo: 0 });
+  // COLLA NERA: i file già contati sui loro ordini in coda (metriOrdini, dal Mac mini) valgono una volta sola nel totale
+  const inCoda = new Set(coda.filter(x => x.kind === 'order').map(x => String(x.id)));
+  const statsTot = coda.map((x, i) => x.kind !== 'cartella' || !x.c.metriOrdini ? stats[i] : dtfCartellaStats({ ...x.c,
+    metri: Math.max(0, (x.c.metri || 0) - Object.entries(x.c.metriOrdini).reduce((s, [id, m]) => s + (inCoda.has(String(id)) ? Number(m) || 0 : 0), 0)) }));
+  const tot = statsTot.reduce((t, x) => ({ metri: t.metri + x.metri, ore: t.ore + (x.ore || 0), costo: t.costo + (x.costo || 0) }), { metri: 0, ore: 0, costo: 0 });
   const senzaFile = coda.filter((x, i) => x.kind === 'order' && !stats[i].files).length;
   const costoAttivo = DtfMisure.costInterno() > 0;
 
