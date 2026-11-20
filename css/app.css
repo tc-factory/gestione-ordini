@@ -2390,6 +2390,13 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .om-date strong { color: var(--text-primary); margin-left: 4px; }
 .om-date strong.is-soon { color: #ea580c; }
 .om-date strong.is-late { color: var(--priority-urgent, #d62828); }
+/* Lavorazioni in alto a destra, ben visibili: riquadro pieno nel colore della tipologia */
+.om-lav {
+  margin-left: auto; flex-shrink: 0; max-width: 45%; display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 16px; border-radius: var(--radius-md, 16px); background: var(--om-c); color: var(--om-fg);
+}
+.om-lav-label { font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; opacity: .85; }
+.om-lav-item { font-size: 1.15rem; font-weight: 900; line-height: 1.2; letter-spacing: .01em; }
 .om-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 .om-body { padding: 0 !important; }
 .om-scroll { overflow-x: auto; }
