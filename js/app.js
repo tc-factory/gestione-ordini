@@ -751,6 +751,7 @@ function previewOrderModule(orderId) {
             <span>Scadenza <strong class="${omDeadlineClass(D.deadline)}">${omDate(D.deadline)}</strong></span>
           </div>
         </div>
+        ${(() => { const lp = modLavParti(order); return lp.length ? `<div class="om-lav"><div class="om-lav-label">Lavorazioni</div>${lp.map(t => `<div class="om-lav-item">${escapeHtml(t)}</div>`).join('')}</div>` : ''; })()}
         <div class="om-actions">
           <button class="btn btn-secondary btn-sm" onclick="downloadOrderModule('${order.id}')">⬇ Scarica PDF</button>
           <button class="btn-icon" onclick="closeModal('file-preview-modal')" aria-label="Chiudi">${Icons.x()}</button>
@@ -849,10 +850,10 @@ function setModPreviewNote(orderId, idx, value) {
   btn?.classList.toggle('has-note', !!value.trim());
 }
 
-// Riga "Lavorazione" del modulo stampato: al posto delle colonne Lav. int. / Lav. est.
-// es. "INTERNA — UV, LASER · ESTERNA — RICAMO". Senza ordine (form aperto) usa le scelte del form.
-function modLavRiepilogo(order) {
-  if (order ? TCFactory.isNeutro(order) : AppState.formLavNeutro) return 'NEUTRO';
+// Lavorazioni dell'ordine, una voce per tipo (es. ["INTERNA — UV, LASER", "ESTERNA — RICAMO"]):
+// in alto a destra nel modulo, ben visibili. Senza ordine (form aperto) usa le scelte del form.
+function modLavParti(order) {
+  if (order ? TCFactory.isNeutro(order) : AppState.formLavNeutro) return ['NEUTRO'];
   const o = order || {
     lavorazioneEsterna: !!AppState.formLavEsterna,
     orderModule: { rows: (AppState.formModuleRows || []).filter(r => !AppState.formPrevGroups.includes(modGroup(r))), interna: !!AppState.formLavInterna,
@@ -863,13 +864,13 @@ function modLavRiepilogo(order) {
     const nomi = tipi.filter(t => t.kind === kind).map(t => t.nome.toLocaleUpperCase('it-IT'));
     return nomi.length ? `${label} — ${nomi.join(', ')}` : attiva ? label : '';
   };
-  return [parte('interne', 'INTERNA', isLavInterna(o)), parte('esterne', 'ESTERNA', !!o.lavorazioneEsterna)].filter(Boolean).join(' · ');
+  return [parte('interne', 'INTERNA', isLavInterna(o)), parte('esterne', 'ESTERNA', !!o.lavorazioneEsterna)].filter(Boolean);
 }
 
 function downloadOrderModule(orderId) {
   const D = orderModuleData(orderId);
   if (!D) return;
-  D.lav = modLavRiepilogo(D.order);
+  D.lavParti = modLavParti(D.order);
   // Usa jsPDF se disponibile, altrimenti la stampa del browser
   if (window.jspdf?.jsPDF) _generatePDF(D); else _generatePrintPreview(D);
 }
@@ -890,16 +891,35 @@ function _generatePDF(D) {
     for (; size > min; size -= 0.25) { doc.setFontSize(size); if (doc.getTextWidth(txt) <= maxW) return size; }
     doc.setFontSize(min); return min;
   };
+  // Lavorazioni: riquadro pieno nel colore della tipologia, in alto a destra, ben visibili
+  const lavParti = D.lavParti || [];
+  let lavW = 0, lavBottom = 0;
+  if (lavParti.length) {
+    const maxW = (pw - 2 * M) * 0.45, padX = 4, lh = 6.2, top = 9;
+    doc.setFont('helvetica', 'bold');
+    let fsL = 12;
+    for (; fsL > 7; fsL -= 0.25) { doc.setFontSize(fsL); if (Math.max(...lavParti.map(t => doc.getTextWidth(t))) <= maxW - 2 * padX) break; }
+    lavW = Math.max(34, Math.min(maxW, Math.max(...lavParti.map(t => doc.getTextWidth(t))) + 2 * padX));
+    const bh = 7 + lh * lavParti.length;
+    doc.setFillColor(...C); doc.roundedRect(pw - M - lavW, top, lavW, bh, 2.5, 2.5, 'F');
+    doc.setTextColor(...FG); doc.setFontSize(6.5); doc.text('LAVORAZIONI', pw - M - lavW + padX, top + 4.6);
+    lavParti.forEach((t, i) => { fitSize(t, lavW - 2 * padX, fsL); doc.text(t, pw - M - lavW + padX, top + 4.6 + lh * (i + 1)); });
+    lavBottom = top + bh;
+  }
+  const leftW = pw - 2 * M - (lavW ? lavW + 6 : 0);
   doc.setFont('helvetica', 'bold'); doc.setTextColor(...C);
-  fitSize(D.tipologia.toUpperCase(), pw - 2 * M - (D.isUrgent ? 25 : 0), 24);
+  fitSize(D.tipologia.toUpperCase(), leftW - (D.isUrgent && !lavW ? 25 : 0), 24);
   doc.text(D.tipologia.toUpperCase(), M, 20);
-  if (D.isUrgent) { doc.setFontSize(10); doc.setTextColor(...RED); doc.text('URGENTE', pw - M, 20, { align: 'right' }); }
+  if (D.isUrgent) {
+    doc.setFontSize(10); doc.setTextColor(...RED);
+    doc.text('URGENTE', pw - M, lavW ? lavBottom + 5 : 20, { align: 'right' });
+  }
 
   // Cliente — descrizione
   let y = 28;
   doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK);
   const cliTxt = D.cliente + (D.desc ? ` — ${D.desc}` : '');
-  fitSize(cliTxt, pw - 2 * M, 12);
+  fitSize(cliTxt, leftW, 12);
   doc.text(cliTxt, M, y); y += 5.5;
 
   // Data ordine — scadenza
@@ -909,6 +929,7 @@ function _generatePDF(D) {
   doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED); doc.text('Scadenza', M + 52, y);
   doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK); doc.text(omDate(D.deadline), M + 68, y);
   y += 5;
+  y = Math.max(y, lavBottom + (D.isUrgent && lavW ? 8 : 3));
 
   // Righe: barra di intestazione nel colore della tipologia
   const head = [['Fornitore','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lavorazione']];
@@ -1012,10 +1033,15 @@ td{padding:7px 10px;border-bottom:1px solid #E2E5EE;white-space:nowrap}tbody tr:
 .tot{display:grid;grid-template-columns:repeat(4,1fr);margin-top:14px;background:#F4F6FC;border-radius:12px}.tot div{padding:10px;text-align:center}
 .tot span{display:block;font-size:9px;font-weight:800;color:#6F7686;text-transform:uppercase;letter-spacing:.06em}.tot strong{font-size:16px}.tot .s strong{color:#d62828}
 .nl{margin-top:16px;font-size:10px;font-weight:800;color:#6F7686;text-transform:uppercase;letter-spacing:.06em}.nt{font-size:13px;white-space:pre-wrap;margin-top:4px}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
+.lav{background:${D.colore};color:${D.inchiostro};border-radius:12px;padding:8px 14px;display:flex;flex-direction:column;gap:2px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.lav span{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;opacity:.85}.lav b{font-size:16px;font-weight:900;white-space:nowrap}
 @media print{body{margin:10px}}</style></head><body>
+<div class="hd"><div>
 <div class="tipo">${escapeHtml(D.tipologia)}${D.isUrgent ? '<span class="urg">URGENTE</span>' : ''}</div>
 <div class="cli">${escapeHtml(D.cliente)}${D.desc ? ` — ${escapeHtml(D.desc)}` : ''}</div>
 <div class="date"><span>Data ordine <b>${omDate(D.data)}</b></span><span>Scadenza <b>${omDate(D.deadline)}</b></span></div>
+</div>${(D.lavParti || []).length ? `<div class="lav"><span>Lavorazioni</span>${D.lavParti.map(t => `<b>${escapeHtml(t)}</b>`).join('')}</div>` : ''}</div>
 <table><thead><tr><th>Fornitore</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th class="c">QNT</th><th class="c">TG</th><th class="r">Prezzo</th><th class="r">Totale</th><th class="c">Ord.</th><th>Lavorazione</th></tr></thead><tbody>${body}</tbody></table>
 <div class="tot"><div><span>Totale prodotti</span><strong>${omPezzi(D.pezzi)}</strong></div><div><span>Totale ordine</span><strong>${omEuro(D.total)}</strong></div><div><span>Acconto</span><strong>${omEuro(D.acconto)}</strong></div><div class="s"><span>Saldo</span><strong>${omEuro(D.total - D.acconto)}</strong></div></div>
 ${D.notes ? `<div class="nl">Note</div><div class="nt">${escapeHtml(D.notes)}</div>` : ''}
