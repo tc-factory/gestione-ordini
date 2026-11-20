@@ -38,6 +38,13 @@ tutti i PC, anche Windows, senza collegare niente nel browser.
   proposto e task **Rinominare i file DTF: <cartella>** (coda DTF-FILE, `sql/dtf-nomi.sql`), chiuso da solo quando i
   nomi sono a posto. Conto terzi (K1) escluso. Un file rinominato nella sua cartella (stessa misura e data) resta lo
   stesso file sull'ordine e si rileggono i pezzi: niente metri doppi.
+- **Salvare sul NAS** (dal 2026-11-20): per le cartelle con PDF o nomi da sistemare lo script calcola dove salvare i
+  file pronti (`cartella_archivio`, `archivio` nell'esito): la cartella da cui l'automazione ha preso i file
+  dell'ordine; altrimenti `<cliente>/<anno>/[<lavorazione>]/dtf/tiff` del cliente trovato (cliente dell'ordine o nome);
+  se il cliente non c'è `Clienti/<iniziale>/<cliente>` o `CrossFit/<box>` (da creare). COLLA NERA e conto terzi no.
+  Elenco cartelle clienti riletto ogni 30 minuti. I task TIF e Rinominare mostrano il percorso (Copia percorso: Finder
+  su Mac, Esplora file su Windows) e a lavoro fatto **non si chiudono**: passano a "salvali sul NAS" e si chiudono
+  col Fatto (`sql/dtf-archivio.sql`). In DTF-FILE tre categorie: 1 Caricare file, 2 Creare TIF, 3 Rinominare file.
 - Esito in `app_settings.dtf_cartella_stato` (riga in DTF interno), salvato quando cambia o
   ogni 10 minuti; nel registro del Centro di controllo solo quando aggiunge o rinomina.
 - Database: `sql/dtf-cartella-server.sql` (`tc_dtf_cartella_dati`, `tc_dtf_cartella_salva`,
