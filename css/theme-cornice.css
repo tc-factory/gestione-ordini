@@ -178,8 +178,7 @@ body { word-spacing: 0.06em; }
   box-shadow: none;
   border-radius: 14px;
 }
-.brand-text strong { color: var(--frame-fg); }
-.brand-text span { color: var(--frame-muted); }
+
 .sidebar .btn-icon { color: var(--frame-muted); }
 .sidebar .btn-icon:hover { background: var(--frame-hover); color: var(--frame-fg); }
 
@@ -282,51 +281,6 @@ html.dark .nav-item.active .nav-item-icon { color: var(--frame-fg); }
 .app-toolbar::before { display: none; }
 .toolbar-title h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.03em; }
 .toolbar-title p { font-size: 0.82rem; color: var(--text-muted); }
-
-.account-wrap { position: relative; }
-.account-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 14px 5px 5px;
-  border: none;
-  border-radius: 999px;
-  background: var(--ink);
-  color: #FFFFFF;
-  font-family: var(--font-body);
-  font-weight: 700;
-  font-size: 0.85rem;
-  transition: transform var(--dur-fast) var(--ease-out), background-color var(--transition);
-}
-.account-pill:hover { background: var(--ink-hover); }
-.account-pill:active { transform: scale(0.97); }
-.account-pill .user-avatar { width: 30px; height: 30px; font-size: 0.8rem; background: #FFFFFF; color: var(--ink); box-shadow: none; }
-
-.account-menu {
-  left: auto;
-  right: 0;
-  top: calc(100% + 8px);
-  min-width: 220px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px;
-  z-index: 120;
-  transform-origin: top right;
-}
-.account-menu-head { padding: 6px 10px 10px; border-bottom: 1px solid var(--border-light); margin-bottom: 4px; display: flex; flex-direction: column; }
-.account-menu-head span { font-size: 0.75rem; color: var(--text-muted); }
-.account-menu button {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 10px;
-  border: none; border-radius: 10px;
-  background: transparent;
-  color: var(--text-primary);
-  font-family: var(--font-body); font-size: 0.86rem; font-weight: 600;
-  text-align: left;
-}
-.account-menu button:hover { background: var(--fill-hover); }
-.account-menu button.danger { color: #DC2626; }
 
 /* ─────────────────────────────────────────────
    Card e superfici: piatte, bianche, angoli ampi
@@ -462,7 +416,6 @@ html.dark .pay-badge.due  { background: #3A1C1C; color: #F87171; }
   body { background: var(--bg-primary); }
   .app-toolbar { margin: 0 -10px; padding: max(14px, env(safe-area-inset-top)) 14px 10px 18px; border-radius: 0; top: 0; }
   .toolbar-title h1 { font-size: 1.3rem; }
-  .account-pill { display: none; }
 
   .bottom-nav {
     background: var(--bn-bg);
@@ -555,7 +508,7 @@ html.dark .sidebar-profile .user-avatar { background: #FFFFFF; color: #2B2B2E; }
 @media (max-width: 860px) {
   .sidebar-brand .sidebar-close { margin-left: 0; }
 }
-.brand-text strong, .brand-text span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 .sidebar-brand { gap: 8px; }
 html:not(.sidebar-collapsed) .brand-logo { width: 42px; height: 42px; border-radius: 13px; }
 .sidebar-brand .btn-icon { min-width: 32px; min-height: 32px; padding: 6px; }
@@ -627,9 +580,6 @@ html.dark { --urgent-bg: #3A1F22; --urgent-bg-hover: #452428; }
    DTF — Interno (timeline) e Conto terzi (calendario)
    ═══════════════════════════════════════════════ */
 
-.dtf-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-lg); align-items: start; }
-@media (max-width: 1200px) { .dtf-grid { grid-template-columns: 1fr; } }
-
 .dtf-box { padding: 20px 22px 22px; overflow: visible; }
 .dtf-box-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .dtf-box-head h2 { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; }
@@ -639,9 +589,6 @@ html.dark { --urgent-bg: #3A1F22; --urgent-bg-hover: #452428; }
 .dtf-box { container-type: inline-size; }
 .dtf-interno { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 /* La colonna "Stampati e rimossi" va a destra solo se il riquadro è abbastanza largo, altrimenti sotto */
-@container (min-width: 820px) {
-  .dtf-interno.side-open { grid-template-columns: minmax(0, 1fr) 270px; }
-}
 
 .dtf-timeline { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
 .dtf-item {
@@ -964,25 +911,6 @@ html.dark .dtf-tag.warn { background: #3A1C1C; color: #FCA5A5; }
 .dtf-kpi-hint strong { font-size: 0.95rem; color: var(--accent-ink); }
 .dtf-note { font-size: 0.78rem; color: var(--text-muted); margin: 0 0 10px; }
 
-.dtf-stats {
-  display: flex; align-items: center; gap: 14px;
-  border: none; border-radius: 12px;
-  padding: 6px 12px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font-family: var(--font-body);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: box-shadow var(--transition);
-}
-.dtf-stats:hover { box-shadow: var(--shadow-sm); }
-.dtf-stats span { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; }
-.dtf-stats strong { font-size: 0.86rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.dtf-stats small { font-size: 0.68rem; color: var(--text-muted); white-space: nowrap; }
-.dtf-stats.empty { color: var(--accent-ink); font-weight: 700; font-size: 0.8rem; gap: 6px; }
-.dtf-item.dtf-urgent .dtf-stats { background: rgba(255, 255, 255, 0.7); }
-html.dark .dtf-item.dtf-urgent .dtf-stats { background: rgba(0, 0, 0, 0.2); }
-
 .dtf-history { display: grid !important; grid-template-columns: 1fr 1fr; gap: 16px; }
 .dtf-history section { background: var(--bg-primary); border-radius: 16px; padding: 12px; min-width: 0; }
 .dtf-history h3 { font-size: 0.85rem; font-weight: 700; margin: 2px 2px 10px; }
@@ -992,11 +920,11 @@ html.dark .dtf-item.dtf-urgent .dtf-stats { background: rgba(0, 0, 0, 0.2); }
 @media (max-width: 900px) {
   .dtf-item { flex-wrap: wrap; }
   .dtf-main { flex-basis: calc(100% - 110px); }
-  .dtf-stats { margin-left: 36px; }
+
 }
 @media (max-width: 640px) {
   .dtf-history { grid-template-columns: 1fr; }
-  .dtf-stats { margin-left: 0; width: 100%; }
+
 }
 @media (max-width: 640px) { .dtf-item .dtf-done-btn { margin-left: auto; } }
 

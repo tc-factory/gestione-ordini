@@ -288,8 +288,6 @@ const Pulsanti = {
   chiusa(o) { const l = this._ruolo(o, 'chiude'); return l.length > 0 && l.every(p => this.stato(o, p).done); },
   obbligatoriOk(o) { return this._ruolo(o, 'obbligatorio').every(p => this.stato(o, p).done); },
   isEvaso(o) { const l = this._ruolo(o, 'evade'); return l.length > 0 && l.every(p => this.stato(o, p).done); },
-  // Data con cui è stata chiusa la lavorazione (per la vista Evasione)
-  dataChiusura(o) { return this._ruolo(o, 'chiude').map(p => this.stato(o, p).date).filter(Boolean).sort().pop() || null; },
   // Riga gialla: un pulsante "riga gialla" è fatto ma restano altre lavorazioni (pulsanti collegati) da fare
   // o la lavorazione non è ancora chiusa (pulsante "chiude", es. Pronto, che manda in Evasione)
   rigaGialla(o) {
@@ -302,7 +300,6 @@ const Pulsanti = {
       });
     });
   },
-  nomeChiusura() { const p = this.all().find(x => x.ruolo === 'chiude' && x.attivo !== false); return p ? this.nome(p) : 'Lavorazione'; },
 
   // Salva la spunta di un pulsante (senza effetti sulle schede)
   async set(orderId, p, done) {

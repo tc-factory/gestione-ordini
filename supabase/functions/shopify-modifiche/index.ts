@@ -41,6 +41,13 @@ Deno.serve(async (req) => {
   const { data: stores } = await db.from('shopify_stores').select('id, nome, dominio, client_id').eq('attivo', true);
   // Calcolo a ritroso: { "dal": "2026-09-01", "al": "2026-09-15" } legge solo quel periodo
   const body = await req.json().catch(() => ({})) as { dal?: string; al?: string };
+  // Date del calcolo a ritroso: AAAA-MM-GG valide, altrimenti un errore chiaro (prima: 500 da toISOString)
+  const dataValida = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d + 'T00:00:00Z'))
+    && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d;
+  for (const k of ['dal', 'al'] as const) {
+    if (body[k] !== undefined && !dataValida(body[k])) return reply({ success: false, error: `"${k}" deve essere una data AAAA-MM-GG valida (ricevuto: ${JSON.stringify(body[k])})` }, 400);
+  }
+  if (body.dal && body.al && body.al <= body.dal) return reply({ success: false, error: '"al" deve essere dopo "dal"' }, 400);
   const dal = body.dal ? new Date(body.dal + 'T00:00:00Z').toISOString() : new Date(Date.now() - GIORNI * 86400_000).toISOString();
   const al = body.al ? ` AND created_at:<'${new Date(body.al + 'T00:00:00Z').toISOString()}'` : '';
   const filtro = `created_at:>='${dal}'${al} AND NOT subject_type:ORDER AND NOT subject_type:CUSTOMER`;

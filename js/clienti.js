@@ -27,13 +27,6 @@ function clientTotals(orders) {
   return { tot, riscosso, daRiscuotere: tot - riscosso };
 }
 
-// Opzioni del menu Cliente nel form ordine
-function renderClientOptions(selectedId) {
-  return `<option value="">— Nessun cliente —</option>` +
-    TCFactory.getClients().map(c =>
-      `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${escapeHtml(TCFactory.clientName(c))}</option>`
-    ).join('');
-}
 
 // ─────────────────────────────────────────────
 // PAGINA
@@ -210,9 +203,7 @@ function renderClientDetail(c) {
           </table>
         </div>`}
       </div>
-    </div>
-
-    ${renderClientCatalogLink(c)}`;
+    </div>`;
 }
 
 async function deleteClientConfirm(id) {

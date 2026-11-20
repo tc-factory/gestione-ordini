@@ -9,7 +9,7 @@ Sito su **https://cs.pngs.it**, dati su Supabase, accesso con login dello staff.
 
 - **Sito**: HTML, CSS e JS puri, senza build. Pagina unica `dashboard.html` con le schede
   (Centro di controllo, Task, Brand, Stampe del giorno, Content Studio, Ordini, Planner,
-  Interne, Esterne, Prodotti, Cataloghi, Clienti, Cassa, Impostazioni, Cestino, Supporto).
+  Interne, Esterne, Prodotti, Clienti, Cassa, Impostazioni, Cestino). I cataloghi dei clienti stanno su Kamon.
   Le schede sono elencate in `NAV_ITEMS` di `js/nav.js`: da lì compaiono anche nei permessi degli account.
 - **Pubblicazione**: servizio `sito` su Railway (Caddy, `sito/Dockerfile`), solo i file del sito.
   A ogni modifica di un file js/css va aumentato il suo `?v=` in `dashboard.html`.

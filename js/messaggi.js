@@ -32,6 +32,24 @@ const Messages = {
   },
   unreadCount() { return this.received().filter(m => !m.letto_at).length; },
 
+  // Messaggi e promemoria sono separati: promemoria = ha un giorno e un'ora (ricorda_il)
+  _isPromemoria(m) { return !!m.ricorda_il; },
+  messaggiRicevuti() { return this.received().filter(m => !this._isPromemoria(m)); },
+  messaggiInviati()  { return this.sent().filter(m => !this._isPromemoria(m)); },
+  // In programma: quelli che ho messo io e non sono ancora arrivati, dal più vicino
+  promemoriaInProgramma() {
+    return this._list.filter(m => this._isPromemoria(m) && m.mittente === this._me() && !this._arrivato(m))
+      .sort((a, b) => a.ricorda_il.localeCompare(b.ricorda_il));
+  },
+  // Arrivati: per me o messi da me per altri, dal più recente
+  promemoriaArrivati() {
+    const me = this._me();
+    return this._list.filter(m => this._isPromemoria(m) && this._arrivato(m) && (m.destinatario === me || m.mittente === me))
+      .sort((a, b) => b.ricorda_il.localeCompare(a.ricorda_il));
+  },
+  unreadMessaggi()   { return this.messaggiRicevuti().filter(m => !m.letto_at).length; },
+  unreadPromemoria() { return this.received().filter(m => this._isPromemoria(m) && !m.letto_at).length; },
+
   async load() {
     const { data, error } = await supabaseClient.from('messages').select('*')
       .order('created_at', { ascending: false }).limit(MESSAGES_LIMIT);
@@ -113,7 +131,7 @@ const Messages = {
   _notify(m) {
     if (this._seen.has(m.id)) return;
     this._seen.add(m.id);
-    const da = m.mittente === this._me() ? 'Promemoria' : m.mittente;
+    const da = m.mittente === this._me() ? 'Promemoria' : m.ricorda_il ? `Promemoria di ${m.mittente}` : m.mittente;
     showMessageToast(m, da);
     if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
       try {
@@ -292,7 +310,8 @@ window.MsgPicker = MsgPicker;
 // PANNELLO MESSAGGI
 // ─────────────────────────────────────────────
 
-const MsgState = { tab: 'ricevuti' };
+// Due sezioni separate: Messaggi (ricevuti/inviati) e Promemoria (in programma/arrivati)
+const MsgState = { sezione: 'messaggi', tab: 'ricevuti', ptab: 'programma' };
 
 const msgWhen = (iso) => {
   const d = new Date(iso);
@@ -316,8 +335,12 @@ function messagesButton(cls = 'sidebar-msg-btn') {
   </button>`;
 }
 
+// tab: 'ricevuti' | 'inviati' (messaggi) oppure 'promemoria'
 function openMessagesPanel(tab) {
-  if (tab) MsgState.tab = tab;
+  if (tab === 'promemoria') MsgState.sezione = 'promemoria';
+  else if (tab) { MsgState.sezione = 'messaggi'; MsgState.tab = tab; }
+  // Senza indicazioni si apre dove c'è qualcosa da leggere
+  else if (!Messages.unreadMessaggi() && Messages.unreadPromemoria()) { MsgState.sezione = 'promemoria'; MsgState.ptab = 'arrivati'; }
   const modal = document.getElementById('msg-modal');
   renderMessagesPanel();
   modal.classList.add('active');
@@ -325,57 +348,88 @@ function openMessagesPanel(tab) {
   if (!Messages.loaded) Messages.load();
 }
 
+function msgSegmented(label, tabs, attivo, onclick) {
+  return `<div class="segmented" role="tablist" aria-label="${label}">
+    ${tabs.map(([id, txt]) => `<button type="button" role="tab" aria-selected="${attivo === id}" class="${attivo === id ? 'active' : ''}"
+      onclick="${onclick}='${id}';renderMessagesPanel()">${txt}</button>`).join('')}
+  </div>`;
+}
+
 function renderMessagesPanel() {
   const modal = document.getElementById('msg-modal');
-  const me = TCAuth.getNickname();
+  const promemoria = MsgState.sezione === 'promemoria';
   const ricevuti = MsgState.tab === 'ricevuti';
-  const list = ricevuti ? Messages.received() : Messages.sent();
-  const unreadIds = ricevuti ? list.filter(m => !m.letto_at).map(m => m.id) : [];
-  const unread = Messages.unreadCount();
+  const programma = MsgState.ptab === 'programma';
+  const list = promemoria
+    ? (programma ? Messages.promemoriaInProgramma() : Messages.promemoriaArrivati())
+    : (ricevuti ? Messages.messaggiRicevuti() : Messages.messaggiInviati());
+  const me = TCAuth.getNickname();
+  const unreadIds = list.filter(m => m.destinatario === me && Messages._arrivato(m) && !m.letto_at).map(m => m.id);
+  const nMsg = Messages.unreadMessaggi(), nProm = Messages.unreadPromemoria();
   const askNotify = 'Notification' in window && Notification.permission === 'default';
 
-  const item = (m) => {
-    const programmato = !Messages._arrivato(m);
-    const toSelf = m.mittente === m.destinatario;
-    const head = ricevuti
-      ? (toSelf ? 'Promemoria' : escapeHtml(m.mittente))
-      : (toSelf ? 'Promemoria per te' : `A ${escapeHtml(m.destinatario)}`);
-    return `
+  const itemMessaggio = (m) => `
       <li class="msg-item ${ricevuti && !m.letto_at ? 'unread' : ''}">
         <div class="msg-item-head">
-          <strong>${head}</strong>
-          <span>${programmato ? `${Icons.clock(12)} arriva ${msgWhen(m.ricorda_il)}` : msgWhen(Messages._arrivo(m))}${!ricevuti && !programmato && m.letto_at && !toSelf ? ' · letto' : ''}</span>
+          <strong>${ricevuti ? escapeHtml(m.mittente) : m.destinatario === me ? 'A te' : `A ${escapeHtml(m.destinatario)}`}</strong>
+          <span>${msgWhen(m.created_at)}${!ricevuti && m.letto_at && m.destinatario !== me ? ' · letto' : ''}</span>
         </div>
         <div class="msg-item-text">${escapeHtml(m.testo)}</div>
         ${m.riferimento ? MsgRef.chip(m.riferimento, `MsgRef.open(Messages._list.find(x=>x.id==='${m.id}').riferimento)`) : ''}
         <div class="msg-item-actions">
-          ${ricevuti && !toSelf ? `<button type="button" class="btn btn-ghost btn-sm" onclick="replyToMessage('${m.id}')">Rispondi</button>` : ''}
-          <button type="button" class="btn btn-ghost btn-sm" onclick="deleteMessageConfirm('${m.id}')">${programmato ? 'Annulla promemoria' : 'Elimina'}</button>
+          ${ricevuti && m.mittente !== me ? `<button type="button" class="btn btn-ghost btn-sm" onclick="replyToMessage('${m.id}')">Rispondi</button>` : ''}
+          <button type="button" class="btn btn-ghost btn-sm" onclick="deleteMessageConfirm('${m.id}')">Elimina</button>
+        </div>
+      </li>`;
+
+  const itemPromemoria = (m) => {
+    const perMe = m.destinatario === me, mio = m.mittente === me;
+    const chi = perMe && mio ? 'Per te' : perMe ? `Da ${escapeHtml(m.mittente)}` : `Per ${escapeHtml(m.destinatario)}`;
+    return `
+      <li class="msg-item ${perMe && !programma && !m.letto_at ? 'unread' : ''}">
+        <div class="msg-item-head">
+          <strong>${chi}</strong>
+          <span>${Icons.clock(12)} ${programma ? 'arriva ' : ''}${msgWhen(m.ricorda_il)}${!programma && !perMe && m.letto_at ? ' · letto' : ''}</span>
+        </div>
+        <div class="msg-item-text">${escapeHtml(m.testo)}</div>
+        ${m.riferimento ? MsgRef.chip(m.riferimento, `MsgRef.open(Messages._list.find(x=>x.id==='${m.id}').riferimento)`) : ''}
+        <div class="msg-item-actions">
+          ${!mio ? `<button type="button" class="btn btn-ghost btn-sm" onclick="replyToMessage('${m.id}')">Rispondi</button>` : ''}
+          <button type="button" class="btn btn-ghost btn-sm" onclick="deleteMessageConfirm('${m.id}')">${programma ? 'Annulla' : 'Elimina'}</button>
         </div>
       </li>`;
   };
 
+  const vuoto = promemoria
+    ? (programma ? 'Nessun promemoria in programma.' : 'Nessun promemoria arrivato.')
+    : (ricevuti ? 'Nessun messaggio ricevuto.' : 'Non hai ancora mandato messaggi.');
+  const tuttiLabel = promemoria
+    ? (programma ? 'Annulla tutti i promemoria in programma' : 'Elimina tutti i promemoria arrivati')
+    : `Elimina tutti i ${ricevuti ? 'ricevuti' : 'inviati'}`;
+
   modal.innerHTML = `
     <div class="modal msg-panel" style="max-width:520px;" role="dialog" aria-modal="true" aria-labelledby="msg-title">
       <div class="modal-header">
-        <h2 id="msg-title">Messaggi</h2>
+        <h2 id="msg-title">${promemoria ? 'Promemoria' : 'Messaggi'}</h2>
         <button class="btn-icon" onclick="closeModal('msg-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <div class="modal-body" style="gap:12px;">
+        ${msgSegmented('Sezione', [['messaggi', `Messaggi${nMsg ? ` (${nMsg})` : ''}`], ['promemoria', `Promemoria${nProm ? ` (${nProm})` : ''}`]], MsgState.sezione, 'MsgState.sezione')}
         <div class="msg-actions">
-          <button type="button" class="btn btn-primary" onclick="startMessagePick()">${Icons.magic(15)} Seleziona dalla schermata</button>
-          <button type="button" class="btn btn-secondary" onclick="openMessageComposer()">${Icons.edit(15)} Scrivi</button>
+          ${promemoria
+            ? `<button type="button" class="btn btn-primary" onclick="openMessageComposer({ promemoria: true })">${Icons.clock(15)} Nuovo promemoria</button>`
+            : `<button type="button" class="btn btn-primary" onclick="startMessagePick()">${Icons.magic(15)} Seleziona dalla schermata</button>
+               <button type="button" class="btn btn-secondary" onclick="openMessageComposer()">${Icons.edit(15)} Scrivi</button>`}
         </div>
         ${askNotify ? `<button type="button" class="btn btn-ghost btn-sm" style="align-self:flex-start;" onclick="enableMessageNotifications()">${Icons.zap(13)} Avvisami anche con le notifiche del computer</button>` : ''}
-        <div class="segmented" role="tablist" aria-label="Messaggi">
-          <button type="button" role="tab" aria-selected="${ricevuti}" class="${ricevuti ? 'active' : ''}" onclick="MsgState.tab='ricevuti';renderMessagesPanel()">Ricevuti${unread ? ` (${unread})` : ''}</button>
-          <button type="button" role="tab" aria-selected="${!ricevuti}" class="${!ricevuti ? 'active' : ''}" onclick="MsgState.tab='inviati';renderMessagesPanel()">Inviati</button>
-        </div>
+        ${promemoria
+          ? msgSegmented('Promemoria', [['programma', 'In programma'], ['arrivati', `Arrivati${nProm ? ` (${nProm})` : ''}`]], MsgState.ptab, 'MsgState.ptab')
+          : msgSegmented('Messaggi', [['ricevuti', `Ricevuti${nMsg ? ` (${nMsg})` : ''}`], ['inviati', 'Inviati']], MsgState.tab, 'MsgState.tab')}
         ${Messages.error ? `<div class="settings-section-hint" style="margin:0;">${escapeHtml(Messages.error.message)}${Messages.error.notInstalled ? ' (esegui sql/messaggi.sql su Supabase)' : ''}</div>`
           : !Messages.loaded ? `<div class="settings-section-hint" style="margin:0;">Caricamento…</div>`
-          : list.length ? `<ul class="msg-list">${list.map(item).join('')}</ul>
-            <button type="button" class="btn btn-ghost btn-sm" style="align-self:flex-start;color:var(--priority-urgent);" onclick="deleteAllMessagesConfirm()">${Icons.trash(13)} Elimina tutti i ${ricevuti ? 'ricevuti' : 'inviati'}</button>`
-          : `<div class="settings-section-hint" style="margin:0;">${ricevuti ? 'Nessun messaggio ricevuto.' : 'Non hai ancora mandato messaggi.'}</div>`}
+          : list.length ? `<ul class="msg-list">${list.map(promemoria ? itemPromemoria : itemMessaggio).join('')}</ul>
+            <button type="button" class="btn btn-ghost btn-sm" style="align-self:flex-start;color:var(--priority-urgent);" onclick="deleteAllMessagesConfirm()">${Icons.trash(13)} ${tuttiLabel}</button>`
+          : `<div class="settings-section-hint" style="margin:0;">${vuoto}</div>`}
       </div>
     </div>`;
   // Restano evidenziati finché il pannello è aperto, ma risultano letti
@@ -391,31 +445,42 @@ async function deleteMessageConfirm(id) {
   const m = Messages._list.find(x => x.id === id);
   if (!m) return;
   const domanda = !Messages._arrivato(m) ? 'Annullare il promemoria?'
-    : m.mittente === m.destinatario ? 'Eliminare il promemoria?'
+    : m.ricorda_il ? (m.mittente === m.destinatario ? 'Eliminare il promemoria?' : 'Eliminare il promemoria anche per l\'altra persona?')
     : m.mittente === TCAuth.getNickname() ? 'Eliminare il messaggio anche per chi lo ha ricevuto?'
     : `Eliminare il messaggio di ${m.mittente}?\n\nSparisce anche dai suoi inviati.`;
   if (!(await uiConfirm(domanda, { ok: Messages._arrivato(m) ? 'Elimina' : 'Annulla promemoria', cancel: 'Indietro', danger: true }))) return;
-  try { await Messages.remove(id); showToast(Messages._arrivato(m) ? 'Messaggio eliminato' : 'Promemoria annullato'); }
+  try { await Messages.remove(id); showToast(!Messages._arrivato(m) ? 'Promemoria annullato' : m.ricorda_il ? 'Promemoria eliminato' : 'Messaggio eliminato'); }
   catch (e) { showToast(e.message, 'error'); }
 }
 
 async function deleteAllMessagesConfirm() {
-  const ricevuti = MsgState.tab === 'ricevuti';
-  const list = ricevuti ? Messages.received() : Messages.sent();
+  const promemoria = MsgState.sezione === 'promemoria';
+  const ricevuti = MsgState.tab === 'ricevuti', programma = MsgState.ptab === 'programma';
+  const list = promemoria
+    ? (programma ? Messages.promemoriaInProgramma() : Messages.promemoriaArrivati())
+    : (ricevuti ? Messages.messaggiRicevuti() : Messages.messaggiInviati());
   if (!list.length) return;
   const n = list.length;
-  const nota = ricevuti
-    ? 'Spariscono anche dagli inviati di chi te li ha mandati.'
-    : 'Spariscono anche per chi li ha ricevuti; i promemoria programmati vengono annullati.';
-  if (!(await uiConfirm(`Eliminare ${n === 1 ? 'il messaggio' : `tutti i ${n} messaggi`} ${ricevuti ? 'ricevuti' : 'inviati'}?\n\n${nota}`,
-    { ok: n === 1 ? 'Elimina' : 'Elimina tutti', cancel: 'Indietro', danger: true }))) return;
-  try { await Messages.removeMany(list.map(m => m.id)); showToast(n === 1 ? 'Messaggio eliminato' : `${n} messaggi eliminati`); }
+  let domanda, ok, fatto;
+  if (promemoria && programma) {
+    domanda = `Annullare ${n === 1 ? 'il promemoria in programma' : `tutti i ${n} promemoria in programma`}?`;
+    ok = n === 1 ? 'Annulla promemoria' : 'Annulla tutti'; fatto = n === 1 ? 'Promemoria annullato' : `${n} promemoria annullati`;
+  } else if (promemoria) {
+    domanda = `Eliminare ${n === 1 ? 'il promemoria arrivato' : `tutti i ${n} promemoria arrivati`}?\n\nQuelli scambiati con altri spariscono anche per loro.`;
+    ok = n === 1 ? 'Elimina' : 'Elimina tutti'; fatto = n === 1 ? 'Promemoria eliminato' : `${n} promemoria eliminati`;
+  } else {
+    const nota = ricevuti ? 'Spariscono anche dagli inviati di chi te li ha mandati.' : 'Spariscono anche per chi li ha ricevuti.';
+    domanda = `Eliminare ${n === 1 ? 'il messaggio' : `tutti i ${n} messaggi`} ${ricevuti ? 'ricevuti' : 'inviati'}?\n\n${nota}`;
+    ok = n === 1 ? 'Elimina' : 'Elimina tutti'; fatto = n === 1 ? 'Messaggio eliminato' : `${n} messaggi eliminati`;
+  }
+  if (!(await uiConfirm(domanda, { ok, cancel: 'Indietro', danger: true }))) return;
+  try { await Messages.removeMany(list.map(m => m.id)); showToast(fatto); }
   catch (e) { showToast(e.message, 'error'); }
 }
 
 function replyToMessage(id) {
   const m = Messages._list.find(x => x.id === id);
-  if (m) openMessageComposer({ destinatari: [m.mittente], riferimento: m.riferimento });
+  if (m) openMessageComposer({ destinatari: [m.mittente], riferimento: m.riferimento, promemoria: false });
 }
 
 // ─────────────────────────────────────────────
@@ -493,12 +558,12 @@ function showMessageToast(m, da) {
   const card = document.createElement('div');
   card.className = 'msg-alert';
   card.setAttribute('role', 'alertdialog');
-  card.setAttribute('aria-label', `${toSelf ? 'Promemoria' : 'Nuovo messaggio da ' + da}`);
+  card.setAttribute('aria-label', `${m.ricorda_il ? da : 'Nuovo messaggio da ' + da}`);
   card.innerHTML = `
     <div class="msg-alert-ring" aria-hidden="true"></div>
-    <div class="msg-alert-avatar" aria-hidden="true">${toSelf ? Icons.clock(22) : iniziale}<span class="msg-alert-bell">${Icons.messageCircle(13)}</span></div>
+    <div class="msg-alert-avatar" aria-hidden="true">${m.ricorda_il ? Icons.clock(22) : iniziale}<span class="msg-alert-bell">${Icons.messageCircle(13)}</span></div>
     <div class="msg-alert-body">
-      <div class="msg-alert-kicker">${toSelf ? 'Promemoria' : 'Nuovo messaggio'}</div>
+      <div class="msg-alert-kicker">${m.ricorda_il ? 'Promemoria' : 'Nuovo messaggio'}</div>
       <strong class="msg-alert-from">${escapeHtml(da)}</strong>
       <div class="msg-alert-text">${escapeHtml(testo)}</div>
       ${m.riferimento ? `<div class="msg-alert-ref">${MsgRef.chip(m.riferimento, 'void 0')}</div>` : ''}
@@ -523,7 +588,7 @@ function showMessageToast(m, da) {
     Messages.markRead([m.id]).catch(() => {});
     if (act === 'reply') replyToMessage(m.id);
     else if (act === 'ref') MsgRef.open(m.riferimento);
-    else openMessagesPanel('ricevuti');
+    else openMessagesPanel(m.ricorda_il ? 'promemoria' : 'ricevuti');
   });
   // Timer di chiusura, fermo col mouse sopra
   const DURATA = 20000;
@@ -553,6 +618,15 @@ let _msgDraft = null;   // { destinatari: Set, riferimento, testo, promemoria, r
 let _msgUsers = [];
 
 const msgLocalInput = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+// L'orario del promemoria va a passi di 10 minuti (arrotonda per eccesso)
+const MSG_STEP_MS = 600000;
+const msgRound10 = (d) => new Date(Math.ceil(d.getTime() / MSG_STEP_MS) * MSG_STEP_MS);
+function msgSetWhen(input) {
+  const t = new Date(input.value);
+  if (isNaN(t)) return;
+  input.value = msgLocalInput(msgRound10(t));
+  _msgDraft.ricordaIl = input.value;
+}
 
 function startMessagePick() {
   closeModal('msg-modal');
@@ -562,10 +636,12 @@ function startMessagePick() {
 async function openMessageComposer(prefill = {}) {
   closeModal('msg-modal');
   _msgDraft = {
-    destinatari: new Set(prefill.destinatari || []),
+    destinatari: new Set(prefill.destinatari || (prefill.promemoria ? [TCAuth.getNickname()] : [])),
     riferimento: prefill.riferimento || null,
-    testo: '', promemoria: false,
-    ricordaIl: msgLocalInput(new Date(Date.now() + 3600000)),
+    testo: '',
+    // Il promemoria ha la sua finestra: di base è per sé stessi
+    promemoria: !!prefill.promemoria,
+    ricordaIl: msgLocalInput(msgRound10(new Date(Date.now() + 3600000))),
   };
   _msgUsers = (await TCAuth.listUsers().catch(() => [])).map(u => u.nickname);
   renderMessageComposer();
@@ -587,12 +663,12 @@ function renderMessageComposer() {
   modal.innerHTML = `
     <div class="modal" style="max-width:500px;" role="dialog" aria-modal="true" aria-labelledby="mc-title">
       <div class="modal-header">
-        <h2 id="mc-title">Nuovo messaggio</h2>
+        <h2 id="mc-title">${d.promemoria ? 'Nuovo promemoria' : 'Nuovo messaggio'}</h2>
         <button class="btn-icon" onclick="closeModal('msg-compose-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <form class="modal-body" style="gap:14px;" onsubmit="event.preventDefault();submitMessageComposer()">
         <div class="form-group">
-          <span class="form-label">A chi</span>
+          <span class="form-label">${d.promemoria ? 'Per chi' : 'A chi'}</span>
           <div class="chip-picker" role="group" aria-label="Destinatari">
             ${people.map(u => `
               <button type="button" class="chip chip-btn msg-to ${d.destinatari.has(u) ? 'active' : ''}" aria-pressed="${d.destinatari.has(u)}"
@@ -608,16 +684,15 @@ function renderMessageComposer() {
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label" for="mc-testo">Messaggio</label>
-          <textarea id="mc-testo" class="form-textarea" rows="4" maxlength="2000" required placeholder="Scrivi qualcosa…"
+          <label class="form-label" for="mc-testo">${d.promemoria ? 'Cosa ricordare' : 'Messaggio'}</label>
+          <textarea id="mc-testo" class="form-textarea" rows="4" maxlength="2000" required placeholder="${d.promemoria ? 'Es. richiamare il cliente…' : 'Scrivi qualcosa…'}"
             oninput="_msgDraft.testo=this.value">${escapeHtml(d.testo)}</textarea>
         </div>
-        <label class="switch-row" style="padding:0;">
-          <span><strong>Promemoria</strong><small>Arriva solo al giorno e all'ora scelti</small></span>
-          <input type="checkbox" class="switch" ${d.promemoria ? 'checked' : ''} onchange="_msgDraft.promemoria=this.checked;renderMessageComposer()">
-        </label>
-        ${d.promemoria ? `<input type="datetime-local" class="form-input" aria-label="Quando arriva" value="${d.ricordaIl}"
-            min="${msgLocalInput(new Date())}" onchange="_msgDraft.ricordaIl=this.value">` : ''}
+        ${d.promemoria ? `<div class="form-group">
+          <label class="form-label" for="mc-quando">Quando arriva</label>
+          <input id="mc-quando" type="datetime-local" class="form-input" value="${d.ricordaIl}" step="600"
+            min="${msgLocalInput(msgRound10(new Date()))}" onchange="msgSetWhen(this)">
+        </div>` : ''}
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button type="button" class="btn btn-secondary" onclick="closeModal('msg-compose-modal')">Annulla</button>
           <button type="submit" class="btn btn-primary" id="mc-send">${d.promemoria ? 'Programma' : 'Invia'}</button>
@@ -636,7 +711,7 @@ function toggleMessageTo(u) {
 async function submitMessageComposer() {
   const d = _msgDraft;
   if (!d.destinatari.size) { showToast('Scegli almeno un destinatario', 'error'); return; }
-  if (!d.testo.trim()) { showToast('Scrivi il messaggio', 'error'); return; }
+  if (!d.testo.trim()) { showToast(d.promemoria ? 'Scrivi cosa ricordare' : 'Scrivi il messaggio', 'error'); return; }
   let ricordaIl = null;
   if (d.promemoria) {
     const t = new Date(d.ricordaIl);
@@ -648,6 +723,8 @@ async function submitMessageComposer() {
   try {
     await Messages.send([...d.destinatari], d.testo, d.riferimento, ricordaIl);
     closeModal('msg-compose-modal');
+    // Si torna alla sezione giusta, così si vede quello appena creato
+    if (ricordaIl) { MsgState.sezione = 'promemoria'; MsgState.ptab = 'programma'; }
     showToast(ricordaIl ? `Promemoria programmato per ${msgWhen(ricordaIl)}` : 'Messaggio inviato');
   } catch (e) { showToast(e.message, 'error'); btn.disabled = false; }
 }

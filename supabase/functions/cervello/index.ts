@@ -18,6 +18,7 @@ import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { inviaRisposta } from '../_shared/mail.ts';
 import { applicaIndirizzi, indirizzoDaMail } from './indirizzi.ts';
+import { consumoChiamata, haPrezzo } from '../_shared/prezzi.ts';
 import { MODELLI_VERIFICA, verificaTask } from './verifica.ts';
 import { numeriNostri, primoCellulare } from '../_shared/telefoni.ts';
 import { fermaDopoSvincolo, inAttesaDopoSvincolo, storicoGiacenza } from '../_shared/svincolo.ts';
@@ -283,23 +284,11 @@ function perClaude(o: Row, mittente: string, negozi: Map<string, string>, spediz
   };
 }
 
-// Prezzi in dollari per milione di token (input, output, lettura cache, scrittura cache 5 minuti)
-const PREZZI: Record<string, [number, number, number, number]> = {
-  'claude-opus-5-5': [4, 20, 0.2, 5],
-  'claude-sonnet-5-5': [2, 10, 0.1, 2.5],
-  'claude-haiku-5-5': [0.1, 0.5, 0.01, 0.125],
-};
 export const MODELLO = 'claude-opus-5-5';
 
-// Consumo di una chiamata: registrato in cervello_consumi per vedere il costo vero
+// Consumo di una chiamata: registrato in cervello_consumi per vedere il costo vero (prezzi in _shared/prezzi.ts)
 // deno-lint-ignore no-explicit-any
-function consumo(modello: string, u: any) {
-  const p = PREZZI[modello] || PREZZI[MODELLO];
-  const input = u?.input_tokens || 0, output = u?.output_tokens || 0;
-  const letti = u?.cache_read_input_tokens || 0, scritti = u?.cache_creation_input_tokens || 0;
-  return { modello, input, output, cache_letti: letti, cache_scritti: scritti,
-    costo_usd: Number(((input * p[0] + output * p[1] + letti * p[2] + scritti * p[3]) / 1e6).toFixed(5)) };
-}
+const consumo = (modello: string, u: any) => consumoChiamata(modello, u, MODELLO);
 
 async function analizza(client: Anthropic, contesto: string, modello = MODELLO) {
   // Il fallback lato server non c'è su Haiku: lì un rifiuto resta un errore (e la mail diventa task)
@@ -704,7 +693,7 @@ Deno.serve(async (req) => {
 
   const body = await req.json().catch(() => ({}));
   if (body?.prova) {
-    const modelli = (body.prova.modelli || []).filter((m: string) => PREZZI[m]);
+    const modelli = (body.prova.modelli || []).filter((m: string) => haPrezzo(m));
     if (!modelli.length) return fail('Modelli non validi');
     const { data: stores } = await db.from('shopify_stores').select('id, nome');
     const negozi = new Map((stores || []).map(s => [s.id, s.nome]));

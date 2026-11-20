@@ -1,3 +1,7 @@
+/* Stesso font del gestionale */
+:root { --font-display: 'Nunito', system-ui, sans-serif; --font-body: 'Nunito', system-ui, sans-serif; }
+body.portal { font-family: var(--font-body); }
+
 /* Portale DTF per i clienti conto terzi (sola lettura) */
 
 body.portal { background: var(--bg-primary); overflow: auto; }

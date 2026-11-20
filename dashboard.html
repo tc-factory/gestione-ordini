@@ -10,17 +10,17 @@
   <link rel="apple-touch-icon" href="img/brand/cs-mark-nero.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400..900&display=swap">
-  <link rel="stylesheet" href="css/variables.css?v=1">
-  <link rel="stylesheet" href="css/app.css?v=6">
-  <link rel="stylesheet" href="css/theme-cornice.css?v=6">
-  <link rel="stylesheet" href="css/glass.css?v=1">
+  <link rel="stylesheet" href="css/variables.css?v=2">
+  <link rel="stylesheet" href="css/app.css?v=7">
+  <link rel="stylesheet" href="css/theme-cornice.css?v=7">
+  <link rel="stylesheet" href="css/glass.css?v=2">
   <link rel="stylesheet" href="css/kamon-prodotti.css?v=4">
-  <link rel="stylesheet" href="css/creative-system.css?v=10">
-  <link rel="stylesheet" href="css/controllo.css?v=77">
-  <link rel="stylesheet" href="css/mail.css?v=11">
+  <link rel="stylesheet" href="css/creative-system.css?v=11">
+  <link rel="stylesheet" href="css/controllo.css?v=78">
+  <link rel="stylesheet" href="css/mail.css?v=12">
   <link rel="stylesheet" href="css/intro.css?v=3">
   <link rel="stylesheet" href="css/contenuti.css?v=1">
-  <link rel="stylesheet" href="css/file-mattino.css?v=7">
+  <link rel="stylesheet" href="css/file-mattino.css?v=8">
 </head>
 <body>
   <!-- Intro all'apertura: copre la pagina dal primo disegno mentre il gestionale si carica sotto -->
@@ -86,9 +86,6 @@
         <div id="contenuti-root"></div>
       </section>
 
-      <section class="view" id="view-cataloghi" data-view="cataloghi" hidden>
-        <div id="cataloghi-root"></div>
-      </section>
 
       <section class="view" id="view-clienti" data-view="clienti" hidden>
         <div id="clienti-root"></div>
@@ -106,9 +103,6 @@
         <div id="cestino-root"></div>
       </section>
 
-      <section class="view" id="view-supporto" data-view="supporto" hidden>
-        <div id="supporto-root"></div>
-      </section>
     </main>
   </div>
 
@@ -120,8 +114,6 @@
   <div id="cal-event-modal" class="modal-overlay"></div>
   <div id="client-form-modal" class="modal-overlay"></div>
   <div id="client-link-modal" class="modal-overlay"></div>
-  <div id="catalog-add-modal" class="modal-overlay"></div>
-  <div id="catalog-user-modal" class="modal-overlay"></div>
   <div id="product-form-modal" class="modal-overlay"></div>
   <div id="product-cat-modal" class="modal-overlay"></div>
   <div id="supplier-form-modal" class="modal-overlay"></div>
@@ -143,33 +135,30 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"></script>
   <script src="js/supabase-config.js?v=1"></script>
-  <script src="js/auth.js?v=1"></script>
-  <script src="js/data.js?v=5"></script>
+  <script src="js/auth.js?v=2"></script>
+  <script src="js/data.js?v=6"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.6.0/jspdf.plugin.autotable.min.js"></script>
   <script src="js/dialogs.js?v=3"></script>
-  <script src="js/app.js?v=18"></script>
+  <script src="js/app.js?v=19"></script>
   <script src="js/ordine-da-file.js?v=1"></script>
-  <script src="js/pulsanti.js?v=1"></script>
-  <script src="js/clienti.js?v=1"></script>
-  <script src="js/prodotti.js?v=1"></script>
-  <script src="js/cataloghi.js?v=1"></script>
-  <script src="js/prodotti-immagini.js?v=1"></script>
+  <script src="js/pulsanti.js?v=2"></script>
+  <script src="js/clienti.js?v=2"></script>
+  <script src="js/prodotti.js?v=2"></script>
   <script src="js/cassa.js?v=1"></script>
-  <script src="js/supporto.js?v=2"></script>
-  <script src="js/messaggi.js?v=2"></script>
+  <script src="js/messaggi.js?v=4"></script>
   <script src="js/assistente.js?v=1"></script>
   <script src="js/dtf-misure.js?v=2"></script>
   <script src="js/dtf.js?v=12"></script>
   <script src="js/dtf-cartella.js?v=13"></script>
   <script src="js/esterne.js?v=1"></script>
-  <script src="js/controllo.js?v=117"></script>
+  <script src="js/controllo.js?v=118"></script>
   <script src="js/presenze.js?v=6"></script>
   <script src="js/mail.js?v=16"></script>
   <script src="js/comunicazione.js?v=10"></script>
   <script src="js/contenuti.js?v=1"></script>
   <script src="js/file-mattino.js?v=8"></script>
-  <script src="js/nav.js?v=20"></script>
+  <script src="js/nav.js?v=21"></script>
   <script>
     Theme.init();
     TCFactory.onUpdate(() => { if (TCAuth.isLoggedIn()) renderApp(); });

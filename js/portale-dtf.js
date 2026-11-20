@@ -1,5 +1,5 @@
 /**
- * T&C Factory — Portale DTF per i clienti conto terzi (sola lettura)
+ * Portale DTF per i clienti conto terzi (sola lettura). Il cliente non vede mai il nome T&C Factory.
  * Link personale (#codice) + password → la propria tabella del mese:
  * metri per giorno e nomi dei file stampati. Nessuna modifica possibile.
  * I dati arrivano solo dalla funzione dtf_portal_get (sql/dtf-portale.sql),
@@ -41,8 +41,8 @@ const canGoBack = () => !Portal.dal || iso(Portal.month).slice(0, 7) > Portal.da
 
 const brand = `
   <div class="portal-brand">
-    <span class="brand-logo" aria-hidden="true"><span class="brand-logo-mark">T&amp;C</span></span>
-    <div><strong>T&amp;C Factory</strong><span>Stampe DTF</span></div>
+    <span class="brand-logo" aria-hidden="true"><span class="brand-logo-mark">DTF</span></span>
+    <div><strong>Stampe DTF</strong><span>Area clienti</span></div>
   </div>`;
 
 // ── Accesso ──
@@ -50,7 +50,7 @@ const brand = `
 function renderLogin(error = '') {
   if (!Portal.token) {
     root().innerHTML = `${brand}<div class="portal-card"><h1>Link non valido</h1>
-      <p class="portal-muted">Usa il link completo che ti è stato inviato da T&amp;C Factory.</p></div>`;
+      <p class="portal-muted">Usa il link completo che ti è stato inviato.</p></div>`;
     return;
   }
   root().innerHTML = `${brand}

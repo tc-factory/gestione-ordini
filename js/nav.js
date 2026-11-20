@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────
 // VOCI DELLA NAVBAR
 // Ogni voce (anche quelle in fondo) compare da sola in Impostazioni → Account,
-// dove l'admin sceglie quali schede vede ogni account o ruolo:
+// dove l'admin sceglie quali schede vede ogni account:
 // una sezione nuova va aggiunta qui, mai mostrata fuori da questa lista.
 // ─────────────────────────────────────────────
 
@@ -22,7 +22,6 @@ const NAV_ITEMS = [
   { id: 'dtf',          label: 'Interne',       subtitle: 'Lavorazioni fatte in casa',     icon: () => Icons.printer(19) },
   { id: 'esterne',      label: 'Esterne',       subtitle: 'Ordini con lavorazione esterna, per tipo', icon: () => Icons.truck(19) },
   { id: 'prodotti',     label: 'Prodotti',      subtitle: 'Anagrafica articoli e prezzi',  icon: () => Icons.shirt(19) },
-  { id: 'cataloghi',    label: 'Cataloghi',     subtitle: 'Cataloghi e accessi dell\'app clienti', icon: () => Icons.book(19) },
   { id: 'clienti',      label: 'Clienti',       subtitle: 'Anagrafica clienti',            icon: () => Icons.users(19) },
   { id: 'cassa',        label: 'Cassa',         subtitle: 'Incassi e pagamenti',           icon: () => Icons.wallet(19), allowed: () => TCAuth.canViewEconomics(), note: 'Serve anche la gestione economica' },
   { id: 'impostazioni', label: 'Impostazioni',  subtitle: 'Preferenze, priorità, tag e staff', icon: () => Icons.settings(19) },
@@ -31,7 +30,6 @@ const NAV_ITEMS = [
 // Voci in fondo alla navbar, una a fianco all'altra
 const NAV_FOOTER_ITEMS = [
   { id: 'cestino',  label: 'Cestino',  subtitle: 'Ordini eliminati negli ultimi 7 giorni', icon: () => Icons.trash(17) },
-  { id: 'supporto', label: 'Supporto', subtitle: 'Segnalazioni e richieste di aiuto',      icon: () => Icons.lifeBuoy(17) },
 ];
 
 const DEFAULT_VIEW = 'ordini';
@@ -138,12 +136,10 @@ function renderCurrentView() {
     case 'planner':      renderCalendarSection(); break;
     case 'esterne':      renderEsternePage(); break;
     case 'prodotti':     renderProductsPage(); break;
-    case 'cataloghi':    renderCatalogsPage(); break;
     case 'clienti':      renderClientsPage(); break;
     case 'cassa':        renderCassaPage(); break;
     case 'impostazioni': renderSettingsPage(); break;
     case 'cestino':      renderCestinoPage(); break;
-    case 'supporto':     openSupportPage(); break;
     case 'controllo':    openControlPage(); break;
     case 'tasks':        openTasksPage(); break;
     case 'mail':         comRestituisciMail(); openMailPage(); break;
@@ -161,7 +157,6 @@ function navBadges() {
   return {
     ordini:  TCFactory.getActiveOrders().length,
     cestino: TCFactory.getTrashedOrders().length,
-    supporto: TCAuth.isAdmin() ? Tickets.countOpen() : 0,   // ticket da fare
     tasks: Ctrl.badge,                                       // miei task ancora aperti fino a oggi
     comunicazione: Comun.badge,                              // mail e messaggi social da leggere dei negozi
   };
@@ -244,7 +239,7 @@ function renderBottomNav() {
   const primary = BOTTOM_PRIMARY.filter(id => Nav.isAllowed(id)).map(id => Nav._item(id));
   const moreIds = ALL_SECTIONS().filter(i => !BOTTOM_PRIMARY.includes(i.id) && Nav.isAllowed(i.id)).map(i => i.id);
   const moreActive = moreIds.includes(Nav.current);
-  const moreBadge  = moreIds.reduce((n, id) => n + (['supporto', 'comunicazione'].includes(id) ? (badges[id] || 0) : 0), 0) + Messages.unreadCount();
+  const moreBadge  = moreIds.reduce((n, id) => n + (id === 'comunicazione' ? (badges[id] || 0) : 0), 0) + Messages.unreadCount();
 
   const tab = (id, label, icon, active, badge, onclick) => `
     <a href="${id ? '#/' + id : '#'}" class="bn-item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}
@@ -329,7 +324,7 @@ setInterval(tickToolbarClock, 1000);
 // Gesto dell'icona nel titolo, per pagina (css/creative-system.css → ico-*); le lavorazioni nuove usano "tag"
 const TITLE_ICON_ANIM = {
   controllo: 'zap', mail: 'book', ordini: 'package', planner: 'calendar', dtf: 'printer', esterne: 'truck', prodotti: 'shirt',
-  cataloghi: 'book', clienti: 'users', cassa: 'wallet', impostazioni: 'gear', cestino: 'trash', supporto: 'buoy',
+  clienti: 'users', cassa: 'wallet', impostazioni: 'gear', cestino: 'trash',
   interno: 'printer', terzi: 'users', uv: 'sun', laser: 'zap', stampa: 'image', fornitori: 'truck', 'da-inserire': 'plus',
 };
 
@@ -356,8 +351,6 @@ function renderHeader() {
     ? `<button class="btn btn-primary" onclick="openCalEventDialog(null,null)">${Icons.plus()} <span class="new-order-btn-text">Nuovo evento</span></button>`
     : Nav.current === 'dtf' && dtfSection()
     ? `<button class="btn btn-ghost btn-sm" onclick="Nav.go('dtf')">${Icons.chevronLeft(14)} <span class="new-order-btn-text">Tutte le interne</span></button>`
-    : Nav.current === 'cataloghi' && !Nav.param && TCFactory.isCatalogAvailable()
-    ? `<button class="btn btn-primary" onclick="openNewCatalog()">${Icons.plus()} <span class="new-order-btn-text">Nuovo catalogo</span></button>`
     : Nav.current === 'clienti' && !Nav.param && TCFactory.isClientsAvailable()
     ? `<button class="btn btn-primary" onclick="openClientForm()">${Icons.plus()} <span class="new-order-btn-text">Nuovo cliente</span></button>`
     : Nav.current === 'prodotti' && Nav.param === 'fornitori' && TCFactory.isProductsAvailable()

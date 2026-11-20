@@ -128,10 +128,6 @@ function productColorCount(p) {
 // 3,20 € come in Kamon
 const klEur = (n) => (n === null || n === undefined) ? '—' : Number(n).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
 
-async function toggleProductActive(id, attivo) {
-  try { await TCFactory.saveProduct(id, { attivo }); }
-  catch (e) { showToast('Errore — riprova', 'error'); renderProductsPage(); }
-}
 
 // ─────────────────────────────────────────────
 // MODULO PRODOTTO
@@ -194,9 +190,6 @@ function openProductForm(id = null, prefill = null) {
           <span><strong>Attivo</strong><small>I prodotti disattivi restano in archivio ma non compaiono nell'elenco principale</small></span>
           <input id="pf-attivo" type="checkbox" class="switch" ${p && !p.attivo ? '' : 'checked'}>
         </label>
-        ${id ? `<section id="pf-images" class="pf-images" data-product="${id}"></section>`
-             : `<section class="pf-images"><h3 class="pf-section-title">${Icons.image(15)} Immagini</h3>
-                  <div class="settings-section-hint" style="margin:0;">Salva il prodotto: poi, riaprendolo, qui potrai aggiungere le immagini per ogni colore.</div></section>`}
       </div>
       <div class="modal-footer">
         ${id ? `<button class="btn btn-ghost" style="color:var(--priority-urgent);margin-right:auto;" onclick="deleteProductConfirm('${id}')">${Icons.trash(14)} Elimina</button>
@@ -208,7 +201,6 @@ function openProductForm(id = null, prefill = null) {
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('product-form-modal'); };
   setTimeout(() => document.getElementById('pf-codice')?.focus(), 50);
-  if (id) openProductImages(id);
 }
 
 // nuovoNome: fornitore letto da un link e non ancora in anagrafica (si crea al salvataggio)
@@ -310,8 +302,8 @@ async function deleteProductConfirm(id) {
     closeModal('product-form-modal');
     showToast('Prodotto eliminato');
   } catch (e) {
-    // 23503: il prodotto è nel catalogo di un cliente (app clienti)
-    showToast(e?.code === '23503' ? 'È nel catalogo di un cliente: disattivalo invece di eliminarlo' : 'Errore eliminazione prodotto', 'error');
+    // 23503: il prodotto è ancora collegato ad altri dati
+    showToast(e?.code === '23503' ? 'Il prodotto è collegato ad altri dati: disattivalo invece di eliminarlo' : 'Errore eliminazione prodotto', 'error');
   }
 }
 

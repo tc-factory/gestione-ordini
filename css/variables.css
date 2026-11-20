@@ -232,26 +232,6 @@ input, select, textarea {
    Layout (legacy)
    ============================================ */
 
-.page-header {
-  padding: var(--space-lg) var(--space-xl);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-card);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-}
-
-.page-header h1 {
-  font-size: 1.6rem;
-  color: var(--text-primary);
-}
-
-.page-body {
-  padding: var(--space-xl);
-  flex: 1;
-}
-
 /* ============================================
    Utility Classes
    ============================================ */
@@ -267,18 +247,6 @@ input, select, textarea {
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
-
-.badge-low    { background: var(--priority-low-bg);    color: var(--priority-low); }
-.badge-medium { background: var(--priority-medium-bg); color: var(--priority-medium); }
-.badge-high   { background: var(--priority-high-bg);   color: var(--priority-high); }
-.badge-urgent { background: var(--priority-urgent-bg); color: var(--priority-urgent); }
-
-.badge-grafica      { background: #EEEAFF; color: var(--status-grafica); }
-.badge-approvato    { background: #E3F0FA; color: var(--status-approvato); }
-.badge-materiale    { background: var(--priority-medium-bg); color: var(--status-materiale); }
-.badge-stampa       { background: #FEF0DC; color: var(--status-stampa); }
-.badge-applicazione { background: var(--priority-high-bg); color: var(--status-applicazione); }
-.badge-spedito      { background: var(--priority-low-bg); color: var(--status-spedito); }
 
 .card {
   background: var(--surface);
@@ -422,13 +390,6 @@ html.dark .btn-secondary { box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); }
   gap: var(--space-md);
 }
 
-/* Divider */
-.divider {
-  height: 1px;
-  background: var(--border);
-  margin: var(--space-lg) 0;
-}
-
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -508,38 +469,6 @@ html.dark .btn-secondary { box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); }
   display: flex;
   justify-content: flex-end;
   gap: var(--space-sm);
-}
-
-/* Calc Result Box */
-.calc-result {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: var(--space-md);
-}
-
-.calc-result-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.calc-result-label {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-
-.calc-result-value {
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--brand-gold-dark);
 }
 
 /* ============================================
