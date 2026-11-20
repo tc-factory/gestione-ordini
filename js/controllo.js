@@ -1448,9 +1448,10 @@ function renderTaskQueue(coda, emptyText = '') {
     const nomi = list.filter(t => String(t.fonte_rif?.dtf || '').startsWith('nome:'));
     const proposte = list.filter(t => !tif.includes(t) && !nomi.includes(t));
     corpo = tagRow + ((tif.length ? sub(`Creare il file TIF · ${tif.length}`, ordinati(tif).map(renderDtfTaskRiga).join('')) : '')
-      + (nomi.length ? sub(`Rinominare i file · ${nomi.length}`, ordinati(nomi).map(renderDtfTaskRiga).join('')) : '')
       + (proposte.length ? sub(`Proposte da approvare · ${proposte.length}`, ordinati(proposte).map(renderDtfTaskRiga).join('')) : '')
       + (righe.file.length ? sub(`Manca il DTF · ${righe.file.length}`, righe.file.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true, azione: 'file' })).join('')) : '')
+      // Rinominare i file: non passa davanti a niente, sta in fondo
+      + (nomi.length ? sub(`Rinominare i file · ${nomi.length}`, ordinati(nomi).map(renderDtfTaskRiga).join('')) : '')
       || `<div class="empty-list">${codaTagAttivi().length ? 'Nessun ordine con questi tag.' : 'Tutti gli ordini DTF hanno i file.'}</div>`);
   } else if (cat === 'dtfstampa') {
     n = list.length + righe.stampa.length;
