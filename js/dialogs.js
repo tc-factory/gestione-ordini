@@ -5,6 +5,7 @@
 //   if (!(await uiConfirm('Eliminare il tag?', { ok: 'Elimina', danger: true }))) return;
 //   const nome = await uiPrompt('Nome del nuovo fornitore:');      // null se annullato
 //   await uiAlert('Errore calendario: ...');
+//   const n = await uiScegli('Riduzione?', [{ value: 0, label: '0 px' }, …]);   // null se annullato
 
 const UIDialog = {
   _resolve: null,
@@ -57,9 +58,10 @@ const UIDialog = {
     }
   },
 
-  _cancel() { this._close(this._mode === 'alert' ? undefined : (this._mode === 'prompt' ? null : false)); },
+  _cancel() { this._close(this._mode === 'alert' ? undefined : (['prompt', 'scegli'].includes(this._mode) ? null : false)); },
 
   _confirm() {
+    if (this._mode === 'scegli') return;   // si sceglie solo col clic su un'opzione
     if (this._mode === 'prompt') {
       const v = document.getElementById('ui-dialog-input')?.value ?? '';
       this._close(v);
@@ -89,13 +91,16 @@ const UIDialog = {
           ${this._testo(msg)}
           ${input}
         </div>
-        <div class="ui-dialog-actions">
+        <div class="ui-dialog-actions${mode === 'scegli' ? ' is-scegli' : ''}" ${mode === 'scegli' ? `style="--n:${(opts.scelte || []).length}"` : ''}>
           ${mode === 'alert' ? '' : `<button type="button" class="btn btn-secondary" data-ui="cancel">${this._esc(opts.cancel || 'Annulla')}</button>`}
-          <button type="button" class="${okClass}" data-ui="ok">${this._esc(okLabel)}</button>
+          ${mode === 'scegli'
+            ? (opts.scelte || []).map((x, i) => `<button type="button" class="btn btn-primary" data-ui-scelta="${i}">${this._esc(x.label)}</button>`).join('')
+            : `<button type="button" class="${okClass}" data-ui="ok">${this._esc(okLabel)}</button>`}
         </div>
       </div>`;
     el.querySelector('[data-ui="cancel"]')?.addEventListener('click', () => this._cancel());
-    el.querySelector('[data-ui="ok"]').addEventListener('click', () => this._confirm());
+    el.querySelector('[data-ui="ok"]')?.addEventListener('click', () => this._confirm());
+    el.querySelectorAll('[data-ui-scelta]').forEach(b => b.addEventListener('click', () => this._close(opts.scelte[+b.dataset.uiScelta].value)));
     el.onclick = (e) => { if (e.target === el) this._cancel(); };
     el.classList.remove('closing');
     el.classList.add('active');
@@ -103,7 +108,7 @@ const UIDialog = {
     setTimeout(() => {
       const inp = document.getElementById('ui-dialog-input');
       if (inp) { inp.focus(); inp.select(); }
-      else el.querySelector('[data-ui="ok"]')?.focus();
+      else el.querySelector('[data-ui="ok"], [data-ui-scelta]')?.focus();
     }, 30);
     return new Promise(resolve => { this._resolve = resolve; });
   },
@@ -112,3 +117,5 @@ const UIDialog = {
 function uiConfirm(msg, opts) { return UIDialog.open('confirm', msg, opts); }
 function uiPrompt(msg, opts) { return UIDialog.open('prompt', msg, opts); }
 function uiAlert(msg, opts) { return UIDialog.open('alert', msg, opts); }
+// Scelta tra più bottoni: scelte = [{ value, label }]; ritorna il value scelto, null se annullato
+function uiScegli(msg, scelte, opts = {}) { return UIDialog.open('scegli', msg, { ...opts, scelte }); }

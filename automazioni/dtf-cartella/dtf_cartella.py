@@ -8,7 +8,10 @@ anche Windows, senza collegare niente nel browser:
   • legge misura e pezzi dei file nuovi e scrive file e metri sull'ordine;
   • quando arriva un DTF nuovo, o col bottone "Numera ora", mette davanti alle cartelle
     il numero dell'ordine nella lista ("01 - cf pavia").
-Le cartelle "Stampato" sono escluse; i file sciolti si abbinano col loro nome e non si rinominano.
+Le cartelle "Stampato" e "PDF originali" sono escluse; i file sciolti si abbinano col loro nome e non si rinominano.
+File sciolti palesemente dello stesso ordine (stesse prime parole) → in una cartella col nome comune.
+PDF senza TIF accanto → task "Creare il file TIF"; dal task "Genera TIFF automatico" (riduzione 0-3 px)
+li converte dtf_tiff.py (venv a parte) e i PDF vanno nella sottocartella "PDF originali".
 Non toglie mai file dagli ordini (quelli spostati in Stampato restano nei metri).
 Stesse regole di js/dtf-misure.js e js/dtf-cartella.js. Solo libreria standard.
 
@@ -44,7 +47,17 @@ CONFIG = os.path.join(DIR_DATI, 'config.json')
 STATO = os.path.join(DIR_DATI, 'stato.json')
 
 EXT = re.compile(r'\.(tiff?|pdf|png|jpe?g)$', re.I)
-SALTA_DIR = re.compile(r'stampato', re.I)
+SALTA_DIR = re.compile(r'stampato|^\s*pdf originali\s*$', re.I)
+# PDF convertiti in TIF: messi da parte qui (esclusa dalla lettura, così i metri non contano due volte)
+PDF_DIR = 'PDF originali'
+TIFF_PY = os.path.join(DIR_DATI, 'venv', 'bin', 'python')
+TIFF_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dtf_tiff.py')
+TIFF_ICC = os.path.join(DIR_DATI, 'fogra39.icc')
+# File sciolti raggruppati: parole che non dicono di chi è il file (non bastano per fare una cartella)
+GENERICHE = {'fronte', 'retro', 'dietro', 'davanti', 'lato', 'cuore', 'manica', 'maniche', 'petto', 'spalla', 'logo',
+             'dtf', 'stampa', 'stampare', 'file', 'copia', 'nuovo', 'nuova', 'front', 'back', 'left', 'right', 'sx', 'dx',
+             'bianco', 'nero', 'colore', 'pz', 'pezzi', 'pezzo', 'tif', 'tiff', 'pdf', 'png', 'jpg', 'def', 'definitivo', 'ok'}
+SCIOLTI_ATTESA = 120   # secondi senza modifiche prima di spostare un file sciolto
 URGENZE = re.compile(r'urgenz[ae]', re.I)   # conto terzi: cartelle copiate tutti i giorni lavorativi
 NUMERO = re.compile(r'^\d{1,3}\s*-\s*')
 # File da stampare con la colla nera: dalle cartelle degli ordini, sciolti, nella cartella "COLLA NERA"
@@ -373,6 +386,165 @@ def sposta_colla_nera(cartella, prova, escluse=()):
     return spostati, errori
 
 
+def _parole(stem):
+    """Parole del nome del file, con la loro forma per il confronto (come tokens: cf = crossfit)."""
+    out = []
+    for p in re.split(r'[^0-9A-Za-zÀ-ÿ]+', stem):
+        t = tokens(p)
+        if t:
+            out.append((p, t[0]))
+    return out
+
+
+def _prefisso(parole, k):
+    """Prime k parole senza quelle in coda che non dicono di chi è il file (fronte, retro, numeri…)."""
+    p = parole[:k]
+    while p and (p[-1][1] in GENERICHE or p[-1][1].isdigit() or re.fullmatch(r'\d+pz', p[-1][1])):
+        p = p[:-1]
+    return p
+
+
+def raggruppa_sciolti(cartella, prova, escluse=()):
+    """File sciolti in 1. Stampare palesemente dello stesso ordine: le prime parole del nome uguali
+    ("House dietro 100 pezzi.pdf" e "House lato cuore 100 pezzi.pdf") → cartella "House".
+    Ogni file va col gruppo più lungo che ha in comune con almeno un altro file; se c'è già una cartella
+    con quel nome (anche numerata, "05 - House") vanno lì, e lì va anche un file da solo che inizia col
+    suo nome. Il nome comune deve avere almeno 3 lettere che non siano parole generiche. Solo file fermi
+    da 2 minuti. Ritorna (spostati, errori)."""
+    ora, sciolti = time.time(), []
+    for name in sorted(os.listdir(cartella)):
+        p = os.path.join(cartella, name)
+        if salta(name) or not EXT.search(name) or not os.path.isfile(p):
+            continue
+        if ora - os.stat(p).st_mtime < SCIOLTI_ATTESA:
+            continue
+        parole = _parole(re.sub(r'\.[a-z0-9]{2,5}$', '', name, flags=re.I))
+        if parole and not parole[0][1].isdigit():
+            sciolti.append({'name': name, 'abs': p, 'parole': parole})
+    if not sciolti:
+        return [], []
+    cartelle = {}
+    for n in os.listdir(cartella):
+        if os.path.isdir(os.path.join(cartella, n)) and not salta(n) and not SALTA_DIR.search(n) \
+                and base(n).strip().lower() not in escluse:
+            cartelle.setdefault(core(base(n)), n)
+
+    def chiave_di(parole):
+        return core(' '.join(t for _, t in parole))
+
+    gruppi = {}
+    for f in sciolti:
+        scelta = None
+        # cartella che c'è già col nome delle prime parole (la più lunga)
+        for k in range(len(f['parole']), 0, -1):
+            pr = _prefisso(f['parole'], k)
+            if pr and len(chiave_di(pr)) >= 3 and chiave_di(pr) in cartelle:
+                scelta = (chiave_di(pr), cartelle[chiave_di(pr)])
+                break
+        if not scelta:
+            # le prime parole più lunghe in comune con un altro file sciolto
+            for k in range(len(f['parole']) - 1, 0, -1):
+                pr = _prefisso(f['parole'], k)
+                if not pr or len(chiave_di(pr)) < 3:
+                    continue
+                toks = [t for _, t in f['parole'][:k]]
+                if any(g is not f and [t for _, t in g['parole'][:k]] == toks for g in sciolti):
+                    scelta = (chiave_di(pr), ' '.join(w for w, _ in pr).strip())
+                    break
+        if scelta:
+            gruppi.setdefault(scelta[0], {'dir': scelta[1], 'files': []})['files'].append(f)
+
+    spostati, errori = [], []
+    for k, g in gruppi.items():
+        esiste = k in cartelle
+        if not esiste and len(g['files']) < 2:
+            continue
+        dest_dir = os.path.join(cartella, g['dir'])
+        for f in g['files']:
+            dest = os.path.join(dest_dir, f['name'])
+            if os.path.exists(dest):
+                errori.append(f"{f['name']} → {g['dir']}: c'è già un file con questo nome")
+                continue
+            if prova:
+                spostati.append(f"{f['name']} → {g['dir']}/")
+                continue
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+                os.rename(f['abs'], dest)
+                spostati.append(f"{f['name']} → {g['dir']}/")
+            except OSError as e:
+                errori.append(f"{f['name']} → {g['dir']}: {e.strerror}")
+    return spostati, errori
+
+
+# ── PDF da trasformare in TIF ──
+
+def _radice(nome):
+    return os.path.splitext(nome)[0].strip().lower()
+
+
+def pdf_senza_tif(files):
+    """PDF di un gruppo che non hanno accanto il loro TIF (<nome>.tif o <nome> - pag N.tif)."""
+    tif = {}
+    for f in files:
+        if re.search(r'\.tiff?$', f['name'], re.I):
+            tif.setdefault(os.path.dirname(f['abs']), set()).add(re.sub(r'\s*-\s*pag\s*\d+$', '', _radice(f['name'])))
+    return [f for f in files if f['name'].lower().endswith('.pdf')
+            and _radice(f['name']) not in tif.get(os.path.dirname(f['abs']), set())]
+
+
+def genera_tiff(richieste, gruppi, stato, prova):
+    """Richieste dal task "Genera TIFF automatico" (app_settings dtf_tiff_richieste: {cartella: {riduzione, at}}):
+    per ogni PDF senza TIF della cartella crea i TIF accanto (dtf_tiff.py) e mette il PDF in "PDF originali".
+    Ogni richiesta si fa una volta sola; gli errori restano nell'esito finché non si riprova.
+    Ritorna (righe per il registro, True se ha cambiato file)."""
+    fatte = stato.setdefault('tiff_fatte', {})
+    errori = stato.setdefault('tiff_errori', {})
+    righe, cambiato = [], False
+    for nome, r in (richieste or {}).items():
+        if not isinstance(r, dict) or not r.get('at') or fatte.get(nome) == r['at']:
+            continue
+        g = next((x for x in gruppi if x['nome'].strip().lower() == nome.strip().lower()), None)
+        pdf = pdf_senza_tif(g['files']) if g else []
+        try:
+            rid = max(0, min(3, int(r.get('riduzione') or 0)))
+        except (TypeError, ValueError):
+            rid = 0
+        if prova:
+            print(f"  tiff {nome}: convertirei {len(pdf)} PDF con riduzione {rid} px")
+            continue
+        errori.pop(nome, None)
+        msg = []
+        for f in pdf:
+            try:
+                if not os.path.exists(TIFF_PY) or not os.path.exists(TIFF_ICC):
+                    raise RuntimeError('convertitore non installato sul Mac mini')
+                out = subprocess.run([TIFF_PY, '-I', TIFF_SCRIPT, f['abs'], str(rid), '--icc', TIFF_ICC],
+                                     capture_output=True, text=True, timeout=1200)
+                if out.returncode != 0:
+                    righe_err = (out.stderr or out.stdout or '').strip().splitlines()
+                    raise RuntimeError(righe_err[-1] if righe_err else 'errore sconosciuto')
+                scritti = json.loads(out.stdout.strip().splitlines()[-1])
+                cartella_pdf = os.path.join(os.path.dirname(f['abs']), PDF_DIR)
+                os.makedirs(cartella_pdf, exist_ok=True)
+                os.rename(f['abs'], nome_libero(cartella_pdf, f['name'], os.path.getsize(f['abs'])))
+                cambiato = True
+                righe.append(f"tiff {nome}: {f['name']} → {', '.join(scritti)} (riduzione {rid} px)")
+            except Exception as e:
+                testo = 'tempo scaduto' if isinstance(e, subprocess.TimeoutExpired) else str(e)
+                msg.append(f"{f['name']}: {testo}")
+                righe.append(f"ERRORE tiff {nome}: {f['name']}: {testo}")
+        if msg:
+            errori[nome] = '; '.join(msg)[:500]
+        fatte[nome] = r['at']
+    # le cartelle che non ci sono più non tengono errori né richieste vecchie
+    nomi = {x['nome'].strip().lower() for x in gruppi}
+    for d in (fatte, errori):
+        for k in [k for k in d if k.strip().lower() not in nomi]:
+            d.pop(k)
+    return righe, cambiato
+
+
 def stesso_file(fl, x, st):
     """Il file è quello già sull'ordine, spostato (anche col nome dell'ordine davanti): stessa misura e data."""
     return (x.get('name') and x.get('size') == st.st_size and x.get('mtime') == int(st.st_mtime * 1000)
@@ -421,6 +593,10 @@ def aggiorna_items(items, files, roll, gap):
     letti = {(k[0], items[js[0]].get('metri')) for k, js in gruppi.items()}
     via |= {j for j, x in enumerate(items) if x.get('size') is None and x.get('metri')
             and (x['name'].rsplit('/', 1)[-1], x.get('metri')) in letti}
+    # PDF trasformato in TIF (il PDF è andato in "PDF originali"): conta solo il TIF
+    tif = {re.sub(r'\s*-\s*pag\s*\d+$', '', _radice(chiave(fl['path']))) for fl in files if re.search(r'\.tiff?$', fl['name'], re.I)}
+    via |= {j for j, x in enumerate(items) if x.get('cartella') and x['cartella'].lower().endswith('.pdf')
+            and chiave(x['cartella']) not in presenti and _radice(chiave(x['cartella'])) in tif}
     if via:
         items = [x for j, x in enumerate(items) if j not in via]
         cambiati = True
@@ -972,11 +1148,19 @@ def main():
     except Exception as e:
         print('ordini da preparare:', e, file=sys.stderr)
 
+    escluse = {c['nome'].strip().lower() for c in dati.get('ct_clienti') or []}
+
+    # File sciolti dello stesso ordine in una cartella
+    sciolti_spostati, sciolti_errori = [], []
+    try:
+        sciolti_spostati, sciolti_errori = raggruppa_sciolti(a.cartella, a.prova, escluse)
+    except Exception as e:
+        sciolti_errori.append(f'file sciolti: {e}')
+
     # File con la colla nera (leggings, short, soft shell) nella cartella COLLA NERA
     colla_spostati, colla_errori = [], []
     try:
-        colla_spostati, colla_errori = sposta_colla_nera(
-            a.cartella, a.prova, {c['nome'].strip().lower() for c in dati.get('ct_clienti') or []})
+        colla_spostati, colla_errori = sposta_colla_nera(a.cartella, a.prova, escluse)
     except Exception as e:
         colla_errori.append(f'colla nera: {e}')
 
@@ -985,6 +1169,14 @@ def main():
     ordini_lista = [o for o in lista if not o.get('cartella')]
 
     gruppi = gruppi_di(a.cartella)
+    # PDF → TIF chiesti dal task "Creare il file TIF"
+    tiff_righe = []
+    try:
+        tiff_righe, cambiato = genera_tiff(dati.get('tiff_richieste'), gruppi, stato, a.prova)
+        if cambiato:
+            gruppi = gruppi_di(a.cartella)
+    except Exception as e:
+        tiff_righe.append(f'ERRORE tiff: {e}')
     per_ordine, senza, ambigue = {}, [], []
     misure = stato.get('misure') or {}   # cache delle misure dei file senza ordine: percorso → [size, mtime, metri]
     ct_clienti = dati.get('ct_clienti') or []
@@ -1060,7 +1252,7 @@ def main():
     dirs = [g for g in gruppi if not g.get('sciolto')]
     numera(dirs)
     da_rinominare = [(d, d['target']) for d in dirs if d['target'] != d['dir']]
-    rinominate, errori = [], list(colla_errori)
+    rinominate, errori = [], list(sciolti_errori) + list(colla_errori)
     if (nuovi or chiesta) and da_rinominare:
         for d, nuovo in da_rinominare:
             if a.prova:
@@ -1092,10 +1284,18 @@ def main():
                  **({'ct': g['ct']} if g.get('ct') else {}),
                  **({'metriOrdini': g['metriOrdini']} if g.get('metriOrdini') else {}),
                  **({'metri': g.get('metri', 0)} if not g['ordine'] else {})} for g in gruppi if g['files'] or g.get('dir')]
+    # PDF senza TIF per cartella (task "Creare il file TIF"), con l'errore dell'ultima conversione
+    pdf = [{'nome': g['nome'], 'dir': g.get('dir'), 'files': [f['path'].split('/', 1)[-1] for f in ps],
+            **({'errore': stato['tiff_errori'][g['nome']]} if (stato.get('tiff_errori') or {}).get(g['nome']) else {})}
+           for g in gruppi for ps in [pdf_senza_tif(g['files'])] if ps]
     esito = {'at': datetime.now(timezone.utc).isoformat(), 'abbinate': len(per_ordine), 'aggiunti': aggiunti,
-             'collaNera': len(colla_spostati),
+             'collaNera': len(colla_spostati), 'raggruppati': len(sciolti_spostati), 'pdf': pdf,
              'senzaOrdine': senza, 'ambigue': ambigue, 'rinominate': len(rinominate), 'attesa': attesa,
              'errori': errori, 'cartelle': cartelle, 'mancanti': mancanti}
+    for r in sciolti_spostati:
+        print('  raggruppa', r)
+    for r in tiff_righe:
+        print(' ', r)
     for r in colla_spostati:
         print('  colla nera', r)
     for r in rinominate:
@@ -1121,15 +1321,17 @@ def main():
     with open(STATO, 'w') as f:
         json.dump({**stato, 'visti': percorsi, 'richiesta': richiesta}, f)
 
-    if rinominate or errori or aggiunti or colla_spostati:   # registro del Centro di controllo solo quando cambia qualcosa
+    if rinominate or errori or aggiunti or colla_spostati or sciolti_spostati or tiff_righe:   # registro del Centro di controllo solo quando cambia qualcosa
         try:
             ini = rpc(cfg, 'tc_automazione_inizio', {'p_chiave': cfg['chiave'], 'p_nome': 'dtf-cartella'})
             if ini.get('success'):
-                righe = ([f'{aggiunti} file nuovi su {len(ordini)} ordini'] + [f'colla nera: {r}' for r in colla_spostati]
+                righe = ([f'{aggiunti} file nuovi su {len(ordini)} ordini'] + [f'raggruppato: {r}' for r in sciolti_spostati]
+                         + tiff_righe + [f'colla nera: {r}' for r in colla_spostati]
                          + rinominate + [f'ERRORE {e}' for e in errori])
                 rpc(cfg, 'tc_automazione_fine', {
-                    'p_chiave': cfg['chiave'], 'p_id': ini['id'], 'p_stato': 'errore' if errori else 'ok',
-                    'p_riepilogo': {'file_nuovi': aggiunti, 'colla_nera': len(colla_spostati), 'rinominate': len(rinominate),
+                    'p_chiave': cfg['chiave'], 'p_id': ini['id'], 'p_stato': 'errore' if errori or any(r.startswith('ERRORE') for r in tiff_righe) else 'ok',
+                    'p_riepilogo': {'file_nuovi': aggiunti, 'colla_nera': len(colla_spostati), 'raggruppati': len(sciolti_spostati),
+                                    'tiff': sum(1 for r in tiff_righe if not r.startswith('ERRORE')), 'rinominate': len(rinominate),
                                     'errori': len(errori)},
                     'p_output': '\n'.join(righe)})
         except Exception as e:
