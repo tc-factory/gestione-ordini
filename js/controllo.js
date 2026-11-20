@@ -77,7 +77,7 @@ const codaAttiva = () => { const c = TASK_CODE_VECCHIE[Ctrl.coda] || Ctrl.coda; 
 const taskNegozio = (t) => t.fonte === 'shopify' || t.fonte === 'shopify_admin' || TASK_BRAND.some(m => m.id === t.macroarea);
 // Coda di un task. null = non si mostra ("Stampa DTF" della linea produttiva: c'è già l'ordine in DTF-STAMPA)
 function taskCoda(t) {
-  if (t.fonte === 'automazione' && t.fonte_rif?.dtf) return /^(proposta|tif):/.test(String(t.fonte_rif.dtf)) ? 'dtffile' : 'dtfstampa';
+  if (t.fonte === 'automazione' && t.fonte_rif?.dtf) return /^(proposta|tif|nome):/.test(String(t.fonte_rif.dtf)) ? 'dtffile' : 'dtfstampa';
   const c = taskCat(t);
   if (c === 'dtf') return null;
   if (c === 'stampa') return 'stampa';
@@ -1445,8 +1445,10 @@ function renderTaskQueue(coda, emptyText = '') {
   if (cat === 'dtffile') {
     n = list.length + righe.file.length;
     const tif = list.filter(t => String(t.fonte_rif?.dtf || '').startsWith('tif:'));
-    const proposte = list.filter(t => !tif.includes(t));
+    const nomi = list.filter(t => String(t.fonte_rif?.dtf || '').startsWith('nome:'));
+    const proposte = list.filter(t => !tif.includes(t) && !nomi.includes(t));
     corpo = tagRow + ((tif.length ? sub(`Creare il file TIF · ${tif.length}`, ordinati(tif).map(renderDtfTaskRiga).join('')) : '')
+      + (nomi.length ? sub(`Rinominare i file · ${nomi.length}`, ordinati(nomi).map(renderDtfTaskRiga).join('')) : '')
       + (proposte.length ? sub(`Proposte da approvare · ${proposte.length}`, ordinati(proposte).map(renderDtfTaskRiga).join('')) : '')
       + (righe.file.length ? sub(`Manca il DTF · ${righe.file.length}`, righe.file.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true, azione: 'file' })).join('')) : '')
       || `<div class="empty-list">${codaTagAttivi().length ? 'Nessun ordine con questi tag.' : 'Tutti gli ordini DTF hanno i file.'}</div>`);
@@ -1586,12 +1588,19 @@ function renderDtfTaskRiga(t) {
   const rif = resto.join(':'), pr = taskPrio(t.priorita);
   const fuori = tipo === 'senza' ? dtfOrdineFuoriLista(rif) : null;
   const tif = tipo === 'tif' ? { p: dtfTiffPdf(rif), corso: dtfTiffInCorso(rif) } : null;
+  // Rinominare: elenco aggiornato dal Mac mini (ogni minuto), nome giusto accanto a quello di adesso
+  const nomi = tipo === 'nome' && typeof DtfCartella !== 'undefined' ? (DtfCartella.info()?.nomi || []).find(x => x.nome === rif) : null;
+  const metaNomi = nomi?.files?.length
+    ? `${nomi.dir ? `Cartella «${escapeHtml(nomi.dir)}»` : 'File sciolto'} · regola: <strong>parte-parte-12pz</strong>
+       <span class="dtf-nomi">${nomi.files.map(f => `<span class="dtf-nome"><span class="dtf-nome-da">${escapeHtml(f.file)}</span> → <strong>${escapeHtml(f.proposto)}</strong> <em>${escapeHtml(f.motivi.join(', '))}</em></span>`).join('')}</span>`
+    : '';
   const azioni = {
     proposta: `<button type="button" class="ctrl-btn" onclick="dtfPrepApri('${escapeHtml(rif)}')" title="Controlla file e pezzi, poi approva o rifiuta">${CtrlIcons.check()} <span>Controlla</span></button>`,
     senza: (fuori ? `<button type="button" class="ctrl-btn" onclick="dtfTaskRipristina('${fuori.o.id}', ${fuori.tolto})" title="Rimette ${escapeHtml(fuori.o.nome)} tra gli ordini da stampare: la cartella si riabbina">${CtrlIcons.check()} <span>Ripristina</span></button>` : '')
       + `<button type="button" class="ctrl-btn" onclick="Nav.go('dtf', 'interno')" title="Apri la coda DTF interno">${fuori ? '' : `${CtrlIcons.check()} `}<span>Apri DTF interno</span></button>`,
     mancante: `<button type="button" class="ctrl-btn" onclick="openOrderDetail('${escapeHtml(rif)}')">Apri ordine</button>
       <button type="button" class="ctrl-btn" onclick="dtfMarkPrinted('${escapeHtml(rif)}')" title="Segna il DTF come stampato">${CtrlIcons.check()} <span>Stampato</span></button>`,
+    nome: `<button type="button" class="ctrl-btn" onclick="Nav.go('dtf', 'interno')" title="Apri la coda DTF interno">Apri DTF interno</button>`,
     tif: tif?.corso
       ? `<button type="button" class="ctrl-btn" disabled title="Il Mac mini sta creando i TIF">TIFF in preparazione…</button>`
       : `<button type="button" class="ctrl-btn" onclick="dtfTiffGenera(${escapeHtml(JSON.stringify(rif))})" title="Crea i TIF dai PDF: scegli la riduzione dello SPOT">${CtrlIcons.check()} <span>Genera TIFF automatico</span></button>`,
@@ -1606,7 +1615,7 @@ function renderDtfTaskRiga(t) {
         <span class="task-title">${escapeHtml(t.titolo)}</span>
         <span class="task-meta">${fuori
           ? `<strong>${escapeHtml(fuori.o.nome)}</strong> è già ${fuori.tolto ? 'tolto dalla lista DTF' : 'segnato stampato'}: se manca ancora qualcosa premi <strong>Ripristina</strong>, se è tutto stampato sposta la cartella in 00 - Stampato.`
-          : metaTif || escapeHtml(t.descrizione || '')}</span>
+          : metaTif || metaNomi || escapeHtml(t.descrizione || '')}</span>
       </button>
       <div class="task-badges">${t.priorita === 'urgente' ? `<span class="td-tag" style="--c:${pr.color};">Urgente</span>` : ''}</div>
       <span class="task-time"></span>
