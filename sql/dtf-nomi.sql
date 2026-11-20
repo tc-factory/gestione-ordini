@@ -83,7 +83,7 @@ begin
           || 'es. cliente-posizione-colore-12pz.tif (pz, non pezzi o copie). Da rinominare: '
           || coalesce((select string_agg((f->>'file') || ' → ' || (f->>'proposto'), '; ') from jsonb_array_elements(c->'files') f), '')
           || '. Il task si chiude da solo quando i nomi sono a posto.',
-        'alta', 'automazione', jsonb_build_object('dtf', 'nome:' || v_nome), 5, 'automazione');
+        'normale', 'automazione', jsonb_build_object('dtf', 'nome:' || v_nome), 5, 'automazione');
     end if;
   end loop;
   update tasks set stato = 'completato', completato_at = now()
