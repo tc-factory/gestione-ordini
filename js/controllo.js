@@ -1444,22 +1444,28 @@ function renderTaskQueue(coda, emptyText = '') {
   let corpo, n;
   if (cat === 'dtffile') {
     n = list.length + righe.file.length;
-    // Tre categorie, sempre in quest'ordine: 1 caricare i file (proposte + ordini senza DTF), 2 creare i TIF, 3 rinominare
+    // Tre categorie, sempre in quest'ordine, come pulsanti in alto: 1 caricare (proposte + ordini senza DTF), 2 creare i TIF, 3 rinominare
     const di = (pref) => list.filter(t => String(t.fonte_rif?.dtf || '').startsWith(pref + ':'));
     const tif = di('tif'), nomi = di('nome'), proposte = list.filter(t => !tif.includes(t) && !nomi.includes(t));
-    const vuota = '<div class="empty-list">Niente da fare.</div>';
-    const cat3 = (num, titolo, k, html) => `<div class="ctrl-sub">${num} · ${titolo} · ${k}</div>${k ? `<div class="task-list task-stack">${html}</div>` : vuota}`;
-    corpo = tagRow
-      + cat3(1, 'Caricare file', proposte.length + righe.file.length,
-          ordinati(proposte).map(renderDtfTaskRiga).join('')
-          + righe.file.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true, azione: 'file' })).join(''))
-      + cat3(2, 'Creare TIF', tif.length, ordinati(tif).map(renderDtfTaskRiga).join(''))
-      + cat3(3, 'Rinominare file', nomi.length, ordinati(nomi).map(renderDtfTaskRiga).join(''));
+    const parti = [
+      { id: 'caricare', label: 'Caricare', n: proposte.length + righe.file.length,
+        html: () => ordinati(proposte).map(renderDtfTaskRiga).join('') + righe.file.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true, azione: 'file' })).join('') },
+      { id: 'tif', label: 'Creare TIF', n: tif.length, html: () => ordinati(tif).map(renderDtfTaskRiga).join('') },
+      { id: 'rinominare', label: 'Rinominare', n: nomi.length, html: () => ordinati(nomi).map(renderDtfTaskRiga).join('') },
+    ];
+    corpo = tagRow + codaParti('dtffile', parti, 'Niente da fare.');
   } else if (cat === 'dtfstampa') {
     n = list.length + righe.stampa.length;
     const riga = (x, i) => x.kind === 'ct' ? renderCtRiga(x, i + 1) : x.kind === 'negozio' ? renderNegozioRiga(x, i + 1) : x.kind === 'cartella' ? renderCartellaRiga(x.c, i + 1) : renderOrdineRiga(x.o, { pos: i + 1, dtf: true });
-    corpo = (list.length ? sub(`Da controllare · ${list.length}`, ordinati(list).map(renderDtfTaskRiga).join('')) : '')
-      + (righe.stampa.length ? sub(`Da stampare · ${righe.stampa.length}`, righe.stampa.map(riga).join('')) : '<div class="empty-list">Niente da stampare al DTF.</div>');
+    corpo = codaParti('dtfstampa', [
+      { id: 'controllare', label: 'Da controllare', n: list.length, html: () => ordinati(list).map(renderDtfTaskRiga).join('') },
+      { id: 'stampare', label: 'Da stampare', n: righe.stampa.length, html: () => righe.stampa.map(riga).join('') },
+    ], 'Niente da stampare al DTF.');
+  } else if (cat === 'stampa') {
+    // Una coda sola, senza "In ritardo" e "Da fare"
+    n = list.length;
+    corpo = tagRow + (list.length ? `<div class="task-list task-stack">${renderTaskItems(ordinati(list), opts)}</div>`
+                                  : `<div class="empty-list">${emptyText && !coda.length ? emptyText : 'Nessun task in questa coda.'}</div>`);
   } else {
     n = list.length;
     const chips = cat === 'negozi' ? (() => {
@@ -1520,6 +1526,20 @@ function codaTagBar(righe) {
 function toggleCodaTag(id) {
   const sel = codaTagAttivi();
   Ctrl.codaTags = id == null ? [] : sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id];
+  refreshControlPage();
+}
+
+// Categorie di una coda come pulsanti in alto: se ne vede una alla volta (di base la prima con qualcosa)
+function codaParti(coda, parti, vuota) {
+  const scelta = (Ctrl.codaParte || {})[coda];
+  const attiva = parti.find(p => p.id === scelta) || parti.find(p => p.n) || parti[0];
+  return `<div class="ctrl-macro-bar" role="group" aria-label="Categorie">
+      ${parti.map(p => ctrlFilter(p.id === attiva.id, p.label, p.n, null, `setCodaParte('${coda}','${p.id}')`)).join('')}
+    </div>`
+    + (attiva.n ? `<div class="task-list task-stack">${attiva.html()}</div>` : `<div class="empty-list">${vuota}</div>`);
+}
+function setCodaParte(coda, id) {
+  Ctrl.codaParte = { ...(Ctrl.codaParte || {}), [coda]: id };
   refreshControlPage();
 }
 
