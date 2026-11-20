@@ -651,111 +651,125 @@ async function approvePreventivo(orderId, g) {
 const modGroupLabel = (g) => moduleGroups(AppState.formModuleRows, AppState.formModuleCount, AppState.formPrevGroups)
   .find(m => m.g === g)?.label || (g ? `Integrazione ${g}` : "Modulo d'ordine");
 
+// ── Modulo d'ordine: anteprima, PDF e stampa ──
+// Dati presi SOLO dall'ordine salvato, oppure SOLO dal form se si scarica mentre lo si compila: mai
+// mescolati (prima un ordine senza note prendeva quelle rimaste nel form di un altro ordine).
+// La data è quella dell'ordine, non quella del giorno in cui si stampa.
+function orderModuleData(orderId) {
+  const order = orderId ? TCFactory.getOrderById(orderId) : null;
+  if (orderId && !order) return null;
+  const val = (id) => (document.getElementById(id)?.value || '').trim();
+  const rows = order ? (order.orderModule?.rows || []) : (AppState.formModuleRows || []).map(r => {
+    // Dal form: le righe dei moduli segnati come preventivo
+    const u = { ...r };
+    if ((AppState.formPrevGroups || []).includes(modGroup(u))) u.preventivo = true; else delete u.preventivo;
+    return u;
+  });
+  const tags   = (order ? order.tags : AppState.formTags) || [];
+  const creato = order?.created_at || AppState.formEditOrder?.created_at;
+  const daOrd  = orderRows(rows);
+  const colore = tags[0] ? TCFactory.getTagColor(tags[0]) : '#22262C';
+  return {
+    order, rows, tags,
+    tipologia: tags[0] || 'Ordine',
+    colore, inchiostro: omInkOn(colore),
+    cliente:   order ? order.nome : val('of-nome'),
+    desc:      order ? orderDesc(order) : val('of-descrizione'),
+    data:      (order ? order.dataOrdine : val('of-data')) || (creato ? localISODate(new Date(creato)) : ''),
+    deadline:  (order ? order.deadline : val('of-deadline')) || '',
+    notes:     ((order ? order.notes : val('of-notes')) || '').trim(),
+    isUrgent:  order ? isUrgentOrder(order) : !!document.getElementById('of-urgent')?.checked,
+    acconto:   parseFloat(order ? order.orderModule?.acconto : AppState.formModuleAcconto) || 0,
+    total:     rowsTotal(daOrd),
+    pezzi:     daOrd.reduce((s, r) => s + (parseFloat(r.qnt) || 0), 0),
+  };
+}
+// Testo leggibile sul colore della tipologia (scuro sui colori chiari, bianco sugli altri)
+function omInkOn(hex) {
+  const h = String(hex || '').replace('#', '');
+  if (!/^[0-9a-f]{6}$/i.test(h)) return '#FFFFFF';
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16));
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 170 ? '#22262C' : '#FFFFFF';
+}
+const omDate = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+const omEuro = (n) => '€ ' + (parseFloat(n) || 0).toFixed(2);
+const omPezzi = (n) => `${Number.isInteger(n) ? n : n.toFixed(2)} pz`;
+// Scadenza: rossa se passata, arancio se entro 7 giorni
+function omDeadlineClass(dl) {
+  if (!dl) return '';
+  const diff = Math.ceil((new Date(dl + 'T00:00:00') - new Date(localISODate(new Date()) + 'T00:00:00')) / 86400000);
+  return diff < 0 ? 'is-late' : diff <= 7 ? 'is-soon' : '';
+}
+
 function previewOrderModule(orderId) {
-  const order   = TCFactory.getOrderById(orderId);
-  if (!order) return;
-  const rows    = order.orderModule?.rows || [];
-  const acconto = parseFloat(order.orderModule?.acconto || 0);
-  const total   = rowsTotal(orderRows(rows));
-  const saldo   = total - acconto;
-  const tags    = order.tags || [];
-  const modal   = document.getElementById('file-preview-modal');
-
-  const tagsHtml = tags.map(t => {
-    const c = TCFactory.getTagColor(t);
-    return `<span style="background:${c}22;color:${c};border:1px solid ${c}66;border-radius:5px;padding:1px 8px;font-size:0.75rem;font-weight:700;">${escapeHtml(t)}</span>`;
-  }).join(' ');
-
-  const dlHtml = order.deadline ? (() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const diff  = Math.ceil((new Date(order.deadline+'T00:00:00') - new Date(today+'T00:00:00')) / 86400000);
-    const dc    = diff < 0 ? '#dc2626' : diff <= 7 ? '#ea580c' : '#6366f1';
-    return `<span style="color:${dc};font-weight:700;">${new Date(order.deadline+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})}</span>`;
-  })() : '';
+  const D = orderModuleData(orderId);
+  if (!D) return;
+  const { order, rows } = D;
+  const modal = document.getElementById('file-preview-modal');
 
   migrateModPreviewChecks(order.id);
   const checks = modPreviewChecks(order.id);
-  const renderModRow = (r, i) => {
+  const renderModRow = (r) => {
     const t   = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
-    const bg  = i % 2 === 0 ? 'var(--bg-card)' : 'var(--bg-secondary)';
     const idx = rows.indexOf(r);
     const c   = checks[idx] || {};
-    return `<tr class="mod-preview-row ${c.s ? 'is-checked' : ''} ${isPrevRow(r) ? 'is-prev' : ''}" style="background:${bg};" onclick="toggleModPreviewRow('${order.id}',${idx},this)">
-      <td style="padding:7px 4px 7px 12px;text-align:center;white-space:nowrap;"><button type="button" class="mod-preview-check" aria-label="Evidenzia riga in giallo" title="Evidenzia in giallo" onclick="event.stopPropagation();toggleModPreviewRow('${order.id}',${idx},this.closest('tr'))"></button><button type="button" class="mod-preview-notebtn ${c.n ? 'has-note' : ''}" aria-label="Nota sulla riga" title="Nota sulla riga" onclick="event.stopPropagation();toggleModPreviewNote('${order.id}',${idx},this.closest('tr'))">${Icons.edit(12)}</button></td>
-      <td style="padding:7px 10px;font-weight:600;">${escapeHtml(r.catalogo||'')}</td>
-      <td style="padding:7px 10px;">${escapeHtml(r.codice||'')}</td>
-      <td style="padding:7px 10px;">${escapeHtml(r.descrizione||'')}</td>
-      <td style="padding:7px 10px;">${escapeHtml(r.colore||'')}</td>
-      <td style="padding:7px 10px;text-align:center;">${r.qnt||''}</td>
-      <td style="padding:7px 10px;text-align:center;">${escapeHtml(r.tg||'')}</td>
-      <td style="padding:7px 10px;text-align:right;">${r.prezzo ? '€ '+parseFloat(r.prezzo).toFixed(2) : ''}</td>
-      <td style="padding:7px 10px;text-align:right;font-weight:700;color:#1e40af;">${t>0 ? '€ '+t.toFixed(2) : ''}</td>
-      <td style="padding:7px 10px;text-align:center;color:#16a34a;font-size:1rem;">${isPrevRow(r) ? '<span class="mod-prev-no" title="Preventivo: non ordinare">—</span>' : r.ordinato ? '✓' : ''}</td>
-      <td style="padding:7px 10px;font-weight:600;">${escapeHtml(modRowLav(r))}</td>
+    return `<tr class="mod-preview-row ${c.s ? 'is-checked' : ''} ${isPrevRow(r) ? 'is-prev' : ''}" onclick="toggleModPreviewRow('${order.id}',${idx},this)">
+      <td class="om-tools"><button type="button" class="mod-preview-check" aria-label="Evidenzia riga in giallo" title="Evidenzia in giallo" onclick="event.stopPropagation();toggleModPreviewRow('${order.id}',${idx},this.closest('tr'))"></button><button type="button" class="mod-preview-notebtn ${c.n ? 'has-note' : ''}" aria-label="Nota sulla riga" title="Nota sulla riga" onclick="event.stopPropagation();toggleModPreviewNote('${order.id}',${idx},this.closest('tr'))">${Icons.edit(12)}</button></td>
+      <td class="om-strong">${escapeHtml(r.catalogo||'')}</td>
+      <td>${escapeHtml(r.codice||'')}</td>
+      <td>${escapeHtml(r.descrizione||'')}</td>
+      <td>${escapeHtml(r.colore||'')}</td>
+      <td class="om-c">${escapeHtml(String(r.qnt||''))}</td>
+      <td class="om-c">${escapeHtml(r.tg||'')}</td>
+      <td class="om-r">${r.prezzo ? omEuro(r.prezzo) : ''}</td>
+      <td class="om-r om-strong">${t>0 ? omEuro(t) : ''}</td>
+      <td class="om-c om-ok">${isPrevRow(r) ? '<span class="mod-prev-no" title="Preventivo: non ordinare">—</span>' : r.ordinato ? '✓' : ''}</td>
+      <td class="om-strong">${escapeHtml(modRowLav(r))}</td>
     </tr>${c.n ? modPreviewNoteRow(order.id, idx, c.n) : ''}`;
   };
-  const integHeaderRow = (label) => `<tr><td colspan="11" style="padding:8px 10px;background:#1e40af1a;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(label)}</td></tr>`;
+  const integHeaderRow = (label) => `<tr><td colspan="11" class="om-integ">${escapeHtml(label)}</td></tr>`;
   // Preventivo: intestazione ambra con il totale e il pulsante per approvarlo
   const prevHeaderRow = (m) => `<tr><td colspan="11" class="mod-prev-head">
-      <div><strong>${escapeHtml(m.label)}</strong> · da approvare — non ordinare · Totale € ${rowsTotal(m.rows).toFixed(2)}</div>
+      <div><strong>${escapeHtml(m.label)}</strong> · da approvare — non ordinare · Totale ${omEuro(rowsTotal(m.rows))}</div>
       <button type="button" class="btn btn-sm mod-prev-approve" onclick="event.stopPropagation();approvePreventivo('${order.id}',${m.g})">✓ Approva</button>
     </td></tr>`;
   const groups = moduleGroups(rows);
   const rowsHtml = rows.length
     ? groups.map((m, k) => (m.prev ? prevHeaderRow(m) : k ? integHeaderRow(m.label) : '') + m.rows.map(renderModRow).join('')).join('')
-    : `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--text-muted);">Nessuna riga</td></tr>`;
+    : `<tr><td colspan="11" class="om-empty">Nessuna riga</td></tr>`;
   const nPrev = groups.filter(m => m.prev).length;
+  const th = (txt, cls = '') => `<th class="${cls}">${txt}</th>`;
 
   modal.innerHTML = `
-    <div class="modal modal-fullscreen">
-      <div class="modal-header">
-        <div>
-          <div style="font-size:1.8rem;font-weight:900;color:#1e40af;line-height:1.1;">${escapeHtml(tags[0] || 'Ordine')}${nPrev ? ` <span class="prev-badge lg">${prevBadgeText(order)}</span>` : ''}</div>
-          <div style="font-size:0.9rem;color:var(--text-muted);margin-top:3px;">${escapeHtml(order.nome)}${dlHtml ? ` · Deadline: ${dlHtml}` : ''}</div>
-          ${modLavRiepilogo(order) ? `<div style="font-size:0.85rem;font-weight:700;margin-top:4px;"><span style="color:var(--text-muted);font-weight:600;">Lavorazione:</span> ${escapeHtml(modLavRiepilogo(order))}</div>` : ''}
+    <div class="modal modal-fullscreen om" style="--om-c:${D.colore};--om-fg:${D.inchiostro};">
+      <div class="modal-header om-head">
+        <div class="om-intest">
+          <div class="om-tipo">${escapeHtml(D.tipologia)}${D.isUrgent ? ' <span class="om-urg">Urgente</span>' : ''}${nPrev ? ` <span class="prev-badge lg">${prevBadgeText(order)}</span>` : ''}</div>
+          <div class="om-cliente"><strong>${escapeHtml(D.cliente)}</strong>${D.desc ? ` <span>— ${escapeHtml(D.desc)}</span>` : ''}</div>
+          <div class="om-date">
+            <span>Data ordine <strong>${omDate(D.data)}</strong></span>
+            <span>Scadenza <strong class="${omDeadlineClass(D.deadline)}">${omDate(D.deadline)}</strong></span>
+          </div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div class="om-actions">
           <button class="btn btn-secondary btn-sm" onclick="downloadOrderModule('${order.id}')">⬇ Scarica PDF</button>
-          <button class="btn-icon" onclick="closeModal('file-preview-modal')">${Icons.x()}</button>
+          <button class="btn-icon" onclick="closeModal('file-preview-modal')" aria-label="Chiudi">${Icons.x()}</button>
         </div>
       </div>
-      <div class="modal-body" style="padding:0;overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
-          <thead>
-            <tr style="background:#1e40af;">
-              <th style="padding:9px 4px 9px 12px;width:1%;"></th>
-              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Fornitore</th>
-              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Codice</th>
-              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Descrizione</th>
-              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Colore</th>
-              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">QNT</th>
-              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">TG</th>
-              <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Prezzo</th>
-              <th style="padding:9px 10px;text-align:right;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Totale</th>
-              <th style="padding:9px 10px;text-align:center;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Ord.</th>
-              <th style="padding:9px 10px;text-align:left;color:#fff;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;">Lavorazione</th>
-            </tr>
-          </thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-        <div style="padding:16px 20px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;border-top:2px solid #1e40af;">
-          <div style="display:flex;gap:32px;font-size:0.9rem;">
-            <span style="color:var(--text-muted);">Totale ordine</span>
-            <strong style="color:#1e40af;min-width:90px;text-align:right;">€ ${total.toFixed(2)}</strong>
-          </div>
-          <div style="display:flex;gap:32px;font-size:0.9rem;">
-            <span style="color:var(--text-muted);">Acconto</span>
-            <span style="min-width:90px;text-align:right;">€ ${acconto.toFixed(2)}</span>
-          </div>
-          <div style="display:flex;gap:32px;font-size:0.9rem;">
-            <span style="color:var(--text-muted);">Saldo</span>
-            <strong style="color:#dc2626;min-width:90px;text-align:right;">€ ${saldo.toFixed(2)}</strong>
-          </div>
+      <div class="modal-body om-body">
+        <div class="om-scroll">
+          <table class="om-table">
+            <thead><tr>${th('', 'om-tools')}${th('Fornitore')}${th('Codice')}${th('Descrizione')}${th('Colore')}${th('QNT', 'om-c')}${th('TG', 'om-c')}${th('Prezzo', 'om-r')}${th('Totale', 'om-r')}${th('Ord.', 'om-c')}${th('Lavorazione')}</tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
         </div>
-        ${order.notes ? `<div style="padding:12px 20px;border-top:1px solid var(--border);">
-          <div style="font-size:0.7rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Note</div>
-          <div style="font-size:0.85rem;white-space:pre-wrap;">${escapeHtml(order.notes)}</div>
-        </div>` : ''}
+        <div class="om-tot">
+          <div><span>Totale prodotti</span><strong>${omPezzi(D.pezzi)}</strong></div>
+          <div><span>Totale ordine</span><strong>${omEuro(D.total)}</strong></div>
+          <div><span>Acconto</span><strong>${omEuro(D.acconto)}</strong></div>
+          <div class="om-saldo"><span>Saldo</span><strong>${omEuro(D.total - D.acconto)}</strong></div>
+        </div>
+        ${D.notes ? `<div class="om-note"><div class="om-label">Note</div><div class="om-note-text">${escapeHtml(D.notes)}</div></div>` : ''}
       </div>
     </div>
   `;
@@ -853,170 +867,133 @@ function modLavRiepilogo(order) {
 }
 
 function downloadOrderModule(orderId) {
-  const order   = orderId ? TCFactory.getOrderById(orderId) : null;
-  const desc    = order ? orderDesc(order) : (document.getElementById('of-descrizione')?.value || '').trim();
-  const nome    = (order?.nome || document.getElementById('of-nome')?.value || 'Ordine') + (desc ? ` — ${desc}` : '');
-  const rows    = order?.orderModule?.rows || (AppState.formModuleRows || []).map(r => {
-    // Dal form: le righe dei moduli segnati come preventivo
-    const u = { ...r };
-    if ((AppState.formPrevGroups || []).includes(modGroup(u))) u.preventivo = true; else delete u.preventivo;
-    return u;
-  });
-  const acconto = parseFloat(order?.orderModule?.acconto || AppState.formModuleAcconto || 0);
-  const notes   = order?.notes || document.getElementById('of-notes')?.value || '';
-  const total   = rowsTotal(orderRows(rows));
-  const saldo   = total - acconto;
-  const isUrgent = order ? isUrgentOrder(order) : !!document.getElementById('of-urgent')?.checked;
-  const tags    = order?.tags || AppState.formTags || [];
-  const dl      = order?.deadline || document.getElementById('of-deadline')?.value || '';
-  const lav     = modLavRiepilogo(order);
-
-  // Usa jsPDF se disponibile, altrimenti fallback al print
-  if (window.jspdf?.jsPDF) {
-    _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl, lav });
-  } else {
-    _generatePrintPreview({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl, lav });
-  }
+  const D = orderModuleData(orderId);
+  if (!D) return;
+  D.lav = modLavRiepilogo(D.order);
+  // Usa jsPDF se disponibile, altrimenti la stampa del browser
+  if (window.jspdf?.jsPDF) _generatePDF(D); else _generatePrintPreview(D);
 }
 
-function _generatePDF({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl, lav }) {
+const omRgb = (hex) => { const h = String(hex || '').replace('#', ''); return /^[0-9a-f]{6}$/i.test(h) ? [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)) : [34, 38, 44]; };
+
+function _generatePDF(D) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pw = doc.internal.pageSize.width;
+  const pw = doc.internal.pageSize.width, ph = doc.internal.pageSize.height;
+  const M = 12;
+  const C = omRgb(D.colore), FG = omRgb(D.inchiostro);
+  const INK = [34, 38, 44], MUTED = [111, 118, 134], RED = [214, 40, 40];
 
-  // Header
-  doc.setFontSize(22); doc.setTextColor(30, 64, 175); doc.setFont(undefined,'bold');
-  const tipologia = tags[0] || 'Ordine';
-  doc.text(tipologia, 15, 20);
-  if (isUrgent) {
-    doc.setFontSize(10); doc.setTextColor(220, 38, 38);
-    doc.text('⚠ URGENTE', pw - 15, 20, { align: 'right' });
-  }
+  // Tipologia, nel suo colore
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(24); doc.setTextColor(...C);
+  doc.text(D.tipologia.toUpperCase(), M, 20);
+  if (D.isUrgent) { doc.setFontSize(10); doc.setTextColor(...RED); doc.text('URGENTE', pw - M, 20, { align: 'right' }); }
 
-  doc.setFontSize(9); doc.setTextColor(100, 116, 139); doc.setFont(undefined,'normal');
+  // Cliente — descrizione
   let y = 28;
-  doc.text(`${nome}`, 15, y); y += 5;
-  doc.text(`Data: ${new Date().toLocaleDateString('it-IT')}`, 15, y); y += 5;
-  if (dl) { doc.text(`Deadline: ${new Date(dl+'T00:00:00').toLocaleDateString('it-IT')}`, 15, y); y += 5; }
-  if (tags.length) { doc.text(`Tipologia: ${tags.join(', ')}`, 15, y); y += 5; }
-  if (lav) {
-    doc.setFont(undefined,'bold'); doc.setTextColor(30, 41, 59);
-    const lavLines = doc.splitTextToSize(`Lavorazione: ${lav}`, pw - 30);
-    doc.text(lavLines, 15, y); y += 5 * lavLines.length;
-    doc.setFont(undefined,'normal'); doc.setTextColor(100, 116, 139);
-  }
+  doc.setFontSize(12); doc.setTextColor(...INK);
+  const cliLines = doc.splitTextToSize(D.cliente + (D.desc ? ` — ${D.desc}` : ''), pw - 2 * M);
+  doc.text(cliLines, M, y); y += 5.5 * cliLines.length;
 
-  // Table
-  const pdfGroups = moduleGroups(rows);
-  const pdfFirst = pdfGroups[0] && !pdfGroups[0].prev ? pdfGroups[0] : null;
+  // Data ordine — scadenza
+  doc.setFontSize(9.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED);
+  doc.text('Data ordine', M, y);
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK); doc.text(omDate(D.data), M + 20, y);
+  doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED); doc.text('Scadenza', M + 52, y);
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK); doc.text(omDate(D.deadline), M + 68, y);
+  y += 5;
+
+  // Righe: barra di intestazione nel colore della tipologia
+  const head = [['Fornitore','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lavorazione']];
   const rowToArr = r => {
     const t = (parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0);
     return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
-      r.prezzo ? `€ ${parseFloat(r.prezzo).toFixed(2)}` : '',
-      t > 0 ? `€ ${t.toFixed(2)}` : '', isPrevRow(r) ? 'NO' : r.ordinato ? 'SI' : '', modRowLav(r)];
+      r.prezzo ? omEuro(r.prezzo) : '', t > 0 ? omEuro(t) : '', isPrevRow(r) ? 'NO' : r.ordinato ? 'SI' : '', modRowLav(r)];
   };
-  const autoTableStyle = {
-    styles: { fontSize: 9, cellPadding: 2 },
-    headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 8 },
-    alternateRowStyles: { fillColor: [239, 246, 255] },
-    columnStyles: { 4:{halign:'center'}, 5:{halign:'center'}, 6:{halign:'right'}, 7:{halign:'right'}, 8:{halign:'center'} },
+  const base = {
+    margin: { left: M, right: M },
+    styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 2, textColor: INK, lineColor: [226, 229, 238], lineWidth: { bottom: 0.2 } },
+    headStyles: { fillColor: C, textColor: FG, fontStyle: 'bold', fontSize: 7.5, lineWidth: 0 },
+    alternateRowStyles: { fillColor: [244, 246, 252] },
+    // Larghezze fisse: le tabelle di modulo, integrazioni e preventivi restano allineate
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 24 }, 1: { cellWidth: 20 }, 2: { cellWidth: 32 }, 3: { cellWidth: 20 }, 4: { halign: 'center', cellWidth: 11 },
+      5: { halign: 'center', cellWidth: 11 }, 6: { halign: 'right', cellWidth: 18 }, 7: { halign: 'right', fontStyle: 'bold', cellWidth: 20 }, 8: { halign: 'center', cellWidth: 10 } },
   };
-  let fy = y + 3;
-  if (pdfFirst || !pdfGroups.length) {
-    doc.autoTable({
-      startY: fy,
-      head: [['Fornitore','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lavorazione']],
-      body: pdfFirst?.rows.length ? pdfFirst.rows.map(rowToArr) : [['','','','','','','','','','']],
-      ...autoTableStyle,
-    });
+  const groups = moduleGroups(D.rows);
+  let fy = y + 1;
+  const ensure = (h) => { if (fy + h > ph - 12) { doc.addPage(); fy = 15; } };
+  if (!groups.length) {
+    doc.autoTable({ ...base, startY: fy, head, body: [['','','','','','','','','','']] });
     fy = doc.lastAutoTable.finalY + 6;
   }
-
-  // Integrazioni (blu) e preventivi (ambra, fuori dal totale ordine)
-  pdfGroups.filter(m => m !== pdfFirst).forEach(m => {
-    doc.setFontSize(10); doc.setFont(undefined,'bold');
-    if (m.prev) doc.setTextColor(180, 83, 9); else doc.setTextColor(30, 64, 175);
-    doc.text(m.prev ? `${m.label.toUpperCase()} — DA APPROVARE, NON ORDINARE` : m.label.toUpperCase(), 15, fy); fy += 5;
+  groups.forEach((m, k) => {
+    if (m.prev || k) {
+      ensure(18);
+      doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...(m.prev ? [180, 83, 9] : C));
+      doc.text(m.prev ? `${m.label.toUpperCase()} — DA APPROVARE, NON ORDINARE · TOTALE ${omEuro(rowsTotal(m.rows))} (FUORI DAL TOTALE ORDINE)` : m.label.toUpperCase(), M, fy + 3);
+      fy += 5;
+    }
     doc.autoTable({
-      startY: fy,
-      head: [['Fornitore','Codice','Descrizione','Colore','QNT','TG','Prezzo','Totale','Ord.','Lavorazione']],
-      body: m.rows.map(rowToArr),
-      ...autoTableStyle,
-      ...(m.prev ? { headStyles: { ...autoTableStyle.headStyles, fillColor: [180, 83, 9] }, alternateRowStyles: { fillColor: [255, 247, 237] } } : {}),
+      ...base, startY: fy, head, body: m.rows.map(rowToArr),
+      ...(m.prev ? { headStyles: { ...base.headStyles, fillColor: [180, 83, 9], textColor: 255 }, alternateRowStyles: { fillColor: [255, 247, 237] } } : {}),
     });
     fy = doc.lastAutoTable.finalY + 6;
-    if (m.prev) {
-      doc.setFontSize(9); doc.setFont(undefined,'bold'); doc.setTextColor(180, 83, 9);
-      doc.text(`Totale ${m.label.toLowerCase()}: € ${rowsTotal(m.rows).toFixed(2)} (non incluso nel totale ordine)`, pw - 15, fy, { align: 'right' });
-      fy += 8;
-    }
   });
 
-  // Totals
-  doc.setFontSize(10); doc.setFont(undefined,'normal'); doc.setTextColor(100, 116, 139);
-  doc.text('Totale ordine', pw - 60, fy);
-  doc.setTextColor(30, 64, 175); doc.setFont(undefined,'bold');
-  doc.text(`€ ${total.toFixed(2)}`, pw - 15, fy, { align: 'right' }); fy += 6;
-  doc.setFont(undefined,'normal'); doc.setTextColor(100, 116, 139);
-  doc.text('Acconto', pw - 60, fy);
-  doc.setTextColor(30, 41, 59);
-  doc.text(`€ ${acconto.toFixed(2)}`, pw - 15, fy, { align: 'right' }); fy += 6;
-  doc.setTextColor(100, 116, 139);
-  doc.text('Saldo', pw - 60, fy);
-  doc.setTextColor(220, 38, 38); doc.setFont(undefined,'bold');
-  doc.text(`€ ${saldo.toFixed(2)}`, pw - 15, fy, { align: 'right' }); fy += 10;
+  // Riga finale: totale prodotti, totale ordine, acconto, saldo
+  ensure(20);
+  doc.autoTable({
+    startY: fy, margin: { left: M, right: M }, theme: 'plain',
+    head: [['TOTALE PRODOTTI', 'TOTALE ORDINE', 'ACCONTO', 'SALDO']],
+    body: [[omPezzi(D.pezzi), omEuro(D.total), omEuro(D.acconto), omEuro(D.total - D.acconto)]],
+    styles: { font: 'helvetica', halign: 'center', cellPadding: { top: 2.5, bottom: 2.5, left: 2, right: 2 } },
+    headStyles: { fontSize: 7, fontStyle: 'bold', textColor: MUTED, fillColor: [244, 246, 252] },
+    bodyStyles: { fontSize: 12, fontStyle: 'bold', textColor: INK, fillColor: [244, 246, 252] },
+    didParseCell: (c) => { if (c.section === 'body' && c.column.index === 3) c.cell.styles.textColor = RED; },
+  });
+  fy = doc.lastAutoTable.finalY + 8;
 
-  // Notes
-  if (notes && notes.trim()) {
-    doc.setFontSize(8); doc.setFont(undefined,'bold'); doc.setTextColor(100, 116, 139);
-    doc.text('NOTE', 15, fy); fy += 4;
-    doc.setFont(undefined,'normal'); doc.setTextColor(30, 41, 59); doc.setFontSize(8.5);
-    const noteLines = doc.splitTextToSize(notes, pw - 30);
-    doc.text(noteLines, 15, fy);
+  // Note
+  if (D.notes) {
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(...MUTED);
+    ensure(10); doc.text('NOTE', M, fy); fy += 4.5;
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(...INK); doc.setFontSize(9.5);
+    doc.splitTextToSize(D.notes, pw - 2 * M).forEach(line => { ensure(5); doc.text(line, M, fy); fy += 4.5; });
   }
 
-  doc.save(`ordine-${nome.replace(/[^a-zA-Z0-9]/g,'-')}-${new Date().toISOString().slice(0,10)}.pdf`);
+  const nomeFile = `${D.cliente || 'ordine'}${D.desc ? '-' + D.desc : ''}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '');
+  doc.save(`ordine-${nomeFile}-${D.data || 'senza-data'}.pdf`);
 }
 
-function _generatePrintPreview({ nome, rows, acconto, total, saldo, notes, isUrgent, tags, dl, lav }) {
-  // Fallback: open print dialog
-  const today = new Date().toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'});
-  const tagsHtml = tags.map(t => { const c=TCFactory.getTagColor(t); return `<span style="background:${c}22;color:${c};border:1.5px solid ${c}77;border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700;margin-right:5px;">${t}</span>`; }).join('');
-  const dlHtml = dl ? (() => { const today2=new Date().toISOString().slice(0,10); const diff=Math.ceil((new Date(dl+'T00:00:00')-new Date(today2+'T00:00:00'))/86400000); const dc=diff<0?'#dc2626':diff<=7?'#ea580c':'#1e40af'; return `<span style="color:${dc};font-weight:700;">${new Date(dl+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})}</span>`; })() : '';
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Modulo - ${nome}</title>
-<style>body{font-family:'Segoe UI',Arial,sans-serif;margin:25px;color:#1e293b}
-.hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e40af;padding-bottom:12px;margin-bottom:16px}
-.brand{font-size:18px;font-weight:800;color:#1e40af}.meta{font-size:12px;color:#64748b;line-height:1.8}
-.urg{background:#fef2f2;color:#dc2626;border:2px solid #dc2626;border-radius:6px;padding:3px 12px;font-weight:800}
+// Riserva se jsPDF non si carica: stessa struttura, stampata dal browser
+function _generatePrintPreview(D) {
+  const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${escapeHtml(r.catalogo||'')}</strong></td><td>${escapeHtml(r.codice||'')}</td><td>${escapeHtml(r.descrizione||'')}</td><td>${escapeHtml(r.colore||'')}</td><td class="c">${escapeHtml(String(r.qnt||''))}</td><td class="c">${escapeHtml(r.tg||'')}</td><td class="r">${r.prezzo?omEuro(r.prezzo):''}</td><td class="r"><strong>${t>0?omEuro(t):''}</strong></td><td class="c">${isPrevRow(r)?'NO':r.ordinato?'✓':''}</td><td>${escapeHtml(modRowLav(r))}</td></tr>`; };
+  const groups = moduleGroups(D.rows);
+  const body = D.rows.length ? groups.map((m, k) => (m.prev || k
+      ? `<tr><td colspan="10" class="sez${m.prev ? ' prev' : ''}">${escapeHtml(m.label)}${m.prev ? ` — da approvare, non ordinare · Totale ${omEuro(rowsTotal(m.rows))} (fuori dal totale ordine)` : ''}</td></tr>` : '')
+      + m.rows.map(rowHtml).join('')).join('')
+    : '<tr><td colspan="10" class="c" style="color:#6F7686;padding:20px">Nessuna riga</td></tr>';
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Modulo - ${escapeHtml(D.cliente)}</title>
+<style>body{font-family:Nunito,'Segoe UI',Arial,sans-serif;margin:24px;color:#22262C}
+.tipo{font-size:30px;font-weight:900;color:${D.colore};text-transform:uppercase;line-height:1.1}
+.urg{font-size:12px;color:#d62828;border:2px solid #d62828;border-radius:99px;padding:2px 10px;vertical-align:middle;margin-left:8px}
+.cli{font-size:16px;font-weight:800;margin-top:6px}.date{font-size:12px;color:#6F7686;margin:4px 0 14px;display:flex;gap:24px}.date b{color:#22262C}
 table{width:100%;border-collapse:collapse;font-size:12px}
-thead th{background:#1e40af;color:#fff;padding:8px 10px;text-align:left;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em}
-tbody tr:nth-child(odd) td{background:#fff}tbody tr:nth-child(even) td{background:#eff6ff}
-tbody td{padding:7px 10px;border-bottom:1px solid #dbeafe}
-.tots{margin-top:16px;display:flex;flex-direction:column;align-items:flex-end;gap:5px}
-.tr{display:flex;gap:48px;font-size:13px}.tl{color:#64748b}.tv{font-weight:800;min-width:90px;text-align:right}
-.notes-section{margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0}
-.notes-label{font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
-.notes-text{font-size:12px;color:#1e293b;white-space:pre-wrap}
-@media print{body{margin:12px}}</style></head><body>
-<div class="hdr"><div><div class="brand">T&C Factory Creative Lab</div>
-<div class="meta"><strong>Ordine:</strong> ${nome}<br><strong>Data:</strong> ${today}
-${dlHtml ? `<br><strong>Deadline:</strong> ${dlHtml}` : ''}
-${tagsHtml ? `<br><strong>Tipologia:</strong> ${tagsHtml}` : ''}
-${lav ? `<br><strong>Lavorazione:</strong> ${escapeHtml(lav)}` : ''}</div></div>
-${isUrgent ? `<div class="urg">⚠️ URGENTE</div>` : ''}</div>
-<table><thead><tr><th>Fornitore</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th style="text-align:center">QNT</th><th style="text-align:center">TG</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Totale</th><th style="text-align:center">Ord.</th><th>Lavorazione</th></tr></thead><tbody>
-${(() => {
-    const rowHtml = r => { const t=(parseFloat(r.qnt)||0)*(parseFloat(r.prezzo)||0); return `<tr><td><strong>${escapeHtml(r.catalogo||'')}</strong></td><td>${escapeHtml(r.codice||'')}</td><td>${escapeHtml(r.descrizione||'')}</td><td>${escapeHtml(r.colore||'')}</td><td style="text-align:center">${r.qnt||''}</td><td style="text-align:center">${escapeHtml(r.tg||'')}</td><td style="text-align:right">${r.prezzo?'€ '+parseFloat(r.prezzo).toFixed(2):''}</td><td style="text-align:right;font-weight:700;color:#1e40af">${t>0?'€ '+t.toFixed(2):''}</td><td style="text-align:center;color:#16a34a">${isPrevRow(r)?'NO':r.ordinato?'✓':''}</td><td>${escapeHtml(modRowLav(r))}</td></tr>`; };
-    const headHtml = (m) => m.prev
-      ? `<tr><td colspan="10" style="padding:8px 10px;background:#fff7ed;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#b45309;border-top:2px solid #b45309;">${escapeHtml(m.label)} — da approvare, non ordinare · Totale € ${rowsTotal(m.rows).toFixed(2)} (fuori dal totale ordine)</td></tr>`
-      : `<tr><td colspan="10" style="padding:8px 10px;background:#eff6ff;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#1e40af;border-top:2px solid #1e40af;">${escapeHtml(m.label)}</td></tr>`;
-    const groups = moduleGroups(rows);
-    return rows.length ? groups.map((m, k) => (m.prev || k ? headHtml(m) : '') + m.rows.map(rowHtml).join('')).join('') : '<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:20px">Nessuna riga</td></tr>';
-  })()}
-</tbody></table>
-<div class="tots"><div class="tr"><span class="tl">Totale ordine</span><span class="tv" style="color:#1e40af">€ ${total.toFixed(2)}</span></div><div class="tr"><span class="tl">Acconto</span><span class="tv">€ ${acconto.toFixed(2)}</span></div><div class="tr"><span class="tl">Saldo</span><span class="tv" style="color:#dc2626">€ ${saldo.toFixed(2)}</span></div></div>
-${notes && notes.trim() ? `<div class="notes-section"><div class="notes-label">Note</div><div class="notes-text">${escapeHtml(notes.trim())}</div></div>` : ''}
-<script>window.onload=()=>window.print()</script></body></html>`;
+th{background:${D.colore};color:${D.inchiostro};padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+td{padding:7px 10px;border-bottom:1px solid #E2E5EE}tbody tr:nth-child(even) td{background:#F4F6FC}
+.c{text-align:center}.r{text-align:right}.sez{font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:${D.colore};border-top:2px solid ${D.colore};background:#fff!important}.sez.prev{color:#b45309;border-color:#b45309}
+.tot{display:grid;grid-template-columns:repeat(4,1fr);margin-top:14px;background:#F4F6FC;border-radius:12px}.tot div{padding:10px;text-align:center}
+.tot span{display:block;font-size:9px;font-weight:800;color:#6F7686;text-transform:uppercase;letter-spacing:.06em}.tot strong{font-size:16px}.tot .s strong{color:#d62828}
+.nl{margin-top:16px;font-size:10px;font-weight:800;color:#6F7686;text-transform:uppercase;letter-spacing:.06em}.nt{font-size:13px;white-space:pre-wrap;margin-top:4px}
+@media print{body{margin:10px}}</style></head><body>
+<div class="tipo">${escapeHtml(D.tipologia)}${D.isUrgent ? '<span class="urg">URGENTE</span>' : ''}</div>
+<div class="cli">${escapeHtml(D.cliente)}${D.desc ? ` — ${escapeHtml(D.desc)}` : ''}</div>
+<div class="date"><span>Data ordine <b>${omDate(D.data)}</b></span><span>Scadenza <b>${omDate(D.deadline)}</b></span></div>
+<table><thead><tr><th>Fornitore</th><th>Codice</th><th>Descrizione</th><th>Colore</th><th class="c">QNT</th><th class="c">TG</th><th class="r">Prezzo</th><th class="r">Totale</th><th class="c">Ord.</th><th>Lavorazione</th></tr></thead><tbody>${body}</tbody></table>
+<div class="tot"><div><span>Totale prodotti</span><strong>${omPezzi(D.pezzi)}</strong></div><div><span>Totale ordine</span><strong>${omEuro(D.total)}</strong></div><div><span>Acconto</span><strong>${omEuro(D.acconto)}</strong></div><div class="s"><span>Saldo</span><strong>${omEuro(D.total - D.acconto)}</strong></div></div>
+${D.notes ? `<div class="nl">Note</div><div class="nt">${escapeHtml(D.notes)}</div>` : ''}
+<script>window.onload=()=>window.print()<\/script></body></html>`;
   const win = window.open('', '_blank');
   if (win) { win.document.write(html); win.document.close(); }
   else showToast('Abilita i popup per scaricare il modulo', 'error');
