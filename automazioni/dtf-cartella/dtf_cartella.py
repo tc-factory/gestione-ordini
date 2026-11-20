@@ -44,6 +44,7 @@ STATO = os.path.join(DIR_DATI, 'stato.json')
 
 EXT = re.compile(r'\.(tiff?|pdf|png|jpe?g)$', re.I)
 SALTA_DIR = re.compile(r'stampato', re.I)
+URGENZE = re.compile(r'urgenz[ae]', re.I)   # conto terzi: cartelle copiate tutti i giorni lavorativi
 NUMERO = re.compile(r'^\d{1,3}\s*-\s*')
 DPI_DEFAULT = 300
 CM_INCH = 2.54
@@ -422,14 +423,14 @@ CARTELLA_DRIVE = 'application/vnd.google-apps.folder'
 
 def drive_da_guardare(tok, radice):
     """Cartelle da leggere. Se la cartella del cliente è divisa per anni (2025, 2026…) e mesi
-    ("11 - Novembre"), solo il mese corrente e il precedente: il resto è storico, backup, lavori."""
+    ("11 - Novembre"), solo il mese corrente e il precedente (più una URGENZE in radice): il resto è storico, backup, lavori."""
     figli = drive_figli(tok, radice)
     anni = {f['name'].strip(): f for f in figli if f['mimeType'] == CARTELLA_DRIVE and re.fullmatch(r'20\d\d', f['name'].strip())}
     if not anni:
         return [(radice, '')]
     oggi = datetime.now()
     prima = (oggi.replace(day=1) - timedelta(days=1))
-    out = []
+    out = [(f['id'], f['name']) for f in figli if f['mimeType'] == CARTELLA_DRIVE and URGENZE.fullmatch(f['name'].strip())]
     for anno, mese in {(oggi.year, oggi.month), (prima.year, prima.month)}:
         a = anni.get(str(anno))
         if not a:
@@ -561,9 +562,10 @@ def nome_libero(cartella, nome, size):
 
 
 def conto_terzi(cfg, roll, gap, prova, cartella_nas, stato, forza=False):
-    """Nei giorni di stampa del cliente, alle 5 e poi ogni ora fino alle 14: i file nuovi della sua
-    cartella Drive vanno in 1. Stampare/<cliente> sul NAS, si contano nel conto terzi di oggi e su
-    Drive passano in STAMPATO. Quello che arriva dopo le 14 aspetta il prossimo giorno di stampa."""
+    """Alle 5 e poi ogni ora fino alle 14, nei giorni lavorativi: i file nuovi della cartella Drive
+    del cliente vanno in 1. Stampare/<cliente> sul NAS, si contano nel conto terzi di oggi e su Drive
+    passano in STAMPATO. Nei giorni di stampa del cliente (di solito mar e gio) tutti i file; negli
+    altri giorni lavorativi solo quelli nelle cartelle URGENZE. Il resto aspetta il giorno di stampa."""
     if not os.path.exists(GOOGLE) or not os.path.isdir(cartella_nas):
         return
     ora = datetime.now()
@@ -577,8 +579,9 @@ def conto_terzi(cfg, roll, gap, prova, cartella_nas, stato, forza=False):
     giro = ora.strftime('%Y-%m-%d %H')
     tok = None
     for c in dati['clienti']:
-        if not forza and (ora.isoweekday() not in (c.get('giorni') or [2, 4]) or fatte.get(c['id']) == giro):
+        if not forza and fatte.get(c['id']) == giro:
             continue
+        solo_urgenze = not forza and ora.isoweekday() not in (c.get('giorni') or [2, 4])
         cartella = drive_id(c.get('drive_url'))
         if not cartella:
             print(f"  conto terzi {c['nome']}: link della cartella non valido", file=sys.stderr)
@@ -589,6 +592,8 @@ def conto_terzi(cfg, roll, gap, prova, cartella_nas, stato, forza=False):
         except urllib.error.HTTPError as e:
             print(f"  conto terzi {c['nome']}: cartella non leggibile ({e.code}): è condivisa con l'account robot?", file=sys.stderr)
             continue
+        if solo_urgenze:
+            files = [f for f in files if any(URGENZE.fullmatch(p.strip()) for p in f['percorso'].split('/')[:-1])]
 
         # Da copiare: i file mai contati (o cambiati dopo il conteggio)
         def contato(f):
