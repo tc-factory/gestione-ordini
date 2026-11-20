@@ -529,7 +529,7 @@ async function togglePayment(orderId, done) {
     // Leggi stato PRIMA dell'aggiornamento (cache locale è aggiornata)
     const order   = TCFactory.getOrderById(orderId);
     const isEvaso = !!order && Pulsanti.isEvaso(order);
-    const today   = new Date().toISOString().slice(0, 10);
+    const today   = TCFactory.getDefaultDate();
 
     await TCFactory.updateOrder(orderId, {
       paymentDone: done,
@@ -1250,6 +1250,8 @@ async function previewFile(stored) {
 
 function openOrderForm(order = null, defaultDate = null, defaultClientId = null) {
   AppState.formEditOrder    = order;
+  // Il modulo com'era all'apertura: al salvataggio si controlla che nessun altro l'abbia cambiato nel frattempo
+  AppState.formBaseModule   = order ? JSON.parse(JSON.stringify(order.orderModule || { rows: [], acconto: '' })) : null;
   AppState.formDefaultDate  = defaultDate;
   AppState.formFiles        = order ? [...(order.files || [])] : [];
   AppState.formInvoiceFiles = order ? [...(order.invoiceFiles || [])] : [];
@@ -2371,7 +2373,7 @@ async function submitOrderForm() {
   try {
     let orderId;
     if (AppState.formEditOrder) {
-      await TCFactory.updateOrder(AppState.formEditOrder.id, payload);
+      await TCFactory.updateOrder(AppState.formEditOrder.id, payload, { baseModule: AppState.formBaseModule });
       orderId = AppState.formEditOrder.id;
     } else {
       orderId = (await TCFactory.addOrder(payload)).id;
@@ -4200,7 +4202,7 @@ async function openCalEventDialog(eventId, dateStr) {
   _calSelectedType = ev?.event_type || 'impegno';
   const users = await TCAuth.listUsers().catch(() => []);
   const modal = document.getElementById('cal-event-modal');
-  const defaultDate = dateStr || new Date().toISOString().slice(0,10);
+  const defaultDate = dateStr || TCFactory.getDefaultDate();
   const isFerie = _calSelectedType === 'ferie';
   const isChiusura = _calSelectedType === 'chiusura';
 

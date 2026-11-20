@@ -4,7 +4,8 @@
 // POST: firma X-Hub-Signature-256 controllata con la chiave segreta di una delle app
 // (META_IG_APP_SECRET per CS Direct Connect, META_FB_APP_SECRET per CS Chat Connect);
 // ogni messaggio diventa una riga di `eventi` (fonte instagram | messenger, tipo messaggio_ricevuto).
-// Il cervello per ora legge solo le mail: questi eventi restano in attesa finché non li gestisce.
+// Il cervello per ora legge solo le mail: questi eventi nascono già segnati come elaborati (ESITO_SOCIALE),
+// altrimenti resterebbero in attesa per sempre. Quando il cervello li leggerà, togliere elaborato_at qui.
 // I messaggi vanno anche nelle conversazioni (social_conversazioni / social_messaggi), echo comprese:
 // le risposte date da Meta Business Suite o dall'app compaiono come nostre.
 // Va pubblicata con --no-verify-jwt.
@@ -13,6 +14,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { salvaMessaggio } from '../_shared/social.ts';
 
 const VERIFY = Deno.env.get('META_WEBHOOK_VERIFY_TOKEN') || '';
+const ESITO_SOCIALE = 'Solo conversazione: il cervello non legge ancora i messaggi social';
 const SEGRETI = ['META_IG_APP_SECRET', 'META_FB_APP_SECRET'].map(k => Deno.env.get(k)).filter(Boolean) as string[];
 
 // deno-lint-ignore no-explicit-any
@@ -66,6 +68,7 @@ Deno.serve(async (req) => {
       if (nostro) continue;   // le nostre risposte tornano come echo: negli eventi solo i messaggi dei clienti
       righe.push({
         fonte, account: String(entry.id), tipo: 'messaggio_ricevuto', id_esterno: m.message.mid || null,
+        elaborato_at: new Date().toISOString(), esito: ESITO_SOCIALE,
         payload: { da: m.sender?.id, a: m.recipient?.id, testo: m.message.text || '', allegati: m.message.attachments || [], at: m.timestamp },
       });
     }
@@ -73,6 +76,7 @@ Deno.serve(async (req) => {
       if (c.field !== 'comments' || !c.value?.id) continue;
       righe.push({
         fonte, account: String(entry.id), tipo: 'commento_ricevuto', id_esterno: String(c.value.id),
+        elaborato_at: new Date().toISOString(), esito: ESITO_SOCIALE,
         payload: { da: c.value.from?.id, username: c.value.from?.username, testo: c.value.text || '', media: c.value.media?.id },
       });
     }
