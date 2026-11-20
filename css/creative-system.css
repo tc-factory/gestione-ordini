@@ -642,6 +642,8 @@ html .ctrl-btn.is-primary, html .ctrl-btn.is-primary:hover:not(:disabled) {
 .assist-a { align-self: stretch; display: flex; flex-direction: column; gap: 8px; }
 .assist-muted { color: var(--text-secondary); font-size: 0.88rem; }
 .assist-esempi { display: flex; flex-wrap: wrap; gap: 6px; }
+.assist-esempi .chip-btn { padding: 7px 12px; font-size: 0.8rem; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); white-space: normal; text-align: left; }
+.assist-esempi .chip-btn:hover { border-color: var(--text-secondary); }
 .assist-card { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-radius: 16px; background: var(--bg-secondary, rgba(0,0,0,.04)); font-weight: 600; }
 .assist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .assist-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; border-radius: 16px; background: var(--bg-secondary, rgba(0,0,0,.04)); border: none; color: inherit; font: inherit; text-align: left; }
@@ -653,3 +655,7 @@ html .ctrl-btn.is-primary, html .ctrl-btn.is-primary:hover:not(:disabled) {
 .assist-stato { flex-shrink: 0; font-size: 0.75rem; font-weight: 700; color: var(--st); }
 .assist-form { display: flex; gap: 8px; }
 .assist-form .form-input { flex: 1; min-width: 0; }
+.assist-mic { flex-shrink: 0; width: 44px; padding: 0; justify-content: center; }
+.btn.assist-mic.ascolto { background: #ef4444; border-color: #ef4444; color: #fff; animation: assistAscolto 1.2s ease-in-out infinite; }
+@keyframes assistAscolto { 50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.25); } }
+@media (prefers-reduced-motion: reduce) { .assist-mic.ascolto { animation: none; } }
