@@ -2398,7 +2398,7 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
   background: var(--om-c); color: var(--om-fg); padding: 9px 10px; text-align: left;
   font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; white-space: nowrap;
 }
-.om-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-light); background: var(--surface); }
+.om-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-light); background: var(--surface); white-space: nowrap; }
 .om-table tbody tr.mod-preview-row:nth-child(even) td { background: var(--bg-primary); }
 .om-table .om-tools { width: 1%; padding: 7px 4px 7px 12px; text-align: center; white-space: nowrap; }
 .om-table .om-c { text-align: center; }

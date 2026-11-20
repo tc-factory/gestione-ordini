@@ -885,15 +885,22 @@ function _generatePDF(D) {
   const INK = [34, 38, 44], MUTED = [111, 118, 134], RED = [214, 40, 40];
 
   // Tipologia, nel suo colore
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(24); doc.setTextColor(...C);
+  // Niente va mai a capo: se un testo non ci sta, il carattere si rimpicciolisce finché entra in una riga
+  const fitSize = (txt, maxW, size, min = 5) => {
+    for (; size > min; size -= 0.25) { doc.setFontSize(size); if (doc.getTextWidth(txt) <= maxW) return size; }
+    doc.setFontSize(min); return min;
+  };
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(...C);
+  fitSize(D.tipologia.toUpperCase(), pw - 2 * M - (D.isUrgent ? 25 : 0), 24);
   doc.text(D.tipologia.toUpperCase(), M, 20);
   if (D.isUrgent) { doc.setFontSize(10); doc.setTextColor(...RED); doc.text('URGENTE', pw - M, 20, { align: 'right' }); }
 
   // Cliente — descrizione
   let y = 28;
-  doc.setFontSize(12); doc.setTextColor(...INK);
-  const cliLines = doc.splitTextToSize(D.cliente + (D.desc ? ` — ${D.desc}` : ''), pw - 2 * M);
-  doc.text(cliLines, M, y); y += 5.5 * cliLines.length;
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK);
+  const cliTxt = D.cliente + (D.desc ? ` — ${D.desc}` : '');
+  fitSize(cliTxt, pw - 2 * M, 12);
+  doc.text(cliTxt, M, y); y += 5.5;
 
   // Data ordine — scadenza
   doc.setFontSize(9.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED);
@@ -910,16 +917,33 @@ function _generatePDF(D) {
     return [r.catalogo||'', r.codice||'', r.descrizione||'', r.colore||'', r.qnt||'', r.tg||'',
       r.prezzo ? omEuro(r.prezzo) : '', t > 0 ? omEuro(t) : '', isPrevRow(r) ? 'NO' : r.ordinato ? 'SI' : '', modRowLav(r)];
   };
-  const base = {
-    margin: { left: M, right: M },
-    styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 2, textColor: INK, lineColor: [226, 229, 238], lineWidth: { bottom: 0.2 } },
-    headStyles: { fillColor: C, textColor: FG, fontStyle: 'bold', fontSize: 7.5, lineWidth: 0 },
-    alternateRowStyles: { fillColor: [244, 246, 252] },
-    // Larghezze fisse: le tabelle di modulo, integrazioni e preventivi restano allineate
-    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 24 }, 1: { cellWidth: 20 }, 2: { cellWidth: 32 }, 3: { cellWidth: 20 }, 4: { halign: 'center', cellWidth: 11 },
-      5: { halign: 'center', cellWidth: 11 }, 6: { halign: 'right', cellWidth: 18 }, 7: { halign: 'right', fontStyle: 'bold', cellWidth: 20 }, 8: { halign: 'center', cellWidth: 10 } },
-  };
+  // Colonne larghe quanto il loro testo più lungo (stesse larghezze per modulo, integrazioni e
+  // preventivi, così restano allineati). Se la tabella non entra nel foglio si rimpicciolisce il
+  // carattere: le celle non vanno MAI a capo.
   const groups = moduleGroups(D.rows);
+  const bodyAll = D.rows.map(rowToArr);
+  const boldCol = [0, 7], PAD = 1.6, avail = pw - 2 * M;
+  const misura = (fs) => head[0].map((h, c) => {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(Math.max(fs - 1, 5));
+    let w = doc.getTextWidth(h);
+    doc.setFontSize(fs);
+    bodyAll.forEach(r => { doc.setFont('helvetica', boldCol.includes(c) ? 'bold' : 'normal'); w = Math.max(w, doc.getTextWidth(String(r[c] ?? ''))); });
+    return w + 2 * PAD + 0.6;
+  });
+  let fs = 8.5, widths = misura(fs);
+  while (fs > 5 && widths.reduce((a, b) => a + b, 0) > avail) { fs -= 0.25; widths = misura(fs); }
+  // Spazio avanzato a Descrizione e Lavorazione
+  const extra = avail - widths.reduce((a, b) => a + b, 0);
+  if (extra > 0) { widths[2] += extra * 0.6; widths[9] += extra * 0.4; }
+  const halign = { 4: 'center', 5: 'center', 6: 'right', 7: 'right', 8: 'center' };
+  const base = {
+    margin: { left: M, right: M }, tableWidth: avail,
+    styles: { font: 'helvetica', fontSize: fs, cellPadding: { top: 2, bottom: 2, left: PAD, right: PAD }, overflow: 'ellipsize',
+      textColor: INK, lineColor: [226, 229, 238], lineWidth: { bottom: 0.2 } },
+    headStyles: { fillColor: C, textColor: FG, fontStyle: 'bold', fontSize: Math.max(fs - 1, 5), lineWidth: 0 },
+    alternateRowStyles: { fillColor: [244, 246, 252] },
+    columnStyles: Object.fromEntries(widths.map((w, c) => [c, { cellWidth: w, ...(halign[c] ? { halign: halign[c] } : {}), ...(boldCol.includes(c) ? { fontStyle: 'bold' } : {}) }])),
+  };
   let fy = y + 1;
   const ensure = (h) => { if (fy + h > ph - 12) { doc.addPage(); fy = 15; } };
   if (!groups.length) {
@@ -929,9 +953,11 @@ function _generatePDF(D) {
   groups.forEach((m, k) => {
     if (m.prev || k) {
       ensure(18);
-      doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+      doc.setFont('helvetica', 'bold');
       doc.setTextColor(...(m.prev ? [180, 83, 9] : C));
-      doc.text(m.prev ? `${m.label.toUpperCase()} — DA APPROVARE, NON ORDINARE · TOTALE ${omEuro(rowsTotal(m.rows))} (FUORI DAL TOTALE ORDINE)` : m.label.toUpperCase(), M, fy + 3);
+      const sez = m.prev ? `${m.label.toUpperCase()} — DA APPROVARE, NON ORDINARE · TOTALE ${omEuro(rowsTotal(m.rows))} (FUORI DAL TOTALE ORDINE)` : m.label.toUpperCase();
+      fitSize(sez, avail, 9);
+      doc.text(sez, M, fy + 3);
       fy += 5;
     }
     doc.autoTable({
@@ -947,7 +973,7 @@ function _generatePDF(D) {
     startY: fy, margin: { left: M, right: M }, theme: 'plain',
     head: [['TOTALE PRODOTTI', 'TOTALE ORDINE', 'ACCONTO', 'SALDO']],
     body: [[omPezzi(D.pezzi), omEuro(D.total), omEuro(D.acconto), omEuro(D.total - D.acconto)]],
-    styles: { font: 'helvetica', halign: 'center', cellPadding: { top: 2.5, bottom: 2.5, left: 2, right: 2 } },
+    styles: { font: 'helvetica', halign: 'center', overflow: 'ellipsize', cellPadding: { top: 2.5, bottom: 2.5, left: 2, right: 2 } },
     headStyles: { fontSize: 7, fontStyle: 'bold', textColor: MUTED, fillColor: [244, 246, 252] },
     bodyStyles: { fontSize: 12, fontStyle: 'bold', textColor: INK, fillColor: [244, 246, 252] },
     didParseCell: (c) => { if (c.section === 'body' && c.column.index === 3) c.cell.styles.textColor = RED; },
@@ -980,8 +1006,8 @@ function _generatePrintPreview(D) {
 .urg{font-size:12px;color:#d62828;border:2px solid #d62828;border-radius:99px;padding:2px 10px;vertical-align:middle;margin-left:8px}
 .cli{font-size:16px;font-weight:800;margin-top:6px}.date{font-size:12px;color:#6F7686;margin:4px 0 14px;display:flex;gap:24px}.date b{color:#22262C}
 table{width:100%;border-collapse:collapse;font-size:12px}
-th{background:${D.colore};color:${D.inchiostro};padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
-td{padding:7px 10px;border-bottom:1px solid #E2E5EE}tbody tr:nth-child(even) td{background:#F4F6FC}
+th{background:${D.colore};color:${D.inchiostro};padding:8px 10px;white-space:nowrap;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+td{padding:7px 10px;border-bottom:1px solid #E2E5EE;white-space:nowrap}tbody tr:nth-child(even) td{background:#F4F6FC}
 .c{text-align:center}.r{text-align:right}.sez{font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:${D.colore};border-top:2px solid ${D.colore};background:#fff!important}.sez.prev{color:#b45309;border-color:#b45309}
 .tot{display:grid;grid-template-columns:repeat(4,1fr);margin-top:14px;background:#F4F6FC;border-radius:12px}.tot div{padding:10px;text-align:center}
 .tot span{display:block;font-size:9px;font-weight:800;color:#6F7686;text-transform:uppercase;letter-spacing:.06em}.tot strong{font-size:16px}.tot .s strong{color:#d62828}
