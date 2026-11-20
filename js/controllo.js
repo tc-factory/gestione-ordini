@@ -1444,15 +1444,17 @@ function renderTaskQueue(coda, emptyText = '') {
   let corpo, n;
   if (cat === 'dtffile') {
     n = list.length + righe.file.length;
-    const tif = list.filter(t => String(t.fonte_rif?.dtf || '').startsWith('tif:'));
-    const nomi = list.filter(t => String(t.fonte_rif?.dtf || '').startsWith('nome:'));
-    const proposte = list.filter(t => !tif.includes(t) && !nomi.includes(t));
-    corpo = tagRow + ((tif.length ? sub(`Creare il file TIF · ${tif.length}`, ordinati(tif).map(renderDtfTaskRiga).join('')) : '')
-      + (proposte.length ? sub(`Proposte da approvare · ${proposte.length}`, ordinati(proposte).map(renderDtfTaskRiga).join('')) : '')
-      + (righe.file.length ? sub(`Manca il DTF · ${righe.file.length}`, righe.file.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true, azione: 'file' })).join('')) : '')
-      // Rinominare i file: non passa davanti a niente, sta in fondo
-      + (nomi.length ? sub(`Rinominare i file · ${nomi.length}`, ordinati(nomi).map(renderDtfTaskRiga).join('')) : '')
-      || `<div class="empty-list">${codaTagAttivi().length ? 'Nessun ordine con questi tag.' : 'Tutti gli ordini DTF hanno i file.'}</div>`);
+    // Tre categorie, sempre in quest'ordine: 1 caricare i file (proposte + ordini senza DTF), 2 creare i TIF, 3 rinominare
+    const di = (pref) => list.filter(t => String(t.fonte_rif?.dtf || '').startsWith(pref + ':'));
+    const tif = di('tif'), nomi = di('nome'), proposte = list.filter(t => !tif.includes(t) && !nomi.includes(t));
+    const vuota = '<div class="empty-list">Niente da fare.</div>';
+    const cat3 = (num, titolo, k, html) => `<div class="ctrl-sub">${num} · ${titolo} · ${k}</div>${k ? `<div class="task-list task-stack">${html}</div>` : vuota}`;
+    corpo = tagRow
+      + cat3(1, 'Caricare file', proposte.length + righe.file.length,
+          ordinati(proposte).map(renderDtfTaskRiga).join('')
+          + righe.file.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true, azione: 'file' })).join(''))
+      + cat3(2, 'Creare TIF', tif.length, ordinati(tif).map(renderDtfTaskRiga).join(''))
+      + cat3(3, 'Rinominare file', nomi.length, ordinati(nomi).map(renderDtfTaskRiga).join(''));
   } else if (cat === 'dtfstampa') {
     n = list.length + righe.stampa.length;
     const riga = (x, i) => x.kind === 'ct' ? renderCtRiga(x, i + 1) : x.kind === 'cartella' ? renderCartellaRiga(x.c, i + 1) : renderOrdineRiga(x.o, { pos: i + 1, dtf: true });
@@ -1568,10 +1570,20 @@ function dtfTiffInCorso(nome) {
   if (!r?.at || Date.now() - new Date(r.at).getTime() > 30 * 60 * 1000) return false;
   return !(sv?.at && new Date(sv.at) > new Date(r.at) && dtfTiffPdf(nome)?.errore);
 }
+// Dove salvare sul NAS i file pronti (calcolato dal Mac mini: cartella del cliente, anno, lavorazione, dtf/tiff)
+const DTF_NAS = '192.168.1.200';
+const dtfNasTesto = (a) => `DATI/${a.percorso}`;
+// Percorso da incollare: Finder (Vai → Vai alla cartella) sul Mac, Esplora file su Windows
+function dtfNasCopia(percorso) {
+  const win = /win/i.test(navigator.userAgentData?.platform || navigator.platform || '');
+  ctrlCopia(win ? `\\\\${DTF_NAS}\\DATI\\${percorso.replaceAll('/', '\\')}` : `/Volumes/DATI/${percorso}`,
+    win ? 'Percorso copiato: incollalo in Esplora file' : 'Percorso copiato: nel Finder Vai → Vai alla cartella (⇧⌘G) e incollalo');
+}
 async function dtfTiffGenera(nome) {
   const p = dtfTiffPdf(nome);
   const elenco = p?.files?.length ? `\n\nPDF: ${p.files.join(', ')}` : '';
-  const rid = await uiScegli(`Di quanti pixel ridurre lo SPOT (il bianco)?${elenco}\n\nIl Mac mini crea i TIF accanto ai PDF (CMYK FOGRA39 + SPOT, 300 dpi, neri K100) e sposta i PDF in «PDF originali».`,
+  const nas = p?.archivio ? `\n\nPoi salva i TIF anche sul NAS in ${dtfNasTesto(p.archivio)}${p.archivio.esiste ? '' : ' (cartella da creare)'}.` : '';
+  const rid = await uiScegli(`Di quanti pixel ridurre lo SPOT (il bianco)?${elenco}\n\nIl Mac mini crea i TIF accanto ai PDF (CMYK FOGRA39 + SPOT, 300 dpi, neri K100) e sposta i PDF in «PDF originali».${nas}`,
     [0, 1, 2, 3].map(n => ({ value: n, label: `${n} px` })), { title: `Genera TIFF automatico · ${nome}` });
   if (rid == null) return;
   // Le richieste più vecchie di 7 giorni si tolgono
@@ -1579,7 +1591,7 @@ async function dtfTiffGenera(nome) {
   tutte[nome] = { riduzione: rid, at: new Date().toISOString() };
   try {
     await TCFactory.setSetting('dtf_tiff_richieste', tutte);
-    showToast(DtfCartella.server() ? 'Il Mac mini crea i TIF entro un paio di minuti: il task si chiude da solo' : 'Richiesta salvata: i TIF arrivano quando il Mac mini è attivo', DtfCartella.server() ? 'success' : 'error');
+    showToast(DtfCartella.server() ? 'Il Mac mini crea i TIF entro un paio di minuti: poi il task ti ricorda di salvarli sul NAS' : 'Richiesta salvata: i TIF arrivano quando il Mac mini è attivo', DtfCartella.server() ? 'success' : 'error');
   } catch (e) { console.error('[dtf tiff]', e); showToast('Richiesta non salvata: riprova', 'error'); }
   refreshControlPage();
 }
@@ -1595,28 +1607,42 @@ function renderDtfTaskRiga(t) {
     ? `${nomi.dir ? `Cartella «${escapeHtml(nomi.dir)}»` : 'File sciolto'} · regola: <strong>parte-parte-12pz</strong>
        <span class="dtf-nomi">${nomi.files.map(f => `<span class="dtf-nome"><span class="dtf-nome-da">${escapeHtml(f.file)}</span> → <strong>${escapeHtml(f.proposto)}</strong> <em>${escapeHtml(f.motivi.join(', '))}</em></span>`).join('')}</span>`
     : '';
-  const azioni = {
+  // TIF e Rinominare: dove salvare i file sul NAS; a lavoro fatto il task resta col promemoria fino al Fatto
+  const archiviare = ['tif', 'nome'].includes(tipo) && t.fonte_rif?.fase === 'archiviare';
+  const arch = (tipo === 'tif' ? tif.p?.archivio : nomi?.archivio) || t.fonte_rif?.archivio || null;
+  const colla = /^colla\s*nera$/i.test(rif.trim());
+  const dove = arch ? `<strong>${escapeHtml(dtfNasTesto(arch))}</strong>${arch.esiste ? '' : ' <em>(cartella da creare)</em>'}`
+    : colla ? 'la cartella del cliente di ogni file' : '';
+  const nasRiga = dove ? `<span class="dtf-nas">Poi salvali sul NAS in ${dove}</span>` : '';
+  const pronti = archiviare ? (t.fonte_rif?.files || []).map(f => tipo === 'tif' ? String(f).replace(/\s*\.pdf$/i, '.tif') : (f.proposto || f.file || '')).filter(Boolean) : [];
+  const metaArch = archiviare
+    ? `<span><strong>${tipo === 'tif' ? 'TIF pronti' : 'Nomi a posto'}:</strong> salvali sul NAS in ${dove || 'la cartella del cliente'}, poi premi Fatto.</span>
+       ${pronti.length ? `<span class="dtf-nomi">${pronti.map(f => `<span class="dtf-nome">${escapeHtml(f)}</span>`).join('')}</span>` : ''}`
+    : '';
+  const copia = arch ? `<button type="button" class="ctrl-btn" onclick="dtfNasCopia(${escapeHtml(JSON.stringify(arch.percorso))})" title="Copia il percorso della cartella sul NAS">Copia percorso</button>` : '';
+  const fatto = `<button type="button" class="ctrl-btn is-primary" onclick="taskSetStato('${t.id}', 'completato')" title="File salvati sul NAS">${CtrlIcons.check()} <span>Fatto</span></button>`;
+  const azioni = archiviare ? copia + fatto : {
     proposta: `<button type="button" class="ctrl-btn" onclick="dtfPrepApri('${escapeHtml(rif)}')" title="Controlla file e pezzi, poi approva o rifiuta">${CtrlIcons.check()} <span>Controlla</span></button>`,
     senza: (fuori ? `<button type="button" class="ctrl-btn" onclick="dtfTaskRipristina('${fuori.o.id}', ${fuori.tolto})" title="Rimette ${escapeHtml(fuori.o.nome)} tra gli ordini da stampare: la cartella si riabbina">${CtrlIcons.check()} <span>Ripristina</span></button>` : '')
       + `<button type="button" class="ctrl-btn" onclick="Nav.go('dtf', 'interno')" title="Apri la coda DTF interno">${fuori ? '' : `${CtrlIcons.check()} `}<span>Apri DTF interno</span></button>`,
     mancante: `<button type="button" class="ctrl-btn" onclick="openOrderDetail('${escapeHtml(rif)}')">Apri ordine</button>
       <button type="button" class="ctrl-btn" onclick="dtfMarkPrinted('${escapeHtml(rif)}')" title="Segna il DTF come stampato">${CtrlIcons.check()} <span>Stampato</span></button>`,
-    nome: `<button type="button" class="ctrl-btn" onclick="Nav.go('dtf', 'interno')" title="Apri la coda DTF interno">Apri DTF interno</button>`,
+    nome: copia,
     tif: tif?.corso
       ? `<button type="button" class="ctrl-btn" disabled title="Il Mac mini sta creando i TIF">TIFF in preparazione…</button>`
-      : `<button type="button" class="ctrl-btn" onclick="dtfTiffGenera(${escapeHtml(JSON.stringify(rif))})" title="Crea i TIF dai PDF: scegli la riduzione dello SPOT">${CtrlIcons.check()} <span>Genera TIFF automatico</span></button>`,
+      : `<button type="button" class="ctrl-btn" onclick="dtfTiffGenera(${escapeHtml(JSON.stringify(rif))})" title="Crea i TIF dai PDF: scegli la riduzione dello SPOT">${CtrlIcons.check()} <span>Genera TIFF automatico</span></button>` + copia,
   }[tipo] || '';
   const metaTif = tif && (tif.p?.errore && !tif.corso
     ? `<strong>Conversione non riuscita:</strong> ${escapeHtml(tif.p.errore)}`
     : tif.p?.files?.length ? `${tif.p.dir ? `Cartella «${escapeHtml(tif.p.dir)}»: ` : ''}${tif.p.files.map(escapeHtml).join(', ')}` : '');
   return `
-    <article class="task-row is-task">
+    <article class="task-row is-task${copia && (archiviare || tipo === 'tif') ? ' dtf-2az' : ''}">
       <i class="task-prio" style="--p:${pr.color};" role="img" title="Priorità ${pr.label.toLowerCase()}" aria-label="Priorità ${pr.label.toLowerCase()}"></i>
       <button type="button" class="task-main" onclick="${tipo === 'proposta' ? `dtfPrepApri('${escapeHtml(rif)}')` : tipo === 'mancante' ? `openOrderDetail('${escapeHtml(rif)}')` : `Nav.go('dtf', 'interno')`}">
         <span class="task-title">${escapeHtml(t.titolo)}</span>
         <span class="task-meta">${fuori
           ? `<strong>${escapeHtml(fuori.o.nome)}</strong> è già ${fuori.tolto ? 'tolto dalla lista DTF' : 'segnato stampato'}: se manca ancora qualcosa premi <strong>Ripristina</strong>, se è tutto stampato sposta la cartella in 00 - Stampato.`
-          : metaTif || metaNomi || escapeHtml(t.descrizione || '')}</span>
+          : metaArch || ((metaTif || metaNomi) ? (metaTif || metaNomi) + nasRiga : escapeHtml(t.descrizione || ''))}</span>
       </button>
       <div class="task-badges">${t.priorita === 'urgente' ? `<span class="td-tag" style="--c:${pr.color};">Urgente</span>` : ''}</div>
       <span class="task-time"></span>

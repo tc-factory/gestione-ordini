@@ -1013,6 +1013,52 @@ def _cartella_dtf_tiff(cartella):
     return None
 
 
+def _lavorazione(anno, descr):
+    """Sottocartella dell'anno che corrisponde alla descrizione dell'ordine (es. "Torino Challenge"), o None."""
+    if not (descr and descr.strip()) or not os.path.isdir(anno):
+        return None
+    sotto = [(d, os.path.join(anno, d)) for d in os.listdir(anno)
+             if os.path.isdir(os.path.join(anno, d)) and not salta(d) and not re.search(r'dtf', d, re.I) and not SALTA_DIR.search(d)]
+    k = core(descr)
+    uguali = [p for d, p in sotto if core(d) == k]
+    simili = [p for d, p in sotto if len(k) >= 4 and len(core(d)) >= 4 and (core(d) in k or k in core(d))
+              and min(len(k), len(core(d))) * 3 >= max(len(k), len(core(d))) * 2]
+    scelta = uguali if len(uguali) == 1 else simili if len(simili) == 1 else []
+    return scelta[0] if scelta else None
+
+
+def cartella_archivio(o, cartelle, dati_root, sorgente=None):
+    """Dove salvare sul NAS i file pronti (TIF creati, file rinominati), con lo schema delle cartelle cliente:
+    <cliente>/<anno>/[<lavorazione>]/dtf/tiff. In ordine: la cartella da cui l'automazione ha preso i file
+    dell'ordine; la cartella del cliente che c'è già (con la sua dtf/tiff se esiste); se il cliente non c'è,
+    Clienti/<iniziale>/<cliente> o CrossFit/<box>. Ritorna {percorso (da DATI), esiste, cliente}."""
+    anno = str(datetime.now().year)
+    descr = (o.get('descr') or '').strip()
+    if sorgente and os.path.isdir(os.path.join(dati_root, sorgente)):
+        return {'percorso': sorgente, 'esiste': True, 'cliente': True}
+    cli = trova_cliente(o, cartelle)
+    if cli:
+        base = os.path.join(cli, anno)
+        lav = _lavorazione(base, descr)
+        if lav:
+            base = lav
+        elif descr:
+            base = os.path.join(base, descr.replace('/', '-'))
+        p = (_cartella_dtf_tiff(base) if os.path.isdir(base) else None) or os.path.join(base, 'dtf', 'tiff')
+    else:
+        nome = re.sub(r'\s+', ' ', (o.get('cliente') or o.get('nome') or '').replace('/', '-')).strip()
+        if not nome:
+            return None
+        if 'crossfit' in tokens(nome):   # box: CrossFit/<nome senza "crossfit">
+            box = ' '.join(w for w in nome.split() if tokens(w) != ['crossfit']) or nome
+            radice = os.path.join(dati_root, 'CrossFit', box.title() if box.isupper() else box)
+        else:
+            nome = nome.title() if nome.isupper() else nome
+            radice = os.path.join(dati_root, 'Clienti', nome[0].upper(), nome)
+        p = os.path.join(radice, anno, *([descr.replace('/', '-')] if descr else []), 'dtf', 'tiff')
+    return {'percorso': os.path.relpath(p, dati_root), 'esiste': os.path.isdir(p), 'cliente': bool(cli)}
+
+
 def file_dtf_cliente(cartella, descr=None):
     """Schema delle cartelle (deciso 2026-11-19):
          <cliente>/<anno>/dtf/tiff/                → ordine senza descrizione
@@ -1023,16 +1069,9 @@ def file_dtf_cliente(cartella, descr=None):
     if not os.path.isdir(anno):
         return [], None
     tiff = None
-    if descr and descr.strip():
-        sotto = [(d, os.path.join(anno, d)) for d in os.listdir(anno)
-                 if os.path.isdir(os.path.join(anno, d)) and not salta(d) and not re.search(r'dtf', d, re.I) and not SALTA_DIR.search(d)]
-        k = core(descr)
-        uguali = [p for d, p in sotto if core(d) == k]
-        simili = [p for d, p in sotto if len(k) >= 4 and len(core(d)) >= 4 and (core(d) in k or k in core(d))
-                  and min(len(k), len(core(d))) * 3 >= max(len(k), len(core(d))) * 2]
-        scelta = uguali if len(uguali) == 1 else simili if len(simili) == 1 else []
-        if scelta:
-            tiff = _cartella_dtf_tiff(scelta[0])
+    lav = _lavorazione(anno, descr)
+    if lav:
+        tiff = _cartella_dtf_tiff(lav)
     tiff = tiff or _cartella_dtf_tiff(anno)
     if not tiff:
         return [], None
@@ -1358,13 +1397,39 @@ def main():
                  **({'ct': g['ct']} if g.get('ct') else {}),
                  **({'metriOrdini': g['metriOrdini']} if g.get('metriOrdini') else {}),
                  **({'metri': g.get('metri', 0)} if not g['ordine'] else {})} for g in gruppi if g['files'] or g.get('dir')]
+    # Dove salvare sul NAS i file pronti, per le cartelle con PDF o nomi da sistemare
+    nomi = nomi_da_sistemare(gruppi, escluse)
+    archivi = {}
+    da_arch = {x['nome'] for x in nomi} | {g['nome'] for g in gruppi if pdf_senza_tif(g['files'])}
+    if da_arch:
+        try:
+            dati_root = os.path.normpath(os.path.join(a.cartella, '..', '..', '..'))
+            # elenco delle cartelle clienti riletto ogni 30 minuti (sul NAS ci vuole qualche secondo)
+            cc = stato.get('clienti_dir') or {}
+            if not cc.get('lista') or time.time() - (cc.get('at') or 0) > 1800:
+                cc = {'at': time.time(), 'lista': cartelle_clienti(dati_root)}
+                stato['clienti_dir'] = cc
+            clienti_dir = [tuple(x) for x in cc['lista']]
+            info = {o['id']: o for o in ordini_lista}
+            for g in gruppi:
+                # COLLA NERA no: ogni file è di un ordine diverso
+                if g['nome'] in da_arch and not g.get('ct') and not COLLA_DIR.fullmatch(g['nome'].strip()):
+                    o = info.get(g['ordine']) or {'nome': g['nome']}
+                    o = {**o, 'cliente': (dati.get('clienti') or {}).get(g['ordine'] or '')}
+                    archivi[g['nome']] = cartella_archivio(o, clienti_dir, dati_root, (dati.get('sorgenti') or {}).get(g['ordine'] or ''))
+        except Exception as e:
+            print('  percorso archivio:', e, file=sys.stderr)
+    for x in nomi:
+        if archivi.get(x['nome']):
+            x['archivio'] = archivi[x['nome']]
     # PDF senza TIF per cartella (task "Creare il file TIF"), con l'errore dell'ultima conversione
     pdf = [{'nome': g['nome'], 'dir': g.get('dir'), 'files': [f['path'].split('/', 1)[-1] for f in ps],
-            **({'errore': stato['tiff_errori'][g['nome']]} if (stato.get('tiff_errori') or {}).get(g['nome']) else {})}
+            **({'errore': stato['tiff_errori'][g['nome']]} if (stato.get('tiff_errori') or {}).get(g['nome']) else {}),
+            **({'archivio': archivi[g['nome']]} if archivi.get(g['nome']) else {})}
            for g in gruppi for ps in [pdf_senza_tif(g['files'])] if ps]
     esito = {'at': datetime.now(timezone.utc).isoformat(), 'abbinate': len(per_ordine), 'aggiunti': aggiunti,
              'collaNera': len(colla_spostati), 'raggruppati': len(sciolti_spostati), 'pdf': pdf,
-             'nomi': nomi_da_sistemare(gruppi, escluse),
+             'nomi': nomi,
              'senzaOrdine': senza, 'ambigue': ambigue, 'rinominate': len(rinominate), 'attesa': attesa,
              'errori': errori, 'cartelle': cartelle, 'mancanti': mancanti}
     for r in sciolti_spostati:
