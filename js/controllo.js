@@ -77,7 +77,7 @@ const codaAttiva = () => { const c = TASK_CODE_VECCHIE[Ctrl.coda] || Ctrl.coda; 
 const taskNegozio = (t) => t.fonte === 'shopify' || t.fonte === 'shopify_admin' || TASK_BRAND.some(m => m.id === t.macroarea);
 // Coda di un task. null = non si mostra ("Stampa DTF" della linea produttiva: c'è già l'ordine in DTF-STAMPA)
 function taskCoda(t) {
-  if (t.fonte === 'automazione' && t.fonte_rif?.dtf) return String(t.fonte_rif.dtf).startsWith('proposta:') ? 'dtffile' : 'dtfstampa';
+  if (t.fonte === 'automazione' && t.fonte_rif?.dtf) return /^(proposta|tif):/.test(String(t.fonte_rif.dtf)) ? 'dtffile' : 'dtfstampa';
   const c = taskCat(t);
   if (c === 'dtf') return null;
   if (c === 'stampa') return 'stampa';
@@ -1444,7 +1444,10 @@ function renderTaskQueue(coda, emptyText = '') {
   let corpo, n;
   if (cat === 'dtffile') {
     n = list.length + righe.file.length;
-    corpo = tagRow + ((list.length ? sub(`Proposte da approvare · ${list.length}`, ordinati(list).map(renderDtfTaskRiga).join('')) : '')
+    const tif = list.filter(t => String(t.fonte_rif?.dtf || '').startsWith('tif:'));
+    const proposte = list.filter(t => !tif.includes(t));
+    corpo = tagRow + ((tif.length ? sub(`Creare il file TIF · ${tif.length}`, ordinati(tif).map(renderDtfTaskRiga).join('')) : '')
+      + (proposte.length ? sub(`Proposte da approvare · ${proposte.length}`, ordinati(proposte).map(renderDtfTaskRiga).join('')) : '')
       + (righe.file.length ? sub(`Manca il DTF · ${righe.file.length}`, righe.file.map((o, i) => renderOrdineRiga(o, { pos: i + 1, dtf: true, azione: 'file' })).join('')) : '')
       || `<div class="empty-list">${codaTagAttivi().length ? 'Nessun ordine con questi tag.' : 'Tutti gli ordini DTF hanno i file.'}</div>`);
   } else if (cat === 'dtfstampa') {
@@ -1553,17 +1556,49 @@ async function dtfTaskRipristina(orderId, tolto) {
   refreshControlPage();
 }
 
+// PDF → TIF: la richiesta va al Mac mini (dtf_cartella.py), che crea i TIF entro un paio di minuti
+const dtfTiffRichieste = () => TCFactory._settings.dtf_tiff_richieste || {};
+const dtfTiffPdf = (nome) => (typeof DtfCartella !== 'undefined' ? DtfCartella.info()?.pdf || [] : []).find(x => x.nome === nome);
+// In attesa del Mac mini: richiesta fatta e PDF ancora lì senza un errore più nuovo (al massimo 30 minuti)
+function dtfTiffInCorso(nome) {
+  const r = dtfTiffRichieste()[nome], sv = typeof DtfCartella !== 'undefined' ? DtfCartella.server() : null;
+  if (!r?.at || Date.now() - new Date(r.at).getTime() > 30 * 60 * 1000) return false;
+  return !(sv?.at && new Date(sv.at) > new Date(r.at) && dtfTiffPdf(nome)?.errore);
+}
+async function dtfTiffGenera(nome) {
+  const p = dtfTiffPdf(nome);
+  const elenco = p?.files?.length ? `\n\nPDF: ${p.files.join(', ')}` : '';
+  const rid = await uiScegli(`Di quanti pixel ridurre lo SPOT (il bianco)?${elenco}\n\nIl Mac mini crea i TIF accanto ai PDF (CMYK FOGRA39 + SPOT, 300 dpi, neri K100) e sposta i PDF in «PDF originali».`,
+    [0, 1, 2, 3].map(n => ({ value: n, label: `${n} px` })), { title: `Genera TIFF automatico · ${nome}` });
+  if (rid == null) return;
+  // Le richieste più vecchie di 7 giorni si tolgono
+  const tutte = Object.fromEntries(Object.entries(dtfTiffRichieste()).filter(([, r]) => r?.at && Date.now() - new Date(r.at).getTime() < 7 * 864e5));
+  tutte[nome] = { riduzione: rid, at: new Date().toISOString() };
+  try {
+    await TCFactory.setSetting('dtf_tiff_richieste', tutte);
+    showToast(DtfCartella.server() ? 'Il Mac mini crea i TIF entro un paio di minuti: il task si chiude da solo' : 'Richiesta salvata: i TIF arrivano quando il Mac mini è attivo', DtfCartella.server() ? 'success' : 'error');
+  } catch (e) { console.error('[dtf tiff]', e); showToast('Richiesta non salvata: riprova', 'error'); }
+  refreshControlPage();
+}
+
 function renderDtfTaskRiga(t) {
   const [tipo, ...resto] = String(t.fonte_rif?.dtf || '').split(':');
   const rif = resto.join(':'), pr = taskPrio(t.priorita);
   const fuori = tipo === 'senza' ? dtfOrdineFuoriLista(rif) : null;
+  const tif = tipo === 'tif' ? { p: dtfTiffPdf(rif), corso: dtfTiffInCorso(rif) } : null;
   const azioni = {
     proposta: `<button type="button" class="ctrl-btn" onclick="dtfPrepApri('${escapeHtml(rif)}')" title="Controlla file e pezzi, poi approva o rifiuta">${CtrlIcons.check()} <span>Controlla</span></button>`,
     senza: (fuori ? `<button type="button" class="ctrl-btn" onclick="dtfTaskRipristina('${fuori.o.id}', ${fuori.tolto})" title="Rimette ${escapeHtml(fuori.o.nome)} tra gli ordini da stampare: la cartella si riabbina">${CtrlIcons.check()} <span>Ripristina</span></button>` : '')
       + `<button type="button" class="ctrl-btn" onclick="Nav.go('dtf', 'interno')" title="Apri la coda DTF interno">${fuori ? '' : `${CtrlIcons.check()} `}<span>Apri DTF interno</span></button>`,
     mancante: `<button type="button" class="ctrl-btn" onclick="openOrderDetail('${escapeHtml(rif)}')">Apri ordine</button>
       <button type="button" class="ctrl-btn" onclick="dtfMarkPrinted('${escapeHtml(rif)}')" title="Segna il DTF come stampato">${CtrlIcons.check()} <span>Stampato</span></button>`,
+    tif: tif?.corso
+      ? `<button type="button" class="ctrl-btn" disabled title="Il Mac mini sta creando i TIF">TIFF in preparazione…</button>`
+      : `<button type="button" class="ctrl-btn" onclick="dtfTiffGenera(${escapeHtml(JSON.stringify(rif))})" title="Crea i TIF dai PDF: scegli la riduzione dello SPOT">${CtrlIcons.check()} <span>Genera TIFF automatico</span></button>`,
   }[tipo] || '';
+  const metaTif = tif && (tif.p?.errore && !tif.corso
+    ? `<strong>Conversione non riuscita:</strong> ${escapeHtml(tif.p.errore)}`
+    : tif.p?.files?.length ? `${tif.p.dir ? `Cartella «${escapeHtml(tif.p.dir)}»: ` : ''}${tif.p.files.map(escapeHtml).join(', ')}` : '');
   return `
     <article class="task-row is-task">
       <i class="task-prio" style="--p:${pr.color};" role="img" title="Priorità ${pr.label.toLowerCase()}" aria-label="Priorità ${pr.label.toLowerCase()}"></i>
@@ -1571,7 +1606,7 @@ function renderDtfTaskRiga(t) {
         <span class="task-title">${escapeHtml(t.titolo)}</span>
         <span class="task-meta">${fuori
           ? `<strong>${escapeHtml(fuori.o.nome)}</strong> è già ${fuori.tolto ? 'tolto dalla lista DTF' : 'segnato stampato'}: se manca ancora qualcosa premi <strong>Ripristina</strong>, se è tutto stampato sposta la cartella in 00 - Stampato.`
-          : escapeHtml(t.descrizione || '')}</span>
+          : metaTif || escapeHtml(t.descrizione || '')}</span>
       </button>
       <div class="task-badges">${t.priorita === 'urgente' ? `<span class="td-tag" style="--c:${pr.color};">Urgente</span>` : ''}</div>
       <span class="task-time"></span>

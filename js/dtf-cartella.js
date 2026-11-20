@@ -17,7 +17,7 @@
 const DTF_CARTELLA_IDB = 'tcf-dtf';
 const DTF_CARTELLA_EVERY = 5 * 60 * 1000;
 const DTF_CARTELLA_EXT = /\.(tiff?|pdf|png|jpe?g)$/i;
-const DTF_CARTELLA_SKIP = /stampato/i;          // cartelle già stampate, a qualsiasi livello
+const DTF_CARTELLA_SKIP = /stampato|^\s*pdf originali\s*$/i;   // cartelle già stampate e PDF già trasformati in TIF
 const DTF_CARTELLA_NUM = /^\d{1,3}\s*-\s*/;      // numero davanti messo da "Numera le cartelle"
 
 const DtfCartella = {

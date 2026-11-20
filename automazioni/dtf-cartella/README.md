@@ -20,6 +20,18 @@ tutti i PC, anche Windows, senza collegare niente nel browser.
   ordini (stessa misura e data), che quindi non finiscono in "controllare se stampato". Nel totale
   "Metri da stampare" contano una volta sola: la riga COLLA NERA porta `metriOrdini` (metri per ordine) e il
   gestionale li toglie dal totale se l'ordine è in coda; la riga mostra comunque tutti i metri della cartella.
+- **File sciolti raggruppati** (dal 2026-11-20): i file sciolti in 1. Stampare con le stesse prime parole
+  (`House dietro 100 pezzi.pdf`, `House lato cuore 100 pezzi.pdf`) vanno in una cartella col nome comune (`House`);
+  se la cartella c'è già (anche numerata) vanno lì, e lì va anche un file da solo che inizia col suo nome. Parole
+  generiche (fronte, retro, logo, numeri…) non bastano. Solo file fermi da 2 minuti.
+- **PDF → TIF** (dal 2026-11-20): una cartella (o un file sciolto) con PDF senza il loro TIF accanto finisce
+  nell'esito (`pdf`) e il database apre il task URGENTE **Creare il file TIF: <nome>** (coda DTF-FILE,
+  `sql/dtf-tiff.sql`). Il tasto **Genera TIFF automatico** chiede la riduzione dello SPOT (0-3 px) e scrive
+  `app_settings.dtf_tiff_richieste`; al giro dopo lo script chiama `dtf_tiff.py` (venv a parte in
+  `~/Library/Application Support/TC DTF/venv` con pymupdf, numpy, pillow, tifffile; profilo `fogra39.icc` preso
+  dalla libreria di Box Factory Lab): TIF come i fogli BFL (CMYK FOGRA39 300 dpi, neri K100, canale SPOT stile
+  Photoshop = forma di tutto ridotta di N px), misura della pagina, più pagine → `<nome> - pag N.tif`. Il PDF va in
+  `PDF originali` (cartella esclusa dalla lettura) e sull'ordine resta solo il TIF. Il task si chiude da solo.
 - Esito in `app_settings.dtf_cartella_stato` (riga in DTF interno), salvato quando cambia o
   ogni 10 minuti; nel registro del Centro di controllo solo quando aggiunge o rinomina.
 - Database: `sql/dtf-cartella-server.sql` (`tc_dtf_cartella_dati`, `tc_dtf_cartella_salva`,

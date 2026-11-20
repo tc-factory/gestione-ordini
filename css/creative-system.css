@@ -622,6 +622,10 @@ html .ctrl-btn.is-primary, html .ctrl-btn.is-primary:hover:not(:disabled) {
 .ui-dialog-note { margin: 0; font-size: 0.9rem; line-height: 1.45; color: var(--text-secondary); white-space: pre-line; overflow-wrap: anywhere; }
 .ui-dialog-body .form-input { margin-top: 6px; width: 100%; }
 .ui-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 18px 26px 24px; }
+/* uiScegli: le scelte in fila, Annulla sotto */
+.ui-dialog-actions.is-scegli { display: grid; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); }
+.ui-dialog-actions.is-scegli .btn { justify-content: center; }
+.ui-dialog-actions.is-scegli [data-ui="cancel"] { grid-column: 1 / -1; order: 1; }
 @media (max-width: 480px) {
   .ui-dialog-body { padding: 22px 20px 4px; }
   .ui-dialog-actions { padding: 16px 20px 20px; }
