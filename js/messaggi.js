@@ -106,6 +106,15 @@ const Messages = {
     refreshMessagesUi();
   },
 
+  // Promemoria non ancora arrivato: il mittente può cambiare testo, ora, destinatario ed elemento
+  async update(id, campi) {
+    const { data, error } = await supabaseClient.from('messages').update(campi).eq('id', id).select();
+    if (error || !data?.length) throw new Error('Impossibile modificare il promemoria (forse è già arrivato)');
+    const i = this._list.findIndex(m => m.id === id);
+    if (i >= 0) this._list[i] = data[0];
+    refreshMessagesUi();
+  },
+
   async markRead(ids) {
     if (!ids.length) return;
     const now = new Date().toISOString();
@@ -395,6 +404,7 @@ function renderMessagesPanel() {
         ${m.riferimento ? MsgRef.chip(m.riferimento, `MsgRef.open(Messages._list.find(x=>x.id==='${m.id}').riferimento)`) : ''}
         <div class="msg-item-actions">
           ${!mio ? `<button type="button" class="btn btn-ghost btn-sm" onclick="replyToMessage('${m.id}')">Rispondi</button>` : ''}
+          ${programma ? `<button type="button" class="btn btn-ghost btn-sm" onclick="editPromemoria('${m.id}')">Modifica</button>` : ''}
           <button type="button" class="btn btn-ghost btn-sm" onclick="deleteMessageConfirm('${m.id}')">${programma ? 'Annulla' : 'Elimina'}</button>
         </div>
       </li>`;
@@ -408,17 +418,21 @@ function renderMessagesPanel() {
     : `Elimina tutti i ${ricevuti ? 'ricevuti' : 'inviati'}`;
 
   modal.innerHTML = `
-    <div class="modal msg-panel" style="max-width:520px;" role="dialog" aria-modal="true" aria-labelledby="msg-title">
-      <div class="modal-header">
-        <h2 id="msg-title">${promemoria ? 'Promemoria' : 'Messaggi'}</h2>
+    <div class="modal msg-panel" style="max-width:520px;" role="dialog" aria-modal="true" aria-label="Messaggi e promemoria">
+      <div class="modal-header msg-sezioni-head">
+        <div class="msg-sezioni" role="tablist" aria-label="Messaggi e promemoria">
+          ${[['messaggi', 'Messaggi', nMsg], ['promemoria', 'Promemoria', nProm]].map(([id, txt, n]) => `
+            <button type="button" role="tab" aria-selected="${MsgState.sezione === id}"
+              class="btn ${MsgState.sezione === id ? 'btn-primary' : 'btn-secondary'}"
+              onclick="MsgState.sezione='${id}';renderMessagesPanel()">${txt}${n ? `<span class="msg-sezioni-n">${n}</span>` : ''}</button>`).join('')}
+        </div>
         <button class="btn-icon" onclick="closeModal('msg-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <div class="modal-body" style="gap:12px;">
-        ${msgSegmented('Sezione', [['messaggi', `Messaggi${nMsg ? ` (${nMsg})` : ''}`], ['promemoria', `Promemoria${nProm ? ` (${nProm})` : ''}`]], MsgState.sezione, 'MsgState.sezione')}
         <div class="msg-actions">
           ${promemoria
-            ? `<button type="button" class="btn btn-primary" onclick="openMessageComposer({ promemoria: true })">${Icons.clock(15)} Nuovo promemoria</button>`
-            : `<button type="button" class="btn btn-primary" onclick="startMessagePick()">${Icons.magic(15)} Seleziona dalla schermata</button>
+            ? `<button type="button" class="btn btn-secondary" onclick="openMessageComposer({ promemoria: true })">${Icons.clock(15)} Nuovo promemoria</button>`
+            : `<button type="button" class="btn btn-secondary" onclick="startMessagePick()">${Icons.magic(15)} Seleziona dalla schermata</button>
                <button type="button" class="btn btn-secondary" onclick="openMessageComposer()">${Icons.edit(15)} Scrivi</button>`}
         </div>
         ${askNotify ? `<button type="button" class="btn btn-ghost btn-sm" style="align-self:flex-start;" onclick="enableMessageNotifications()">${Icons.zap(13)} Avvisami anche con le notifiche del computer</button>` : ''}
@@ -633,15 +647,23 @@ function startMessagePick() {
   MsgPicker.start((ref) => openMessageComposer({ riferimento: ref }));
 }
 
+function editPromemoria(id) {
+  const m = Messages._list.find(x => x.id === id);
+  if (!m || Messages._arrivato(m)) { showToast('Il promemoria è già arrivato', 'error'); return; }
+  openMessageComposer({ editId: id, promemoria: true, destinatari: [m.destinatario], riferimento: m.riferimento,
+    testo: m.testo, ricordaIl: msgLocalInput(new Date(m.ricorda_il)) });
+}
+
 async function openMessageComposer(prefill = {}) {
   closeModal('msg-modal');
   _msgDraft = {
+    editId: prefill.editId || null,
     destinatari: new Set(prefill.destinatari || (prefill.promemoria ? [TCAuth.getNickname()] : [])),
     riferimento: prefill.riferimento || null,
-    testo: '',
+    testo: prefill.testo || '',
     // Il promemoria ha la sua finestra: di base è per sé stessi
     promemoria: !!prefill.promemoria,
-    ricordaIl: msgLocalInput(msgRound10(new Date(Date.now() + 3600000))),
+    ricordaIl: prefill.ricordaIl || msgLocalInput(msgRound10(new Date(Date.now() + 3600000))),
   };
   _msgUsers = (await TCAuth.listUsers().catch(() => [])).map(u => u.nickname);
   renderMessageComposer();
@@ -663,7 +685,7 @@ function renderMessageComposer() {
   modal.innerHTML = `
     <div class="modal" style="max-width:500px;" role="dialog" aria-modal="true" aria-labelledby="mc-title">
       <div class="modal-header">
-        <h2 id="mc-title">${d.promemoria ? 'Nuovo promemoria' : 'Nuovo messaggio'}</h2>
+        <h2 id="mc-title">${d.editId ? 'Modifica promemoria' : d.promemoria ? 'Nuovo promemoria' : 'Nuovo messaggio'}</h2>
         <button class="btn-icon" onclick="closeModal('msg-compose-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <form class="modal-body" style="gap:14px;" onsubmit="event.preventDefault();submitMessageComposer()">
@@ -694,8 +716,8 @@ function renderMessageComposer() {
             min="${msgLocalInput(msgRound10(new Date()))}" onchange="msgSetWhen(this)">
         </div>` : ''}
         <div style="display:flex;justify-content:flex-end;gap:8px;">
-          <button type="button" class="btn btn-secondary" onclick="closeModal('msg-compose-modal')">Annulla</button>
-          <button type="submit" class="btn btn-primary" id="mc-send">${d.promemoria ? 'Programma' : 'Invia'}</button>
+          <button type="button" class="btn btn-secondary" onclick="closeModal('msg-compose-modal')${d.editId ? ";openMessagesPanel('promemoria')" : ''}">Annulla</button>
+          <button type="submit" class="btn btn-primary" id="mc-send">${d.editId ? 'Salva' : d.promemoria ? 'Programma' : 'Invia'}</button>
         </div>
       </form>
     </div>`;
@@ -704,7 +726,9 @@ function renderMessageComposer() {
 }
 
 function toggleMessageTo(u) {
-  if (_msgDraft.destinatari.has(u)) _msgDraft.destinatari.delete(u); else _msgDraft.destinatari.add(u);
+  // In modifica il promemoria è uno solo: un destinatario
+  if (_msgDraft.editId) _msgDraft.destinatari = new Set([u]);
+  else if (_msgDraft.destinatari.has(u)) _msgDraft.destinatari.delete(u); else _msgDraft.destinatari.add(u);
   renderMessageComposer();
 }
 
@@ -720,6 +744,16 @@ async function submitMessageComposer() {
   }
   const btn = document.getElementById('mc-send');
   btn.disabled = true;
+  if (d.editId) {
+    try {
+      await Messages.update(d.editId, { destinatario: [...d.destinatari][0], testo: d.testo.trim(), riferimento: d.riferimento || null, ricorda_il: ricordaIl });
+      closeModal('msg-compose-modal');
+      MsgState.sezione = 'promemoria'; MsgState.ptab = 'programma';
+      openMessagesPanel('promemoria');
+      showToast(`Promemoria aggiornato: arriva ${msgWhen(ricordaIl)}`);
+    } catch (e) { showToast(e.message, 'error'); btn.disabled = false; }
+    return;
+  }
   try {
     await Messages.send([...d.destinatari], d.testo, d.riferimento, ricordaIl);
     closeModal('msg-compose-modal');

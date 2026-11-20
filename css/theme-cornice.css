@@ -1169,6 +1169,12 @@ html.dark .dtf-item.dtf-urgent .dtf-cols, html.dark .dtf-item.dtf-urgent .dtf-fi
 /* Pannello e messaggi */
 .msg-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .msg-actions .btn { flex: 1 1 auto; justify-content: center; }
+/* Messaggi | Promemoria: due tasti grandi al posto del titolo */
+.msg-sezioni-head { gap: 10px; }
+.msg-sezioni { display: flex; gap: 8px; flex: 1; min-width: 0; }
+html .msg-sezioni .btn.btn { flex: 1 1 0; justify-content: center; min-height: 52px; font-size: 16px; gap: 8px; }
+.msg-sezioni-n { min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; background: var(--priority-urgent, #e5484d); color: #fff; }
 .msg-panel .segmented { align-self: flex-start; }
 .msg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .msg-item {

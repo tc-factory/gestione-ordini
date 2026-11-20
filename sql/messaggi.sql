@@ -7,6 +7,7 @@
 --   • ricorda_il: promemoria, il destinatario lo riceve solo da quell'ora
 --   • ognuno vede solo i messaggi che ha mandato o ricevuto;
 --     il destinatario può solo segnarli come letti, il mittente eliminarli
+--   • il mittente può modificare un promemoria finché non è arrivato
 -- Richiede sicurezza-2-blocca.sql già eseguito. Si può rieseguire.
 -- ════════════════════════════════════════════════════════
 
@@ -44,6 +45,31 @@ create policy "Utente elimina i suoi messaggi" on messages for delete to authent
 revoke all on messages from anon, authenticated;
 grant select, insert, delete on messages to authenticated;
 grant update (letto_at) on messages to authenticated;
+
+-- Modifica dei promemoria non ancora arrivati (testo, ora, destinatario, elemento)
+drop policy if exists "Mittente modifica promemoria" on messages;
+create policy "Mittente modifica promemoria" on messages for update to authenticated
+  using (mittente = app_nickname() and ricorda_il > now())
+  with check (mittente = app_nickname() and ricorda_il is not null);
+grant update (testo, ricorda_il, destinatario, riferimento) on messages to authenticated;
+
+-- I permessi per colonna valgono per tutti: il destinatario resta limitato a letto_at
+create or replace function messages_guard_update() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if (new.testo, new.ricorda_il, new.destinatario, new.riferimento)
+     is distinct from (old.testo, old.ricorda_il, old.destinatario, old.riferimento)
+     and current_user = 'authenticated'
+     and (old.mittente is distinct from app_nickname() or old.ricorda_il is null or old.ricorda_il <= now()) then
+    raise exception 'Si possono modificare solo i propri promemoria non ancora arrivati';
+  end if;
+  -- Spostato a un nuovo orario: torna da leggere
+  if new.ricorda_il is distinct from old.ricorda_il then new.letto_at := null; end if;
+  return new;
+end $$;
+drop trigger if exists messages_guard_update on messages;
+create trigger messages_guard_update before update on messages
+  for each row execute function messages_guard_update();
 
 -- Notifica immediata quando arriva un messaggio
 do $$
