@@ -21,6 +21,7 @@ Config (fuori dal repository, il repo è pubblico):
 import argparse
 import base64
 import fcntl
+import filecmp
 import json
 import math
 import os
@@ -46,6 +47,11 @@ EXT = re.compile(r'\.(tiff?|pdf|png|jpe?g)$', re.I)
 SALTA_DIR = re.compile(r'stampato', re.I)
 URGENZE = re.compile(r'urgenz[ae]', re.I)   # conto terzi: cartelle copiate tutti i giorni lavorativi
 NUMERO = re.compile(r'^\d{1,3}\s*-\s*')
+# File da stampare con la colla nera: dalle cartelle degli ordini, sciolti, nella cartella "COLLA NERA"
+COLLA_NERA = 'COLLA NERA'
+COLLA_DIR = re.compile(r'colla\s*nera', re.I)
+COLLA_FILE = re.compile(r'(?<![a-z])(colla\s*nera|leggings?|shorts?|soft\s*shell)', re.I)
+COLLA_ATTESA = 120   # secondi senza modifiche prima di spostare (file ancora in caricamento)
 DPI_DEFAULT = 300
 CM_INCH = 2.54
 
@@ -326,6 +332,53 @@ def gruppi_di(cartella):
     return gruppi
 
 
+def cartella_colla(cartella):
+    return next((n for n in sorted(os.listdir(cartella)) if os.path.isdir(os.path.join(cartella, n))
+                 and COLLA_DIR.fullmatch(base(n).strip())), None)
+
+
+def sposta_colla_nera(cartella, prova, escluse=()):
+    """File con "colla nera", "leggings", "short" o "soft shell" nel nome (o in una sottocartella) dentro le
+    cartelle degli ordini → sciolti in COLLA NERA, col nome dell'ordine davanti se non c'è già
+    ("cf pavia/Leggings_5pz.tif" → "COLLA NERA/cf pavia - Leggings_5pz.tif"). Solo file fermi da 2 minuti;
+    le cartelle dei clienti conto terzi (K1) restano come sono."""
+    colla = cartella_colla(cartella) or COLLA_NERA
+    spostati, errori, ora = [], [], time.time()
+    for name in sorted(os.listdir(cartella)):
+        p = os.path.join(cartella, name)
+        if (salta(name) or not os.path.isdir(p) or SALTA_DIR.search(name) or COLLA_DIR.fullmatch(base(name).strip())
+                or base(name).strip().lower() in escluse):
+            continue
+        ordine = base(name).strip()
+        for fl in files_di(p, name):
+            if not COLLA_FILE.search(re.sub(r'[_.\-]+', ' ', fl['path'].split('/', 1)[1])):
+                continue
+            st = os.stat(fl['abs'])
+            if ora - st.st_mtime < COLLA_ATTESA:
+                continue
+            nome = fl['name'] if core(ordine) in core(fl['name']) else f"{ordine} - {fl['name']}"
+            gia = os.path.join(cartella, colla, nome)
+            if os.path.exists(gia) and filecmp.cmp(gia, fl['abs'], shallow=False):
+                continue   # già messo a mano in COLLA NERA: non si fa un doppione
+            dest = nome_libero(os.path.join(cartella, colla), nome, -1)
+            if prova:
+                spostati.append(f"{fl['path']} → {colla}/{os.path.basename(dest)}")
+                continue
+            try:
+                os.makedirs(os.path.join(cartella, colla), exist_ok=True)
+                os.rename(fl['abs'], dest)
+                spostati.append(f"{fl['path']} → {colla}/{os.path.basename(dest)}")
+            except OSError as e:
+                errori.append(f"{fl['path']} → {colla}: {e.strerror}")
+    return spostati, errori
+
+
+def stesso_file(fl, x, st):
+    """Il file è quello già sull'ordine, spostato (anche col nome dell'ordine davanti): stessa misura e data."""
+    return (x.get('name') and x.get('size') == st.st_size and x.get('mtime') == int(st.st_mtime * 1000)
+            and (fl['name'] == x['name'] or fl['name'].endswith(' - ' + x['name'])))
+
+
 # File dell'ordine: aggiunge i nuovi, rilegge i cambiati, non toglie niente (come DtfCartella._aggiorna)
 def aggiorna_items(items, files, roll, gap):
     items = [dict(x) for x in (items or []) if x and x.get('name')]
@@ -337,6 +390,8 @@ def aggiorna_items(items, files, roll, gap):
         i = next((j for j, x in enumerate(items) if x.get('cartella') and chiave(x['cartella']) == k), -1)
         if i < 0:
             i = next((j for j, x in enumerate(items) if not x.get('cartella') and x['name'] == fl['name']), -1)
+        if i < 0:   # spostato (es. in COLLA NERA)
+            i = next((j for j, x in enumerate(items) if stesso_file(fl, x, st)), -1)
         it = items[i] if i >= 0 else None
         if it and (not it.get('cartella') or (it.get('size') == size and it.get('mtime') == mtime)):
             if it.get('cartella') != fl['path']:
@@ -898,6 +953,14 @@ def main():
     except Exception as e:
         print('ordini da preparare:', e, file=sys.stderr)
 
+    # File con la colla nera (leggings, short, soft shell) nella cartella COLLA NERA
+    colla_spostati, colla_errori = [], []
+    try:
+        colla_spostati, colla_errori = sposta_colla_nera(
+            a.cartella, a.prova, {c['nome'].strip().lower() for c in dati.get('ct_clienti') or []})
+    except Exception as e:
+        colla_errori.append(f'colla nera: {e}')
+
     # La lista ha gli ordini e, al loro posto, le cartelle senza ordine ({id: 'cartella:<nome>', cartella: true})
     pos = {o['id']: i for i, o in enumerate(lista)}
     ordini_lista = [o for o in lista if not o.get('cartella')]
@@ -927,6 +990,16 @@ def main():
                 senza.append(g['nome'])
         elif g['files']:
             per_ordine.setdefault(o['id'], []).extend(g['files'])
+
+    # COLLA NERA resta una riga sua nella coda (si stampa tutta insieme), ma i file spostati dagli ordini
+    # restano anche sui loro ordini: il percorso segue il file e l'ordine non va in "controllare se stampato"
+    for g in gruppi:
+        if g.get('dir') and not g['ordine'] and COLLA_DIR.fullmatch(g['nome'].strip()):
+            for fl in g['files']:
+                st = os.stat(fl['abs'])
+                oid = next((o['id'] for o in ordini_lista if any(stesso_file(fl, x, st) for x in (items_db.get(o['id']) or []))), None)
+                if oid:
+                    per_ordine.setdefault(oid, []).append(fl)
 
     # Metri delle cartelle senza ordine (per la coda DTF), riletti solo se il file cambia
     nuove_misure = {}
@@ -964,7 +1037,7 @@ def main():
     dirs = [g for g in gruppi if not g.get('sciolto')]
     numera(dirs)
     da_rinominare = [(d, d['target']) for d in dirs if d['target'] != d['dir']]
-    rinominate, errori = [], []
+    rinominate, errori = [], list(colla_errori)
     if (nuovi or chiesta) and da_rinominare:
         for d, nuovo in da_rinominare:
             if a.prova:
@@ -996,8 +1069,11 @@ def main():
                  **({'ct': g['ct']} if g.get('ct') else {}),
                  **({'metri': g.get('metri', 0)} if not g['ordine'] else {})} for g in gruppi if g['files'] or g.get('dir')]
     esito = {'at': datetime.now(timezone.utc).isoformat(), 'abbinate': len(per_ordine), 'aggiunti': aggiunti,
+             'collaNera': len(colla_spostati),
              'senzaOrdine': senza, 'ambigue': ambigue, 'rinominate': len(rinominate), 'attesa': attesa,
              'errori': errori, 'cartelle': cartelle, 'mancanti': mancanti}
+    for r in colla_spostati:
+        print('  colla nera', r)
     for r in rinominate:
         print('  rinomina', r)
     for e in errori:
@@ -1021,14 +1097,16 @@ def main():
     with open(STATO, 'w') as f:
         json.dump({**stato, 'visti': percorsi, 'richiesta': richiesta}, f)
 
-    if rinominate or errori or aggiunti:   # registro del Centro di controllo solo quando cambia qualcosa
+    if rinominate or errori or aggiunti or colla_spostati:   # registro del Centro di controllo solo quando cambia qualcosa
         try:
             ini = rpc(cfg, 'tc_automazione_inizio', {'p_chiave': cfg['chiave'], 'p_nome': 'dtf-cartella'})
             if ini.get('success'):
-                righe = [f'{aggiunti} file nuovi su {len(ordini)} ordini'] + rinominate + [f'ERRORE {e}' for e in errori]
+                righe = ([f'{aggiunti} file nuovi su {len(ordini)} ordini'] + [f'colla nera: {r}' for r in colla_spostati]
+                         + rinominate + [f'ERRORE {e}' for e in errori])
                 rpc(cfg, 'tc_automazione_fine', {
                     'p_chiave': cfg['chiave'], 'p_id': ini['id'], 'p_stato': 'errore' if errori else 'ok',
-                    'p_riepilogo': {'file_nuovi': aggiunti, 'rinominate': len(rinominate), 'errori': len(errori)},
+                    'p_riepilogo': {'file_nuovi': aggiunti, 'colla_nera': len(colla_spostati), 'rinominate': len(rinominate),
+                                    'errori': len(errori)},
                     'p_output': '\n'.join(righe)})
         except Exception as e:
             print('registro non scritto:', e, file=sys.stderr)
