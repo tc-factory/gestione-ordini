@@ -20,8 +20,9 @@ const reply = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
 // In due passi, perché chiedere conversazioni e messaggi insieme fa piantare Meta ("reduce the amount
-// of data", visto su Instagram di Ciucciami): prima l'elenco leggero delle conversazioni, poi i messaggi
-// solo di quelle cambiate dopo l'ultima lettura, una alla volta.
+// of data"): prima l'elenco leggero delle conversazioni, poi i messaggi solo di quelle cambiate dopo
+// l'ultima lettura, una alla volta. Instagram di Ciucciami va in "Timeout" (subcode 2534084) anche così,
+// con una sola conversazione: troppe conversazioni senza l'accesso avanzato a instagram_manage_messages.
 const CONV = 25;
 const MSG = 20;
 const CAMPI_MSG = `messages.limit(${MSG}){id,message,from,created_time,attachments{mime_type,name,file_url}}`;
@@ -29,7 +30,13 @@ const CAMPI_MSG = `messages.limit(${MSG}){id,message,from,created_time,attachmen
 async function leggiAccount(db: ReturnType<typeof createClient>, a: Row) {
   const { nodo, token } = await accessoMessaggi(db, a);
   if (!token) throw new Error('Token mancante: ricollega l\'account');
-  const r = await graph(`${nodo}/conversations`, { platform: a.piattaforma, fields: 'id,updated_time,participants', limit: String(CONV), access_token: token });
+  const r = await graph(`${nodo}/conversations`, { platform: a.piattaforma, fields: 'id,updated_time,participants', limit: String(CONV), access_token: token })
+    .catch((e: Error) => {
+      // Sull'elenco Instagram Meta dà a volte "reduce the amount of data" (senza sottocodice) invece del
+      // "Timeout" 2534084: stessa causa (troppe conversazioni senza accesso avanzato), stesso messaggio
+      if (a.piattaforma === 'instagram' && /reduce the amount of data/i.test(e.message)) throw new Error(`${e.message} (subcode 2534084)`);
+      throw e;
+    });
   const { data: note } = await db.from('social_conversazioni').select('thread_id, ultimo_at').eq('account', a.id);
   const ultimo = new Map((note || []).map(c => [c.thread_id, c.ultimo_at ? new Date(c.ultimo_at).getTime() : 0]));
 

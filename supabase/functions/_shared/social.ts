@@ -21,7 +21,8 @@ export type Messaggio = {
 export async function graph(path: string, params: Record<string, string>, init: RequestInit = {}) {
   const res = await fetch(`${GRAPH}/${path}?${new URLSearchParams(params)}`, init);
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.error) throw new Error(json.error?.message || `Meta ha risposto ${res.status}`);
+  // Il sottocodice serve a riconoscere errori che Meta descrive solo a parole generiche (es. "Timeout")
+  if (!res.ok || json.error) throw new Error((json.error?.message || `Meta ha risposto ${res.status}`) + (json.error?.error_subcode ? ` (subcode ${json.error.error_subcode})` : ''));
   return json;
 }
 
@@ -81,6 +82,12 @@ export function erroreLeggibile(msg: string) {
   }
   if (/Requires instagram_manage_messages/i.test(msg)) {
     return 'All\'app Meta CS Chat Connect manca il permesso instagram_manage_messages: va aggiunto e poi rifatto "Collega Messenger" spuntando anche i profili Instagram';
+  }
+  // 2534084: "Timeout" sulle conversazioni Instagram quando il profilo ha troppe conversazioni con utenti
+  // senza ruolo nell'app. Meta chiede l'accesso avanzato a instagram_manage_messages (App Review): stesso
+  // rimedio del permesso mancante, e la frase "manca il permesso" fa saltare il profilo al cron di social-sync.
+  if (/subcode 2534084/.test(msg)) {
+    return 'All\'app Meta CS Chat Connect manca il permesso avanzato instagram_manage_messages (App Review): senza, Meta non legge i direct di questo profilo, che ha troppe conversazioni';
   }
   if (/outside of allowed window|24 ore|24-hour/i.test(msg)) return 'Sono passate più di 24 ore dall\'ultimo messaggio del cliente: Meta non permette di rispondere da qui';
   return msg;
