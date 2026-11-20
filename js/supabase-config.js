@@ -7,7 +7,7 @@
  *
  * Questa chiave è pensata per essere pubblica nel codice frontend:
  * la sicurezza è garantita dalle policy RLS impostate nel database
- * (vedi sql/setup.sql), non dalla segretezza di questa chiave.
+ * (sql/sicurezza-2-blocca.sql e seguenti), non dalla segretezza di questa chiave.
  */
 
 const SUPABASE_URL = 'https://gdtlpyowpbwetnovxget.supabase.co';

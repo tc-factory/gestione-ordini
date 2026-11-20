@@ -1,13 +1,19 @@
 -- ════════════════════════════════════════════════════════
--- T&C Factory — Setup Database Supabase v5.0
--- Esegui questo script in: Supabase Dashboard → SQL Editor → New query
+-- T&C Factory — Primo impianto del database (storico, v5.0)
 --
--- ATTENZIONE: se hai già eseguito una versione precedente di questo script,
--- questa nuova versione AGGIUNGE le tabelle priorities/tags e RICREA la
--- struttura della tabella orders (i vecchi ordini con i campi vecchi non
--- sono compatibili col nuovo modello — è uno schema nuovo, pensato per
--- ripartire da zero con gli ordini).
+-- ⛔ NON ESEGUIRE sul database in uso: è lo script con cui è nato il gestionale.
+--    Il database di produzione esiste già ed è stato aggiornato dagli altri file di sql/.
+--    Le policy "Public …" qui sotto erano aperte a chiunque (anon): le ha chiuse
+--    sql/sicurezza-2-blocca.sql e rieseguire questo file le riaprirebbe.
+--    Se la tabella orders esiste, lo script si ferma subito senza toccare niente.
 -- ════════════════════════════════════════════════════════
+
+do $$
+begin
+  if to_regclass('public.orders') is not null then
+    raise exception 'sql/setup.sql è il primo impianto: il database esiste già, non va rieseguito';
+  end if;
+end $$;
 
 -- ─────────────────────────────────────────────
 -- 1. Tabella PRIORITÀ (configurabili, sincronizzate su tutti i PC)
@@ -68,9 +74,7 @@ on conflict (name) do nothing;
 -- 3. Tabella ORDINI (nuovo modello v5.0)
 -- ─────────────────────────────────────────────
 
-drop table if exists orders cascade;
-
-create table orders (
+create table if not exists orders (
   id           text primary key,
   nome         text not null,
   data_ordine  date not null,

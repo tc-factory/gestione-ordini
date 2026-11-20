@@ -244,7 +244,6 @@ const TASK_CAMPIONI_MIN = 5;
 
 const taskStato = (id) => TASK_STATI.find(s => s.id === id) || TASK_STATI[0];
 const taskPrio  = (id) => TASK_PRIORITA.find(p => p.id === id) || TASK_PRIORITA[2];
-const taskPrioRank = (id) => Math.max(0, TASK_PRIORITA.findIndex(p => p.id === id));
 
 // Date in ora italiana, come 'YYYY-MM-DD'
 const ctrlOggi = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
@@ -818,6 +817,7 @@ const TASK_TABS = [
 ];
 const TASK_PAGINA = 50;
 const TaskView = { tab: 'coda', brand: '', tipo: '', chi: '', prio: '', stato: '', scad: '', q: '', ordina: 'scadenza', limite: TASK_PAGINA, sel: new Set(), bulkChi: '' };
+// prio: solo 'urgente', dal riquadro Urgenti in alto (i task non hanno più una priorità da scegliere)
 const TASK_FILTRI = ['brand', 'tipo', 'chi', 'prio', 'stato', 'scad', 'q'];
 
 const TkIcons = {
@@ -1151,12 +1151,11 @@ function taskBoardList() {
     && (!v.scad || taskFiltroScad(t, v.scad))
     && (!q || `${t.titolo} ${t.analisi?.cliente?.nome || ''} ${(t.analisi?.ordini || []).map(o => o.numero).join(' ')}`.toLowerCase().includes(q)));
   const per = {
-    scadenza: (a, b) => taskCmpScad(a, b) || taskPrioRank(a.priorita) - taskPrioRank(b.priorita),
-    priorita: (a, b) => taskPrioRank(a.priorita) - taskPrioRank(b.priorita) || taskCmpScad(a, b),
+    scadenza: taskCmp,
     tempo: (a, b) => (b.minuti_stimati || 0) - (a.minuti_stimati || 0),
     arrivo: (a, b) => b.created_at.localeCompare(a.created_at),
-  }[v.ordina];
-  return list.sort((a, b) => per(a, b) || a.created_at.localeCompare(b.created_at));
+  }[v.ordina] || taskCmp;
+  return list.sort((a, b) => per(a, b) || taskCreato(a).localeCompare(taskCreato(b)));
 }
 
 function renderTaskBoard() {
@@ -1179,12 +1178,11 @@ function renderTaskBoard() {
         ${sel('brand', 'Categoria', [['', 'Tutte le categorie'], ...taskCategorie().filter(m => m.id !== 'file').map(m => [m.id, m.label]), ['_', 'Altro']])}
         ${tipiUsati.length ? sel('tipo', 'Lavorazione', [['', 'Tutte le lavorazioni'], ...tipiUsati.map(tp => [tp.id, tp.nome])]) : ''}
         ${sel('chi', 'Assegnato a', [['', 'Tutti gli assegnati'], ['_', 'Da assegnare'], ...Ctrl.users.map(u => [u, u])])}
-        ${sel('prio', 'Priorità', [['', 'Tutte le priorità'], ...TASK_PRIORITA.map(p => [p.id, p.label])])}
         ${sel('stato', 'Stato', [['', 'Tutti gli stati'], ...TASK_STATI.map(st => [st.id, st.label])])}
         ${sel('scad', 'Scadenza', [['', 'Tutte le scadenze'], ['scaduti', 'Scaduti'], ['oggi', 'Scadono oggi'], ['settimana', 'Prossimi 7 giorni'], ['nessuna', 'Senza scadenza']])}
         ${filtri ? `<button type="button" class="btn btn-ghost btn-sm" onclick="resetTaskView()">Azzera filtri</button>` : ''}
         <span class="tk-sort">Ordina per
-          ${sel('ordina', 'Ordina per', [['scadenza', 'Scadenza'], ['priorita', 'Priorità'], ['tempo', 'Tempo stimato'], ['arrivo', 'Più recenti']]).replace('filter-pill on', 'filter-pill')}</span>
+          ${sel('ordina', 'Ordina per', [['scadenza', 'Scadenza'], ['tempo', 'Tempo stimato'], ['arrivo', 'Più recenti']]).replace('filter-pill on', 'filter-pill')}</span>
       </div>
       <div id="tk-table">${renderTaskTable()}</div>
     </section>`;
@@ -1199,7 +1197,6 @@ function renderTaskTable() {
   if (!list.length) return `${v.sel.size ? renderTaskBulk() : ''}<div class="empty-list">Nessun task${filtri ? ' con questi filtri' : ''}.</div>`;
   const selezionabili = mostrati.filter(t => !taskChiuso(t));
   const tutti = selezionabili.length && selezionabili.every(t => v.sel.has(t.id));
-  const prioTag = (t) => { const p = taskPrio(t.priorita); return `<span class="td-tag tk-prio" style="--c:${p.color};"><b aria-hidden="true">!</b> ${p.label}</span>`; };
   const statoTag = (t) => `<span class="td-tag" style="--c:${taskStato(t.stato).color};">${taskStato(t.stato).label}</span>`;
   const riga = (t) => {
     const { attivita, cliente, ordine } = taskParti(t);
@@ -1210,7 +1207,6 @@ function renderTaskTable() {
     return `
       <tr class="${t.stato === 'completato' && !['github', 'claude_code', 'shopify_admin', 'file'].includes(t.fonte) ? 'is-done' : ''} ${v.sel.has(t.id) ? 'is-sel' : ''}">
         <td class="tk-check">${chiuso ? '' : `<input type="checkbox" ${v.sel.has(t.id) ? 'checked' : ''} onchange="taskToggleSel('${t.id}', this.checked)" aria-label="Seleziona ${escapeHtml(t.titolo)}">`}</td>
-        <td>${prioTag(t)}</td>
         <td><button type="button" class="tk-act" onclick="openTaskDetail('${t.id}')" title="${escapeHtml(t.titolo)}">
           <span class="tk-act-icon" aria-hidden="true">${taskIcona(t)}</span><span>${escapeHtml(attivita)}</span></button></td>
         <td><div class="tk-cliente">${cliente ? escapeHtml(cliente) : '<span class="tk-none">—</span>'}</div>
@@ -1231,7 +1227,7 @@ function renderTaskTable() {
     <div class="table-scroll"><table class="data-table tk-table">
       <thead><tr>
         <th class="tk-check">${selezionabili.length ? `<input type="checkbox" ${tutti ? 'checked' : ''} onchange="taskSelAll(this.checked)" aria-label="Seleziona tutti i task mostrati">` : ''}</th>
-        <th>Priorità</th><th>Attività</th><th>Cliente / Ordine</th><th>Scadenza</th><th>Assegnato a</th><th class="tk-num">Tempo</th><th>Stato</th><th><span class="sr-only">Azioni</span></th></tr></thead>
+        <th>Attività</th><th>Cliente / Ordine</th><th>Scadenza</th><th>Assegnato a</th><th class="tk-num">Tempo</th><th>Stato</th><th><span class="sr-only">Azioni</span></th></tr></thead>
       <tbody>${mostrati.map(riga).join('')}</tbody>
     </table></div>
     ${list.length > mostrati.length ? `<div class="tk-more-rows"><button type="button" class="btn btn-secondary btn-sm" onclick="TaskView.limite += ${TASK_PAGINA};taskRefreshTable()">Mostra altri ${Math.min(TASK_PAGINA, list.length - mostrati.length)} di ${list.length - mostrati.length}</button></div>` : ''}`;
@@ -1618,7 +1614,7 @@ async function dtfTiffGenera(nome) {
 
 function renderDtfTaskRiga(t) {
   const [tipo, ...resto] = String(t.fonte_rif?.dtf || '').split(':');
-  const rif = resto.join(':'), pr = taskPrio(t.priorita);
+  const rif = resto.join(':'), pr = taskPrio(t.priorita === 'urgente' ? 'urgente' : 'normale');
   const fuori = tipo === 'senza' ? dtfOrdineFuoriLista(rif) : null;
   const tif = tipo === 'tif' ? { p: dtfTiffPdf(rif), corso: dtfTiffInCorso(rif) } : null;
   // Rinominare: elenco aggiornato dal Mac mini (ogni minuto), nome giusto accanto a quello di adesso
@@ -2645,7 +2641,7 @@ function renderTaskDetail(id, storico) {
   const sep = '<span aria-hidden="true">·</span>';
   const meta = [
     macro ? `<span class="td-store" style="--m:${macro.color};"><i></i>${escapeHtml(macro.label)}</span>` : '',
-    t.priorita !== 'normale' ? `<span style="color:${pr.color};font-weight:700;">${pr.label}</span>` : '',
+    t.priorita === 'urgente' ? `<span style="color:${pr.color};font-weight:700;">${pr.label}</span>` : '',
     !['da_fare', 'in_lavorazione', 'in_pausa'].includes(t.stato) ? `<span style="color:${st.color};font-weight:700;">${st.label}</span>` : '',
     `<span>${Icons.clock(12)} ${ctrlFmtMin(t.minuti_stimati)} stimati</span>`,
     tipo ? `<span>${escapeHtml(tipo.nome)}</span>` : '',
@@ -2826,7 +2822,6 @@ function openTaskForm(id = null) {
   const t = id ? Ctrl.get(id) : null;
   _taskDraft = {
     id,
-    priorita: t?.priorita || 'normale',
     minutiToccati: !!t,     // se l'admin non li ha cambiati, i minuti seguono il tipo scelto
   };
   const scad = t?.scadenza ? new Date(t.scadenza) : null;
@@ -2875,13 +2870,6 @@ function openTaskForm(id = null) {
         </select>
       </div>
       <div class="form-group">
-        <span class="form-label" id="tf-prio-label">Priorità</span>
-        <div class="segmented" role="radiogroup" aria-labelledby="tf-prio-label">
-          ${TASK_PRIORITA.map(p => `<button type="button" role="radio" aria-checked="${_taskDraft.priorita === p.id}"
-            class="${_taskDraft.priorita === p.id ? 'active' : ''}" onclick="taskFormPrio('${p.id}')">${p.label}</button>`).join('')}
-        </div>
-      </div>
-      <div class="form-group">
         <label class="form-label" for="tf-scadenza">Scadenza <span class="ctrl-cell-sub">(facoltativa)</span></label>
         <input id="tf-scadenza" type="datetime-local" class="form-input" value="${scadLocal}">
       </div>
@@ -2902,15 +2890,6 @@ function taskFormTipo(id) {
   if (tp && !_taskDraft.minutiToccati) document.getElementById('tf-minuti').value = tp.minuti_standard;
 }
 
-function taskFormPrio(id) {
-  _taskDraft.priorita = id;
-  document.querySelectorAll('[aria-labelledby="tf-prio-label"] button').forEach((b, i) => {
-    const on = TASK_PRIORITA[i].id === id;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-checked', on);
-  });
-}
-
 async function submitTaskForm() {
   const val = (id) => document.getElementById(id)?.value.trim() || '';
   const titolo = val('tf-titolo');
@@ -2925,7 +2904,6 @@ async function submitTaskForm() {
     assegnato_a: val('tf-chi') || null,
     giorno: val('tf-giorno') || Ctrl.giorno,
     macroarea: val('tf-macro') || null,
-    priorita: _taskDraft.priorita,
     scadenza: scad ? new Date(scad).toISOString() : null,
     descrizione: val('tf-desc'),
   };
