@@ -1051,8 +1051,6 @@ html.dark .tk-av-num.is-up b, html.dark .tk-av-num.is-up small { color: #f87171;
 .tk-table .td-tag, .tk-act { white-space: nowrap; }
 .tk-table tbody tr:hover td { background: var(--fill-hover); }
 .tk-table tr.is-done .tk-act span:last-child { text-decoration: line-through; color: var(--text-muted); }
-.tk-prio { gap: 5px; white-space: nowrap; }
-.tk-prio b { font-weight: 900; }
 .tk-act {
   display: inline-flex; align-items: center; gap: 10px; padding: 2px 0; border: none; background: none; color: inherit;
   font: inherit; font-weight: 650; text-align: left; cursor: pointer; border-radius: 8px;

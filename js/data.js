@@ -457,38 +457,51 @@ const TCFactory = {
     return p ? p.sort_order : 999;
   },
 
+  // Urgente e Normale le usa il codice per nome (ordini urgenti, priorità predefinita): non si eliminano
+  PRIORITA_FISSE: ['urgente', 'normale'],
+  isPriorityFixed(id) { return this.PRIORITA_FISSE.includes(id); },
+
   async addPriority(label, color) {
-    const trimmed = label.trim();
-    if (!trimmed) return;
-    const id = trimmed.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Math.random().toString(36).slice(2, 6);
-    const sortOrder = this._priorities.length;
-    const { error } = await supabaseClient.from('priorities').insert({ id, label: trimmed, color, sort_order: sortOrder });
+    const trimmed = (label || '').trim();
+    if (!trimmed) return null;
+    if (this._priorities.some(p => p.label.trim().toLowerCase() === trimmed.toLowerCase())) throw new Error(`La priorità "${trimmed}" esiste già`);
+    const base = trimmed.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'priorita';
+    const id = this._priorities.some(p => p.id === base) ? `${base}-${Math.random().toString(36).slice(2, 6)}` : base;
+    const { data, error } = await supabaseClient.from('priorities')
+      .insert({ id, label: trimmed, color, sort_order: this._priorities.length }).select().single();
     if (error) throw error;
+    this._priorities = [...this._priorities.filter(p => p.id !== data.id), data];
+    return data;
   },
 
   async updatePriority(id, patch) {
     const { error } = await supabaseClient.from('priorities').update(patch).eq('id', id);
     if (error) throw error;
+    this._priorities = this._priorities.map(p => p.id === id ? { ...p, ...patch } : p);
   },
 
+  // Gli ordini con questa priorità passano a Normale, poi la priorità si elimina
   async deletePriority(id) {
-    if (this._priorities.length <= 1) return;
+    if (this.isPriorityFixed(id)) throw new Error('Urgente e Normale non si possono eliminare');
+    const { error: e1 } = await supabaseClient.from('orders').update({ priority_id: 'normale' }).eq('priority_id', id);
+    if (e1) throw e1;
+    this._orders = this._orders.map(o => o.priorityId === id ? { ...o, priorityId: 'normale' } : o);
     const { error } = await supabaseClient.from('priorities').delete().eq('id', id);
     if (error) throw error;
+    this._priorities = this._priorities.filter(p => p.id !== id);
   },
 
   async reorderPriority(id, direction) {
     const sorted = this.getPriorities();
     const idx = sorted.findIndex(p => p.id === id);
-    if (idx < 0) return;
     const target = direction === 'up' ? idx - 1 : idx + 1;
-    if (target < 0 || target >= sorted.length) return;
+    if (idx < 0 || target < 0 || target >= sorted.length) return;
     [sorted[idx], sorted[target]] = [sorted[target], sorted[idx]];
-
-    const updates = sorted.map((p, i) =>
-      supabaseClient.from('priorities').update({ sort_order: i }).eq('id', p.id)
-    );
-    await Promise.all(updates);
+    const esiti = await Promise.all(sorted.map((p, i) =>
+      supabaseClient.from('priorities').update({ sort_order: i }).eq('id', p.id)));
+    const errore = esiti.find(r => r.error)?.error;
+    if (errore) throw errore;
+    this._priorities = sorted.map((p, i) => ({ ...p, sort_order: i }));
   },
 
   // ─────────────────────────────────────────────
@@ -499,28 +512,32 @@ const TCFactory = {
   getTagColor(name) { return this._tags.find(t => t.name === name)?.color || '#64748b'; },
 
   async addTag(name, color) {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    if (this._tags.some(t => t.name === trimmed)) return;
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+    if (this._tags.some(t => t.name.toLowerCase() === trimmed.toLowerCase())) throw new Error(`Il tag "${trimmed}" esiste già`);
     const palette = ['#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#6366f1'];
     const finalColor = color || palette[this._tags.length % palette.length];
-    const { error } = await supabaseClient.from('tags').insert({ name: trimmed, color: finalColor });
+    const { data, error } = await supabaseClient.from('tags').insert({ name: trimmed, color: finalColor }).select().single();
     if (error) throw error;
+    this._tags = [...this._tags.filter(t => t.name !== data.name), data];
+    return data;
   },
 
   async updateTagColor(name, color) {
     const { error } = await supabaseClient.from('tags').update({ color }).eq('name', name);
     if (error) throw error;
+    this._tags = this._tags.map(t => t.name === name ? { ...t, color } : t);
   },
 
+  // Il tag si toglie anche da tutti gli ordini che lo usano
   async deleteTag(name) {
-    const { error } = await supabaseClient.from('tags').delete().eq('name', name);
-    if (error) throw error;
-    // Rimuovi il tag da tutti gli ordini che lo usano
-    const affected = this._orders.filter(o => o.tags.includes(name));
+    const affected = this._orders.filter(o => (o.tags || []).includes(name));
     for (const o of affected) {
       await this.updateOrder(o.id, { tags: o.tags.filter(t => t !== name) });
     }
+    const { error } = await supabaseClient.from('tags').delete().eq('name', name);
+    if (error) throw error;
+    this._tags = this._tags.filter(t => t.name !== name);
   },
 
   // ─────────────────────────────────────────────

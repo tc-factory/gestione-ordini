@@ -2609,7 +2609,9 @@ function renderSettingsDialog() {
                   <input type="color" value="${p.color}" onchange="updatePrioColor('${p.id}', this.value)">
                 </div>
                 <input class="form-input" value="${escapeHtml(p.label)}" maxlength="40" onchange="updatePrioLabel('${p.id}', this.value)">
-                <button class="btn-icon" style="color:var(--priority-urgent);" ${priorities.length <= 1 ? 'disabled' : ''} onclick="deletePrioConfirm('${p.id}')">${Icons.trash(15)}</button>
+                ${TCFactory.isPriorityFixed(p.id)
+                  ? `<button class="btn-icon" disabled title="Urgente e Normale non si eliminano" aria-label="${escapeHtml(p.label)} non si può eliminare">${Icons.trash(15)}</button>`
+                  : `<button class="btn-icon" style="color:var(--priority-urgent);" onclick="deletePrioConfirm('${p.id}')" aria-label="Elimina ${escapeHtml(p.label)}">${Icons.trash(15)}</button>`}
               </div>
             `).join('')}
             <div class="config-add-row">
@@ -2857,88 +2859,50 @@ async function permanentDeleteConfirm(id) {
 // PRIORITÀ settings actions
 // ─────────────────────────────────────────────
 
-async function reorderPrio(id, dir) {
-  const prios = [...TCFactory.getPriorities()];
-  const idx   = prios.findIndex(p => p.id === id);
-  if (dir === 'up'   && idx > 0)                { [prios[idx-1], prios[idx]] = [prios[idx], prios[idx-1]]; }
-  if (dir === 'down' && idx < prios.length - 1) { [prios[idx], prios[idx+1]] = [prios[idx+1], prios[idx]]; }
-  prios.forEach((p, i) => p.sort_order = i);
-  try {
-    for (const p of prios) await supabaseClient.from('priorities').update({ sort_order: p.sort_order }).eq('id', p.id);
-    TCFactory._priorities = prios;
-    renderSettingsDialog();
-  } catch(e) { showToast('Errore riordinamento', 'error'); }
+// Ogni azione aspetta il database: se rifiuta, l'errore si vede e la pagina resta com'era
+async function settingsAzione(fn, erroreTesto) {
+  try { await fn(); return true; }
+  catch (e) { console.error('[impostazioni]', e); showToast(e?.message ? `${erroreTesto}: ${e.message}` : erroreTesto, 'error'); return false; }
+  finally { renderSettingsDialog(); renderApp(); }
 }
 
-async function updatePrioColor(id, color) {
-  try {
-    await supabaseClient.from('priorities').update({ color }).eq('id', id);
-    TCFactory._priorities = TCFactory._priorities.map(p => p.id === id ? { ...p, color } : p);
-    renderSettingsDialog(); renderApp();
-  } catch(e) { showToast('Errore', 'error'); }
-}
-
+const reorderPrio      = (id, dir)   => settingsAzione(() => TCFactory.reorderPriority(id, dir), 'Ordine delle priorità non salvato');
+const updatePrioColor  = (id, color) => settingsAzione(() => TCFactory.updatePriority(id, { color }), 'Colore non salvato');
 async function updatePrioLabel(id, label) {
-  try {
-    await supabaseClient.from('priorities').update({ label }).eq('id', id);
-    TCFactory._priorities = TCFactory._priorities.map(p => p.id === id ? { ...p, label } : p);
-  } catch(e) { showToast('Errore', 'error'); }
+  const l = (label || '').trim();
+  if (!l) { renderSettingsDialog(); return; }
+  await settingsAzione(() => TCFactory.updatePriority(id, { label: l }), 'Nome della priorità non salvato');
 }
 
 async function deletePrioConfirm(id) {
-  if (!(await uiConfirm('Eliminare questa priorità?', { ok: 'Elimina', danger: true }))) return;
-  try {
-    await supabaseClient.from('priorities').delete().eq('id', id);
-    TCFactory._priorities = TCFactory._priorities.filter(p => p.id !== id);
-    renderSettingsDialog(); renderApp();
-  } catch(e) { showToast('Errore', 'error'); }
+  if (TCFactory.isPriorityFixed(id)) { uiAlert('Urgente e Normale non si possono eliminare: il gestionale le usa per gli ordini urgenti e come priorità predefinita.'); return; }
+  const n = TCFactory.getOrders().filter(o => o.priorityId === id).length;
+  if (!(await uiConfirm(`Eliminare questa priorità?${n ? `\n\n${n === 1 ? 'L\'ordine che la usa passa' : `I ${n} ordini che la usano passano`} a Normale.` : ''}`, { ok: 'Elimina', danger: true }))) return;
+  await settingsAzione(() => TCFactory.deletePriority(id), 'Priorità non eliminata');
 }
 
 async function addNewPriority() {
-  const input = document.getElementById('new-prio-input');
-  const label = input?.value?.trim();
+  const label = document.getElementById('new-prio-input')?.value?.trim();
   if (!label) return;
-  const id        = label.toLowerCase().replace(/[^a-z0-9]/g, '-');
-  const sort_order = TCFactory.getPriorities().length;
-  try {
-    const { data, error } = await supabaseClient.from('priorities').insert({ id, label, color: _newPrioColor, sort_order }).select().single();
-    if (error) throw error;
-    TCFactory._priorities.push(data);
-    renderSettingsDialog(); renderApp();
-  } catch(e) { showToast('Errore aggiunta priorità', 'error'); }
+  await settingsAzione(() => TCFactory.addPriority(label, _newPrioColor), 'Priorità non aggiunta');
 }
 
 // ─────────────────────────────────────────────
 // TAG settings actions
 // ─────────────────────────────────────────────
 
-async function updateTagColorSetting(name, color) {
-  try {
-    await supabaseClient.from('tags').update({ color }).eq('name', name);
-    TCFactory._tags = TCFactory._tags.map(t => t.name === name ? { ...t, color } : t);
-    renderSettingsDialog(); renderApp();
-  } catch(e) { showToast('Errore', 'error'); }
-}
+const updateTagColorSetting = (name, color) => settingsAzione(() => TCFactory.updateTagColor(name, color), 'Colore non salvato');
 
 async function deleteTagConfirm(name) {
-  if (!(await uiConfirm(`Eliminare il tag "${name}"?`, { ok: 'Elimina', danger: true }))) return;
-  try {
-    await supabaseClient.from('tags').delete().eq('name', name);
-    TCFactory._tags = TCFactory._tags.filter(t => t.name !== name);
-    renderSettingsDialog(); renderApp();
-  } catch(e) { showToast('Errore', 'error'); }
+  const n = TCFactory.getOrders().filter(o => (o.tags || []).includes(name)).length;
+  if (!(await uiConfirm(`Eliminare il tag "${name}"?${n ? `\n\nViene tolto anche da ${n === 1 ? '1 ordine' : `${n} ordini`}.` : ''}`, { ok: 'Elimina', danger: true }))) return;
+  await settingsAzione(() => TCFactory.deleteTag(name), 'Tag non eliminato');
 }
 
 async function addNewTagSetting() {
-  const input = document.getElementById('new-tag-input');
-  const name  = input?.value?.trim();
+  const name = document.getElementById('new-tag-input')?.value?.trim();
   if (!name) return;
-  try {
-    const { data, error } = await supabaseClient.from('tags').insert({ name, color: _newTagColor }).select().single();
-    if (error) throw error;
-    TCFactory._tags.push(data);
-    renderSettingsDialog(); renderApp();
-  } catch(e) { showToast('Errore aggiunta tag', 'error'); }
+  await settingsAzione(() => TCFactory.addTag(name, _newTagColor), 'Tag non aggiunto');
 }
 
 // ─────────────────────────────────────────────

@@ -217,7 +217,7 @@ async function cercaOrdini(db: SupabaseClient, mail: Row) {
   }).slice(0, 3);
 
   // Stesso telefono E stesso nome e cognome (scritti nella mail o dentro l'indirizzo email del mittente,
-  // es. noemisabelli27@gmail.com): il cliente è lui anche se ha usato un'altra email → ordine verificato
+  // es. mariorossi85@gmail.com): il cliente è lui anche se ha usato un'altra email → ordine verificato
   const localeMail = mittente.split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
   const telefonoENome = (o: Row) => {
     const nomi = String(o.cliente || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z]+/).filter(p => p.length >= 3);
