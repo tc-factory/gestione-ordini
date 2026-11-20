@@ -32,6 +32,12 @@ tutti i PC, anche Windows, senza collegare niente nel browser.
   dalla libreria di Box Factory Lab): TIF come i fogli BFL (CMYK FOGRA39 300 dpi, neri K100, canale SPOT stile
   Photoshop = forma di tutto ridotta di N px), misura della pagina, più pagine → `<nome> - pag N.tif`. Il PDF va in
   `PDF originali` (cartella esclusa dalla lettura) e sull'ordine resta solo il TIF. Il task si chiude da solo.
+- **Nomi dei file** (dal 2026-11-20): regola = parti separate da `-`, pezzi in fondo `-<numero>pz`
+  (`cliente-cuore-nero-12pz.tif`; spazi dentro una parte vanno bene). Fuori regola (spazi al posto dei trattini o in
+  fondo, trattini doppi, `_`, «pezzi»/«copie» invece di pz, pz mancanti o non in fondo) → esito `nomi` con il nome giusto
+  proposto e task **Rinominare i file DTF: <cartella>** (coda DTF-FILE, `sql/dtf-nomi.sql`), chiuso da solo quando i
+  nomi sono a posto. Conto terzi (K1) escluso. Un file rinominato nella sua cartella (stessa misura e data) resta lo
+  stesso file sull'ordine e si rileggono i pezzi: niente metri doppi.
 - Esito in `app_settings.dtf_cartella_stato` (riga in DTF interno), salvato quando cambia o
   ogni 10 minuti; nel registro del Centro di controllo solo quando aggiunge o rinomina.
 - Database: `sql/dtf-cartella-server.sql` (`tc_dtf_cartella_dati`, `tc_dtf_cartella_salva`,

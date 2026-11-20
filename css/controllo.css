@@ -1315,3 +1315,9 @@ html .ctrl-btn.task-open:hover:not(:disabled) { background: linear-gradient(180d
 .td-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .td-file:hover { background: var(--fill-hover); }
 .td-file.is-modulo { border-color: var(--text-primary); }
+
+/* Task "Rinominare i file DTF": un file per riga, nome giusto in evidenza */
+.dtf-nomi { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.dtf-nome { overflow-wrap: anywhere; }
+.dtf-nome-da { text-decoration: line-through; opacity: .7; }
+.dtf-nome em { font-style: normal; opacity: .65; font-size: .92em; }

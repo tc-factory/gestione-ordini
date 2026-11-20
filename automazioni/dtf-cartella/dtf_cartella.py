@@ -545,6 +545,74 @@ def genera_tiff(richieste, gruppi, stato, prova):
     return righe, cambiato
 
 
+# ── Nomi dei file fuori regola ──
+# La regola di tutti i file: parti separate da "-", pezzi in fondo come "-<numero>pz"
+#   cliente-posizione-colore-12pz.tif   (spazi dentro una parte vanno bene: "dark grey", "sweat now")
+QTA = re.compile(r'(?<!\d)(\d+)\s*(pz|pezzi|pezzo|pcs|copie|copia)(?![a-z])', re.I)
+
+
+def nome_fuori_regola(nome):
+    """(motivi, nome giusto proposto) se il nome non segue la regola, altrimenti None."""
+    radice, ext = os.path.splitext(nome)
+    motivi = []
+    parti = radice.split('-')
+    if radice != radice.strip():
+        motivi.append('spazi in fondo o all\'inizio')
+    if '  ' in radice:
+        motivi.append('spazi doppi')
+    if any(p != p.strip() for p in parti[1:-1]) or (len(parti) > 1 and (parti[0] != parti[0].rstrip() or parti[-1] != parti[-1].lstrip())):
+        motivi.append('spazi attorno ai trattini')
+    if any(not p.strip() for p in parti[1:-1]):
+        motivi.append('trattini doppi')
+    if '_' in radice:
+        motivi.append('trattino basso al posto del trattino')
+    if len(parti) == 1 and ' ' in radice.strip():
+        motivi.append('parole separate da spazi invece che da trattini')
+    m = list(QTA.finditer(radice))
+    if any(x.group(2).lower() != 'pz' for x in m):
+        motivi.append('«' + next(x.group(2) for x in m if x.group(2).lower() != 'pz') + '» al posto di pz')
+    ultima = re.split(r'[-_]', radice)
+    if not (len(ultima) > 1 and re.fullmatch(r'[1-9]\d*pz', ultima[-1].strip())):
+        if not m:
+            motivi.append('manca «pz» dopo il numero di pezzi' if re.search(r'-\s*\d+\s*$', radice)
+                          else 'manca il numero di pezzi (-<numero>pz in fondo)')
+        elif all(x.group(2).lower() == 'pz' for x in m):
+            motivi.append('i pezzi vanno in fondo, dopo un trattino')
+    if not motivi:
+        return None
+    # Nome giusto: parti pulite, pezzi in fondo
+    pz = m[-1].group(1) if m else None
+    resto = QTA.sub('', radice) if m else radice
+    if not pz:
+        nudo = re.search(r'-\s*(\d+)\s*$', resto)
+        if nudo:
+            pz, resto = nudo.group(1), resto[:nudo.start()]
+    resto = resto.replace('_', '-')
+    if '-' not in resto.strip(' -'):
+        resto = re.sub(r'\s+', '-', resto.strip())
+    pezzi = [re.sub(r'\s+', ' ', p).strip() for p in resto.split('-')]
+    pezzi = [p for p in pezzi if p]
+    proposto = '-'.join(pezzi + [f'{int(pz)}pz' if pz else '<pezzi>pz']) + ext.lower()
+    return motivi, proposto
+
+
+def nomi_da_sistemare(gruppi, escluse=()):
+    """Per cartella (o file sciolto): i file col nome fuori regola. Le cartelle conto terzi (K1) no:
+    i nomi li dà il cliente."""
+    out = []
+    for g in gruppi:
+        if g['nome'].strip().lower() in escluse:
+            continue
+        files = []
+        for f in g['files']:
+            r = nome_fuori_regola(f['name'])
+            if r:
+                files.append({'file': f['path'].split('/', 1)[-1] if g.get('dir') else f['name'], 'motivi': r[0], 'proposto': r[1]})
+        if files:
+            out.append({'nome': g['nome'], 'dir': g.get('dir'), 'files': files})
+    return out
+
+
 def stesso_file(fl, x, st):
     """Il file è quello già sull'ordine, spostato (anche col nome dell'ordine davanti): stessa misura e data."""
     return (x.get('name') and x.get('size') == st.st_size and x.get('mtime') == int(st.st_mtime * 1000)
@@ -555,6 +623,7 @@ def stesso_file(fl, x, st):
 def aggiorna_items(items, files, roll, gap):
     items = [dict(x) for x in (items or []) if x and x.get('name')]
     aggiunti, cambiati = 0, False
+    presenti = {chiave(fl['path']) for fl in files}
     for fl in files:
         st = os.stat(fl['abs'])
         size, mtime = st.st_size, int(st.st_mtime * 1000)
@@ -564,8 +633,14 @@ def aggiorna_items(items, files, roll, gap):
             i = next((j for j, x in enumerate(items) if not x.get('cartella') and x['name'] == fl['name']), -1)
         if i < 0:   # spostato (es. in COLLA NERA)
             i = next((j for j, x in enumerate(items) if stesso_file(fl, x, st)), -1)
+        rinominato = False
+        if i < 0:   # rinominato nella sua cartella: stessa misura e data, il nome vecchio non c'è più → si rilegge (pezzi nuovi)
+            i = next((j for j, x in enumerate(items) if x.get('cartella') and x.get('size') == size and x.get('mtime') == mtime
+                      and chiave(x['cartella']) not in presenti
+                      and os.path.dirname(chiave(x['cartella'])) == os.path.dirname(k)), -1)
+            rinominato = i >= 0
         it = items[i] if i >= 0 else None
-        if it and (not it.get('cartella') or (it.get('size') == size and it.get('mtime') == mtime)):
+        if it and not rinominato and (not it.get('cartella') or (it.get('size') == size and it.get('mtime') == mtime)):
             if it.get('cartella') != fl['path']:
                 it.update({'cartella': fl['path'], 'size': size, 'mtime': mtime})
                 cambiati = True
@@ -579,7 +654,6 @@ def aggiorna_items(items, files, roll, gap):
         cambiati = True
     # Lo stesso file due volte (spostato, es. in COLLA NERA: stesso nome, misura e data) conta una volta sola:
     # resta la voce col percorso che c'è adesso
-    presenti = {chiave(fl['path']) for fl in files}
     gruppi = {}
     for j, x in enumerate(items):
         if x.get('size') is not None and x.get('mtime') is not None:
@@ -1290,6 +1364,7 @@ def main():
            for g in gruppi for ps in [pdf_senza_tif(g['files'])] if ps]
     esito = {'at': datetime.now(timezone.utc).isoformat(), 'abbinate': len(per_ordine), 'aggiunti': aggiunti,
              'collaNera': len(colla_spostati), 'raggruppati': len(sciolti_spostati), 'pdf': pdf,
+             'nomi': nomi_da_sistemare(gruppi, escluse),
              'senzaOrdine': senza, 'ambigue': ambigue, 'rinominate': len(rinominate), 'attesa': attesa,
              'errori': errori, 'cartelle': cartelle, 'mancanti': mancanti}
     for r in sciolti_spostati:
