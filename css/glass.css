@@ -75,7 +75,7 @@ body::before {
 
 /* ── Vetro vero: pannello, barre, menu, finestre ── */
 .app-main,
-.popover, .modal, .account-menu,
+.popover, .modal,
 .bottom-nav {
   background-color: var(--lg-panel);
   background-image: var(--lg-sheen);
@@ -83,7 +83,7 @@ body::before {
   border: 1px solid var(--lg-edge);
   box-shadow: var(--lg-hi), var(--lg-shadow);
 }
-.popover, .modal, .account-menu { background-color: var(--lg-strong); }
+.popover, .modal { background-color: var(--lg-strong); }
 .modal-overlay { background: rgba(18, 18, 38, 0.22); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 
 @media (min-width: 641px) {
@@ -166,12 +166,11 @@ html.dark .list-shell .cards-sm tr { box-shadow: inset 0 0 0 1px var(--lg-edge),
   background-color: var(--lg-fill); background-image: var(--lg-sheen);
   border-color: var(--lg-edge); box-shadow: inset 0 1px 0 var(--lg-edge);
 }
-.btn-primary, .account-pill, .user-avatar {
+.btn-primary, .user-avatar {
   background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 55%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 8px 20px -8px rgba(20, 20, 40, 0.45);
 }
 html.dark .btn-primary { background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 55%); }
-.account-pill .user-avatar { background-image: none; box-shadow: none; }
 
 .segmented, .view-tabs { background: var(--bg-secondary); box-shadow: inset 0 1px 0 var(--lg-edge), inset 0 0 0 1px var(--lg-line); }
 .segmented button.active, .view-tab.active {

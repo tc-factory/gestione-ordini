@@ -124,21 +124,11 @@ function taskCat(t) {
   return 'lavorazione';
 }
 
-// Ordini del gestionale: prima gli urgenti, poi la consegna più vicina, poi i più vecchi
-const ordinePrioRank = (o) => (typeof isUrgentOrder === 'function' ? isUrgentOrder(o) : o?.priorityId === 'urgente') ? 0 : 1;
+// Consegna attuale di un ordine del gestionale ('9' = senza consegna, in fondo)
 const ordineScad = (o) => TCFactory.getEffectiveDeadline?.(o)?.date || o?.deadline || '9';
-const ordineCmp = (a, b) => ordinePrioRank(a) - ordinePrioRank(b)
-  || ordineScad(a).localeCompare(ordineScad(b)) || (a?.dataOrdine || '').localeCompare(b?.dataOrdine || '');
-// Coda DTF: la stessa della pagina DTF (Interno), nello stesso ordine
-const ordiniDtf = () => typeof dtfLists === 'function' ? dtfLists().todo : [];
 // Coda File: "Fatto" toglie l'ordine dalla coda per tutti (impostazione condivisa)
 const CODA_FILE_KEY = 'coda_file_fatti';
 const codaFileFatti = () => new Set(TCFactory._settings?.[CODA_FILE_KEY]?.ids || []);
-const ordiniSenzaFile = () => {
-  if (typeof TCFactory === 'undefined') return [];
-  const fatti = codaFileFatti();
-  return TCFactory.getActiveOrders().filter(o => !(o.files || []).length && !fatti.has(o.id)).sort(ordineCmp);
-};
 async function codaFileFatto(id) {
   const ids = [...codaFileFatti(), id];
   try {
@@ -275,7 +265,6 @@ const ctrlFmtMin = (min) => {
 const taskLavoratoSec = (t) => (t.lavorato_sec || 0) + (t.lavoro_dal ? (Date.now() - new Date(t.lavoro_dal)) / 1000 : 0);
 // Prova dei tempi di lavorazione: i task produttivi, solo mentre la prova è attiva.
 // Fasi degli ordini del gestionale (non ordinare la merce, controlli esterni, fattura e incasso) e lotti Shopify
-const taskLottoLav = (t) => t.fonte === 'shopify' && t.fonte_rif?.fase === 'lav';
 const taskProduttivo = (t) => (t.fonte === 'gestionale' && /^prod:/.test(t.fonte_rif?.evento_id || '')
     && !/:(ordinare|fattura|incasso|controllo:.*)$/.test(t.fonte_rif.evento_id))
   || (t.fonte === 'shopify' && ['prep', 'lav', 'spedire'].includes(t.fonte_rif?.fase));
@@ -2156,14 +2145,6 @@ function renderControlTypes() {
     </section>`;
 }
 
-async function applyRealTime(id, minuti) {
-  try {
-    await Ctrl.saveTipo(id, { minuti_standard: minuti });
-    showToast(`Tempo standard aggiornato a ${minuti} minuti`);
-    await Ctrl.load();
-    refreshControlPage();
-  } catch (e) { showToast(e.message, 'error'); }
-}
 
 async function removeTaskType(id) {
   const tp = Ctrl.tipo(id);
