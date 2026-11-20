@@ -310,13 +310,15 @@ const DtfCartella = {
       return bar(testo, [numBtn]) + extra(sv);
     }
 
-    if (this.stato === 'unsupported') return bar('Cartella «1. Stampare»: la leggerà il Mac mini (non ancora attivo).', [numBtn]);
+    // Qui si arriva solo se il Mac mini non legge la cartella da più di 15 minuti (spento, senza rete o servizio fermo)
+    const fermo = 'il Mac mini non la legge da più di 15 minuti: controlla che sia acceso e collegato al NAS';
+    if (this.stato === 'unsupported') return bar(`Cartella «1. Stampare»: ${fermo}.`, [numBtn]);
     const nome = escapeHtml(this.handle?.name || '1. Stampare');
     const e = this.esito || {};
     let testo, azioni = [];
     switch (this.stato) {
       case 'none':
-        testo = 'Cartella «1. Stampare» non letta: il Mac mini non è ancora attivo. Intanto puoi collegarla da Chrome per segnare file e metri.';
+        testo = `Cartella «1. Stampare» non letta: ${fermo}. Intanto puoi collegarla da Chrome per segnare file e metri.`;
         azioni = [btn('collega()', 'Collega la cartella')];
         break;
       case 'prompt':
@@ -331,7 +333,7 @@ const DtfCartella = {
         azioni = [btn('riattiva()', 'Riprova'), btn('collega()', 'Cambia cartella')];
         break;
       default:
-        testo = `Cartella «${nome}» letta da questo PC alle ${ora(e.at)} · ${e.abbinate || 0} ${e.abbinate === 1 ? 'ordine abbinato' : 'ordini abbinati'}${e.aggiunti ? ` · ${e.aggiunti} file nuovi` : ''} · numeri alle cartelle quando il Mac mini sarà attivo`;
+        testo = `Cartella «${nome}» letta da questo PC alle ${ora(e.at)} · ${e.abbinate || 0} ${e.abbinate === 1 ? 'ordine abbinato' : 'ordini abbinati'}${e.aggiunti ? ` · ${e.aggiunti} file nuovi` : ''} · i numeri alle cartelle li mette il Mac mini, che ora non risponde`;
         azioni = [btn('leggi()', 'Aggiorna')];
     }
     if (this.stato !== 'scanning') azioni.push(numBtn);

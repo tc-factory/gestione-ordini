@@ -56,6 +56,8 @@ const TCFactory = {
       if (tagsRes.error) throw tagsRes.error;
 
       this._orders = (ordersRes.data || []).map(this._fromDb);
+      this._db = {};
+      this._orders.forEach(o => this._ricorda(o));
       this._priorities = prioritiesRes.data || [];
       this._tags = tagsRes.data || [];
 
@@ -103,6 +105,7 @@ const TCFactory = {
     if (payload.eventType === 'INSERT') {
       const o = this._fromDb(payload.new);
       if (!this._orders.find(x => x.id === o.id)) this._orders.push(o);
+      this._ricorda(o);
     } else if (payload.eventType === 'UPDATE') {
       // Il realtime NON manda le colonne grandi rimaste uguali (modulo d'ordine, file…): se cambia solo
       // dtf_items, order_module manca. Si parte dalla riga già in memoria e si sovrappone solo ciò che arriva,
@@ -112,8 +115,10 @@ const TCFactory = {
       const nuovi = Object.fromEntries(Object.entries(payload.new).filter(([, v]) => v !== undefined));
       const o = this._fromDb(prev ? { ...this._toDb(prev), created_by: prev.createdBy, created_at: prev.created_at, updated_at: prev.updated_at, ...nuovi } : payload.new);
       if (idx >= 0) this._orders[idx] = o; else this._orders.push(o);
+      this._ricorda(o);
     } else if (payload.eventType === 'DELETE') {
       this._orders = this._orders.filter(x => x.id !== payload.old.id);
+      delete this._db[payload.old.id];
     }
     this._notify();
   },
@@ -237,6 +242,11 @@ const TCFactory = {
   getOrders() { return this._orders || []; },
   getOrderById(id) { return this._orders.find(o => o.id === id) || null; },
 
+  // Ultima versione di ogni ordine arrivata dal database (formato colonne): updateOrder confronta con questa,
+  // non con la copia in memoria, che alcune schermate cambiano subito per mostrare la modifica prima del salvataggio
+  _db: {},
+  _ricorda(o) { if (o) this._db[o.id] = this._toDb(o); return o; },
+
   // Attivi: non archiviati e non spediti parzialmente
   // Attivi: non archiviati e non ancora stampati
   // Ordine NEUTRO (nessuna lavorazione): niente Attivi, va direttamente in Evasione
@@ -284,10 +294,6 @@ const TCFactory = {
     return String(Math.max(dbMax, localMax) + 1).padStart(5, '0');
   },
   _isDuplicateId(error) { return error?.code === '23505'; },
-  // Solo una colonna mancante (database non aggiornato) giustifica il salvataggio senza le colonne opzionali:
-  // per qualsiasi altro errore si salverebbe l'ordine perdendo modulo d'ordine, importo, cliente…
-  _isMissingColumn(error) { return ['PGRST204', '42703'].includes(error?.code); },
-  _OPTIONAL_COLS: ['dtf_items','invoice_files','payment_done','payment_date','invoice_confirmed','importo','order_module','lavorazione_esterna','client_id'],
 
   emptyStages() {
     return {
@@ -321,47 +327,68 @@ const TCFactory = {
       stages: this.emptyStages(),
       archived: false,
     };
-    let row, error, stripCols = false;
+    let row, error;
     for (let tentativo = 0; tentativo < 6; tentativo++) {
-      const payload = this._toDb(order);
-      if (stripCols) this._OPTIONAL_COLS.forEach(col => delete payload[col]);
-      ({ data: row, error } = await supabaseClient.from('orders').insert(payload).select().single());
+      ({ data: row, error } = await supabaseClient.from('orders').insert(this._toDb(order)).select().single());
       if (!error) break;
       if (this._isDuplicateId(error)) {
         // Codice già preso: si prende il primo libero dal database e si riprova
         const preso = this.orderNumber(order.id);
         const libero = this.orderNumber(await this._nextFreeId());
         order.id = String(Math.max(libero, preso + 1)).padStart(5, '0');
-      } else if (!stripCols && this._isMissingColumn(error)) {
-        stripCols = true;
       } else break;
     }
     if (error) throw error;
     const created = this._fromDb(row);
     // Aggiorna subito il cache locale senza aspettare realtime
-    this._orders = [...this._orders.filter(o => o.id !== created.id), created];
+    this._orders = [...this._orders.filter(o => o.id !== created.id), this._ricorda(created)];
     this._log('Ordine creato', created.id, created.nome, { priorityId: created.priorityId, deadline: created.deadline });
     return created;
   },
 
-  async updateOrder(id, patch) {
+  // opts.baseModule: il modulo d'ordine com'era quando è stato aperto il form; se nel database ora è diverso
+  // l'ha cambiato qualcun altro e il salvataggio si ferma invece di cancellare il suo lavoro
+  async updateOrder(id, patch, opts = {}) {
     const current = this.getOrderById(id);
     if (!current) throw new Error('Ordine non trovato');
     const merged = { ...current, ...patch };
-    // Si scrivono solo le colonne toccate dalla modifica: riscrivere tutta la riga dalla memoria del browser
+    // Si scrivono solo le colonne cambiate rispetto al database: riscrivere tutta la riga dalla memoria del browser
     // sovrascriveva con dati vecchi (o vuoti) ciò che altri avevano salvato nel frattempo, come il modulo d'ordine.
-    const prima = this._toDb(current), dopo = this._toDb(merged);
+    const prima = this._db[id] || this._toDb(current), dopo = this._toDb(merged);
     const cambi = Object.fromEntries(Object.entries(dopo).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(prima[k])));
     if (!Object.keys(cambi).length) return current;
-    let { data: row, error } = await supabaseClient.from('orders').update(cambi).eq('id', id).select().single();
-    if (error && this._isMissingColumn(error)) {
-      const payload = { ...cambi };
-      // Database senza le colonne opzionali: si salva il resto
-      this._OPTIONAL_COLS.forEach(col => delete payload[col]);
-      ({ data: row, error } = await supabaseClient.from('orders').update(payload).eq('id', id).select().single());
+
+    // Modulo d'ordine dal form: se nel frattempo l'ha cambiato qualcun altro, non si sovrascrive il suo lavoro
+    if (cambi.order_module && opts.baseModule) {
+      const { data: ora, error: e } = await supabaseClient.from('orders').select('*').eq('id', id).single();
+      if (e) throw e;
+      const base = this._toDb({ ...current, orderModule: opts.baseModule }).order_module;
+      if (JSON.stringify(this._toDb(this._fromDb(ora)).order_module) !== JSON.stringify(base)) {
+        this._orders = this._orders.map(o => o.id === id ? this._ricorda(this._fromDb(ora)) : o);
+        this._notify();
+        throw new Error('Il modulo d\'ordine è stato cambiato da un\'altra persona mentre lo modificavi: riapri l\'ordine e rifai la modifica');
+      }
     }
-    if (error) throw error;
-    const updated = this._fromDb(row);
+
+    let row = null;
+    // Fasi: si mandano solo quelle cambiate e il database le unisce alle sue (sql/ordini-fasi-unione.sql),
+    // così due persone che spuntano fasi diverse insieme non si cancellano a vicenda
+    if (cambi.stages) {
+      const vecchie = prima.stages || {}, nuove = dopo.stages || {};
+      const fasi = Object.fromEntries(Object.entries(nuove).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(vecchie[k])));
+      const tolte = Object.keys(vecchie).filter(k => !(k in nuove));
+      delete cambi.stages;
+      const { data, error } = await supabaseClient.rpc('tc_ordine_fasi', { p_id: id, p_fasi: fasi, p_tolte: tolte });
+      if (error) throw error;
+      row = Array.isArray(data) ? data[0] : data;
+      if (!row) throw new Error('Ordine non trovato o non modificabile');
+    }
+    if (Object.keys(cambi).length) {
+      const { data, error } = await supabaseClient.from('orders').update(cambi).eq('id', id).select().single();
+      if (error) throw error;
+      row = data;
+    }
+    const updated = this._ricorda(this._fromDb(row));
     // Aggiorna subito il cache locale senza aspettare realtime
     this._orders = this._orders.map(o => o.id === id ? updated : o);
     return updated;
@@ -370,7 +397,7 @@ const TCFactory = {
   async setStage(id, stageId, done, label = null) {
     const current = this.getOrderById(id);
     if (!current) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = this.getDefaultDate();
     const stages = { ...current.stages, [stageId]: done ? { done: true, date: today } : { done: false } };
     const updated = await this.updateOrder(id, { stages });
     const stageLbl = label || [...LAVORAZIONE_DEFS, ...EVASIONE_DEFS].find(s => s.id === stageId)?.label || stageId;
@@ -391,6 +418,7 @@ const TCFactory = {
     const { error } = await supabaseClient.from('orders').update({ deleted_at: now }).eq('id', id);
     if (error) throw error;
     this._orders = this._orders.map(o => o.id === id ? { ...o, deletedAt: now } : o);
+    if (this._db[id]) this._db[id].deleted_at = now;
     this._log('Ordine nel cestino', id, nome);
   },
 
@@ -398,6 +426,7 @@ const TCFactory = {
     const { error } = await supabaseClient.from('orders').update({ deleted_at: null }).eq('id', id);
     if (error) throw error;
     this._orders = this._orders.map(o => o.id === id ? { ...o, deletedAt: null } : o);
+    if (this._db[id]) this._db[id].deleted_at = null;
   },
 
   async permanentDeleteOrder(id) {
@@ -406,6 +435,7 @@ const TCFactory = {
     if (error) throw error;
     if (!count) throw new Error('Solo un admin può eliminare definitivamente');
     this._orders = this._orders.filter(o => o.id !== id);
+    delete this._db[id];
   },
 
   // ── Registro attività ──────────────────────────
@@ -485,7 +515,11 @@ const TCFactory = {
     if (this.isPriorityFixed(id)) throw new Error('Urgente e Normale non si possono eliminare');
     const { error: e1 } = await supabaseClient.from('orders').update({ priority_id: 'normale' }).eq('priority_id', id);
     if (e1) throw e1;
-    this._orders = this._orders.map(o => o.priorityId === id ? { ...o, priorityId: 'normale' } : o);
+    this._orders = this._orders.map(o => {
+      if (o.priorityId !== id) return o;
+      if (this._db[o.id]) this._db[o.id].priority_id = 'normale';
+      return { ...o, priorityId: 'normale' };
+    });
     const { error } = await supabaseClient.from('priorities').delete().eq('id', id);
     if (error) throw error;
     this._priorities = this._priorities.filter(p => p.id !== id);
@@ -584,7 +618,7 @@ const TCFactory = {
 
   isDeadlinePast(order) {
     if (!order.deadline) return false;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = this.getDefaultDate();
     return order.deadline < today;
   },
 
@@ -707,7 +741,7 @@ const TCFactory = {
     const allSources = this.getAllDTFSources();
     const sourceMap  = Object.fromEntries(allSources.map(s => [s.id, s]));
     const schedule   = this.getSchedule();
-    const today      = new Date().toISOString().slice(0, 10);
+    const today      = this.getDefaultDate();
 
     // Calcola utilizzo giornaliero esistente
     const dayUsage = {};
@@ -841,8 +875,22 @@ const TCFactory = {
   CLIENT_FIELDS: ['tipo','ragione_sociale','nome','cognome','partita_iva','codice_fiscale','codice_sdi','pec',
                   'email','telefono','indirizzo','cap','citta','provincia','nazione','referente','note'],
 
+  // "Tabella mancante" solo se il database dice proprio quello: un errore di rete o di sessione
+  // non deve far comparire "esegui lo script…" né svuotare i dati già caricati
+  _tabellaMancante(error) {
+    return !!error && (['42P01', 'PGRST205', 'PGRST202'].includes(error.code) || /does not exist|Could not find the table/i.test(error.message || ''));
+  },
+  _erroreCaricamento(cosa, errors) {
+    const e = errors.find(x => x && !this._tabellaMancante(x));
+    if (!e) return false;
+    console.error(`[TCFactory] ${cosa} non caricati:`, e.message);
+    if (typeof showToast === 'function') showToast(`${cosa} non caricati (${/fetch|network|load failed/i.test(e.message || '') ? 'connessione assente' : e.message}): ricarica la pagina`, 'error');
+    return true;
+  },
+
   async loadClients() {
     const { data, error } = await supabaseClient.from('clients').select('*');
+    if (this._erroreCaricamento('Clienti', [error])) return this._clients;
     this._clientsAvailable = !error;
     this._clients = error ? [] : (data || []);
     return this._clients;
@@ -892,7 +940,11 @@ const TCFactory = {
     if (error) throw error;
     this._clients = this._clients.filter(c => c.id !== id);
     // Il database scollega gli ordini (on delete set null): allinea la cache locale
-    this._orders = this._orders.map(o => o.clientId === id ? { ...o, clientId: null } : o);
+    this._orders = this._orders.map(o => {
+      if (o.clientId !== id) return o;
+      if (this._db[o.id]) this._db[o.id].client_id = null;
+      return { ...o, clientId: null };
+    });
     this._log('Cliente eliminato', null, name, { clientId: id });
     this._notify();
   },
@@ -916,6 +968,7 @@ const TCFactory = {
       supabaseClient.from('suppliers').select('*'),
       supabaseClient.from('products_pending').select('*'),
     ]);
+    if (this._erroreCaricamento('Prodotti', [prod.error, cats.error, sup.error, pend.error])) return this._products;
     this._productsAvailable = !prod.error && !cats.error && !sup.error;
     this._products = this._productsAvailable ? (prod.data || []) : [];
     this._productCategories = this._productsAvailable ? (cats.data || []) : [];
@@ -1166,6 +1219,7 @@ const TCFactory = {
       supabaseClient.from('client_catalog').select('*'),
       supabaseClient.from('catalog_users').select('*'),
     ]);
+    if (this._erroreCaricamento('Cataloghi', [cat.error, users.error])) return;
     this._catalogAvailable = !cat.error && !users.error;
     this._clientCatalog = this._catalogAvailable ? (cat.data || []) : [];
     this._catalogUsers = this._catalogAvailable ? (users.data || []) : [];
@@ -1346,8 +1400,9 @@ const TCFactory = {
     return d.toLocaleDateString('it-IT', opts || { day: '2-digit', month: 'short', year: 'numeric' });
   },
 
+  // Oggi in ora italiana (toISOString darebbe la data di Londra: fino all'1-2 di notte sarebbe ancora ieri)
   getDefaultDate() {
-    return new Date().toISOString().slice(0, 10);
+    return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
   },
 };
 

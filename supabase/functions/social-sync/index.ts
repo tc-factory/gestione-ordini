@@ -57,7 +57,8 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
   const syncKey = Deno.env.get('SHOPIFY_SYNC_KEY');
-  if (!(syncKey && req.headers.get('x-sync-key') === syncKey)) {
+  const daCron = !!syncKey && req.headers.get('x-sync-key') === syncKey;
+  if (!daCron) {
     const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
     const { data: caller } = await db.auth.getUser(jwt);
     if (!caller?.user) return reply({ success: false, error: 'Accesso richiesto' }, 401);
@@ -65,9 +66,18 @@ Deno.serve(async (req) => {
     if (!me) return reply({ success: false, error: 'Accesso negato' }, 403);
   }
 
-  const { data: account } = await db.from('social_account').select('id, piattaforma, account_id, username, negozio').eq('attivo', true).in('piattaforma', ['messenger', 'instagram']);
+  const { data: account } = await db.from('social_account').select('id, piattaforma, account_id, username, negozio, ultimo_errore').eq('attivo', true).in('piattaforma', ['messenger', 'instagram']);
+  // Permesso Meta che manca (es. instagram_manage_messages in attesa di App Review): riprovare ogni 5 minuti
+  // dà solo lo stesso errore. Il cron li riprova una volta al giorno (alle 7); dal gestionale si riprovano sempre.
+  const oraRoma = Number(new Date().toLocaleString('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hour12: false }));
+  const minuto = new Date().getUTCMinutes();
+  const riprovaOggi = oraRoma === 7 && minuto < 5;
   const risultati: Row[] = [];
   for (const a of account || []) {
+    if (daCron && !riprovaOggi && /manca il permesso/i.test(a.ultimo_errore || '')) {
+      risultati.push({ account: a.username, saltato: 'permesso Meta mancante, si riprova alle 7' });
+      continue;
+    }
     try {
       const nuovi = await leggiAccount(db, a);
       await db.from('social_account').update({ ultimo_errore: null }).eq('id', a.id);
