@@ -43,6 +43,9 @@ Iter (deciso 2026-11-19):
    una volta sola per file) e su Drive li sposta nella sottocartella **STAMPATO** del loro mese.
 4. Quello che arriva dopo le 5 segue lo stesso giro **ogni ora fino alle 14**; dopo le 14 aspetta il
    prossimo giorno di stampa. A fine stampa la cartella sul NAS si sposta in Stampato come le altre.
+5. **URGENZE** (dal 2026-11-20): le cartelle `URGENZE` (nel mese, es. `2026/11 - Novembre/URGENZE`, o nella
+   radice) fanno lo stesso giro **tutti i giorni lavorativi, lun–ven, dalle 5 alle 14**. Negli altri giorni si
+   copia solo da lì; nei giorni di stampa tutto. Finiscono nella STAMPATO del loro mese.
 
 - Cartelle Drive divise per anni/mesi (`2026/11 - Novembre`): si leggono solo mese corrente e precedente,
   esclusa STAMPATO.

@@ -1250,7 +1250,7 @@ function dtfOpenClientForm(id = null) {
             ${DTF_GIORNI.map((g, i) => `<button type="button" class="dtf-giorno" data-g="${i + 1}" aria-pressed="${(c?.giorni || [2, 4]).includes(i + 1)}"
               onclick="this.setAttribute('aria-pressed', this.getAttribute('aria-pressed') !== 'true')">${g}</button>`).join('')}
           </div>
-          <span class="settings-section-hint" style="margin:4px 0 0;">In questi giorni i suoi file vanno in cima alla coda DTF interno.</span></div>
+          <span class="settings-section-hint" style="margin:4px 0 0;">In questi giorni i suoi file vanno in cima alla coda DTF interno. Quelli nella cartella URGENZE arrivano tutti i giorni lavorativi.</span></div>
         <div class="dtf-access">
           <div class="form-group"><label class="form-label" for="dtf-c-pwd">Password per il cliente</label>
             <input id="dtf-c-pwd" type="password" class="form-input" autocomplete="new-password" minlength="8"
