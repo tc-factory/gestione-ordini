@@ -553,6 +553,15 @@ let _msgDraft = null;   // { destinatari: Set, riferimento, testo, promemoria, r
 let _msgUsers = [];
 
 const msgLocalInput = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+// L'orario del promemoria va a passi di 10 minuti (arrotonda per eccesso)
+const MSG_STEP_MS = 600000;
+const msgRound10 = (d) => new Date(Math.ceil(d.getTime() / MSG_STEP_MS) * MSG_STEP_MS);
+function msgSetWhen(input) {
+  const t = new Date(input.value);
+  if (isNaN(t)) return;
+  input.value = msgLocalInput(msgRound10(t));
+  _msgDraft.ricordaIl = input.value;
+}
 
 function startMessagePick() {
   closeModal('msg-modal');
@@ -565,7 +574,7 @@ async function openMessageComposer(prefill = {}) {
     destinatari: new Set(prefill.destinatari || []),
     riferimento: prefill.riferimento || null,
     testo: '', promemoria: false,
-    ricordaIl: msgLocalInput(new Date(Date.now() + 3600000)),
+    ricordaIl: msgLocalInput(msgRound10(new Date(Date.now() + 3600000))),
   };
   _msgUsers = (await TCAuth.listUsers().catch(() => [])).map(u => u.nickname);
   renderMessageComposer();
@@ -616,8 +625,8 @@ function renderMessageComposer() {
           <span><strong>Promemoria</strong><small>Arriva solo al giorno e all'ora scelti</small></span>
           <input type="checkbox" class="switch" ${d.promemoria ? 'checked' : ''} onchange="_msgDraft.promemoria=this.checked;renderMessageComposer()">
         </label>
-        ${d.promemoria ? `<input type="datetime-local" class="form-input" aria-label="Quando arriva" value="${d.ricordaIl}"
-            min="${msgLocalInput(new Date())}" onchange="_msgDraft.ricordaIl=this.value">` : ''}
+        ${d.promemoria ? `<input type="datetime-local" class="form-input" aria-label="Quando arriva" value="${d.ricordaIl}" step="600"
+            min="${msgLocalInput(msgRound10(new Date()))}" onchange="msgSetWhen(this)">` : ''}
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button type="button" class="btn btn-secondary" onclick="closeModal('msg-compose-modal')">Annulla</button>
           <button type="submit" class="btn btn-primary" id="mc-send">${d.promemoria ? 'Programma' : 'Invia'}</button>
