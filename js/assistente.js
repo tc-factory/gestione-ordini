@@ -15,6 +15,10 @@ const AssistState = { log: [], users: null };
 const ASSIST_ESEMPI = [
   'Ricordami di chiamare il fornitore domani alle 10',
   "Dammi l'ordine di Crossfit Grosseto",
+  'Quanti ordini abbiamo da spedire?',
+  "Qual è l'ordine più vecchio da spedire?",
+  'Ordini in ritardo',
+  'Chi deve ancora pagare?',
   'I miei promemoria',
 ];
 
@@ -203,11 +207,13 @@ async function assistRispondi(domanda) {
   if (ASSIST_RE_PROMEMORIA.test(n)) return assistPromemoria(domanda.trim());
 
   if (/\bordin[ei]\b/.test(n)) return assistOrdini(n);
+  // "cosa dobbiamo spedire?", "cosa è in ritardo?", "chi deve ancora pagare?"
+  if (/\b(da spedire|da evadere|da consegnare|(?:dobbiamo|devo|devono|resta da) (?:ancora )?(?:spedire|evadere|consegnare)|in ritardo|scad\w*|da riscuotere|da incassare|non pagat[io]|deve(?:no)? (?:ancora )?pagare|in lavorazione|pronti)\b/.test(n))
+    return assistOrdini(n.replace(/\bdeve(?:no)? (?:ancora )?pagare\b/, 'da riscuotere'));
 
   // Nient'altro riconosciuto: si prova come ricerca di un ordine o di un cliente
-  const trovati = assistCercaOrdini(n);
-  if (trovati.length) return assistOrdini(n);
-  return { html: `<p>Non ho capito. Prova con:</p>${assistEsempiHtml()}` };
+  if (assistCercaOrdini(n).length) return assistOrdini(n);
+  return { html: `<p>Non ho capito. So creare promemoria e rispondere sugli ordini, ad esempio:</p>${assistEsempiHtml()}` };
 }
 
 // ── Promemoria ──
@@ -291,12 +297,60 @@ async function assistAnnulla(id) {
 
 // ── Ordini ──
 const ASSIST_PAROLE_VUOTE = new Set(('dammi dai mostrami mostra fammi fai vedere vedi apri aprimi cerca cercami trova trovami ' +
-  "voglio vorrei puoi potresti mi me il lo la le gli i l' un una uno di del della dello dei degli delle da dal dalla per " +
-  'ordine ordini ordinе ultimo ultimi tutti tutte che cliente su sul sulla e ed a al alla con quello quelli').split(' '));
+  "voglio vorrei puoi potresti mi me il lo la le gli i un una uno di del della dello dei degli delle da dal dalla per " +
+  'ordine ordini ultimo ultimi tutti tutte che cliente su sul sulla e ed a al alla con quello quelli ' +
+  // parole delle domande: non sono nomi di clienti
+  'qual quale quali quanti quante quanto abbiamo abbiamo ci c ce sono e stato stati ha hanno avete hai dobbiamo devo dobbiamo dovrei ' +
+  'ancora adesso ora oggi attualmente totale numero momento in corso aperti aperto piu meno vecchio vecchi recente recenti nuovo nuovi ' +
+  'primo prima elenco lista dimmi sapere sai mancano restano rimangono rimasti fino tempo indietro antico antichi ' +
+  // imprecazioni e intercalari: si ignorano
+  'questa questo queste questi dio porco porca madonna cristo cazzo boia miseria vaffanculo merda minchia ok allora senti ciao grazie per favore').split(' '));
+
+// Di quali ordini si parla
+function assistGruppo(n, oggiIso) {
+  const daEvadere = () => TCFactory.getOrdersToDeliver();
+  const scad = (o) => TCFactory.getEffectiveDeadline(o)?.date || '';
+  const piuGiorni = (k) => { const d = new Date(); d.setDate(d.getDate() + k); return d.toISOString().slice(0, 10); };
+  if (/\b(da riscuotere|da incassare|non (?:ancora )?pagat[io]|da pagare|senza pagamento)\b/.test(n))
+    return { label: 'da riscuotere', lista: TCFactory.getDaRiscuotereOrders(), esplicito: true };
+  if (/\b(in ritardo|ritardo|scadut[io]|oltre la scadenza)\b/.test(n))
+    return { label: 'in ritardo', lista: daEvadere().filter(o => scad(o) && scad(o) < oggiIso), perScadenza: true, esplicito: true };
+  if (/\b(scad\w*|da consegnare (?:oggi|domani|entro))\b/.test(n)) {
+    const [fino, label] = /\boggi\b/.test(n) ? [oggiIso, 'in scadenza oggi']
+      : /\bdopodomani\b/.test(n) ? [piuGiorni(2), 'in scadenza entro dopodomani']
+      : /\bdomani\b/.test(n) ? [piuGiorni(1), 'in scadenza entro domani']
+      : /\bmese\b/.test(n) ? [piuGiorni(30), 'in scadenza nei prossimi 30 giorni']
+      : [piuGiorni(7), 'in scadenza nei prossimi 7 giorni'];
+    return { label, lista: daEvadere().filter(o => scad(o) && scad(o) >= oggiIso && scad(o) <= fino), perScadenza: true, esplicito: true };
+  }
+  if (/\b(da spedire|da evadere|da consegnare|aperti|in corso|che abbiamo|da chiudere)\b|\b(?:dobbiamo|devo|dovete|devono|resta da|restano da|c'e da)\s+(?:ancora\s+)?(?:spedire|evadere|consegnare|chiudere)\b/.test(n))
+    return { label: 'da evadere', lista: daEvadere(), esplicito: true, riepilogo: true };
+  if (/\b(pront[io]|in evasione)\b/.test(n))
+    return { label: 'pronti da evadere', lista: TCFactory.getEvasioneOrders(), esplicito: true };
+  if (/\b(in lavorazione|da fare|da lavorare|da produrre|da stampare)\b/.test(n))
+    return { label: 'in lavorazione', lista: TCFactory.getActiveOrders(), esplicito: true };
+  if (/\b(archiviat[io]|conclus[io])\b/.test(n))
+    return { label: 'archiviati', lista: TCFactory.getArchivedOrders(), esplicito: true };
+  if (/\b(evas[io]|spedit[io]|consegnat[io])\b/.test(n))
+    return { label: 'evasi', lista: TCFactory.getOrders().filter(o => !o.deletedAt && Pulsanti.isEvaso(o)), esplicito: true };
+  return { label: 'da evadere', lista: daEvadere(), riepilogo: true };
+}
+
+// Cosa si vuole sapere
+function assistOperazione(n) {
+  if (/\b(quant[ie]|quanto|numero|totale)\b/.test(n)) return 'conta';
+  if (/\b(piu vecch\w*|meno recent\w*|piu antic\w*|da piu tempo|piu indietro|primo)\b/.test(n)) return 'vecchio';
+  if (/\b(piu recent\w*|piu nuov\w*|ultim[oi]|appena arrivat\w*)\b/.test(n)) return 'recente';
+  if (/\b(qual[ie]?|elenco|lista|tutti|dimmi|mostra\w*|fammi vedere)\b/.test(n)) return 'elenco';
+  return null;
+}
+
+// Parole che dicono lo stato o il tempo, non il nome di un cliente
+const ASSIST_RE_PAROLE_DOMANDA = /^(scad|ritard|sped|evas|evad|consegn|riscuot|incass|pagat|pagar|pagam|pront|lavoraz|lavorar|produrr|stampar|archivi|conclus|chiuder|settiman|mese|domani|dopodomani|giorn|prossim|entro|senza|cosa|chi|dev|dobbiam|fare|resta|rimast|come|stai)/;
 
 function assistTokens(n) {
-  return n.replace(/\bl'/g, ' ').replace(/[^a-z0-9' ]/g, ' ').split(' ')
-    .filter(w => w && !ASSIST_PAROLE_VUOTE.has(w));
+  return n.replace(/\b[a-z]+'/g, ' ').replace(/[^a-z0-9 ]/g, ' ').split(' ')
+    .filter(w => w && !ASSIST_PAROLE_VUOTE.has(w) && !ASSIST_RE_PAROLE_DOMANDA.test(w));
 }
 
 // Distanza tra due parole (errori di battitura)
@@ -310,42 +364,103 @@ function assistDist(a, b) {
   return dp[a.length][b.length];
 }
 
+// L'ordine corrisponde alle parole cercate (cliente, nome dell'ordine o codice)?
+function assistCorrisponde(o, tokens) {
+  if (tokens.length === 1 && /^\d{1,5}$/.test(tokens[0])) return TCFactory.orderNumber(o.id) === parseInt(tokens[0], 10);
+  const cliente = TCFactory.getClient(o.clientId);
+  const parole = assistNorm(`${o.nome} ${cliente ? TCFactory.clientName(cliente) : ''} ${TCFactory.orderCode(o)}`)
+    .replace(/[^a-z0-9 ]/g, ' ').split(' ').filter(Boolean);
+  return tokens.every(t => parole.some(p => p.startsWith(t) || (t.length >= 5 && (assistDist(t, p.slice(0, t.length + 1)) <= 1 || assistDist(t, p) <= 1))));
+}
+
 function assistCercaOrdini(n) {
   const tokens = assistTokens(n);
   if (!tokens.length) return [];
-  const codice = tokens.length === 1 && /^\d{1,5}$/.test(tokens[0]) ? parseInt(tokens[0], 10) : null;
-  return TCFactory.getOrders().filter(o => !o.deletedAt).filter(o => {
-    if (codice != null) return TCFactory.orderNumber(o.id) === codice;
-    const cliente = TCFactory.getClient(o.clientId);
-    const parole = assistNorm(`${o.nome} ${cliente ? TCFactory.clientName(cliente) : ''} ${TCFactory.orderCode(o)}`)
-      .replace(/[^a-z0-9 ]/g, ' ').split(' ').filter(Boolean);
-    return tokens.every(t => parole.some(p => p.startsWith(t) || (t.length >= 5 && assistDist(t, p.slice(0, t.length + 1)) <= 1) || (t.length >= 5 && assistDist(t, p) <= 1)));
-  }).sort((a, b) => (a.archived - b.archived) || String(b.dataOrdine || '').localeCompare(String(a.dataOrdine || '')));
+  return TCFactory.getOrders().filter(o => !o.deletedAt && assistCorrisponde(o, tokens))
+    .sort((a, b) => (a.archived - b.archived) || String(b.dataOrdine || '').localeCompare(String(a.dataOrdine || '')));
 }
+
+const assistPerData = (a, b) => String(a.dataOrdine || '').localeCompare(String(b.dataOrdine || ''));
+const assistGiorniFa = (iso) => {
+  const g = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(iso + 'T00:00').getTime()) / 86400000);
+  return g <= 0 ? 'oggi' : g === 1 ? 'ieri' : `${g} giorni fa`;
+};
+const assistCiSono = (k) => k === 1 ? "C'è un ordine" : `Ci sono ${k} ordini`;
+// Etichetta al singolare se l'ordine è uno solo
+const assistLbl = (label, k) => !label ? '' : ' ' + (k !== 1 ? label
+  : label.replace(/\bpronti\b/, 'pronto').replace(/\barchiviati\b/, 'archiviato').replace(/\bevasi\b/, 'evaso'));
 
 function assistOrdini(n) {
-  const trovati = assistCercaOrdini(n);
-  if (!assistTokens(n).length) return { html: "<p>Di quale cliente o ordine? Ad esempio: <em>dammi l'ordine di Crossfit Grosseto</em>.</p>", keep: true };
-  if (!trovati.length) return { html: '<p>Nessun ordine trovato con questo nome.</p>', keep: true };
+  const oggiIso = TCFactory.getDefaultDate ? TCFactory.getDefaultDate() : new Date().toISOString().slice(0, 10);
+  const tokens = assistTokens(n);
+  const op = assistOperazione(n);
+  const gruppo = assistGruppo(n, oggiIso);
 
-  // "l'ultimo ordine di …" o un solo risultato: si apre subito
-  const soloUno = trovati.length === 1 || /\bultimo\b/.test(n);
-  if (soloUno) {
-    const o = trovati[0];
-    closeModal('assist-modal');
-    openOrderDetail(o.id);
-    return { html: `<p>Ho aperto l'ordine:</p><ul class="assist-list">${assistRigaOrdine(o)}</ul>` };
+  // Ricerca per nome: "dammi l'ordine di Crossfit Grosseto", "l'ultimo ordine di …"
+  if (tokens.length && !gruppo.esplicito && (op === null || op === 'recente' || op === 'elenco')) {
+    const trovati = assistCercaOrdini(n);
+    if (!trovati.length) return { html: `<p>Non trovo ordini per “${escapeHtml(tokens.join(' '))}”.</p>`, keep: true };
+    if (trovati.length === 1 || op === 'recente') {
+      const o = op === 'recente' ? [...trovati].sort(assistPerData).pop() : trovati[0];
+      closeModal('assist-modal');
+      openOrderDetail(o.id);
+      return { html: `<p>Ho aperto l'ordine:</p><ul class="assist-list">${assistRigaOrdine(o)}</ul>` };
+    }
+    const aperti = trovati.filter(o => !o.archived).length;
+    return { html: `<p>Ho trovato ${trovati.length} ordini${aperti && aperti < trovati.length ? ` (${aperti} non ${aperti === 1 ? 'archiviato' : 'archiviati'})` : ''}.</p>
+      ${assistElencoOrdini(trovati)}` };
   }
-  const aperti = trovati.filter(o => !o.archived).length;
-  return { html: `<p>Ho trovato ${trovati.length} ordini${aperti && aperti < trovati.length ? ` (${aperti} non ${aperti === 1 ? 'archiviato' : 'archiviati'})` : ''}:</p>
-    <ul class="assist-list">${trovati.slice(0, 12).map(assistRigaOrdine).join('')}</ul>
-    ${trovati.length > 12 ? `<p class="assist-muted">E altri ${trovati.length - 12}: scrivi un nome più preciso.</p>` : ''}` };
+
+  // Domande: quanti, il più vecchio, il più recente, quali — eventualmente di un cliente
+  let lista = gruppo.lista.filter(o => !o.deletedAt);
+  let label = gruppo.label;
+  let di = '';
+  if (tokens.length) {
+    if (!gruppo.esplicito) { lista = TCFactory.getOrders().filter(o => !o.deletedAt); label = ''; }
+    lista = lista.filter(o => assistCorrisponde(o, tokens));
+    di = ` per “${escapeHtml(tokens.join(' '))}”`;
+  }
+
+  if (!lista.length) return { html: `<p>Non ci sono ordini${assistLbl(label, 2)}${di}.</p>` };
+  const lbl = assistLbl(label, lista.length);
+
+  if (op === 'vecchio' || op === 'recente') {
+    const ord = [...lista].sort(assistPerData);
+    if (op === 'recente') ord.reverse();
+    const o = ord[0];
+    const quando = o.dataOrdine ? `, arrivato ${assistGiorniFa(o.dataOrdine)}` : '';
+    return { html: `<p>L'ordine${lbl}${di} ${op === 'vecchio' ? 'più vecchio' : 'più recente'} è il ${escapeHtml(TCFactory.orderCode(o))} · ${escapeHtml(o.nome || '')}${quando}.</p>
+      ${assistElencoOrdini(ord, 5, gruppo.perScadenza)}` };
+  }
+
+  // Quanti (e anche "quali" o domanda generica): numero, poi l'elenco
+  let frase = `${assistCiSono(lista.length)}${lbl}${di}.`;
+  if (gruppo.riepilogo && label) {
+    const ids = new Set(lista.map(o => o.id));
+    const inLav = TCFactory.getActiveOrders().filter(o => ids.has(o.id)).length;
+    const pronti = TCFactory.getEvasioneOrders().filter(o => ids.has(o.id)).length;
+    const ritardo = lista.filter(o => { const d = TCFactory.getEffectiveDeadline(o)?.date; return d && d < oggiIso; }).length;
+    const parti = [inLav && `${inLav} in lavorazione`, pronti && `${pronti} ${pronti === 1 ? 'pronto' : 'pronti'} da evadere`].filter(Boolean);
+    if (parti.length > 1) frase = `${assistCiSono(lista.length)}${lbl}${di}: ${parti.join(' e ')}.`;
+    if (ritardo) frase += ` ${ritardo === 1 ? 'Uno è' : ritardo + ' sono'} in ritardo.`;
+  }
+  const ord = gruppo.perScadenza
+    ? [...lista].sort((a, b) => String(TCFactory.getEffectiveDeadline(a)?.date || '').localeCompare(String(TCFactory.getEffectiveDeadline(b)?.date || '')))
+    : [...lista].sort(assistPerData);
+  return { html: `<p>${frase}</p>${op === 'conta' ? '' : assistElencoOrdini(ord, 12, gruppo.perScadenza)}` };
 }
 
-function assistRigaOrdine(o) {
+function assistElencoOrdini(lista, max = 12, conScadenza = false) {
+  return `<ul class="assist-list">${lista.slice(0, max).map(o => assistRigaOrdine(o, conScadenza)).join('')}</ul>
+    ${lista.length > max ? `<p class="assist-muted">E altri ${lista.length - max}.</p>` : ''}`;
+}
+
+function assistRigaOrdine(o, conScadenza = false) {
   const cliente = TCFactory.getClient(o.clientId);
   const stato = orderStatus(o);
-  const data = o.dataOrdine ? new Date(o.dataOrdine + 'T12:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const fmt = (iso) => new Date(iso + 'T12:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+  const scad = conScadenza && TCFactory.getEffectiveDeadline(o)?.date;
+  const data = scad ? 'scade il ' + fmt(scad) : o.dataOrdine ? fmt(o.dataOrdine) : '';
   return `<li><button type="button" class="assist-row assist-row-btn" onclick="closeModal('assist-modal');openOrderDetail('${o.id}')">
     <span class="assist-row-main"><strong>${escapeHtml(TCFactory.orderCode(o))} · ${escapeHtml(o.nome || '')}</strong>
       <small>${[cliente ? TCFactory.clientName(cliente) : '', data].filter(Boolean).map(escapeHtml).join(' · ')}</small></span>
