@@ -11,13 +11,15 @@ tutti i PC, anche Windows, senza collegare niente nel browser.
 - Quando arriva un DTF nuovo, o col bottone **Numera ora** (`dtf_numera_richiesta`), mette
   davanti alle cartelle il numero dell'ordine nella lista: `01 - cf pavia`, `02 - …`.
 - Esclude le cartelle "Stampato"; i file sciolti si abbinano ma non si rinominano.
-- **COLLA NERA** (dal 2026-11-20): i file nelle cartelle degli ordini con `colla nera`, `leggings`, `short` o
-  `soft shell` nel nome (o in una sottocartella, es. `ducale/colla nera/`) vanno **sciolti** nella cartella
+- **COLLA NERA** (dal 2026-11-20): i file nelle cartelle degli ordini con `colla nera`, `leggings`, `short`,
+  `soft shell`, `kway` (anche `k-way`), `windstopper` o `nylon` (dal 2026-11-20) nel nome (o in una sottocartella, es. `ducale/colla nera/`) vanno **sciolti** nella cartella
   `COLLA NERA` di 1. Stampare (creata se manca), col nome dell'ordine davanti se non c'è già
   (`cf pavia/Leggings_5pz.tif` → `COLLA NERA/cf pavia - Leggings_5pz.tif`). Solo file fermi da 2 minuti; se lì
   c'è già lo stesso file identico non si sposta (niente doppioni); le cartelle conto terzi (K1) restano come sono.
   COLLA NERA resta una riga sua nella coda (si stampa tutta insieme); i file spostati restano anche sui loro
-  ordini (stessa misura e data), che quindi non finiscono in "controllare se stampato".
+  ordini (stessa misura e data), che quindi non finiscono in "controllare se stampato". Nel totale
+  "Metri da stampare" contano una volta sola: la riga COLLA NERA porta `metriOrdini` (metri per ordine) e il
+  gestionale li toglie dal totale se l'ordine è in coda; la riga mostra comunque tutti i metri della cartella.
 - Esito in `app_settings.dtf_cartella_stato` (riga in DTF interno), salvato quando cambia o
   ogni 10 minuti; nel registro del Centro di controllo solo quando aggiunge o rinomina.
 - Database: `sql/dtf-cartella-server.sql` (`tc_dtf_cartella_dati`, `tc_dtf_cartella_salva`,

@@ -50,7 +50,7 @@ NUMERO = re.compile(r'^\d{1,3}\s*-\s*')
 # File da stampare con la colla nera: dalle cartelle degli ordini, sciolti, nella cartella "COLLA NERA"
 COLLA_NERA = 'COLLA NERA'
 COLLA_DIR = re.compile(r'colla\s*nera', re.I)
-COLLA_FILE = re.compile(r'(?<![a-z])(colla\s*nera|leggings?|shorts?|soft\s*shell)', re.I)
+COLLA_FILE = re.compile(r'(?<![a-z])(colla\s*nera|leggings?|shorts?|soft\s*shell|k\s*way|wind\s*stopper|nylon)', re.I)
 COLLA_ATTESA = 120   # secondi senza modifiche prima di spostare (file ancora in caricamento)
 DPI_DEFAULT = 300
 CM_INCH = 2.54
@@ -338,7 +338,7 @@ def cartella_colla(cartella):
 
 
 def sposta_colla_nera(cartella, prova, escluse=()):
-    """File con "colla nera", "leggings", "short" o "soft shell" nel nome (o in una sottocartella) dentro le
+    """File con "colla nera", "leggings", "short", "soft shell", "kway", "windstopper" o "nylon" nel nome (o in una sottocartella) dentro le
     cartelle degli ordini → sciolti in COLLA NERA, col nome dell'ordine davanti se non c'è già
     ("cf pavia/Leggings_5pz.tif" → "COLLA NERA/cf pavia - Leggings_5pz.tif"). Solo file fermi da 2 minuti;
     le cartelle dei clienti conto terzi (K1) restano come sono."""
@@ -404,6 +404,25 @@ def aggiorna_items(items, files, roll, gap):
         else:
             items.append(d)
             aggiunti += 1
+        cambiati = True
+    # Lo stesso file due volte (spostato, es. in COLLA NERA: stesso nome, misura e data) conta una volta sola:
+    # resta la voce col percorso che c'è adesso
+    presenti = {chiave(fl['path']) for fl in files}
+    gruppi = {}
+    for j, x in enumerate(items):
+        if x.get('size') is not None and x.get('mtime') is not None:
+            gruppi.setdefault((x['name'].rsplit('/', 1)[-1], x['size'], x['mtime']), []).append(j)
+    via = set()
+    for js in gruppi.values():
+        if len(js) > 1:
+            tieni = next((j for j in js if items[j].get('cartella') and chiave(items[j]['cartella']) in presenti), js[0])
+            via |= {j for j in js if j != tieni}
+    # Voce trascinata a mano (senza misura del file) doppia di un file letto dalla cartella: stesso nome e metri
+    letti = {(k[0], items[js[0]].get('metri')) for k, js in gruppi.items()}
+    via |= {j for j, x in enumerate(items) if x.get('size') is None and x.get('metri')
+            and (x['name'].rsplit('/', 1)[-1], x.get('metri')) in letti}
+    if via:
+        items = [x for j, x in enumerate(items) if j not in via]
         cambiati = True
     return items, aggiunti, cambiati
 
@@ -993,13 +1012,17 @@ def main():
 
     # COLLA NERA resta una riga sua nella coda (si stampa tutta insieme), ma i file spostati dagli ordini
     # restano anche sui loro ordini: il percorso segue il file e l'ordine non va in "controllare se stampato"
+    # metriOrdini: metri di quei file per ordine, che il gestionale toglie dal totale (contati una volta sola)
     for g in gruppi:
         if g.get('dir') and not g['ordine'] and COLLA_DIR.fullmatch(g['nome'].strip()):
+            g['metriOrdini'] = {}
             for fl in g['files']:
                 st = os.stat(fl['abs'])
-                oid = next((o['id'] for o in ordini_lista if any(stesso_file(fl, x, st) for x in (items_db.get(o['id']) or []))), None)
+                oid, it = next(((o['id'], x) for o in ordini_lista for x in (items_db.get(o['id']) or [])
+                                if stesso_file(fl, x, st)), (None, None))
                 if oid:
                     per_ordine.setdefault(oid, []).append(fl)
+                    g['metriOrdini'][oid] = round(g['metriOrdini'].get(oid, 0) + (it.get('metri') or 0), 2)
 
     # Metri delle cartelle senza ordine (per la coda DTF), riletti solo se il file cambia
     nuove_misure = {}
@@ -1067,6 +1090,7 @@ def main():
                 and any(x.get('cartella') for x in (items_db.get(o['id']) or []))]
     cartelle = [{'nome': g['nome'], 'dir': g.get('dir'), 'ordine': g['ordine'], 'files': len(g['files']),
                  **({'ct': g['ct']} if g.get('ct') else {}),
+                 **({'metriOrdini': g['metriOrdini']} if g.get('metriOrdini') else {}),
                  **({'metri': g.get('metri', 0)} if not g['ordine'] else {})} for g in gruppi if g['files'] or g.get('dir')]
     esito = {'at': datetime.now(timezone.utc).isoformat(), 'abbinate': len(per_ordine), 'aggiunti': aggiunti,
              'collaNera': len(colla_spostati),
