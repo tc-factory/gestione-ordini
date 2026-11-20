@@ -14,6 +14,7 @@
 // Chi la può chiamare: il cron del database (x-sync-key) oppure un admin collegato.
 // Va pubblicata con --no-verify-jwt: il controllo di chi chiama lo fa lei.
 
+import { consumoChiamata } from '../_shared/prezzi.ts';
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import Anthropic from 'npm:@anthropic-ai/sdk';
 
@@ -24,7 +25,6 @@ const GIORNI = 2;                 // giorni lavorativi senza risposta prima del 
 const PER_GIRO = 6;               // mail valutate per giro
 const TESTI_PER_GIRO = 3;         // task di altri flussi a cui aggiungere i testi
 const MODELLO = 'claude-haiku-5-5';
-const PREZZO = [0.1, 0.5, 0.01, 0.125];   // $/M token: input, output, cache letta, cache scritta
 const SEGNAPOSTO = /\[[^\]\n]{2,300}\]|\{\{[^}\n]*\}\}|<[A-Z_ ]{3,}>|X{3,}/;
 
 const cors = {
@@ -78,12 +78,8 @@ Regole per i testi:
 - Non incollare indirizzi, email o dati personali che la persona non conosce già; il numero d'ordine sì.
 - Concreto e gentile, senza scuse eccessive e senza pressione.`;
 
-function consumo(u: Row | undefined) {
-  const input = u?.input_tokens || 0, output = u?.output_tokens || 0;
-  const letti = u?.cache_read_input_tokens || 0, scritti = u?.cache_creation_input_tokens || 0;
-  return { modello: MODELLO, input, output, cache_letti: letti, cache_scritti: scritti,
-    costo_usd: Number(((input * PREZZO[0] + output * PREZZO[1] + letti * PREZZO[2] + scritti * PREZZO[3]) / 1e6).toFixed(5)) };
-}
+// Prezzi in _shared/prezzi.ts (Haiku ha un listino più caro oltre 100.000 token di prompt)
+const consumo = (u: Row | undefined) => consumoChiamata(MODELLO, u, MODELLO);
 
 async function scrivi(db: SupabaseClient, client: Anthropic, testo: string, mailId: string | null, conTelefono: boolean) {
   const res = await client.beta.messages.create({

@@ -474,7 +474,7 @@ html.dark .form-input:focus, html.dark .form-select:focus, html.dark .form-texta
 .layer-toggle { background: var(--lq-fill); border-radius: 999px; box-shadow: var(--lq-rim); }
 
 /* ── Menu e finestre: vetro sfocato vero ── */
-.popover, .modal, .account-menu {
+.popover, .modal {
   background-color: var(--lg-strong);
   background-image: none;
   -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur);
@@ -594,7 +594,7 @@ html.reduce-transparency {
 }
 html.reduce-transparency :is(.app-toolbar, .stat-card, .toast, .bottom-nav, .sidebar, .popover, .modal, .login-card) { -webkit-backdrop-filter: none; backdrop-filter: none; }
 html.reduce-transparency .app-toolbar { background: var(--lq-panel); }
-html.reduce-transparency :is(.popover, .modal, .account-menu) { background-color: var(--surface); }
+html.reduce-transparency :is(.popover, .modal) { background-color: var(--surface); }
 
 /* Finestre con moduli: vetro quasi pieno, il testo dietro non deve disturbare */
 .modal { background-color: color-mix(in srgb, var(--surface) 93%, transparent); }

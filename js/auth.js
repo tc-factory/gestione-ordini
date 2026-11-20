@@ -33,28 +33,20 @@ const TCAuth = {
 
   async _loadProfile(user) {
     const profile = (cols) => supabaseClient.from('app_users').select(cols).eq('auth_id', user.id).maybeSingle();
-    let { data, error } = await profile('nickname, is_admin, can_view_economics, schede, ruolo:app_roles(schede, economia)');
-    // Database senza sql/account-permessi.sql: si entra come prima, con tutte le schede
-    if (error) ({ data, error } = await profile('nickname, is_admin, can_view_economics'));
+    const { data, error } = await profile('nickname, is_admin, can_view_economics, schede');
     if (error || !data) { this._session = null; return null; }
-    // Un account con ruolo segue il ruolo; schede null = tutte
+    // Schede null = tutte
     this._session = {
       nickname: data.nickname,
       isAdmin: !!data.is_admin,
-      canViewEconomics: data.ruolo ? !!data.ruolo.economia : !!data.can_view_economics,
-      schede: data.ruolo ? data.ruolo.schede : data.schede,
+      canViewEconomics: !!data.can_view_economics,
+      schede: data.schede,
       authId: user.id,
     };
     return this._session;
   },
 
-  // Rilegge ruolo e permessi senza rifare il login (es. dopo che l'admin cambia il flag)
-  async refreshEconomicsFlag() {
-    const { data } = await supabaseClient.auth.getUser();
-    if (data?.user) await this._loadProfile(data.user);
-  },
 
-  getUser()            { return this._session; },
   getNickname()        { return this._session?.nickname || '?'; },
   isLoggedIn()         { return !!this._session; },
   isAdmin()            { return !!this._session?.isAdmin; },
@@ -97,9 +89,8 @@ const TCAuth = {
   },
 
   async listUsers() {
-    const users = (cols) => supabaseClient.from('app_users').select(cols).order('created_at');
-    let { data, error } = await users('nickname, is_admin, can_view_economics, ruolo_id, schede, created_at');
-    if (error) ({ data, error } = await users('nickname, is_admin, can_view_economics, created_at'));
+    const { data, error } = await supabaseClient.from('app_users')
+      .select('nickname, is_admin, can_view_economics, schede, created_at').order('created_at');
     if (error) throw error;
     return data || [];
   },
@@ -116,35 +107,14 @@ const TCAuth = {
     return this._admin('reset_password', { nickname: targetNickname, password: newPassword });
   },
 
-  // Ruolo assegnato (segue il ruolo) oppure, senza ruolo, schede e gestione economica personalizzate
-  async setUserAccess(targetNickname, { ruoloId = null, schede = null, economia = false }) {
+  // Schede visibili (null = tutte) e gestione economica dell'account
+  async setUserAccess(targetNickname, { schede = null, economia = false }) {
     if (!this.isAdmin()) throw new Error('Non autorizzato');
     const { data, error } = await supabaseClient.rpc('tc_set_user_access', {
-      p_nickname: targetNickname, p_ruolo_id: ruoloId, p_schede: schede, p_economia: !!economia,
+      p_nickname: targetNickname, p_schede: schede, p_economia: !!economia,
     });
     if (error) throw new Error('Errore di connessione');
     if (!data?.success) throw new Error(data?.error || 'Errore');
-  },
-
-  // ── Ruoli: preset di schede + gestione economica (scrive solo l'admin, vedi policy) ──
-
-  async listRoles() {
-    const { data, error } = await supabaseClient.from('app_roles').select('*').order('nome');
-    if (error) throw error;
-    return data || [];
-  },
-
-  async saveRole({ id, nome, schede, economia }) {
-    const row = { nome: nome.trim(), schede, economia: !!economia };
-    const { error } = id
-      ? await supabaseClient.from('app_roles').update(row).eq('id', id)
-      : await supabaseClient.from('app_roles').insert(row);
-    if (error) throw new Error(error.code === '23505' ? 'Esiste già un ruolo con questo nome' : 'Impossibile salvare il ruolo');
-  },
-
-  async deleteRole(id) {
-    const { error } = await supabaseClient.from('app_roles').delete().eq('id', id);
-    if (error) throw new Error('Impossibile eliminare il ruolo');
   },
 
   // Cambio password self-service: verifica la password attuale, poi aggiorna

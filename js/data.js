@@ -31,9 +31,6 @@ const TCFactory = {
   _suppliers: [],
   _productsPending: [],       // articoli trovati negli ordini e non in anagrafica (sql/prodotti-da-inserire.sql)
   _productsAvailable: false,  // false finché non è stato eseguito sql/prodotti-setup.sql
-  _clientCatalog: [],
-  _catalogUsers: [],
-  _catalogAvailable: false,   // false finché non è stato eseguito sql/cataloghi-clienti.sql
   _settings: {},
   _listeners: [],
   _channel: null,
@@ -62,7 +59,7 @@ const TCFactory = {
       this._tags = tagsRes.data || [];
 
       // Tabelle aggiunte dopo (clienti, prodotti, impostazioni): se mancano l'app funziona lo stesso
-      await Promise.all([this.loadClients(), this.loadProducts(), this.loadSettings(), this.loadCatalogs()]);
+      await Promise.all([this.loadClients(), this.loadProducts(), this.loadSettings()]);
 
       this._isOnline = true;
       this._updateStatusBadge(true);
@@ -89,8 +86,6 @@ const TCFactory = {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'product_categories' }, (p) => this._handleRealtimeSimple(p, '_productCategories', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'suppliers' }, (p) => this._handleRealtimeSimple(p, '_suppliers', 'id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products_pending' }, (p) => this._handleRealtimeSimple(p, '_productsPending', 'id'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'client_catalog' }, (p) => this._handleRealtimeSimple(p, '_clientCatalog', 'id'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'catalog_users' }, (p) => this._handleRealtimeSimple(p, '_catalogUsers', 'auth_id'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, (p) => {
         if (p.new?.key) this._settings[p.new.key] = p.new.value;
         this._notify();
@@ -139,7 +134,7 @@ const TCFactory = {
   // Logout: svuota i dati in memoria e chiude il canale realtime
   reset() {
     if (this._channel) { try { supabaseClient.removeChannel(this._channel); } catch {} this._channel = null; }
-    Object.assign(this, { _orders: [], _priorities: [], _tags: [], _clients: [], _products: [], _productCategories: [], _suppliers: [], _productsPending: [], _clientCatalog: [], _catalogUsers: [], _calEvents: [], _settings: {}, _clientsAvailable: false, _productsAvailable: false, _catalogAvailable: false });
+    Object.assign(this, { _orders: [], _priorities: [], _tags: [], _clients: [], _products: [], _productCategories: [], _suppliers: [], _productsPending: [], _calEvents: [], _settings: {}, _clientsAvailable: false, _productsAvailable: false });
   },
 
   onUpdate(fn) { this._listeners.push(fn); },
@@ -256,14 +251,9 @@ const TCFactory = {
   // Attivi: lavorazione non chiusa, oppure chiusa ma manca un pulsante obbligatorio (es. Pronto senza Merce)
   getActiveOrders()         { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && !Pulsanti.isEvaso(o)
                                 && (!Pulsanti.chiusa(o) || !Pulsanti.obbligatoriOk(o))); },
-  // Parziali: lavorazione chiusa ma manca un pulsante obbligatorio (es. merce non completa).
-  // Non è più una scheda: questi ordini restano in Attivi.
-  getParziali()             { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !this.isNeutro(o) && Pulsanti.chiusa(o) && !Pulsanti.obbligatoriOk(o) && !Pulsanti.isEvaso(o)); },
   // Evasione: lavorazione chiusa con tutti gli obbligatori, non ancora evasi
   getEvasioneOrders()       { return this.getOrders().filter(o => !o.deletedAt && !o.archived && !Pulsanti.isEvaso(o)
                                 && (this.isNeutro(o) || (Pulsanti.chiusa(o) && Pulsanti.obbligatoriOk(o)))); },
-  // Compat (non più usato come tab)
-  getPartialOrders()        { return this.getOrders().filter(o => !o.archived && o.stages?.speditoParzialmente?.done && !o.stages?.spedito?.done); },
   // Da riscuotere: evasi ma NON ancora pagati (il promemoria "hai spedito senza farti pagare")
   getDaRiscuotereOrders()   { return this.getOrders().filter(o => !o.deletedAt && !o.archived && Pulsanti.isEvaso(o) && !o.paymentDone); },
   // Archivio: solo quando ENTRAMBI evaso E pagato
@@ -599,7 +589,6 @@ const TCFactory = {
     };
   },
 
-  isCompleted(order) { return this.stageProgress(order).allLavDone; },
 
   // Scadenza effettiva: deadline manuale, altrimenti data ordine + N giorni (Impostazioni)
   getEffectiveDeadline(order) {
@@ -622,182 +611,6 @@ const TCFactory = {
     return order.deadline < today;
   },
 
-  // ─────────────────────────────────────────────
-  // DTF CALCULATIONS
-  // ─────────────────────────────────────────────
-
-  DTF_ROLL_WIDTH: 57,   // cm
-  DTF_SPEED: 8,         // m/ora
-
-  calcDTFItem(item) {
-    const w   = parseFloat(item.width_cm)  || 0;
-    const h   = parseFloat(item.height_cm) || 0;
-    const qty = parseInt(item.qty)         || 1;
-    if (w <= 0 || h <= 0) return { meters: 0, hours: 0, minutes: 0 };
-    const filesPerRow  = Math.max(1, Math.floor(this.DTF_ROLL_WIDTH / w));
-    const rows         = Math.ceil(qty / filesPerRow);
-    const meters       = parseFloat(((rows * h) / 100).toFixed(2));
-    const totalHours   = meters / this.DTF_SPEED;
-    const hours        = Math.floor(totalHours);
-    const minutes      = Math.round((totalHours - hours) * 60);
-    return { meters, hours, minutes };
-  },
-
-  calcDTFTotal(dtfItems) {
-    const totalMeters = dtfItems.reduce((s, i) => s + this.calcDTFItem(i).meters, 0);
-    const rounded     = parseFloat(totalMeters.toFixed(2));
-    const totalH      = rounded / this.DTF_SPEED;
-    return {
-      meters:  rounded,
-      hours:   Math.floor(totalH),
-      minutes: Math.round((totalH - Math.floor(totalH)) * 60),
-    };
-  },
-
-  // ─────────────────────────────────────────────
-  // PLANNER DTF  (localStorage — operativo, non sincronizzato)
-  //
-  // Formato schedule: { 'YYYY-MM-DD': [{id, meters},...] }
-  // meters=null  → usa i metri totali dell'ordine
-  // meters=N     → quota parziale (split automatico)
-  // ─────────────────────────────────────────────
-
-  PLAN_KEY:       'tcf_dtf_plan',
-  CAPACITY_KEY:   'tcf_dtf_capacity',
-  STANDALONE_KEY: 'tcf_dtf_standalone',
-
-  getPlannerCapacity() {
-    return parseFloat(localStorage.getItem(this.CAPACITY_KEY) || '60');
-  },
-  setPlannerCapacity(v) {
-    localStorage.setItem(this.CAPACITY_KEY, String(Math.max(1, parseFloat(v) || 60)));
-  },
-
-  // ── Schedule ──────────────────────────────────
-  getSchedule() {
-    try { return JSON.parse(localStorage.getItem(this.PLAN_KEY) || '{}'); } catch { return {}; }
-  },
-
-  // Restituisce [{id, meters}] normalizzato (gestisce anche il vecchio formato stringhe)
-  getDayScheduleEntries(dateStr) {
-    const raw = (this.getSchedule()[dateStr] || []);
-    return raw.map(e => typeof e === 'string' ? { id: e, meters: null } : e);
-  },
-
-  setDayScheduleEntries(dateStr, entries) {
-    const s = this.getSchedule();
-    s[dateStr] = entries;
-    localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
-  },
-
-  scheduleOrder(orderId, dateStr) {
-    const s = this.getSchedule();
-    // Rimuovi da qualsiasi giorno (anche split)
-    Object.keys(s).forEach(d => {
-      s[d] = (s[d] || []).filter(e => (typeof e === 'string' ? e : e.id) !== orderId);
-    });
-    if (!s[dateStr]) s[dateStr] = [];
-    s[dateStr].push({ id: orderId, meters: null }); // meters=null = ordine intero
-    localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
-  },
-
-  unscheduleOrder(orderId) {
-    const s = this.getSchedule();
-    Object.keys(s).forEach(d => {
-      s[d] = (s[d] || []).filter(e => (typeof e === 'string' ? e : e.id) !== orderId);
-    });
-    localStorage.setItem(this.PLAN_KEY, JSON.stringify(s));
-  },
-
-  isScheduledAnywhere(id) {
-    return Object.values(this.getSchedule()).some(entries =>
-      (entries || []).some(e => (typeof e === 'string' ? e : e.id) === id)
-    );
-  },
-
-  // Risolve i metri effettivi di una entry (null = totale)
-  _entryMeters(entry, sourceMap) {
-    const id = typeof entry === 'string' ? entry : entry.id;
-    const allocated = typeof entry === 'object' && entry.meters != null ? entry.meters : null;
-    if (allocated !== null) return allocated;
-    const src = sourceMap ? sourceMap[id] : this.getAllDTFSources().find(s => s.id === id);
-    return src ? this.calcDTFTotal(src.dtfItems || []).meters : 0;
-  },
-
-  _nextDay(dateStr) {
-    const d = new Date(dateStr + 'T00:00:00');
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  },
-
-  // ── Auto-scheduling ───────────────────────────
-  // Pianifica automaticamente le sorgenti non ancora schedulate:
-  // - ordina per deadline → priorità → merce completa
-  // - riempie i giorni dal giorno corrente
-  // - se un ordine scavalla la capacità giornaliera, lo divide tra i due giorni
-  // - non sposta mai elementi già schedulati manualmente
-  autoSchedule() {
-    const capacity   = this.getPlannerCapacity();
-    const allSources = this.getAllDTFSources();
-    const sourceMap  = Object.fromEntries(allSources.map(s => [s.id, s]));
-    const schedule   = this.getSchedule();
-    const today      = this.getDefaultDate();
-
-    // Calcola utilizzo giornaliero esistente
-    const dayUsage = {};
-    Object.entries(schedule).forEach(([date, entries]) => {
-      dayUsage[date] = (entries || []).reduce((sum, e) => sum + this._entryMeters(e, sourceMap), 0);
-    });
-
-    // Sorgenti non ancora schedulate e con metri > 0
-    const unscheduled = allSources.filter(s => {
-      const m = this.calcDTFTotal(s.dtfItems || []).meters;
-      return m > 0 && !this.isScheduledAnywhere(s.id);
-    });
-
-    // Ordinamento: deadline ASC → priorityRank ASC → merceCompleta (done=0, not=1)
-    unscheduled.sort((a, b) => {
-      const da = a.deadline || '9999-12-31';
-      const db = b.deadline || '9999-12-31';
-      if (da !== db) return da.localeCompare(db);
-      const pa = a.priorityRank ?? 999;
-      const pb = b.priorityRank ?? 999;
-      if (pa !== pb) return pa - pb;
-      return (a.merceCompleta ? 0 : 1) - (b.merceCompleta ? 0 : 1);
-    });
-
-    // Piazza ogni sorgente, con split automatico se necessario
-    unscheduled.forEach(source => {
-      let remaining    = this.calcDTFTotal(source.dtfItems || []).meters;
-      const totalM     = remaining;
-      if (remaining <= 0) return;
-
-      let day = today;
-      let iterations = 0;
-
-      while (remaining > 0 && iterations < 365) {
-        iterations++;
-        const used      = dayUsage[day] || 0;
-        const available = Math.max(0, capacity - used);
-
-        if (available <= 0) { day = this._nextDay(day); continue; }
-
-        const toPlace   = parseFloat(Math.min(remaining, available).toFixed(2));
-        const isPartial = toPlace < totalM || remaining < totalM; // split in corso
-
-        if (!schedule[day]) schedule[day] = [];
-        schedule[day].push({ id: source.id, meters: isPartial ? toPlace : null });
-
-        dayUsage[day] = (dayUsage[day] || 0) + toPlace;
-        remaining     = parseFloat((remaining - toPlace).toFixed(2));
-
-        if (remaining > 0) day = this._nextDay(day);
-      }
-    });
-
-    localStorage.setItem(this.PLAN_KEY, JSON.stringify(schedule));
-  },
-
   // ── Priorità default ─────────────────────────
   getDefaultPriorityId() {
     const normal = this._priorities.find(p =>
@@ -805,68 +618,6 @@ const TCFactory = {
     );
     return normal?.id || this._priorities[this._priorities.length - 1]?.id || null;
   },
-
-  // ── Voci standalone (conto terzi, senza ordine reale) ──
-  getStandalone() {
-    try { return JSON.parse(localStorage.getItem(this.STANDALONE_KEY) || '[]'); } catch { return []; }
-  },
-  addStandalone(label, dtfItems, priorityId) {
-    const items = this.getStandalone();
-    const id    = 'STD-' + Date.now();
-    items.push({ id, label: label.trim(), dtfItems: dtfItems || [], priorityId: priorityId || null });
-    localStorage.setItem(this.STANDALONE_KEY, JSON.stringify(items));
-    return id;
-  },
-  updateStandalone(id, label, dtfItems, priorityId) {
-    const items = this.getStandalone().map(s =>
-      s.id === id ? { ...s, label: label.trim(), dtfItems: dtfItems || [], priorityId: priorityId || null } : s
-    );
-    localStorage.setItem(this.STANDALONE_KEY, JSON.stringify(items));
-  },
-  removeStandalone(id) {
-    const items = this.getStandalone().filter(s => s.id !== id);
-    localStorage.setItem(this.STANDALONE_KEY, JSON.stringify(items));
-    this.unscheduleOrder(id);
-  },
-  getStandaloneById(id) {
-    return this.getStandalone().find(s => s.id === id) || null;
-  },
-
-  // ── Tutte le sorgenti DTF (ordini reali + standalone) ──
-  // Includiamo priorityRank e merceCompleta per l'ordinamento auto-schedule
-  getAllDTFSources() {
-    const orders = this.getOrdersWithDTF().map(o => ({
-      id: o.id,
-      label: o.nome,
-      deadline: o.deadline || null,
-      dtfItems: o.dtfItems,
-      isStandalone: false,
-      color: this.getPriority(o.priorityId)?.color || '#6366f1',
-      priorityRank: this.getPriorityRank(o.priorityId),
-      priorityId: o.priorityId,
-      merceCompleta: o.stages?.merceCompleta?.done || false,
-    }));
-    const standalone = this.getStandalone().map(s => {
-      const pri = s.priorityId ? this.getPriority(s.priorityId) : null;
-      return {
-        id: s.id,
-        label: s.label,
-        deadline: null,
-        dtfItems: s.dtfItems,
-        isStandalone: true,
-        color: pri?.color || '#94a3b8',
-        priorityRank: s.priorityId ? this.getPriorityRank(s.priorityId) : 999,
-        priorityId: s.priorityId || null,
-        merceCompleta: false,
-      };
-    });
-    return [...orders, ...standalone];
-  },
-
-  getOrdersWithDTF() {
-    return this.getOrders().filter(o => o.dtfItems && o.dtfItems.length > 0 && !o.archived);
-  },
-
 
   // ─────────────────────────────────────────────
   // CLIENTI
@@ -1090,56 +841,6 @@ const TCFactory = {
     this._notify();
   },
 
-  // Immagini dei prodotti (una o più per colore, con vista fronte/retro/lato).
-  // File nel bucket privato "prodotti", aperti con link temporanei.
-  _imgUrls: new Map(),   // path → { url, until }
-
-  async getProductImages(productId) {
-    const { data, error } = await supabaseClient.from('product_images').select('*').eq('product_id', productId).order('created_at');
-    if (error) throw error;
-    return data || [];
-  },
-
-  async uploadProductImage(productId, file, colore = '', vista = '') {
-    const ext = (file.name.match(/\.([a-z0-9]{2,5})$/i)?.[1] || 'jpg').toLowerCase();
-    const path = `${productId}/${crypto.randomUUID()}.${ext}`;
-    const up = await supabaseClient.storage.from('prodotti').upload(path, file, { contentType: file.type || undefined });
-    if (up.error) throw up.error;
-    const { data, error } = await supabaseClient.from('product_images').insert({
-      product_id: productId, colore, vista, path, nome_file: file.name.slice(0, 200),
-      created_by: window.TCAuth?.getNickname() || 'sistema',
-    }).select().single();
-    if (error) { await supabaseClient.storage.from('prodotti').remove([path]); throw error; }
-    return data;
-  },
-
-  async updateProductImage(id, fields) {
-    const patch = {};
-    if (fields.colore !== undefined) patch.colore = fields.colore;
-    if (fields.vista !== undefined) patch.vista = fields.vista;
-    const { error } = await supabaseClient.from('product_images').update(patch).eq('id', id);
-    if (error) throw error;
-  },
-
-  async deleteProductImage(img) {
-    const { error } = await supabaseClient.from('product_images').delete().eq('id', img.id);
-    if (error) throw error;
-    await supabaseClient.storage.from('prodotti').remove([img.path]);
-    this._imgUrls.delete(img.path);
-  },
-
-  // Link temporanei per più immagini insieme (valgono un'ora, riusati finché validi)
-  async productImageUrls(paths) {
-    const now = Date.now();
-    const missing = paths.filter(p => !(this._imgUrls.get(p)?.until > now + 60000));
-    if (missing.length) {
-      const { data, error } = await supabaseClient.storage.from('prodotti').createSignedUrls(missing, 3600);
-      if (error) throw error;
-      (data || []).forEach(d => { if (d.signedUrl) this._imgUrls.set(d.path, { url: d.signedUrl, until: now + 3600 * 1000 }); });
-    }
-    return Object.fromEntries(paths.map(p => [p, this._imgUrls.get(p)?.url || '']));
-  },
-
   // Fornitori dei prodotti (Prodotti → Fornitori)
   SUPPLIER_FIELDS: ['nome','referente','email','telefono','sito','note'],
 
@@ -1209,94 +910,6 @@ const TCFactory = {
   },
 
   // ─────────────────────────────────────────────
-  // CATALOGHI DEI CLIENTI (app clienti)
-  // Lo staff sceglie i prodotti di ogni cliente e il suo prezzo d'acquisto;
-  // nome, prezzo di rivendita e scorte li gestisce il cliente dall'app.
-  // ─────────────────────────────────────────────
-
-  async loadCatalogs() {
-    const [cat, users] = await Promise.all([
-      supabaseClient.from('client_catalog').select('*'),
-      supabaseClient.from('catalog_users').select('*'),
-    ]);
-    if (this._erroreCaricamento('Cataloghi', [cat.error, users.error])) return;
-    this._catalogAvailable = !cat.error && !users.error;
-    this._clientCatalog = this._catalogAvailable ? (cat.data || []) : [];
-    this._catalogUsers = this._catalogAvailable ? (users.data || []) : [];
-  },
-
-  isCatalogAvailable() { return this._catalogAvailable; },
-
-  // Nome nel catalogo: quello dello staff, altrimenti la descrizione del prodotto (il cliente può rinominarlo)
-  catalogItemName(r) { return (r?.nome || '').trim() || (this.getProduct(r?.product_id)?.descrizione || '').trim() || 'Senza nome'; },
-
-  // Clienti con un catalogo o un accesso all'app
-  getCatalogClients() {
-    const ids = new Set([...this._clientCatalog.map(r => r.client_id), ...this._catalogUsers.map(u => u.client_id)]);
-    return this.getClients().filter(c => ids.has(c.id));
-  },
-
-  getClientCatalog(clientId) {
-    return this._clientCatalog
-      .filter(r => r.client_id === clientId)
-      .map(r => ({ ...r, product: this.getProduct(r.product_id) }))
-      .filter(r => r.product)
-      .sort((a, b) => this.productLabel(a.product).localeCompare(this.productLabel(b.product), 'it', { numeric: true }));
-  },
-
-  async addToCatalog(clientId, productIds) {
-    const rows = productIds.map(product_id => ({ client_id: clientId, product_id }));
-    const { data, error } = await supabaseClient.from('client_catalog')
-      .upsert(rows, { onConflict: 'client_id,product_id', ignoreDuplicates: true }).select();
-    if (error) throw error;
-    const ids = new Set((data || []).map(r => r.id));
-    this._clientCatalog = [...this._clientCatalog.filter(r => !ids.has(r.id)), ...(data || [])];
-    this._log('Catalogo cliente: prodotti aggiunti', null, this.clientName(this.getClient(clientId)), { clientId, prodotti: productIds.length });
-    this._notify();
-  },
-
-  // Solo i campi dello staff: nome, prezzo al cliente e attivo
-  async saveCatalogItem(id, fields) {
-    const payload = {};
-    if (fields.nome !== undefined) payload.nome = String(fields.nome ?? '').trim();
-    if (fields.prezzo !== undefined) payload.prezzo = fields.prezzo;
-    if (fields.attivo !== undefined) payload.attivo = !!fields.attivo;
-    const { data, error } = await supabaseClient.from('client_catalog').update(payload).eq('id', id).select().single();
-    if (error) throw error;
-    this._clientCatalog = [...this._clientCatalog.filter(r => r.id !== id), data];
-    this._notify();
-    return data;
-  },
-
-  async removeFromCatalog(id) {
-    const row = this._clientCatalog.find(r => r.id === id);
-    const { error } = await supabaseClient.from('client_catalog').delete().eq('id', id);
-    if (error) throw error;
-    this._clientCatalog = this._clientCatalog.filter(r => r.id !== id);
-    if (row) this._log('Catalogo cliente: prodotto tolto', null, this.clientName(this.getClient(row.client_id)), { clientId: row.client_id, productId: row.product_id });
-    this._notify();
-  },
-
-  getCatalogUsers(clientId) {
-    return this._catalogUsers.filter(u => u.client_id === clientId).sort((a, b) => a.email.localeCompare(b.email));
-  },
-
-  // Accessi all'app: create / delete / password, tramite la funzione catalog-users (chiave di servizio)
-  async catalogUsersAction(action, payload) {
-    const { data, error } = await supabaseClient.functions.invoke('catalog-users', { body: { action, ...payload } });
-    if (error) {
-      let msg = 'Errore di connessione';
-      try { msg = (await error.context.json()).error || msg; } catch {}
-      throw new Error(msg);
-    }
-    if (!data?.success) throw new Error(data?.error || 'Errore');
-    const users = await supabaseClient.from('catalog_users').select('*');
-    if (!users.error) this._catalogUsers = users.data || [];
-    this._notify();
-    return data;
-  },
-
-  // ─────────────────────────────────────────────
   // IMPOSTAZIONI CONDIVISE
   // ─────────────────────────────────────────────
 
@@ -1338,21 +951,6 @@ const TCFactory = {
 
   getCalendarEvents()      { return this._calEvents; },
 
-  async addCalendarEvent(ev) {
-    const { data, error } = await supabaseClient.from('calendar_events').insert({
-      title: ev.title,
-      date_from: ev.dateFrom,
-      date_to:   ev.dateTo,
-      event_type: ev.eventType || 'impegno',
-      user_ids:  ev.userIds || [],
-      color:     ev.color || '#6366f1',
-      notes:     ev.notes || '',
-      created_by: window.TCAuth?.getNickname() || 'sistema',
-    }).select().single();
-    if (error) throw error;
-    this._calEvents = [...this._calEvents, data];
-    return data;
-  },
 
   // Sposta un evento mantenendo la durata (usato dal trascinamento nel Planner)
   async moveCalendarEvent(id, dateFrom, dateTo) {
@@ -1383,12 +981,6 @@ const TCFactory = {
     this._calEvents = this._calEvents.filter(e => e.id !== id);
   },
 
-  getEventsForMonth(year, month) {
-    const from = `${year}-${String(month+1).padStart(2,'0')}-01`;
-    const lastDay = new Date(year, month+1, 0).getDate();
-    const to   = `${year}-${String(month+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
-    return this._calEvents.filter(e => e.date_from <= to && e.date_to >= from);
-  },
 
   getEventsForDate(dateStr) {
     return this._calEvents.filter(e => e.date_from <= dateStr && e.date_to >= dateStr);

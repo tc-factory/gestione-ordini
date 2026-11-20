@@ -198,7 +198,6 @@ function renderApp() {
   if (Nav.current === 'esterne') renderEsternePage();
   if (Nav.current === 'clienti') renderClientsPage();
   if (Nav.current === 'prodotti') renderProductsPage();
-  if (Nav.current === 'cataloghi') renderCatalogsPage();
   if (Nav.current === 'cassa')   renderCassaPage();
 }
 
@@ -518,11 +517,6 @@ function quickPreviewFile(orderId, fileIndex) {
   previewFile(order.files[fileIndex]);
 }
 
-function quickPreviewInvoice(orderId) {
-  const order = TCFactory.getOrderById(orderId);
-  if (!order || !(order.invoiceFiles||[])[0]) return;
-  previewFile(order.invoiceFiles[0]);
-}
 
 async function togglePayment(orderId, done) {
   try {
@@ -556,15 +550,6 @@ async function toggleInvoiceConfirmed(orderId, confirmed) {
   } catch(e) { showToast('Errore fattura', 'error'); }
 }
 
-// quickToggleArchive ora RIPRISTINA solo, non archivia più
-async function quickToggleArchive(orderId, isArchived) {
-  if (!isArchived) {
-    showToast('Usa la spunta € per archiviare');
-    return;
-  }
-  try { await moveOrderTo(orderId, 'active'); }
-  catch(e) { showToast('Errore', 'error'); }
-}
 
 // Modulo a cui appartiene una riga: 0 = modulo d'ordine, 1… = integrazioni
 // (le righe vecchie con integrazione: true valgono come prima integrazione)
@@ -1055,16 +1040,6 @@ ${D.notes ? `<div class="nl">Note</div><div class="nt">${escapeHtml(D.notes)}</d
 // AZIONI RAPIDE LISTA
 // ─────────────────────────────────────────────
 
-async function quickToggleArchive(orderId, isCurrentlyArchived) {
-  try {
-    if (isCurrentlyArchived) {
-      await moveOrderTo(orderId, 'active');
-    } else {
-      await TCFactory.setArchived(orderId, true);
-      renderApp();
-    }
-  } catch(e) { showToast('Errore', 'error'); }
-}
 
 // Spunta di una fase per id (es. "lavorazioneEsterna" dalla pagina Esterne): passa dal suo pulsante
 async function toggleStageInline(orderId, stageId, done) {
@@ -1752,16 +1727,6 @@ function ofUpdateSaldo() {
   el.classList.toggle('paid', importo > 0 && saldo <= 0.005);
 }
 
-function selectPriorityChip(id) {
-  document.getElementById('of-priority-picker').dataset.selected = id;
-  document.querySelectorAll('#of-priority-picker .chip-btn').forEach(btn => {
-    const p = TCFactory.getPriority(btn.dataset.prio);
-    if (!p) return;
-    const active = btn.dataset.prio === id;
-    btn.style.background = active ? p.color : `color-mix(in srgb, ${p.color} 12%, transparent)`;
-    btn.style.color = active ? '#fff' : p.color;
-  });
-}
 
 function renderFormFilesList() {
   const container = document.getElementById('of-files-list');
@@ -1909,6 +1874,37 @@ function modLev(a, b) {
   return d[a.length][b.length];
 }
 
+// Colori equivalenti (italiano / inglese / varianti di scrittura): suggerimenti del colore nel modulo d'ordine
+const COLORI_EQUIVALENTI = [
+  ['nero', 'nera', 'black', 'noir'],
+  ['bianco', 'bianca', 'white', 'blanc', 'blank white'],
+  ['grigio', 'grey', 'gray'],
+  ['grigio scuro', 'dark grey', 'dark gray', 'antracite', 'anthracite', 'charcoal'],
+  ['grigio chiaro', 'light grey', 'light gray'],
+  ['grigio melange', 'grey melange', 'gray melange', 'heather grey', 'sport grey', 'melange'],
+  ['blu', 'blue'],
+  ['navy', 'blu navy', 'navy blue', 'blu notte', 'light navy'],
+  ['royal', 'blu royal', 'royal blue', 'blu reale'],
+  ['azzurro', 'celeste', 'light blue', 'sky blue', 'sky'],
+  ['rosso', 'rossa', 'red'],
+  ['bordeaux', 'bordo', 'burgundy', 'maroon', 'wine'],
+  ['verde', 'green'],
+  ['verde militare', 'army', 'military green', 'army green'],
+  ['oliva', 'olive', 'verde oliva'],
+  ['verde bottiglia', 'bottle green', 'forest green'],
+  ['giallo', 'gialla', 'yellow'],
+  ['arancione', 'arancio', 'orange'],
+  ['rosa', 'pink'],
+  ['fucsia', 'fuchsia'],
+  ['viola', 'purple'],
+  ['lilla', 'lilac', 'liliac', 'lavanda', 'lavender'],
+  ['marrone', 'brown', 'chocolate', 'cioccolato'],
+  ['beige', 'sand', 'sabbia'],
+  ['kaki', 'khaki'],
+  ['panna', 'off white', 'ecru', 'natural', 'naturale', 'crema', 'cream'],
+  ['turchese', 'turquoise'],
+];
+
 // Quanto una variante somiglia a quanto scritto (0 = per niente)
 function modVarScore(q, o, field) {
   const n = modVarNorm(o), t = ` ${n} `;
@@ -1917,9 +1913,9 @@ function modVarScore(q, o, field) {
   if (t.includes(` ${q}`)) return 800 - n.length;
   if (n.includes(q)) return 700 - n.length;
   const words = new Set(n.split(' '));
-  if (field === 'colore' && typeof IMG_COLOR_GROUPS !== 'undefined') {
+  if (field === 'colore') {
     let syn = 0;
-    for (const g of IMG_COLOR_GROUPS) {
+    for (const g of COLORI_EQUIVALENTI) {
       if (!g.some(x => t.includes(` ${x} `))) continue;
       g.forEach(x => { words.add(x); if (x.startsWith(q)) syn = Math.max(syn, x.length); });
     }
@@ -1949,7 +1945,7 @@ function modVarOpts(i, field) {
   if (own.length) return own;
   const all = TCFactory.getProducts().flatMap(x => modSplitList(x[key]));
   if (field === 'tg') all.push(...MOD_TAGLIE);
-  else if (typeof IMG_COLOR_GROUPS !== 'undefined') all.push(...IMG_COLOR_GROUPS.map(g => g[0].toUpperCase()));
+  else all.push(...COLORI_EQUIVALENTI.map(g => g[0].toUpperCase()));
   const seen = new Set();
   return all.filter(x => { const k = x.toLowerCase(); return seen.has(k) ? false : seen.add(k); });
 }
@@ -2505,7 +2501,6 @@ function closeModal(id) {
 let _newPrioColor = '#3b82f6';
 let _newTagColor  = '#10b981';
 
-function openSettings() { Nav.go('impostazioni'); }
 
 // Impostazioni: ogni sezione si apre e si chiude toccando la sua intestazione.
 // Aprendo la pagina Impostazioni sono tutte chiuse (vedi renderSettingsPage).
@@ -2938,23 +2933,14 @@ async function addNewTagSetting() {
 // ─────────────────────────────────────────────
 
 let _usersList = [];
-let _rolesList = [];
 
-const roleById = (id) => _rolesList.find(r => r.id === id);
 const sectionsSummary = (schede) => !Array.isArray(schede) ? 'Tutte le schede'
   : `${schede.filter(id => !Nav._item(id)?.soloAdmin).length} di ${ALL_SECTIONS().filter(i => !i.soloAdmin).length} schede`;
 
 async function renderUsersSection(container) {
-  [_usersList, _rolesList] = await Promise.all([
-    TCAuth.listUsers().catch(() => []),
-    TCAuth.listRoles().catch(() => []),
-  ]);
+  _usersList = await TCAuth.listUsers().catch(() => []);
   const me = TCAuth.getNickname();
-  const accessLabel = (u) => {
-    if (u.is_admin) return 'Vede tutto';
-    const r = roleById(u.ruolo_id);
-    return r ? escapeHtml(r.nome) : `Personalizzato · ${sectionsSummary(u.schede)}`;
-  };
+  const accessLabel = (u) => u.is_admin ? 'Vede tutto' : sectionsSummary(u.schede);
   container.innerHTML = `
     <div class="settings-section-hint">Solo gli admin possono creare e rimuovere account e decidere quali schede vede ognuno. Gli admin vedono sempre tutto.</div>
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
@@ -2967,7 +2953,7 @@ async function renderUsersSection(container) {
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             ${u.is_admin || u.nickname === me
               ? `<span style="font-size:0.75rem;color:var(--text-muted);">${accessLabel(u)}</span>`
-              : `<button class="btn btn-secondary btn-sm" style="font-size:0.72rem;" onclick="openUserAccessDialog('${escapeHtml(u.nickname)}')" title="Schede visibili e ruolo">${Icons.lock(12)} ${accessLabel(u)}</button>`}
+              : `<button class="btn btn-secondary btn-sm" style="font-size:0.72rem;" onclick="openUserAccessDialog('${escapeHtml(u.nickname)}')" title="Schede visibili">${Icons.lock(12)} ${accessLabel(u)}</button>`}
             <span style="font-size:0.72rem;color:var(--text-muted);">${new Date(u.created_at).toLocaleDateString('it-IT')}</span>
             ${u.nickname !== me ? `
               <button class="btn btn-secondary btn-sm" style="font-size:0.72rem;" onclick="adminResetPwdPrompt('${escapeHtml(u.nickname)}')" title="Reimposta password">🔑</button>
@@ -2978,35 +2964,11 @@ async function renderUsersSection(container) {
       `).join('')}
     </div>
 
-    <div style="font-size:0.8rem;font-weight:700;margin-bottom:4px;">Ruoli</div>
-    <div class="settings-section-hint">Preset di schede da dare agli account: modificando un ruolo cambiano tutti gli account che lo hanno.</div>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
-      ${_rolesList.map(r => {
-        const n = _usersList.filter(u => u.ruolo_id === r.id && !u.is_admin).length;
-        return `
-        <div class="config-row" style="justify-content:space-between;flex-wrap:wrap;gap:4px;">
-          <div style="display:flex;flex-direction:column;">
-            <span style="font-size:0.88rem;font-weight:600;">${escapeHtml(r.nome)}</span>
-            <span style="font-size:0.72rem;color:var(--text-muted);">${sectionsSummary(r.schede)}${r.economia ? ' · gestione economica' : ''} · ${n} account</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <button class="btn btn-secondary btn-sm" style="font-size:0.72rem;" onclick="openRoleDialog('${r.id}')">Modifica</button>
-            <button class="btn-icon" style="color:var(--priority-urgent);" onclick="deleteRoleConfirm('${r.id}')" aria-label="Elimina ruolo ${escapeHtml(r.nome)}">${Icons.trash(14)}</button>
-          </div>
-        </div>`;
-      }).join('') || `<div style="font-size:0.8rem;color:var(--text-muted);">Nessun ruolo.</div>`}
-      <button class="btn btn-secondary btn-sm" style="align-self:flex-start;" onclick="openRoleDialog(null)">${Icons.plus()} Nuovo ruolo</button>
-    </div>
-
     <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;background:var(--bg-secondary);">
       <div style="font-size:0.78rem;font-weight:700;margin-bottom:8px;">Crea nuovo account</div>
       <div style="display:flex;flex-direction:column;gap:6px;">
         <input id="new-user-nick" class="form-input" placeholder="Nickname" maxlength="30">
         <input id="new-user-pwd" type="password" class="form-input" placeholder="Password">
-        <select id="new-user-role" class="form-select" aria-label="Ruolo del nuovo account">
-          <option value="">Nessun ruolo (vede tutte le schede)</option>
-          ${_rolesList.map(r => `<option value="${r.id}">Ruolo: ${escapeHtml(r.nome)}</option>`).join('')}
-        </select>
         <div style="display:flex;align-items:center;gap:8px;">
           <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;">
             <input type="checkbox" id="new-user-admin"> Admin
@@ -3027,87 +2989,58 @@ async function createNewUser() {
   const nick  = document.getElementById('new-user-nick')?.value?.trim();
   const pwd   = document.getElementById('new-user-pwd')?.value;
   const isAdm = document.getElementById('new-user-admin')?.checked || false;
-  const ruoloId = document.getElementById('new-user-role')?.value || null;
   if (!nick || !pwd) { showToast('Compila nickname e password', 'error'); return; }
   if (pwd.length < MIN_PASSWORD_LENGTH) { showToast(`Password troppo corta (min. ${MIN_PASSWORD_LENGTH} caratteri)`, 'error'); return; }
   try {
     await TCAuth.createUser(nick, pwd, isAdm);
-    if (ruoloId && !isAdm) await TCAuth.setUserAccess(nick.toLowerCase(), { ruoloId });
     showToast(`Account "${nick}" creato`);
     refreshUsersSection();
   } catch(e) { showToast(e.message, 'error'); }
 }
 
-// ── Permessi: schede visibili + gestione economica, per un account o un ruolo ──
-// _access.ruoloId valorizzato (solo account) = l'account segue quel ruolo e le spunte sono bloccate
+// ── Permessi di un account: schede visibili + gestione economica ──
 
-let _access = null;   // { kind: 'user'|'role', nick?, roleId?, nome?, ruoloId, schede: Set, economia }
+let _access = null;   // { nick, schede: Set, economia }
 
 function openUserAccessDialog(nick) {
   const u = _usersList.find(x => x.nickname === nick);
   if (!u) return;
   _access = {
-    kind: 'user', nick, ruoloId: roleById(u.ruolo_id) ? u.ruolo_id : null,
+    nick,
     schede: new Set(Array.isArray(u.schede) ? u.schede : ALL_SECTIONS().map(i => i.id)),
     economia: !!u.can_view_economics,
   };
   renderAccessDialog();
 }
 
-function openRoleDialog(id) {
-  const r = id ? roleById(id) : null;
-  _access = {
-    kind: 'role', roleId: r?.id || null, nome: r?.nome || '', ruoloId: null,
-    schede: new Set(r ? r.schede : ALL_SECTIONS().map(i => i.id)),
-    economia: !!r?.economia,
-  };
-  renderAccessDialog();
-}
-
 function renderAccessDialog() {
   const a = _access;
-  const role = roleById(a.ruoloId);
-  const schede   = role ? new Set(role.schede) : a.schede;
-  const economia = role ? role.economia : a.economia;
-  const locked   = role ? 'disabled' : '';
-  const title = a.kind === 'user' ? `Permessi di ${escapeHtml(a.nick)}` : a.roleId ? 'Modifica ruolo' : 'Nuovo ruolo';
   const modal = document.getElementById('access-modal');
   modal.innerHTML = `
     <div class="modal" style="max-width:480px;" role="dialog" aria-modal="true" aria-labelledby="ac-title">
       <div class="modal-header">
-        <h2 id="ac-title">${title}</h2>
+        <h2 id="ac-title">Permessi di ${escapeHtml(a.nick)}</h2>
         <button class="btn-icon" onclick="closeModal('access-modal')" aria-label="Chiudi">${Icons.x()}</button>
       </div>
       <form class="modal-body" style="gap:12px;" onsubmit="event.preventDefault();saveAccessDialog()">
-        ${a.kind === 'role' ? `
-          <div class="form-group"><label class="form-label" for="ac-nome">Nome del ruolo</label>
-            <input id="ac-nome" class="form-input" maxlength="40" required placeholder="es. Magazzino, Grafica…" value="${escapeHtml(a.nome)}"
-              oninput="_access.nome=this.value"></div>` : `
-          <div class="form-group"><label class="form-label" for="ac-ruolo">Ruolo</label>
-            <select id="ac-ruolo" class="form-select" onchange="setAccessRole(this.value)">
-              <option value="" ${role ? '' : 'selected'}>Personalizzato</option>
-              ${_rolesList.map(r => `<option value="${r.id}" ${r.id === a.ruoloId ? 'selected' : ''}>${escapeHtml(r.nome)}</option>`).join('')}
-            </select>
-            ${role ? `<div class="settings-section-hint" style="margin:4px 0 0;">Segue il ruolo: per cambiare le schede modifica il ruolo oppure scegli Personalizzato.</div>` : ''}
-          </div>`}
         <div>
           <div style="display:flex;align-items:center;justify-content:space-between;">
             <span class="form-label" style="margin:0;">Schede visibili</span>
-            ${role ? '' : `<span style="display:flex;gap:4px;">
+            <span style="display:flex;gap:4px;">
               <button type="button" class="btn btn-ghost btn-sm" onclick="setAllAccessSections(true)">Tutte</button>
               <button type="button" class="btn btn-ghost btn-sm" onclick="setAllAccessSections(false)">Nessuna</button>
-            </span>`}
+            </span>
           </div>
           ${ALL_SECTIONS().filter(i => !i.soloAdmin).map(i => `
             <label class="switch-row">
               <span><strong>${i.label}</strong><small>${i.subtitle}${i.note ? ` · ${i.note}` : ''}</small></span>
-              <input type="checkbox" class="switch" ${schede.has(i.id) ? 'checked' : ''} ${locked}
+              <input type="checkbox" class="switch" ${a.schede.has(i.id) ? 'checked' : ''}
                 onchange="toggleAccessSection('${i.id}', this.checked)">
             </label>`).join('')}
         </div>
         <label class="switch-row" style="border-top:1px solid var(--border);">
           <span><strong>Gestione economica</strong><small>Cassa e costi dei prodotti</small></span>
-          <input type="checkbox" class="switch" ${economia ? 'checked' : ''} ${locked} onchange="_access.economia=this.checked">
+          <input type="checkbox" class="switch" ${a.economia ? 'checked' : ''} onchange="_access.economia=this.checked">
         </label>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
           <button type="button" class="btn btn-secondary" onclick="closeModal('access-modal')">Annulla</button>
@@ -3117,14 +3050,6 @@ function renderAccessDialog() {
     </div>`;
   modal.classList.add('active');
   modal.onclick = (e) => { if (e.target === modal) closeModal('access-modal'); };
-}
-
-// Passando da un ruolo a Personalizzato si parte dalle schede del ruolo
-function setAccessRole(id) {
-  const prev = roleById(_access.ruoloId);
-  if (!id && prev) { _access.schede = new Set(prev.schede); _access.economia = prev.economia; }
-  _access.ruoloId = id || null;
-  renderAccessDialog();
 }
 
 function toggleAccessSection(id, on) {
@@ -3140,35 +3065,15 @@ async function saveAccessDialog() {
   const a = _access;
   // In ordine di navbar, solo schede che esistono ancora
   const schede = ALL_SECTIONS().map(i => i.id).filter(id => a.schede.has(id));
-  if (!a.ruoloId && !schede.length) { showToast('Scegli almeno una scheda', 'error'); return; }
+  if (!schede.length) { showToast('Scegli almeno una scheda', 'error'); return; }
   const btn = document.getElementById('ac-save');
   btn.disabled = true;
   try {
-    if (a.kind === 'role') {
-      if (!a.nome.trim()) { showToast('Dai un nome al ruolo', 'error'); btn.disabled = false; return; }
-      await TCAuth.saveRole({ id: a.roleId, nome: a.nome, schede, economia: a.economia });
-      showToast(`Ruolo "${a.nome.trim()}" salvato — effettivo al prossimo accesso degli account`);
-    } else {
-      await TCAuth.setUserAccess(a.nick, a.ruoloId ? { ruoloId: a.ruoloId } : { schede, economia: a.economia });
-      showToast(`Permessi di ${a.nick} aggiornati — effettivi al prossimo accesso`);
-    }
+    await TCAuth.setUserAccess(a.nick, { schede, economia: a.economia });
+    showToast(`Permessi di ${a.nick} aggiornati — effettivi al prossimo accesso`);
     closeModal('access-modal');
     refreshUsersSection();
   } catch(e) { showToast(e.message, 'error'); btn.disabled = false; }
-}
-
-// Gli account del ruolo eliminato restano personalizzati con le stesse schede (non vedono di più)
-async function deleteRoleConfirm(id) {
-  const r = roleById(id);
-  if (!r) return;
-  const users = _usersList.filter(u => u.ruolo_id === id && !u.is_admin);
-  if (!(await uiConfirm(`Eliminare il ruolo "${r.nome}"?${users.length ? `\n${users.length} account passeranno a Personalizzato con le stesse schede.` : ''}`, { ok: 'Elimina', danger: true }))) return;
-  try {
-    for (const u of users) await TCAuth.setUserAccess(u.nickname, { schede: r.schede, economia: r.economia });
-    await TCAuth.deleteRole(id);
-    showToast(`Ruolo "${r.nome}" eliminato`);
-    refreshUsersSection();
-  } catch(e) { showToast(e.message, 'error'); }
 }
 
 async function adminResetPwdPrompt(nick) {
@@ -3307,7 +3212,6 @@ async function startApp() {
   Nav.show(Nav._fromHash(), Nav._paramFromHash()); // ricontrolla i permessi delle sezioni per l'utente
   renderApp();
   initCalendar();
-  Tickets.startPolling();
   Messages.start();
   Ctrl.start();
   Presenze.start();
@@ -3318,8 +3222,6 @@ async function startApp() {
 
 async function doLogout() {
   if (!(await uiConfirm('Vuoi uscire?', { ok: 'Esci' }))) return;
-  Tickets.stopPolling();
-  Object.assign(Tickets, { _list: [], loaded: false, error: null });
   Messages.stop();
   Ctrl.stop();
   Presenze.stop();
@@ -3389,14 +3291,12 @@ const Icons = {
   calendarDays: (s=15) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>`,
   wallet: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"/><path d="M21 8h-5a3 3 0 0 0 0 6h5a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1z"/><line x1="16" y1="11" x2="16.01" y2="11"/></svg>`,
   idBadge: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.5"/><path d="M5.5 17a3.5 3.5 0 0 1 7 0"/><line x1="15" y1="10" x2="18" y2="10"/><line x1="15" y1="14" x2="18" y2="14"/></svg>`,
-  lifeBuoy: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><line x1="4.93" y1="19.07" x2="9.17" y2="14.83"/></svg>`,
   menu: (s=20) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>`,
   eye: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
   eyeOff: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
   panelClose: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="16 15 13 12 16 9"/></svg>`,
   panelOpen: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="13 9 16 12 13 15"/></svg>`,
   zap: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
-  book: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>`,
   image: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
   copy: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
   mail: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`,
@@ -3405,7 +3305,6 @@ const Icons = {
   messageCircle: (s=18) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`,
   link: (s=16) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
   // Marchio Creative System (la "S"): nero sul chiaro, bianco sullo scuro
-  logoPlaceholder: (s=26) => `<img class="cs-on-light" src="img/brand/cs-mark-nero.png" alt="" width="${s}" height="${s}"><img class="cs-on-dark" src="img/brand/cs-mark-bianco.png" alt="" width="${s}" height="${s}">`,
 };
 
 window.Icons = Icons;

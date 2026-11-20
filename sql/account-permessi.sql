@@ -1,6 +1,8 @@
 -- ════════════════════════════════════════════════════════
 -- T&C Factory — Permessi degli account: schede visibili e ruoli
 --
+-- ⛔ Superato: i ruoli non esistono più (sql/account-senza-ruoli.sql, 2026-11-20). Non rieseguire.
+--
 --   • app_roles: ruoli (preset) con le schede visibili e la gestione economica
 --   • app_users.ruolo_id: ruolo assegnato all'account (null = personalizzato)
 --   • app_users.schede:   schede visibili di un account personalizzato
@@ -9,7 +11,7 @@
 --
 -- Un account con ruolo segue sempre il ruolo: modificando il ruolo cambiano
 -- tutti gli account che lo hanno. Gli admin vedono sempre tutto.
--- Richiede sicurezza-2-blocca.sql già eseguito. Si può rieseguire.
+-- Richiede sicurezza-2-blocca.sql già eseguito.
 -- ════════════════════════════════════════════════════════
 
 -- ─────────────────────────────────────────────

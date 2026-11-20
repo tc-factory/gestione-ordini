@@ -61,12 +61,9 @@
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), inset 0 -2px 6px rgba(0,0,0,0.12),
               0 6px 16px -6px color-mix(in srgb, var(--brand-gold) 70%, transparent);
 }
-.brand-logo-lg { width: 60px; height: 60px; }
+
 .brand-logo-mark { font-weight: 800; letter-spacing: -0.04em; line-height: 1; text-shadow: 0 1px 2px rgba(0,0,0,0.15); }
 
-.brand-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.brand-text strong { font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; }
-.brand-text span { font-size: 0.75rem; color: var(--text-muted); }
 
 .sidebar-close { display: none; }
 
@@ -147,10 +144,10 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .user-text span { font-size: 0.7rem; color: var(--text-muted); }
 .sidebar-user .btn-icon { min-width: 32px; min-height: 32px; padding: 6px; border-radius: 10px; }
 
-/* Cestino e Supporto: una a fianco all'altra */
+/* Voci in fondo (oggi solo Cestino): una a fianco all'altra, occupano tutta la riga */
 .sidebar-footer-pair {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 6px;
 }
 .sidebar-footer-pair .nav-item {
@@ -173,7 +170,6 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   background: var(--brand-gold);
   box-shadow: 0 0 0 2px var(--bg-card);
 }
-.sidebar-footer-pair .nav-item[href="#/supporto"] .nav-item-badge { background: #ef4444; }
 
 .sidebar-scrim { display: none; }
 
@@ -249,13 +245,6 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
 .page-card-head h2 { font-size: 1rem; font-weight: 700; color: var(--text-primary); }
 .page-card-body { padding: 16px 20px; }
 
-.page-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
-  gap: var(--space-lg);
-  align-items: start;
-}
-@media (max-width: 1100px) { .page-grid { grid-template-columns: 1fr; } }
 
 .empty-state {
   max-width: 520px;
@@ -424,14 +413,6 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
    Calendario (vista mensile)
    ───────────────────────────────────────────── */
 
-.cal-card { padding: var(--space-lg); }
-
-.cal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-md);
-}
 
 .cal-title {
   font-family: var(--font-display);
@@ -440,78 +421,9 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   text-transform: capitalize;
 }
 
-.cal-nav { display: flex; align-items: center; gap: 2px; }
-
-.cal-weekdays {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  text-align: center;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-
-.cal-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
-}
-
-.cal-day {
-  min-height: 92px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 6px;
-  text-align: left;
-  background: var(--bg-card);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  display: flex;
-  flex-direction: column;
-}
-
-.cal-day:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
-.cal-day.other-month { background: var(--bg-secondary); color: var(--text-muted); }
-.cal-day.today { box-shadow: 0 0 0 2px var(--brand-gold) inset; }
-
-.cal-day-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-}
-
-.cal-day-num { font-size: 0.75rem; font-weight: 600; }
-.cal-day.today .cal-day-num { color: var(--brand-gold); }
-
-.cal-day-count {
-  background: var(--brand-gradient);
-  color: #fff;
-  font-size: 0.6rem;
-  font-weight: 700;
-  border-radius: 10px;
-  padding: 0 5px;
-  line-height: 1.4;
-}
-
-.cal-day-orders { display: flex; flex-direction: column; gap: 2px; }
-
-.cal-order-chip {
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 2px 5px;
-  border-radius: 5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cal-day-overflow { font-size: 0.62rem; font-weight: 600; color: var(--brand-gold); margin-top: 1px; }
 
 @media (max-width: 640px) {
-  .cal-day { min-height: 64px; }
-  .cal-order-chip { display: none; }
+
 
   /* Vista "Tutti i mesi": 3 colonne sono troppo strette su telefono e
      tagliano i mesi fuori schermo — un mese per riga resta leggibile. */
@@ -613,25 +525,6 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   box-shadow: inset 0 0 0 2px var(--brand-gold);
 }
 
-.order-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
-
-.order-row-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.92rem; }
-.order-row-title .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.order-row-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 12px;
-  margin-top: 4px;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.order-row-progress { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.progress-track { flex: 1; height: 6px; border-radius: 4px; background: var(--bg-secondary); overflow: hidden; }
-.progress-fill { height: 100%; background: var(--brand-gradient); transition: width 0.3s ease; }
-.progress-label { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); font-family: var(--font-mono); }
 
 .empty-list { padding: 56px var(--space-lg); text-align: center; color: var(--text-muted); font-size: 0.88rem; }
 
@@ -708,7 +601,7 @@ html.dark .nav-item.active .nav-item-icon { color: var(--brand-gold-light); }
   padding: 7px 10px;
   font-size: 0.82rem;
 }
-.file-row .truncate { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .file-row .file-size { font-size: 0.72rem; color: var(--text-muted); flex-shrink: 0; }
 
 /* ─────────────────────────────────────────────
@@ -761,10 +654,7 @@ html.dark .stage-date-mezzo { color: #facc15; }
    Impostazioni — righe priorità/tag con riordino
    ───────────────────────────────────────────── */
 
-.settings-section-block { margin-bottom: var(--space-lg); }
-.settings-section-block:last-child { margin-bottom: 0; }
 
-.settings-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-weight: 700; }
 .settings-section-hint { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 10px; }
 
 .config-row {
@@ -828,46 +718,11 @@ html.dark .stage-date-mezzo { color: #facc15; }
    Collapsible header generico
    ───────────────────────────────────────────── */
 
-.collapsible-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-md) var(--space-lg);
-  border-bottom: 1px solid var(--border);
-  font-weight: 700;
-  font-size: 0.95rem;
-  user-select: none;
-}
-
-.collapsible-header:hover { background: var(--bg-secondary); }
 
 /* ─────────────────────────────────────────────
    Planner DTF — item riordinabili (layout orizzontale)
    ───────────────────────────────────────────── */
 
-.plan-day-item {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 8px 10px;
-  cursor: default;
-  transition: box-shadow 0.15s;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.plan-day-item:hover {
-  box-shadow: var(--shadow-md);
-}
-
-/* Indicatori drop orizzontale */
-.plan-day-item.plan-drop-before {
-  border-left: 3px solid var(--brand-gold);
-}
-
-.plan-day-item.plan-drop-after {
-  border-right: 3px solid var(--brand-gold);
-}
 
 /* ─────────────────────────────────────────────
    Stage pills inline nella lista ordini
@@ -983,57 +838,11 @@ html.dark .stage-pill.mezzo { color: #facc15; }
   color: var(--brand-gold);
 }
 
-/* Deadline badge nell'header della riga */
-
-.deadline-badge {
-  font-size: 0.68rem;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 6px;
-  border: 1px solid;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
 
 /* ─────────────────────────────────────────────
    Riga ordine — layout singola linea
    ───────────────────────────────────────────── */
 
-.order-row-line {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  flex-wrap: nowrap;
-}
-
-.order-row-name {
-  font-weight: 600;
-  font-size: 0.9rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 0 0 210px;
-  width: 210px;
-}
-
-.order-row-date {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* Separatore verticale grigio tra i gruppi */
-.row-sep {
-  display: inline-block;
-  width: 1px;
-  height: 14px;
-  background: var(--border);
-  margin: 0 8px;
-  flex-shrink: 0;
-}
 
 /* ─────────────────────────────────────────────
    Riga ordine — griglia a colonne allineate
@@ -1091,9 +900,9 @@ html.dark .stage-pill.mezzo { color: #facc15; }
 .orc-date    { font-size: 0.75rem; color: var(--text-muted); }
 .orc-tags    { gap: 4px; flex-wrap: wrap; }
 .orc-lav     { gap: 4px; flex-wrap: nowrap; }
-.orc-eva     { gap: 4px; flex-wrap: nowrap; }
+
 .orc-deadline { justify-content: center; text-align: center; }
-.orc-priority { justify-content: center; }
+
 .orc-files   { gap: 5px; justify-content: center; }
 .orc-payment { justify-content: center; flex-direction: column; gap: 3px; }
 
@@ -1251,21 +1060,6 @@ html.dark .stage-pill.mezzo { color: #facc15; }
    Griglia Attivi — 8 colonne (senza Spedizione)
    ───────────────────────────────────────────── */
 
-.order-row-grid--active {
-  display: grid;
-  grid-template-columns:
-    minmax(180px, 1.2fr)   /* Nome */
-    130px                   /* Tipologia */
-    112px                   /* Data creazione */
-    104px                   /* Scadenza */
-    minmax(260px, 1.6fr)   /* Lavorazione: prende lo spazio libero */
-    62px                    /* Ordine */
-    90px                    /* Pagamento */
-  ;
-  align-items: stretch;
-  flex: 1;
-  min-width: 0;
-}
 
 /* ═══════════════════════════════════════════════
    PLANNER — settimana / mese / anno
@@ -1382,24 +1176,6 @@ html.dark .segmented button.active { background: rgba(255,255,255,0.14); box-sha
 
 .week-col-events { display: flex; flex-direction: column; gap: 4px; flex: 1; }
 
-.week-event {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  width: 100%;
-  text-align: left;
-  border: none;
-  border-radius: 8px;
-  padding: 6px 8px;
-  background: color-mix(in srgb, var(--ev) 13%, transparent);
-  color: var(--text-primary);
-  font-family: var(--font-body);
-  transition: background-color var(--transition), transform var(--dur-fast) var(--ease-out);
-}
-.week-event:hover { background: color-mix(in srgb, var(--ev) 22%, transparent); }
-.week-event:active { transform: scale(0.98); }
-.week-event-title { font-size: 0.75rem; font-weight: 700; color: var(--ev); overflow-wrap: anywhere; }
-.week-event-users { font-size: 0.66rem; color: var(--text-muted); }
 
 .week-add {
   align-self: stretch;
@@ -1611,7 +1387,7 @@ html.dark .segmented button.active { background: rgba(255,255,255,0.14); box-sha
 .table-count { margin-left: auto; font-size: 0.78rem; color: var(--text-muted); }
 .toolbar-end { margin-left: auto; display: flex; gap: 6px; }
 .filter-select { width: auto; max-width: 220px; padding-top: 7px; padding-bottom: 7px; font-size: 0.85rem; }
-.filter-date { width: auto; padding-top: 6px; padding-bottom: 6px; font-size: 0.85rem; }
+
 .check-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-secondary); cursor: pointer; white-space: nowrap; }
 .check-inline input { accent-color: var(--brand-gold); width: 16px; height: 16px; }
 
@@ -1688,7 +1464,7 @@ select.filter-pill {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-gold) 20%, transparent);
 }
 html.dark .client-avatar { color: var(--brand-gold-light); }
-.client-avatar-lg { width: 56px; height: 56px; border-radius: 18px; font-size: 1.1rem; }
+
 
 .status-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; white-space: nowrap; }
 .status-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--st); }
@@ -1866,111 +1642,6 @@ html.dark .report-day { color: #fdba74; }
   .report-controls { padding: 10px 16px; }
   .report-controls .filter-select { margin-left: 0; width: 100%; }
 }
-
-/* ═══════════════════════════════════════════════
-   SUPPORTO — ticket
-   ═══════════════════════════════════════════════ */
-
-.support-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-lg); align-items: start; }
-.support-form { display: flex; flex-direction: column; gap: 14px; }
-.support-form .segmented { align-self: flex-start; }
-
-.ticket-list { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
-
-.ticket-card {
-  border: 1px solid var(--border-light);
-  border-left: 4px solid var(--st);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  animation: viewIn 260ms var(--ease-out);
-}
-.ticket-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ticket-head h3 { font-size: 0.95rem; font-weight: 700; flex: 1; min-width: 160px; overflow-wrap: anywhere; }
-.ticket-cat {
-  font-size: 0.7rem; font-weight: 700;
-  padding: 2px 8px; border-radius: 999px;
-  background: var(--fill-hover); color: var(--text-secondary);
-}
-.ticket-status {
-  font-size: 0.72rem; font-weight: 700;
-  padding: 3px 10px; border-radius: 999px;
-  color: var(--st);
-  background: color-mix(in srgb, var(--st) 14%, transparent);
-}
-.ticket-meta { font-size: 0.75rem; color: var(--text-muted); }
-.ticket-meta strong { color: var(--text-primary); }
-.ticket-desc { font-size: 0.86rem; color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
-
-.ticket-actions-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
-.ticket-actions { align-self: flex-start; }
-.ticket-delete { margin-left: auto; color: var(--priority-urgent); }
-.ticket-actions button.active { color: var(--st); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st) 45%, transparent), 0 1px 3px rgba(20,20,43,0.1); }
-
-@media (max-width: 1100px) { .support-grid { grid-template-columns: 1fr; } }
-@media (max-width: 640px) {
-  .ticket-actions { align-self: stretch; }
-  .support-form .segmented { align-self: stretch; }
-}
-
-/* Priorità ticket (admin): menu compatto con pallino colorato */
-.ticket-prio {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--p) 13%, transparent);
-  transition: background-color var(--transition);
-}
-.ticket-prio:hover { background: color-mix(in srgb, var(--p) 22%, transparent); }
-.ticket-prio::before {
-  content: '';
-  position: absolute;
-  left: 9px;
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--p);
-  pointer-events: none;
-}
-.ticket-prio select {
-  appearance: none;
-  -webkit-appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--p);
-  font: inherit;
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 3px 22px 3px 21px;
-  border-radius: 999px;
-  cursor: pointer;
-  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position: right 11px center, right 7px center;
-  background-size: 4px 4px;
-  background-repeat: no-repeat;
-}
-.ticket-prio select:focus-visible { box-shadow: var(--focus-ring); }
-
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-
-/* Risposte ai ticket */
-.ticket-replies { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
-.ticket-reply {
-  border-radius: 12px;
-  padding: 8px 12px;
-  background: color-mix(in srgb, var(--brand-gold) 7%, var(--bg-secondary));
-  border: 1px solid color-mix(in srgb, var(--brand-gold) 15%, transparent);
-}
-.ticket-reply-meta { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 2px; }
-.ticket-reply-meta strong { color: var(--brand-gold); }
-html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
-.ticket-reply p { font-size: 0.86rem; white-space: pre-wrap; overflow-wrap: anywhere; }
-
-.ticket-reply-form { display: flex; gap: 8px; align-items: flex-end; margin-top: 4px; }
-.ticket-reply-form textarea { min-height: 38px; resize: none; padding-top: 8px; padding-bottom: 8px; font-size: 0.86rem; }
 
 /* ── Trascinamento ordini nel Planner ── */
 .pl-chip[draggable="true"] { cursor: grab; position: relative; }
@@ -2197,7 +1868,6 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
   html.sidebar-collapsed .brand-logo-mark { font-size: 13px !important; }
   html.sidebar-collapsed .sidebar-collapse-btn { margin-left: 0; }
 
-  html.sidebar-collapsed .brand-text,
   html.sidebar-collapsed .nav-item-label,
   html.sidebar-collapsed .user-text { display: none; }
 
@@ -2243,8 +1913,7 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
   .log-row > div { grid-column: 1 / -1; }
 }
 
-/* Prodotti */
-.data-table tr.row-muted td { color: var(--text-muted); }
+
 .data-table .muted { color: var(--text-muted); }
 .chip.chip-muted { background: var(--bg-secondary); color: var(--text-muted); font-size: 0.65rem; vertical-align: middle; }
 .import-note { font-size: 0.82rem; padding: 10px 12px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--brand-gold) 10%, var(--bg-secondary)); color: var(--text-secondary); }
@@ -2255,34 +1924,7 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 .xl-option[disabled] { opacity: 0.5; cursor: default; }
 .xl-option small { font-size: 0.78rem; color: var(--text-muted); }
 
-/* Prodotti → Immagini per colore */
-.pf-images { display: flex; flex-direction: column; gap: 12px; padding-top: 14px; border-top: 1px solid var(--border-light); }
-.pf-section-title { display: flex; align-items: center; gap: 8px; font-size: 0.95rem; font-weight: 800; }
-.pimg-drop {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-  min-height: 170px; padding: 24px 16px; text-align: center; cursor: pointer;
-  border: 2px dashed var(--border); border-radius: var(--radius-lg, 16px); background: var(--bg-secondary);
-  transition: border-color var(--transition), background-color var(--transition);
-}
-.pimg-drop:hover, .pimg-drop.over { border-color: var(--brand-gold); background: color-mix(in srgb, var(--brand-gold) 8%, var(--bg-secondary)); }
-.pimg-drop:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
-.pimg-drop-icon { color: var(--brand-gold); margin-bottom: 4px; }
-.pimg-drop strong { font-size: 0.95rem; }
-.pimg-drop small { font-size: 0.76rem; color: var(--text-muted); max-width: 520px; }
-.pimg-folder-link { margin-top: 4px; background: none; border: none; padding: 2px 4px; cursor: pointer; font-family: var(--font-body); font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); text-decoration: underline; }
-.pimg-folder-link:hover { color: var(--text-primary); }
-.pimg-group h3 { font-size: 0.85rem; font-weight: 800; margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; }
-.pimg-group h3 small { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
-.pimg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.pimg { margin: 0; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-card); display: flex; flex-direction: column; }
-.pimg a { display: block; aspect-ratio: 1; background: var(--bg-secondary); }
-.pimg img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.pimg figcaption { padding: 6px; display: flex; flex-direction: column; gap: 4px; }
-.pimg .form-select { font-size: 0.75rem; padding: 4px 6px; }
-.pimg-row { display: flex; gap: 4px; align-items: center; }
-.pimg-row .form-select { flex: 1; min-width: 0; }
 .data-table td.cell-action { white-space: nowrap; }
-.pimg img { background: repeating-conic-gradient(color-mix(in srgb, var(--text-muted) 14%, transparent) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
 
 
 /* ── Preview modulo d'ordine: a schermo intero, righe evidenziabili con la spunta ── */
@@ -2318,26 +1960,7 @@ html.dark .ticket-reply-meta strong { color: var(--brand-gold-light); }
 }
 .mod-preview-notebtn.has-note { background: #1e40af; border-color: #1e40af; color: #fff; }
 
-/* ── App clienti: accessi e catalogo nella scheda cliente ── */
-.catalog-users { display: flex; flex-direction: column; }
-.catalog-user { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; padding: 10px 16px; border-top: 1px solid var(--border); }
-.catalog-user:first-child { border-top: 0; }
-.catalog-user small { font-size: 0.75rem; }
-.catalog-user-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
-.catalog-sub { display: block; font-size: 0.74rem; color: var(--text-muted); font-weight: 400; margin-top: 2px; }
-.catalog-table .catalog-price { display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; flex-wrap: nowrap; }
-.client-app-section .page-card-head { flex-wrap: wrap; row-gap: 8px; }
-.catalog-table .catalog-price .form-input { width: 84px; text-align: right; }
-.catalog-table .catalog-name { min-width: 170px; font-weight: 600; }
-.catalog-table .catalog-name::placeholder { color: var(--text-muted); font-weight: 400; }
-.client-app-section { display: flex; flex-direction: column; gap: var(--space-lg); margin-top: var(--space-lg); }
-.catalog-user .muted { color: var(--text-muted); }
-#product-form-modal .form-label span, #catalog-user-modal .form-label span { font-weight: 500; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
-@media (max-width: 640px) {
-  .catalog-table td.catalog-name-cell, .catalog-table td[data-label="Prodotto"] { grid-column: 1 / -1; display: block; }
-  .catalog-table td[data-label="Prodotto"]::before { content: none; }
-  .catalog-table .catalog-name { width: 100%; }
-}
+#product-form-modal .form-label span { font-weight: 500; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
 
 /* Popup largo (nuovo/modifica ordine): usa tutta la larghezza dello schermo
    così il modulo d'ordine si vede intero */
