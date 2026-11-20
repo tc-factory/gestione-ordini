@@ -215,6 +215,7 @@ function renderSidebar() {
         </button>
       </div>
       ${messagesButton()}
+      ${assistantButton()}
       </div>
       <div class="sidebar-footer-pair">
         ${NAV_FOOTER_ITEMS.filter(i => Nav.isAllowed(i.id)).map(navLink).join('')}
@@ -265,6 +266,7 @@ function openMoreSheet() {
         <span class="user-avatar" aria-hidden="true">${escapeHtml(TCAuth.getNickname().charAt(0).toUpperCase())}</span>
         <div class="user-text"><strong>${escapeHtml(TCAuth.getNickname())}</strong><span>${TCAuth.isAdmin() ? 'Admin' : 'Staff'}</span></div>
         ${messagesButton('btn-icon more-msg-btn')}
+        ${assistantButton('btn-icon more-msg-btn')}
         <button class="btn-icon" onclick="Theme.toggle();openMoreSheet()" aria-label="${isDark ? 'Passa al tema chiaro' : 'Passa al tema scuro'}">${isDark ? Icons.sun(18) : Icons.moon(18)}</button>
         <button class="btn-icon" onclick="closeModal('more-sheet');openPasswordDialog()" aria-label="Cambia password">${Icons.lock(18)}</button>
         <button class="btn-icon" onclick="closeModal('more-sheet');doLogout()" aria-label="Esci">${Icons.logOut(18)}</button>

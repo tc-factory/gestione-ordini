@@ -378,6 +378,7 @@ html.sidebar-collapsed .sidebar .nav-item .nav-item-badge { background: var(--lq
   html:not(.sidebar-collapsed) .sidebar-profile .profile-chevron { position: absolute; top: 0; right: 0; }
   html:not(.sidebar-collapsed) .sidebar-msg-btn { width: 100%; height: 40px; gap: 8px; border-radius: 999px; background: #17191D; font-family: var(--font-body); font-size: 0.84rem; font-weight: 800; }
   html:not(.sidebar-collapsed) .sidebar-msg-btn::after { content: 'Messaggi'; }
+  html:not(.sidebar-collapsed) .sidebar-assist-btn::after { content: 'Assistente'; }
   html:not(.sidebar-collapsed) .sidebar-msg-btn:hover { background: #000; }
 }
 
@@ -631,3 +632,24 @@ html .ctrl-btn.is-primary, html .ctrl-btn.is-primary:hover:not(:disabled) {
   .ui-dialog-actions { padding: 16px 20px 20px; }
   .ui-dialog-actions .btn { flex: 1 1 0; justify-content: center; }
 }
+
+/* ── Assistente (js/assistente.js) ── */
+.assist-modal { max-width: 560px; }
+.assist-body { gap: 12px; }
+.assist-log { display: flex; flex-direction: column; gap: 8px; max-height: min(56vh, 480px); overflow-y: auto; }
+.assist-log p { margin: 0; }
+.assist-q { align-self: flex-end; max-width: 85%; padding: 8px 14px; border-radius: 18px 18px 4px 18px; background: var(--text-primary); color: var(--bg-primary, #fff); font-weight: 600; overflow-wrap: anywhere; }
+.assist-a { align-self: stretch; display: flex; flex-direction: column; gap: 8px; }
+.assist-muted { color: var(--text-secondary); font-size: 0.88rem; }
+.assist-esempi { display: flex; flex-wrap: wrap; gap: 6px; }
+.assist-card { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-radius: 16px; background: var(--bg-secondary, rgba(0,0,0,.04)); font-weight: 600; }
+.assist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.assist-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; border-radius: 16px; background: var(--bg-secondary, rgba(0,0,0,.04)); border: none; color: inherit; font: inherit; text-align: left; }
+.assist-row-btn { cursor: pointer; transition: background-color var(--transition); }
+.assist-row-btn:hover, .assist-row-btn:focus-visible { background: var(--border-color, rgba(0,0,0,.08)); }
+.assist-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.assist-row-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assist-row-main small { color: var(--text-secondary); }
+.assist-stato { flex-shrink: 0; font-size: 0.75rem; font-weight: 700; color: var(--st); }
+.assist-form { display: flex; gap: 8px; }
+.assist-form .form-input { flex: 1; min-width: 0; }
