@@ -56,7 +56,18 @@ TIFF_ICC = os.path.join(DIR_DATI, 'fogra39.icc')
 # File sciolti raggruppati: parole che non dicono di chi è il file (non bastano per fare una cartella)
 GENERICHE = {'fronte', 'retro', 'dietro', 'davanti', 'lato', 'cuore', 'manica', 'maniche', 'petto', 'spalla', 'logo',
              'dtf', 'stampa', 'stampare', 'file', 'copia', 'nuovo', 'nuova', 'front', 'back', 'left', 'right', 'sx', 'dx',
-             'bianco', 'nero', 'colore', 'pz', 'pezzi', 'pezzo', 'tif', 'tiff', 'pdf', 'png', 'jpg', 'def', 'definitivo', 'ok'}
+             'bianco', 'nero', 'colore', 'pz', 'pezzi', 'pezzo', 'tif', 'tiff', 'pdf', 'png', 'jpg', 'def', 'definitivo', 'ok',
+             'ordine', 'ordini', 'sito', 'siti', 'shop', 'shopify', 'negozio', 'negozi'}
+# Lavorazioni per i negozi (file o cartelle "ordine-bienjugado", "ordini-boxfactorylab", "ordini-sito"…):
+# prima di tutto nella coda, anche del conto terzi. Il confronto è sul nome senza spazi né segni.
+NEGOZI = [
+    ('Bienjugado', re.compile(r'bienjugado')),
+    ('Box Factory Lab', re.compile(r'boxfactory|\bbfl\b')),
+    ('Ciucciami il Calzino', re.compile(r'ciucciami|calzino')),
+    ('Asteroidi Store', re.compile(r'asteroidi')),
+    ('Live Printing', re.compile(r'liveprinting')),
+    ('Negozi', re.compile(r'ordin[ei](?:dal)?(?:sit[oi]|shop|shopify|negozi[oi]?)|^(?:sit[oi]|shop|shopify|negozi[oi]?)(?:ordin[ei])? ')),
+]
 SCIOLTI_ATTESA = 120   # secondi senza modifiche prima di spostare un file sciolto
 URGENZE = re.compile(r'urgenz[ae]', re.I)   # conto terzi: cartelle copiate tutti i giorni lavorativi
 NUMERO = re.compile(r'^\d{1,3}\s*-\s*')
@@ -299,6 +310,13 @@ def proprietario(nome_cartella, ordini, items_db, preparati):
     con_file = [o['id'] for o in ordini if any(x.get('cartella') and base(x['cartella'].split('/')[0]).strip().lower() == k
                                                 for x in (items_db.get(o['id']) or []))]
     return con_file[0] if len(con_file) == 1 else None
+
+
+def negozio(nome):
+    """Nome del negozio se la cartella o il file sciolto è una lavorazione per i negozi, altrimenti None."""
+    tk = tokens(base(nome))
+    t = ''.join(tk) + ' ' + ' '.join(tk)   # unito ("ordinesito") e a parole ("bfl" solo da solo)
+    return next((label for label, rx in NEGOZI if rx.search(t)), None)
 
 
 def base(nome):
@@ -1299,6 +1317,11 @@ def main():
         if ct:
             g.update({'ordine': None, 'ct': ct['id'], 'pos': pos.get('ct:' + ct['id'], -1)})
             continue
+        # Lavorazione per i negozi: in cima a tutto, niente task "senza ordine"
+        neg = negozio(g['nome'])
+        if neg:
+            g.update({'ordine': None, 'negozio': neg, 'pos': pos.get('negozio:' + g['nome'], -1)})
+            continue
         o = abbina(g['nome'], ordini_lista)
         if o == 'ambiguo':   # ordini con lo stesso nome: decide chi ha già la cartella
             fc = core(g['nome'])
@@ -1395,10 +1418,11 @@ def main():
                 and any(x.get('cartella') for x in (items_db.get(o['id']) or []))]
     cartelle = [{'nome': g['nome'], 'dir': g.get('dir'), 'ordine': g['ordine'], 'files': len(g['files']),
                  **({'ct': g['ct']} if g.get('ct') else {}),
+                 **({'negozio': g['negozio']} if g.get('negozio') else {}),
                  **({'metriOrdini': g['metriOrdini']} if g.get('metriOrdini') else {}),
                  **({'metri': g.get('metri', 0)} if not g['ordine'] else {})} for g in gruppi if g['files'] or g.get('dir')]
     # Dove salvare sul NAS i file pronti, per le cartelle con PDF o nomi da sistemare
-    nomi = nomi_da_sistemare(gruppi, escluse)
+    nomi = nomi_da_sistemare([g for g in gruppi if not g.get('negozio')], escluse)
     archivi = {}
     da_arch = {x['nome'] for x in nomi} | {g['nome'] for g in gruppi if pdf_senza_tif(g['files'])}
     if da_arch:
@@ -1413,7 +1437,7 @@ def main():
             info = {o['id']: o for o in ordini_lista}
             for g in gruppi:
                 # COLLA NERA no: ogni file è di un ordine diverso
-                if g['nome'] in da_arch and not g.get('ct') and not COLLA_DIR.fullmatch(g['nome'].strip()):
+                if g['nome'] in da_arch and not g.get('ct') and not g.get('negozio') and not COLLA_DIR.fullmatch(g['nome'].strip()):
                     o = info.get(g['ordine']) or {'nome': g['nome']}
                     o = {**o, 'cliente': (dati.get('clienti') or {}).get(g['ordine'] or '')}
                     archivi[g['nome']] = cartella_archivio(o, clienti_dir, dati_root, (dati.get('sorgenti') or {}).get(g['ordine'] or ''))
