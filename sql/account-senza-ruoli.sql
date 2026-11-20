@@ -66,6 +66,10 @@ $$;
 revoke execute on function tc_set_user_access(text, jsonb, boolean) from public, anon;
 grant  execute on function tc_set_user_access(text, jsonb, boolean) to authenticated;
 
+-- Il gestionale legge le schede dell'account al login: prima la lettura falliva (colonna senza permesso)
+-- e il codice ripiegava in silenzio su "tutte le schede"; tolto il ripiego serve il permesso (aggiunto il 2026-11-20)
+grant select (schede) on app_users to authenticated;
+
 alter table app_users drop column if exists ruolo_id;
 drop table if exists app_roles;
 
