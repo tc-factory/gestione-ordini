@@ -392,6 +392,8 @@ function renderAssistant(valore = '') {
         <form class="assist-form" onsubmit="event.preventDefault();assistInvia()">
           <input id="assist-input" class="form-input" autocomplete="off" maxlength="300" placeholder="Ricordami… · Dammi l'ordine di…"
             value="${escapeHtml(valore)}" aria-label="Richiesta">
+          ${ASSIST_SR ? `<button type="button" class="btn btn-secondary assist-mic ${AssistState.ascolto ? 'ascolto' : ''}" onclick="assistMic()"
+            aria-pressed="${!!AssistState.ascolto}" aria-label="${AssistState.ascolto ? 'Smetti di ascoltare' : 'Parla'}" title="Parla">${ASSIST_ICONA_MIC}</button>` : ''}
           <button type="submit" class="btn btn-primary">Invia</button>
         </form>
       </div>
@@ -406,7 +408,7 @@ function assistUsaEsempio(testo) {
   input.focus();
 }
 
-async function assistInvia() {
+async function assistInvia(aVoce = false) {
   const input = document.getElementById('assist-input');
   const q = input.value.trim();
   if (!q) return;
@@ -415,11 +417,84 @@ async function assistInvia() {
   try { r = await assistRispondi(q); }
   catch (e) { r = { html: `<p>${escapeHtml(e.message || 'Qualcosa è andato storto')}</p>`, keep: true }; }
   if (!r) { input.disabled = false; return; }
+  if (aVoce) assistParla(r.html);
   AssistState.log.push({ q, a: r.html });
   AssistState.log = AssistState.log.slice(-20);
   if (!document.getElementById('assist-modal').classList.contains('active')) return;   // è stato aperto un ordine
   renderAssistant(r.keep ? q : '');
   document.getElementById('assist-input')?.focus();
+}
+
+// ─────────────────────────────────────────────
+// VOCE
+// Riconoscimento e lettura sono quelli del browser (Chrome, Edge, Safari):
+// nessuna chiamata API nostra. Su Firefox il microfono non compare.
+// ─────────────────────────────────────────────
+
+const ASSIST_SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const ASSIST_ICONA_MIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/></svg>`;
+
+// Numeri detti a parole dopo "alle", "il", "tra"… diventano cifre
+const ASSIST_PAROLE_NUMERI = ['zero','uno','due','tre','quattro','cinque','sei','sette','otto','nove','dieci','undici','dodici','tredici',
+  'quattordici','quindici','sedici','diciassette','diciotto','diciannove','venti','ventuno','ventidue','ventitre','ventiquattro',
+  'venticinque','ventisei','ventisette','ventotto','ventinove','trenta','trentuno'];
+function assistNumeriParlati(testo) {
+  return testo.replace(/\b(alle|all'|le|ore|il|giorno|tra|fra|per le|verso le)\s+(un'|una|[a-zé]+)\b/gi, (m, pre, parola) => {
+    const p = parola.toLowerCase().replace('é', 'e');
+    const n = p === "un'" || p === 'una' ? 1 : p === 'ventitré' ? 23 : ASSIST_PAROLE_NUMERI.indexOf(p);
+    return n > 0 ? `${pre} ${n}` : m;
+  }).replace(/\b(\d{1,2})\s+e\s+(cinque|dieci|quindici|venti|venticinque|trenta|trentacinque|quaranta|quarantacinque|cinquanta|cinquantacinque)\b/gi,
+    (m, h, min) => `${h}:${{ cinque: '05', dieci: 10, quindici: 15, venti: 20, venticinque: 25, trenta: 30, trentacinque: 35, quaranta: 40,
+      quarantacinque: 45, cinquanta: 50, cinquantacinque: 55 }[min.toLowerCase()]}`)
+    .replace(/\b(\d{1,2})\s+e\s+(\d{2})\b/g, '$1:$2');
+}
+
+function assistMic() {
+  if (AssistState.ascolto) { AssistState.ascolto.stop(); return; }
+  window.speechSynthesis?.cancel();
+  const rec = new ASSIST_SR();
+  rec.lang = 'it-IT';
+  rec.interimResults = true;
+  rec.continuous = false;
+  let finale = '';
+  rec.onresult = (e) => {
+    const testo = [...e.results].map(r => r[0].transcript).join('');
+    finale = [...e.results].every(r => r.isFinal) ? testo : finale;
+    const input = document.getElementById('assist-input');
+    if (input) input.value = testo;
+  };
+  rec.onerror = (e) => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') showToast('Il browser non ha il permesso di usare il microfono', 'error');
+    else if (e.error !== 'no-speech' && e.error !== 'aborted') showToast('Non sono riuscito ad ascoltare', 'error');
+  };
+  rec.onend = () => {
+    AssistState.ascolto = null;
+    const input = document.getElementById('assist-input');
+    const testo = (finale || input?.value || '').trim();
+    renderAssistant(testo);
+    if (finale.trim()) {
+      document.getElementById('assist-input').value = assistNumeriParlati(finale.trim());
+      assistInvia(true);
+    }
+  };
+  AssistState.ascolto = rec;
+  renderAssistant('');
+  try { rec.start(); } catch { AssistState.ascolto = null; renderAssistant(''); }
+}
+
+// Legge la risposta: le frasi, non gli elenchi completi
+function assistParla(html) {
+  if (!window.speechSynthesis) return;
+  const box = document.createElement('div');
+  box.innerHTML = html;
+  const frasi = [...box.querySelectorAll('p, .assist-card > span')].map(n => n.textContent.trim()).filter(Boolean);
+  if (!frasi.length) return;
+  const u = new SpeechSynthesisUtterance(frasi.join(' ').replace(/:\s*$/, '.'));
+  u.lang = 'it-IT';
+  const voce = speechSynthesis.getVoices().find(v => v.lang?.startsWith('it'));
+  if (voce) u.voice = voce;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
 }
 
 // Ctrl+K / Cmd+K apre l'assistente da qualsiasi pagina
